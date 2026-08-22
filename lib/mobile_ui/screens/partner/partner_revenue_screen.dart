@@ -1,8 +1,13 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../services/booking_settlement_service.dart';
+import '../../../services/payout_method_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class PartnerRevenueScreen extends StatefulWidget {
   final String partnerId;
@@ -27,14 +32,27 @@ class PartnerRevenueScreen extends StatefulWidget {
 class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
   final BookingSettlementService _settlementService =
       BookingSettlementService();
+  final PayoutMethodService _payoutMethodService = PayoutMethodService();
   String _selectedPeriod = 'Month';
   late Future<List<Map<String, dynamic>>> _payoutsFuture;
+  late Future<List<PayoutMethod>> _payoutMethodsFuture;
   static const List<String> _periodOptions = ['Day', 'Week', 'Month', 'Year'];
 
   @override
   void initState() {
     super.initState();
     _payoutsFuture = _fetchPayouts();
+    _payoutMethodsFuture = _fetchPayoutMethods();
+  }
+
+  Future<List<PayoutMethod>> _fetchPayoutMethods() {
+    return _payoutMethodService.getPayoutMethods(widget.partnerId);
+  }
+
+  Future<void> _refreshPayoutMethods() async {
+    final req = _fetchPayoutMethods();
+    setState(() => _payoutMethodsFuture = req);
+    await req;
   }
 
   Future<List<Map<String, dynamic>>> _fetchPayouts() {
@@ -188,15 +206,11 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                   const SizedBox(height: 30),
                   _buildSectionHeader(
                     'Linked Payout Methods',
-                    action: 'Manage',
+                    action: 'Add New',
+                    onActionTap: () => _showAddPayoutMethodModal(context),
                   ),
                   const SizedBox(height: 14),
-                  _buildEmptyPanel(
-                    icon: Icons.account_balance_wallet_outlined,
-                    text: 'No linked payout methods yet.',
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDashedButton(),
+                  _buildPayoutMethodsSection(),
                   const SizedBox(height: 34),
                   _buildSectionHeader('Earnings Breakdown', action: 'View All'),
                   const SizedBox(height: 14),
@@ -452,27 +466,725 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     );
   }
 
-  Widget _buildDashedButton() {
+  Widget _buildPayoutMethodsSection() {
+    return FutureBuilder<List<PayoutMethod>>(
+      future: _payoutMethodsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+          );
+        }
+
+        final methods = snapshot.data ?? const <PayoutMethod>[];
+
+        if (methods.isEmpty) {
+          return Column(
+            children: [
+              _buildEmptyPanel(
+                icon: Icons.account_balance_wallet_outlined,
+                text: 'No linked payout methods yet.',
+              ),
+              const SizedBox(height: 14),
+              _buildDashedButton(),
+            ],
+          );
+        }
+
+        return Column(
+          children: [
+            ...methods.map((method) => _buildPayoutMethodCard(method)),
+            const SizedBox(height: 10),
+            _buildDashedButton(label: '+ Link Another Account'),
+          ],
+        );
+      },
+    );
+  }
+
+  Color _providerColor(String provider) {
+    switch (provider.toLowerCase()) {
+      case 'gcash':
+        return const Color(0xFF007DFE);
+      case 'maya':
+        return const Color(0xFF00D668);
+      case 'maribank':
+        return const Color(0xFFFF5E00);
+      case 'gotyme':
+        return const Color(0xFF00D2D2);
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  Widget _buildPayoutMethodCard(PayoutMethod method) {
+    final color = _providerColor(method.provider);
+    final hasQr = method.qrCodeUrl != null && method.qrCodeUrl!.isNotEmpty;
+
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
+        color: const Color(0xFF071D31),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(
+          color: method.isDefault
+              ? color.withValues(alpha: 0.6)
+              : AppColors.borderColor,
+          width: method.isDefault ? 1.5 : 1,
+        ),
       ),
-      child: const Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Row(
         children: [
-          Icon(Icons.add_circle_outline, color: AppColors.textSecondary),
-          SizedBox(width: 8),
-          Text(
-            'Link New Account',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w800,
+          // Provider Logo Icon
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withValues(alpha: 0.4)),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.account_balance_wallet_rounded,
+              color: color,
+              size: 22,
             ),
           ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      method.provider,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    if (method.isDefault) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: AppColors.primary.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        child: const Text(
+                          'DEFAULT',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  method.accountName,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  method.accountNumber,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    letterSpacing: 0.8,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hasQr)
+            IconButton(
+              tooltip: 'View QR Code',
+              onPressed: () => _showQrCodePreviewModal(context, method),
+              icon: const Icon(Icons.qr_code_2_rounded, color: AppColors.primary),
+            ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: AppColors.textSecondary, size: 20),
+            color: AppColors.darkBgSecondary,
+            onSelected: (action) async {
+              if (action == 'default') {
+                await _payoutMethodService.setDefault(
+                  widget.partnerId,
+                  method.id,
+                );
+                await _refreshPayoutMethods();
+              } else if (action == 'delete') {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: AppColors.darkBgSecondary,
+                    title: const Text('Remove Payout Method', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    content: Text(
+                      'Are you sure you want to remove ${method.provider} (${method.accountNumber})?',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Remove', style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  await _payoutMethodService.deletePayoutMethod(
+                    widget.partnerId,
+                    method.id,
+                  );
+                  await _refreshPayoutMethods();
+                }
+              }
+            },
+            itemBuilder: (ctx) => [
+              if (!method.isDefault)
+                const PopupMenuItem(
+                  value: 'default',
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle_outline, size: 18, color: AppColors.primary),
+                      SizedBox(width: 10),
+                      Text('Set as Default', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                    SizedBox(width: 10),
+                    Text('Remove', style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDashedButton({String label = 'Link New Account'}) {
+    return InkWell(
+      onTap: () => _showAddPayoutMethodModal(context),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.borderColor),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.add_circle_outline, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showAddPayoutMethodModal(BuildContext context) async {
+    String selectedProvider = 'GCash';
+    final nameController = TextEditingController(text: widget.partnerName);
+    final numberController = TextEditingController();
+    PlatformFile? pickedQrFile;
+    bool isDefault = false;
+    bool isSaving = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          return Container(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            decoration: const BoxDecoration(
+              color: AppColors.darkBgSecondary,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Row(
+                    children: [
+                      Icon(Icons.add_card_rounded, color: AppColors.primary, size: 22),
+                      SizedBox(width: 10),
+                      Text(
+                        'Link Payout Method',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Select provider and provide your 11-digit account number and QR code for disbursements.',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // 1. PROVIDER SELECTOR (GCash / Maya / MariBank / GoTyme only)
+                  const Text(
+                    'Payment Provider',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: PayoutMethodService.allowedProviders.map((provider) {
+                      final isSelected = selectedProvider == provider;
+                      final color = _providerColor(provider);
+
+                      return ChoiceChip(
+                        label: Text(
+                          provider,
+                          style: TextStyle(
+                            color: isSelected ? Colors.black : Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                        selected: isSelected,
+                        selectedColor: color,
+                        backgroundColor: const Color(0xFF071D31),
+                        side: BorderSide(
+                          color: isSelected ? color : AppColors.borderColor,
+                        ),
+                        onSelected: (selected) {
+                          if (selected) {
+                            setSheetState(() => selectedProvider = provider);
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // 2. ACCOUNT NAME
+                  const Text(
+                    'Account Name',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: nameController,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Juan Dela Cruz',
+                      hintStyle: const TextStyle(color: AppColors.textTertiary),
+                      prefixIcon: const Icon(Icons.person_outline, color: AppColors.textSecondary, size: 20),
+                      filled: true,
+                      fillColor: const Color(0xFF071D31),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.primary),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // 3. ACCOUNT NUMBER (STRICT 11 DIGITS)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Account / Mobile Number',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '${numberController.text.replaceAll(RegExp(r'\\D'), '').length} / 11 digits',
+                        style: TextStyle(
+                          color: numberController.text.replaceAll(RegExp(r'\\D'), '').length == 11
+                              ? AppColors.primary
+                              : AppColors.textTertiary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: numberController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 11,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(11),
+                    ],
+                    onChanged: (_) => setSheetState(() {}),
+                    style: const TextStyle(color: Colors.white, fontSize: 14, letterSpacing: 1.1),
+                    decoration: InputDecoration(
+                      counterText: '',
+                      hintText: '09XXXXXXXXX (11 digits)',
+                      hintStyle: const TextStyle(color: AppColors.textTertiary),
+                      prefixIcon: const Icon(Icons.phone_iphone_rounded, color: AppColors.textSecondary, size: 20),
+                      filled: true,
+                      fillColor: const Color(0xFF071D31),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.primary),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // 4. PAYMENT QR CODE IMAGE
+                  const Text(
+                    'Payment QR Code (Optional)',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  if (pickedQrFile != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF071D31),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.5)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.qr_code_rounded, color: AppColors.primary, size: 28),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  pickedQrFile!.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  '${(pickedQrFile!.size / 1024).toStringAsFixed(1)} KB • Ready to upload',
+                                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => setSheetState(() => pickedQrFile = null),
+                            icon: const Icon(Icons.close, color: Colors.redAccent, size: 20),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.image,
+                          withData: true,
+                        );
+                        if (result != null && result.files.isNotEmpty) {
+                          setSheetState(() => pickedQrFile = result.files.first);
+                        }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.borderColor),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      icon: const Icon(Icons.upload_file_outlined, size: 18),
+                      label: const Text('Upload $selectedProvider QR Code Image'),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+
+                  // 5. DEFAULT CHECKBOX
+                  CheckboxListTile(
+                    value: isDefault,
+                    onChanged: (val) => setSheetState(() => isDefault = val ?? false),
+                    activeColor: AppColors.primary,
+                    checkColor: Colors.black,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Set as default payout account',
+                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 6. SAVE BUTTON
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isSaving
+                          ? null
+                          : () async {
+                              final name = nameController.text.trim();
+                              final number = numberController.text.replaceAll(RegExp(r'\\D'), '').trim();
+
+                              if (name.isEmpty) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please enter your account name.'),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              if (number.length != 11) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Account number must be exactly 11 digits (e.g. 09171234567).'),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              setSheetState(() => isSaving = true);
+                              try {
+                                String? qrUrl;
+                                if (pickedQrFile != null && pickedQrFile!.bytes != null) {
+                                  qrUrl = await _payoutMethodService.uploadQrCode(
+                                    userId: widget.partnerId,
+                                    bytes: pickedQrFile!.bytes!,
+                                    extension: pickedQrFile!.extension ?? 'jpg',
+                                  );
+                                }
+
+                                await _payoutMethodService.savePayoutMethod(
+                                  userId: widget.partnerId,
+                                  provider: selectedProvider,
+                                  accountName: name,
+                                  accountNumber: number,
+                                  qrCodeUrl: qrUrl,
+                                  isDefault: isDefault,
+                                );
+
+                                if (ctx.mounted) {
+                                  Navigator.pop(ctx);
+                                }
+                                await _refreshPayoutMethods();
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('$selectedProvider payout account linked successfully!'),
+                                      backgroundColor: const Color(0xFF10B981),
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                setSheetState(() => isSaving = false);
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Error linking payout account: $e'),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: isSaving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                            )
+                          : const Text(
+                              'Save Payout Account',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showQrCodePreviewModal(BuildContext context, PayoutMethod method) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.darkBgSecondary,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.qr_code_2_rounded, color: _providerColor(method.provider), size: 22),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${method.provider} QR Code',
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(dialogCtx),
+                    icon: const Icon(Icons.close, color: Colors.white70),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${method.accountName} • ${method.accountNumber}',
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              if (method.qrCodeUrl != null && method.qrCodeUrl!.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: InteractiveViewer(
+                    child: OptimizedNetworkImage(
+                      imageUrl: method.qrCodeUrl!,
+                      fit: BoxFit.contain,
+                      width: 280,
+                      height: 280,
+                    ),
+                  ),
+                )
+              else
+                const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text('No QR Code available', style: TextStyle(color: Colors.grey)),
+                ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
