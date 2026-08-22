@@ -3301,6 +3301,24 @@ class BookingService {
         );
       }
 
+      final withDriver = booking['with_driver'] == true ||
+          booking['with_driver'] == 1 ||
+          booking['with_driver']?.toString().toLowerCase() == 'true' ||
+          booking['withDriver'] == true ||
+          (booking['driver_id'] != null &&
+              booking['driver_id']?.toString().trim().isNotEmpty == true &&
+              booking['driver_id']?.toString().trim() != 'null');
+
+      if (withDriver) {
+        return (
+          canExtend: false,
+          maxAllowedExtensionDate: null,
+          nextBookingStart: null,
+          blockingReason:
+              'Trip extensions are only applicable for Self Drive rentals. Bookings with a driver cannot be extended.',
+        );
+      }
+
       final vehicleId = booking['vehicle_id']?.toString() ?? '';
       final endRaw =
           booking['end_at']?.toString() ?? booking['end_date']?.toString();
@@ -3409,6 +3427,20 @@ class BookingService {
     try {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
+
+      final withDriver = booking['with_driver'] == true ||
+          booking['with_driver'] == 1 ||
+          booking['with_driver']?.toString().toLowerCase() == 'true' ||
+          booking['withDriver'] == true ||
+          (booking['driver_id'] != null &&
+              booking['driver_id']?.toString().trim().isNotEmpty == true &&
+              booking['driver_id']?.toString().trim() != 'null');
+
+      if (withDriver) {
+        throw Exception(
+          'Trip extensions are only applicable for Self Drive rentals. Bookings with a driver cannot be extended.',
+        );
+      }
 
       if (booking['safety_freeze'] == true) {
         throw Exception(

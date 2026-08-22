@@ -5939,6 +5939,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  bool _isBookingWithDriver(Map<String, dynamic> booking) {
+    final withDriver = booking['withDriver'] == true ||
+        booking['with_driver'] == true ||
+        booking['with_driver'] == 1 ||
+        booking['with_driver']?.toString().toLowerCase() == 'true';
+    final driverId = booking['driver_id']?.toString().trim();
+    final driverName = booking['driverName']?.toString().trim() ??
+        booking['driver_name']?.toString().trim();
+    final hasDriverAssigned = (driverId != null && driverId.isNotEmpty && driverId != 'null') ||
+        (driverName != null &&
+            driverName.isNotEmpty &&
+            driverName != 'To be assigned' &&
+            driverName != 'Not requested');
+    return withDriver || hasDriverAssigned;
+  }
+
   // ---------------------------------------------------------------------------
   // Booking detail modal
   // ---------------------------------------------------------------------------
@@ -6008,7 +6024,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onCancel: _isCancellableStatusForUi(booking)
               ? () => _handleBookingCancellation(booking)
               : null,
-          onExtend: isApprovedTrip
+          onExtend: (isApprovedTrip && !_isBookingWithDriver(booking))
               ? () => _showTripExtensionDialog(booking)
               : null,
           onReturn: isApprovedTrip
@@ -6383,7 +6399,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(height: 12),
             ],
-            if (isApprovedTrip)
+            if (isApprovedTrip && !_isBookingWithDriver(booking))
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -8522,6 +8538,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _showTripExtensionDialog(Map<String, dynamic> booking) async {
+    if (_isBookingWithDriver(booking)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Trip extension is only applicable for Self Drive rentals. Bookings with an assigned driver cannot be extended.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
     final vehicleId = booking['vehicle_id']?.toString() ??
         (booking['vehicles'] as Map<String, dynamic>?)?['id']?.toString() ??
         '';
