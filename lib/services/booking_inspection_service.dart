@@ -128,12 +128,6 @@ class BookingInspectionService {
     if (evidenceUrls.isEmpty) {
       throw Exception('Attach at least one checklist photo or video');
     }
-    final missingItems = requiredChecklistKeys
-        .where((key) => checklistItems[key] != true)
-        .toList();
-    if (missingItems.isNotEmpty) {
-      throw Exception('Complete every checklist item before submitting');
-    }
 
     await assertResponsibleInspector(
       bookingId: bookingId,
@@ -340,23 +334,7 @@ class BookingInspectionService {
   bool _isCompleteInspection(Map<String, dynamic> row) {
     final evidence = row['evidence_urls'];
     final hasEvidence = evidence is List && evidence.isNotEmpty;
-    final rawItems = row['checklist_items'];
-    final items = rawItems is Map
-        ? Map<String, dynamic>.from(rawItems)
-        : <String, dynamic>{};
-    bool isChecked(String key) {
-      if (key == 'airtag') {
-        return items['airtag'] == true || items['airbag'] == true;
-      }
-      if (key == 'other_item_checked' && !items.containsKey(key)) {
-        return true;
-      }
-      return items[key] == true;
-    }
-
-    final allChecked = requiredChecklistKeys.every(isChecked);
     return hasEvidence &&
-        allChecked &&
         row['fuel_level']?.toString().trim().isNotEmpty == true &&
         row['released_by']?.toString().trim().isNotEmpty == true &&
         row['received_by']?.toString().trim().isNotEmpty == true;

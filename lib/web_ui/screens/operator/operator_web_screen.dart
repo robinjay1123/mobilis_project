@@ -15336,9 +15336,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     DialogStatusIndicator(
                       compact: true,
                       isComplete:
-                          BookingInspectionService.requiredChecklistKeys.every(
-                            (key) => checklistItems[key] == true,
-                          ) &&
                           fuelController.text.trim().isNotEmpty &&
                           tiresController.text.trim().isNotEmpty &&
                           magsController.text.trim().isNotEmpty &&
@@ -15348,9 +15345,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       completeLabel: 'Inspection information complete',
                       incompleteLabel: 'Inspection information incomplete',
                       completeDetail:
-                          'Checklist, required fields, and evidence are ready.',
+                          'Required fields and photo evidence are ready. Checklist items are optional.',
                       incompleteDetail:
-                          'Complete every checklist item, required field, and add evidence.',
+                          'Fill in required condition fields (fuel, tires, mags, names) and attach at least one photo or video.',
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue.withValues(alpha: 0.35)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline_rounded, size: 15, color: Colors.blue),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              inspectionType == 'before'
+                                  ? 'Pre-trip checklist items are optional. Check only items that apply and are in working condition. Unchecked items will be recorded as existing defects.'
+                                  : 'Post-trip checklist items are optional. Check only items that apply — unchecked items will be flagged as issues for review. This determines security deposit refund eligibility.',
+                              style: const TextStyle(fontSize: 11, color: Colors.blue, height: 1.4),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     Align(
                       alignment: Alignment.centerLeft,
@@ -15481,22 +15503,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     return;
                   }
 
-                  final allChecked = BookingInspectionService
-                      .requiredChecklistKeys
-                      .every((key) => checklistItems[key] == true);
                   final requiredFieldsReady =
                       fuelController.text.trim().isNotEmpty &&
                       tiresController.text.trim().isNotEmpty &&
                       magsController.text.trim().isNotEmpty &&
                       releasedByController.text.trim().isNotEmpty &&
                       receivedByController.text.trim().isNotEmpty;
-                  if (!allChecked ||
-                      !requiredFieldsReady ||
+                  if (!requiredFieldsReady ||
                       selectedEvidence.isEmpty) {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'Complete all checklist items, handover names, and attach at least one photo or video.',
+                          'Please fill in condition fields (fuel, tires, mags, names) and attach at least one photo or video.',
                         ),
                       ),
                     );
