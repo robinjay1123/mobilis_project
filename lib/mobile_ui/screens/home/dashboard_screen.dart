@@ -4290,9 +4290,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           (car['rating'] as num?)?.toDouble() ?? 0.0;
                       final rawCount =
                           (car['rating_count'] as num?)?.toInt() ?? 0;
-                      final rating = rawRating > 0 ? rawRating : 0.0;
-                      final ratingCount =
-                          rawCount > 0 ? rawCount : (rawRating > 0 ? 1 : 0);
+                      // Only show a real rating when there are actual reviews.
+                      // Never fabricate a count.
+                      final rating = rawRating;
+                      final ratingCount = rawCount;
                       final vehicleType = toProfessionalTitleCase(
                         (car['vehicle_type'] ?? 'Standard').toString(),
                       );
@@ -4416,24 +4417,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           ),
                                           child: Row(
                                             children: [
-                                              const Icon(
-                                                Icons.star,
-                                                color: AppColors.ratingGold,
-                                                size: 14,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                rating > 0
-                                                    ? (ratingCount > 0
-                                                        ? '${rating.toStringAsFixed(1)} ($ratingCount)'
-                                                        : rating.toStringAsFixed(1))
-                                                    : 'New',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: textColor,
-                                                ),
-                                              ),
+                                              if (ratingCount > 0) ...
+                                                [
+                                                  const Icon(
+                                                    Icons.star,
+                                                    color: AppColors.ratingGold,
+                                                    size: 14,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    '${rating.toStringAsFixed(1)} ($ratingCount)',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w600,
+                                                      color: textColor,
+                                                    ),
+                                                  ),
+                                                ]
+                                              else ...
+                                                [
+                                                  Text(
+                                                    'New',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w600,
+                                                      color: textColor,
+                                                    ),
+                                                  ),
+                                                ],
                                             ],
                                           ),
                                         ),
