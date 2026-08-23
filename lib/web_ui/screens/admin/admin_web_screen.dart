@@ -1519,9 +1519,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Future<void> _deleteTermsPdf() async {
-    final confirmed = await _showConfirmDialog(
+    final confirmed = await _confirmAnnouncementAction(
       title: 'Remove Terms PDF',
-      body: 'This will permanently remove the rental terms PDF. Renters will no longer be able to download it.',
+      message: 'This will permanently remove the rental terms PDF. Renters will no longer be able to download it.',
       confirmLabel: 'Remove',
       destructive: true,
     );
