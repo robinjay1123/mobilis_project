@@ -8,6 +8,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/vehicle_image_carousel.dart';
 
 class TripRatingFlowScreen extends StatefulWidget {
   final String bookingId;
@@ -867,33 +868,45 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       child: Column(
         children: [
           if (isVehicle) ...[
-            // Prominent vehicle image display
-            Container(
-              width: double.infinity,
-              height: 160,
-              decoration: BoxDecoration(
-                color: AppColors.darkBg,
+            // ── Vehicle image carousel ──────────────────────────────────────
+            Builder(builder: (context) {
+              final rawImages = target['vehicleImages'];
+              final vehicleImages = (rawImages is List)
+                  ? rawImages.whereType<Map<String, dynamic>>().toList()
+                  : <Map<String, dynamic>>[];
+              final avatarUrlForFallback = avatarUrl;
+
+              // Build a minimal vehicle-like map for VehicleImageCarousel
+              final vehicleMap = <String, dynamic>{
+                'image_url': avatarUrlForFallback,
+                'vehicle_images': vehicleImages,
+              };
+
+              return ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.borderColor),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: avatarUrl.isNotEmpty
-                    ? OptimizedNetworkImage(
-                        imageUrl: avatarUrl,
-                        width: double.infinity,
-                        height: 160,
-                        fit: BoxFit.cover,
-                      )
-                    : const Center(
-                        child: Icon(
-                          Icons.directions_car_rounded,
-                          color: AppColors.primary,
-                          size: 56,
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 180,
+                  child: vehicleImages.isNotEmpty || avatarUrlForFallback.isNotEmpty
+                      ? VehicleImageCarousel(
+                          vehicle: vehicleMap,
+                          height: 180,
+                          backgroundColor: AppColors.darkBg,
+                          iconColor: AppColors.textSecondary,
+                        )
+                      : Container(
+                          color: AppColors.darkBg,
+                          child: const Center(
+                            child: Icon(
+                              Icons.directions_car_rounded,
+                              color: AppColors.primary,
+                              size: 56,
+                            ),
+                          ),
                         ),
-                      ),
-              ),
-            ),
+                ),
+              );
+            }),
             const SizedBox(height: 16),
           ] else ...[
             // User avatar display

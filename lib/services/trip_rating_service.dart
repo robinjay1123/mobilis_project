@@ -529,6 +529,15 @@ class TripRatingService {
               ? text(context['vehicle_image_url'])
               : text(context['car_image_url']);
         }
+        // Collect all vehicle images for the carousel
+        final rawVehicleImages = vehicle['vehicle_images'];
+        final List<Map<String, dynamic>> vehicleImages =
+            (rawVehicleImages is List)
+                ? rawVehicleImages
+                    .whereType<Map<String, dynamic>>()
+                    .toList()
+                : <Map<String, dynamic>>[];
+
         targets.add({
           'userId': vehicleId,
           'role': 'vehicle',
@@ -537,12 +546,14 @@ class TripRatingService {
               : (fallbackName.isNotEmpty ? fallbackName : 'Rental Vehicle'),
           'avatarUrl': imageUrl,
           'imageUrl': imageUrl,
+          'vehicleImages': vehicleImages,
           'brand': text(vehicle['brand']),
           'model': text(vehicle['model']),
           'year': text(vehicle['year']),
           'prompt': 'How was the vehicle overall?',
           'alreadyRated': false,
         });
+
       }
     } else if (cleanRole == 'driver') {
       addTarget(resolvedRenter, 'renter', 'How was the renter during the trip?');
