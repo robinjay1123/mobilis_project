@@ -5586,10 +5586,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   bool _isPartnerVehicleBooking(Map<String, dynamic> booking) {
-    final vehicle = booking['vehicles'];
-    if (vehicle is! Map) return false;
-    final ownerRole = vehicle['owner_role']?.toString().trim().toLowerCase();
-    return ownerRole == 'partner';
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final ownerRole = vehicle['owner_role']?.toString().toLowerCase();
+    final owner = vehicle['owner'] as Map<String, dynamic>? ?? {};
+    final oRole = owner['role']?.toString().toLowerCase();
+    return ownerRole == 'partner' ||
+        oRole == 'partner' ||
+        booking['is_partner_vehicle'] == true ||
+        vehicle['is_partner_vehicle'] == true ||
+        vehicle['partner_vehicle_id'] != null;
   }
 
   double _operatorManagedFallbackRevenue(List<Map<String, dynamic>> bookings) {
@@ -10527,18 +10532,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (value != null && value.isNotEmpty) return value;
     }
     return null;
-  }
-
-  bool _isPartnerVehicleBooking(Map<String, dynamic> booking) {
-    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-    final ownerRole = vehicle['owner_role']?.toString().toLowerCase();
-    final owner = vehicle['owner'] as Map<String, dynamic>? ?? {};
-    final oRole = owner['role']?.toString().toLowerCase();
-    return ownerRole == 'partner' ||
-        oRole == 'partner' ||
-        booking['is_partner_vehicle'] == true ||
-        vehicle['is_partner_vehicle'] == true ||
-        vehicle['partner_vehicle_id'] != null;
   }
 
   Widget _buildOperatorBookingCard(Map<String, dynamic> booking, bool isDark) {
