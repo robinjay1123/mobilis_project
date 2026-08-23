@@ -1389,7 +1389,11 @@ class _BookingCard extends StatelessWidget {
     final ownerRole = v['owner_role']?.toString().toLowerCase();
     final owner = v['owner'] as Map? ?? {};
     final oRole = owner['role']?.toString().toLowerCase();
-    final isPartnerVehicle = ownerRole == 'partner' || oRole == 'partner';
+    final isPartnerVehicle = ownerRole == 'partner' ||
+        oRole == 'partner' ||
+        booking['is_partner_vehicle'] == true ||
+        v['is_partner_vehicle'] == true ||
+        v['partner_vehicle_id'] != null;
     final needsPartnerConfirmation =
         isPartnerVehicle && !partnerConfirmed && _status == 'pending';
 
@@ -1405,15 +1409,59 @@ class _BookingCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    _vehicleName,
-                    style: TextStyle(
-                      color: textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _vehicleName,
+                          style: TextStyle(
+                            color: textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (isPartnerVehicle) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: Colors.purple.withValues(alpha: 0.5),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.handshake_outlined,
+                                size: 12,
+                                color: Colors.purpleAccent,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Partner',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark
+                                      ? Colors.purple[200]
+                                      : Colors.purple[800],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,

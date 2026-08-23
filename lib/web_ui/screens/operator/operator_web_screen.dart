@@ -10345,6 +10345,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ),
                 ),
+                if (_isPartnerVehicleBooking(booking)) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(
+                        color: Colors.purple.withValues(alpha: 0.45),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.handshake_outlined,
+                          size: 11,
+                          color: Colors.purpleAccent,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Partner',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: isDark
+                                ? Colors.purple[200]
+                                : Colors.purple[800],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
             3,
@@ -10492,9 +10529,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return null;
   }
 
+  bool _isPartnerVehicleBooking(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final ownerRole = vehicle['owner_role']?.toString().toLowerCase();
+    final owner = vehicle['owner'] as Map<String, dynamic>? ?? {};
+    final oRole = owner['role']?.toString().toLowerCase();
+    return ownerRole == 'partner' ||
+        oRole == 'partner' ||
+        booking['is_partner_vehicle'] == true ||
+        vehicle['is_partner_vehicle'] == true ||
+        vehicle['partner_vehicle_id'] != null;
+  }
+
   Widget _buildOperatorBookingCard(Map<String, dynamic> booking, bool isDark) {
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final isPartner = _isPartnerVehicleBooking(booking);
     final start = DateTime.tryParse(
       (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
     );
@@ -10513,15 +10563,59 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  _vehicleTitle(vehicle),
-                  style: TextStyle(
-                    color: isDark ? Colors.white : _operatorInk,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        _vehicleTitle(vehicle),
+                        style: TextStyle(
+                          color: isDark ? Colors.white : _operatorInk,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (isPartner) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: Colors.purple.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.handshake_outlined,
+                              size: 12,
+                              color: Colors.purpleAccent,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Partner',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: isDark
+                                    ? Colors.purple[200]
+                                    : Colors.purple[800],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
+              const SizedBox(width: 8),
               _buildStatusBadge(booking['status']?.toString() ?? 'pending'),
             ],
           ),
@@ -24243,6 +24337,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ),
               ),
+              if (_isPartnerVehicleBooking(booking)) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: Colors.purple.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.handshake_outlined,
+                        size: 12,
+                        color: Colors.purpleAccent,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Partner',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: isDark
+                              ? Colors.purple[200]
+                              : Colors.purple[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const Spacer(),
               Text(
                 'BOOKING #${booking['id'].toString().substring(0, booking['id'].toString().length > 8 ? 8 : booking['id'].toString().length)}',
