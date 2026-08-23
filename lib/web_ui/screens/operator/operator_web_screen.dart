@@ -10696,13 +10696,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     if (group == BookingStatusGroup.approved ||
         group == BookingStatusGroup.ongoing) {
+      final isChatEligible = BookingService().isEligibleForBookingChat(booking);
       buttons.add(
         _buildOperatorBookingActionButton(
           onPressed: () => _openBookingConversation(booking),
-          icon: Icons.chat_bubble_outline_rounded,
-          label: 'Message',
-          foregroundColor: _operatorNavyDeep,
-          backgroundColor: _operatorGold,
+          icon: isChatEligible
+              ? Icons.chat_bubble_outline_rounded
+              : Icons.lock_clock,
+          label: isChatEligible ? 'Message' : 'Chat (72h Prior)',
+          foregroundColor: isChatEligible
+              ? _operatorNavyDeep
+              : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+          backgroundColor: isChatEligible
+              ? _operatorGold
+              : (isDark ? Colors.grey.shade800 : Colors.grey.shade300),
           compact: compact,
         ),
       );

@@ -2892,12 +2892,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final rawStatus = booking['rawStatus']?.toString().toLowerCase() ?? '';
     return rawStatus == 'approved' ||
         rawStatus == 'confirmed' ||
-        rawStatus == 'active';
+        rawStatus == 'active' ||
+        rawStatus == 'ongoing' ||
+        rawStatus == 'return_pending_inspection';
   }
 
   Future<void> _openBookingConversation(Map<String, dynamic> booking) async {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
+
+    final isEligible = BookingService().isEligibleForBookingChat(booking);
+    if (!isEligible) {
+      if (mounted) {
+        final startRaw = booking['start_at'] ?? booking['start_date'] ?? booking['startDate'];
+        final start = startRaw != null ? DateTime.tryParse(startRaw.toString()) : null;
+        final formattedDate = start != null
+            ? '${start.month}/${start.day}/${start.year} at ${start.hour.toString().padLeft(2, '0')}:${start.minute.toString().padLeft(2, '0')}'
+            : 'the scheduled trip start';
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppColors.darkCard,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.lock_clock, color: Color(0xFFF59E0B)),
+                SizedBox(width: 10),
+                Text(
+                  'Chat Unlocks 72h Prior',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              'Group conversation with the operator and partner will automatically unlock 72 hours (3 days) before your trip starts ($formattedDate).',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text(
+                  'Understood',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
 
     try {
       final existingConversation = _conversations.firstWhere(
@@ -2918,15 +2973,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (conversationId == null || conversationId.isEmpty) {
         if (mounted) {
-          final notEligibleYet =
-              !BookingService().isEligibleForBookingChat(booking);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                notEligibleYet
-                    ? 'Group chat will automatically be available 3 days before the trip starts.'
-                    : 'Group chat is not ready yet. Please refresh.',
-              ),
+            const SnackBar(
+              content: Text('Group chat is initializing. Please refresh in a moment.'),
               backgroundColor: AppColors.warning,
             ),
           );
@@ -5217,6 +5266,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ? _showCancellationDetails(booking)
                       : _showBookingDetails(booking),
                   showMessageButton: _canOpenBookingConversation(booking),
+                  isMessageLocked:
+                      !BookingService().isEligibleForBookingChat(booking),
+                  messageLockedReason:
+                      'Group chat will automatically unlock 72 hours (3 days) before your trip starts.',
                   onMessage: () => _openBookingConversation(booking),
                   showCancelButton:
                       booking['statusGroup'] == 'Pending' &&
@@ -10107,10 +10160,20 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                 ),
               if (onExtend != null) const SizedBox(height: 12),
               if (onMessage != null && !isApprovedTrip)
-                _buildSecondaryButton(
-                  icon: Icons.chat_bubble_outline,
-                  label: 'Open Conversation',
-                  onPressed: onMessage!,
+                Builder(
+                  builder: (context) {
+                    final isChatEligible =
+                        BookingService().isEligibleForBookingChat(booking);
+                    return _buildSecondaryButton(
+                      icon: isChatEligible
+                          ? Icons.chat_bubble_outline
+                          : Icons.lock_clock,
+                      label: isChatEligible
+                          ? 'Open Conversation'
+                          : 'Conversation (Unlocks 72h Prior)',
+                      onPressed: onMessage!,
+                    );
+                  },
                 ),
               if (onMessage != null && !isApprovedTrip)
                 const SizedBox(height: 12),
@@ -10873,11 +10936,19 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                 const SizedBox(width: 10),
               if (onMessage != null)
                 Expanded(
-                  child: _buildCompactTripAction(
-                    icon: Icons.chat_bubble_outline_rounded,
-                    label: 'Message',
-                    filled: false,
-                    onPressed: onMessage!,
+                  child: Builder(
+                    builder: (context) {
+                      final isChatEligible =
+                          BookingService().isEligibleForBookingChat(booking);
+                      return _buildCompactTripAction(
+                        icon: isChatEligible
+                            ? Icons.chat_bubble_outline_rounded
+                            : Icons.lock_clock,
+                        label: isChatEligible ? 'Message' : 'Chat (72h Prior)',
+                        filled: false,
+                        onPressed: onMessage!,
+                      );
+                    },
                   ),
                 ),
             ],

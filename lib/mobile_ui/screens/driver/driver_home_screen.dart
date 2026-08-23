@@ -3364,16 +3364,29 @@ class _TripCardState extends State<_TripCard> {
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _openConversation(context),
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
-                label: const Text('Message'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 11),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+              child: Builder(
+                builder: (context) {
+                  final isChatEligible =
+                      BookingService().isEligibleForBookingChat(trip);
+                  return OutlinedButton.icon(
+                    onPressed: () => _openConversation(context),
+                    icon: Icon(
+                      isChatEligible
+                          ? Icons.chat_bubble_outline_rounded
+                          : Icons.lock_clock,
+                      size: 16,
+                    ),
+                    label: Text(
+                      isChatEligible ? 'Message' : 'Chat (Unlocks 72h Prior)',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ],

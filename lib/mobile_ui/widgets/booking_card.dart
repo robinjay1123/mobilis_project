@@ -33,6 +33,9 @@ class BookingCard extends StatelessWidget {
   final bool showPayNowButton;
   final VoidCallback? onPayNow;
   final String? preReleaseNotice;
+  final bool isMessageLocked;
+  final String? messageLockedReason;
+  final VoidCallback? onLockedMessageTap;
 
   const BookingCard({
     super.key,
@@ -60,6 +63,9 @@ class BookingCard extends StatelessWidget {
     this.isPaidInFull = false,
     this.showPayNowButton = false,
     this.preReleaseNotice,
+    this.isMessageLocked = false,
+    this.messageLockedReason,
+    this.onLockedMessageTap,
     this.detailsButtonLabel = 'View Details',
     this.trackButtonLabel = 'Track Ongoing Trip',
     this.isActive = false,
@@ -504,15 +510,57 @@ class BookingCard extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: onMessage,
-                      icon: const Icon(Icons.message, size: 16),
-                      label: const Text('Message'),
+                      onPressed: isMessageLocked
+                          ? () {
+                              if (onLockedMessageTap != null) {
+                                onLockedMessageTap!();
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      messageLockedReason ??
+                                          'Group chat will automatically unlock 72 hours (3 days) before your trip starts.',
+                                    ),
+                                    backgroundColor: const Color(0xFFD97706),
+                                    duration: const Duration(seconds: 4),
+                                  ),
+                                );
+                              }
+                            }
+                          : onMessage,
+                      icon: Icon(
+                        isMessageLocked
+                            ? Icons.lock_clock
+                            : Icons.message,
+                        size: 16,
+                      ),
+                      label: Text(
+                        isMessageLocked ? 'Chat (72h Prior)' : 'Message',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        backgroundColor: isMessageLocked
+                            ? (isDark
+                                ? const Color(0xFF27272A)
+                                : const Color(0xFFE2E8F0))
+                            : AppColors.primary,
+                        foregroundColor: isMessageLocked
+                            ? (isDark
+                                ? const Color(0xFFA1A1AA)
+                                : const Color(0xFF475569))
+                            : Colors.black,
+                        elevation: isMessageLocked ? 0 : 2,
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
+                          side: isMessageLocked
+                              ? BorderSide(
+                                  color: isDark
+                                      ? const Color(0xFF3F3F46)
+                                      : const Color(0xFFCBD5E1),
+                                  width: 0.8,
+                                )
+                              : BorderSide.none,
                         ),
                       ),
                     ),

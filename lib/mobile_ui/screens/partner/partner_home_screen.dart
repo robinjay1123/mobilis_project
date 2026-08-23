@@ -7760,16 +7760,29 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                       ),
                     ),
                   if (widget.onMessage != null)
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        widget.onMessage?.call();
+                    Builder(
+                      builder: (context) {
+                        final isChatEligible =
+                            BookingService().isEligibleForBookingChat(widget.booking);
+                        return OutlinedButton.icon(
+                          onPressed: () {
+                            if (widget.showHeader) Navigator.pop(context);
+                            widget.onMessage?.call();
+                          },
+                          icon: Icon(
+                            isChatEligible
+                                ? Icons.chat_bubble_outline
+                                : Icons.lock_clock,
+                            size: 15,
+                          ),
+                          label: Text(
+                            isChatEligible ? 'Message' : 'Chat (72h Prior)',
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                        );
                       },
-                      icon: const Icon(Icons.chat_bubble_outline, size: 15),
-                      label: const Text('Message'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
                     ),
                   if (widget.onBeforeInspection != null)
                     OutlinedButton.icon(
