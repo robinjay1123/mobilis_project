@@ -2,9 +2,11 @@
 -- MOBILIS DATABASE MIGRATION: Decouple partner_vehicles and vehicles tables
 -- 1. Synchronize partner_vehicles schema with all standard vehicle columns.
 -- 2. Add owner_name & owner_role to vehicles table for Operator fleet attribution.
--- 3. Migrate any partner vehicles from vehicles table to partner_vehicles table.
--- 4. Backfill owner_name for existing Operator vehicles in vehicles table.
--- 5. Clean up partner records from vehicles table.
+-- 3. Add partner_vehicle_id to bookings & vehicle_images, make vehicle_id nullable.
+-- 4. Migrate partner vehicles from vehicles table to partner_vehicles table.
+-- 5. Re-link bookings, vehicle_images, documents from vehicles -> partner_vehicles.
+-- 6. Backfill owner_name for existing Operator vehicles in vehicles table.
+-- 7. Clean up partner records from vehicles table safely.
 -- ============================================================================
 
 -- Step 1: Ensure all standard columns exist on partner_vehicles table
@@ -35,7 +37,20 @@ ALTER TABLE IF EXISTS public.vehicles
   ADD COLUMN IF NOT EXISTS owner_name text,
   ADD COLUMN IF NOT EXISTS owner_role text DEFAULT 'operator';
 
--- Step 3: Backfill owner_name for existing Operator vehicles in vehicles table
+-- Step 3: Prepare bookings & vehicle_images foreign keys and nullability
+ALTER TABLE IF EXISTS public.bookings 
+  ADD COLUMN IF NOT EXISTS partner_vehicle_id uuid REFERENCES public.partner_vehicles(id) ON DELETE SET NULL;
+
+ALTER TABLE IF EXISTS public.bookings 
+  ALTER COLUMN vehicle_id DROP NOT NULL;
+
+ALTER TABLE IF EXISTS public.vehicle_images 
+  ADD COLUMN IF NOT EXISTS partner_vehicle_id uuid REFERENCES public.partner_vehicles(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.vehicle_images 
+  ALTER COLUMN vehicle_id DROP NOT NULL;
+
+-- Step 4: Backfill owner_name for existing Operator vehicles in vehicles table
 UPDATE public.vehicles v
 SET 
   owner_role = 'operator',
@@ -56,7 +71,7 @@ SET
   )
 WHERE v.owner_name IS NULL OR v.owner_name = '' OR v.owner_name = 'PSDC Operator';
 
--- Step 4: Backfill owner_name for partner_vehicles from partners / profiles
+-- Step 5: Backfill owner_name for partner_vehicles from partners / profiles
 UPDATE public.partner_vehicles pv
 SET 
   owner_role = 'partner',
@@ -80,8 +95,7 @@ SET
   application_status = COALESCE(pv.application_status, 'approved')
 WHERE pv.owner_name IS NULL OR pv.owner_name = '';
 
--- Step 5: Migrate any partner vehicles mistakenly inserted into vehicles table
--- For any row in vehicles with owner_role = 'partner' or linked via partner_vehicles.vehicle_id
+-- Step 6: Migrate partner vehicles and re-link all foreign keys (bookings, images, etc.)
 DO $$
 DECLARE
   v_rec RECORD;
@@ -192,22 +206,35 @@ BEGIN
       END IF;
     END IF;
 
-    -- Update any vehicle_images to point to partner_vehicle_id
     IF v_pv_id IS NOT NULL THEN
+      -- Re-link bookings referencing this partner vehicle to partner_vehicle_id
+      UPDATE public.bookings 
+      SET partner_vehicle_id = v_pv_id,
+          vehicle_id = NULL
+      WHERE vehicle_id = v_rec.id;
+
+      -- Re-link vehicle_images to partner_vehicle_id
       UPDATE public.vehicle_images 
-      SET partner_vehicle_id = v_pv_id 
-      WHERE vehicle_id = v_rec.id AND partner_vehicle_id IS NULL;
+      SET partner_vehicle_id = v_pv_id,
+          vehicle_id = NULL
+      WHERE vehicle_id = v_rec.id;
+
+      -- Re-link partner_vehicle_applications to partner_vehicle_id
+      UPDATE public.partner_vehicle_applications
+      SET partner_vehicle_id = v_pv_id,
+          created_vehicle_id = NULL
+      WHERE created_vehicle_id = v_rec.id;
     END IF;
   END LOOP;
 
-  -- Clean up partner vehicles from vehicles table so vehicles is SOLELY for Operator / PSDC fleet
+  -- Clean up partner vehicles from vehicles table safely
   DELETE FROM public.vehicles 
   WHERE owner_role = 'partner'
      OR id IN (SELECT vehicle_id FROM public.partner_vehicles WHERE vehicle_id IS NOT NULL);
 
 END $$;
 
--- Step 6: Verify final counts
+-- Step 7: Verify final counts
 SELECT 'operator_vehicles_in_vehicles' AS table_type, count(*) FROM public.vehicles
 UNION ALL
 SELECT 'partner_vehicles_in_partner_vehicles' AS table_type, count(*) FROM public.partner_vehicles;
