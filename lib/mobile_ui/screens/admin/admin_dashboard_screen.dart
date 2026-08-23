@@ -439,10 +439,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           throw Exception('Partner profile could not be resolved');
         }
 
+        final vehicleName =
+            '${application['brand'] ?? ''} ${application['model'] ?? ''}'.trim();
         final partnerVehicle = await _supabase
             .from('partner_vehicles')
             .insert({
               'partner_id': partnerProfileId,
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
               'brand': application['brand'],
               'model': application['model'],
               'year': application['year'],
@@ -452,10 +455,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               'price_per_hour': application['price_per_hour'] ?? 0,
               'fuel_type': application['fuel_type'] ?? 'Gasoline',
               'transmission': application['transmission'] ?? 'Manual',
+              'category': application['category'] ?? application['vehicle_type'] ?? 'Partner Vehicle',
+              'vehicle_type': application['vehicle_type'] ?? application['category'] ?? 'Partner Vehicle',
               'owner_is_driver': application['owner_is_driver'] ?? false,
-              'is_available': application['is_available'] ?? false,
-              'status': 'pending',
+              'owner_role': 'partner',
+              'is_available': true,
+              'is_posted': true,
+              'status': 'available',
+              'application_status': 'approved',
               'created_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
             })
             .select('id')
             .single();

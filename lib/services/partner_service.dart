@@ -342,10 +342,12 @@ class PartnerService {
     try {
       debugPrint('Submitting vehicle application for partner: $partnerId');
 
+      final vehicleName = '$brand $model'.trim();
       final response = await supabase
           .from('partner_vehicle_applications')
           .insert({
             'partner_id': partnerId,
+            'vehicle_name': vehicleName,
             'brand': brand,
             'model': model,
             'year': year,
@@ -361,6 +363,7 @@ class PartnerService {
               'vehicle_photo_url': vehiclePhotoUrl,
             'owner_is_driver': ownerIsDriver,
             'is_available': false,
+            'status': 'pending',
             'application_status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
           })
@@ -430,15 +433,6 @@ class PartnerService {
               })
               .eq('partner_id', partnerId)
               .neq('id', partnerVehicleId);
-
-          var vehicleQuery = supabase
-              .from('vehicles')
-              .update({'owner_is_driver': false})
-              .eq('owner_id', partnerId);
-          if (vehicleId != null && vehicleId.isNotEmpty) {
-            vehicleQuery = vehicleQuery.neq('id', vehicleId);
-          }
-          await vehicleQuery;
         }
       }
 
@@ -456,17 +450,6 @@ class PartnerService {
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', partnerVehicleId);
-
-      if (vehicleId != null && vehicleId.isNotEmpty) {
-        await supabase
-            .from('vehicles')
-            .update({
-              'owner_is_driver': ownerIsDriver,
-              'is_available': isAvailable,
-              'status': isAvailable ? 'available' : 'inactive',
-            })
-            .eq('id', vehicleId);
-      }
     } on PostgrestException catch (e) {
       debugPrint('Database error updating vehicle settings: ${e.message}');
       rethrow;
@@ -491,7 +474,9 @@ class PartnerService {
   }) async {
     try {
       final nowIso = DateTime.now().toIso8601String();
+      final vehicleName = '$brand $model'.trim();
       final updates = {
+        'vehicle_name': vehicleName,
         'brand': brand,
         'model': model,
         'year': year,
@@ -515,6 +500,7 @@ class PartnerService {
       await supabase
           .from('partner_vehicles')
           .update({
+            'vehicle_name': vehicleName,
             'brand': brand,
             'model': model,
             'year': year,
@@ -523,28 +509,11 @@ class PartnerService {
             'fuel_type': fuelType,
             'transmission': transmission,
             'status': 'pending',
+            'application_status': 'pending',
             'is_available': false,
             'updated_at': nowIso,
           })
           .eq('id', partnerVehicleId);
-
-      if (vehicleId != null && vehicleId.isNotEmpty) {
-        await supabase
-            .from('vehicles')
-            .update({
-              'brand': brand,
-              'model': model,
-              'year': year,
-              'plate_number': plateNumber,
-              'seats': seats,
-              'fuel_type': fuelType,
-              'transmission': transmission,
-              'status': 'inactive',
-              'is_available': false,
-              'updated_at': nowIso,
-            })
-            .eq('id', vehicleId);
-      }
 
       if (photoUrls != null) {
         await supabase

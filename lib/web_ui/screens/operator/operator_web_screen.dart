@@ -22826,6 +22826,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     throw 'Operator account is required to add vehicles';
                                   }
 
+                                  final opProfile = await _supabase
+                                      .from('profiles')
+                                      .select('full_name')
+                                      .eq('id', currentUserId)
+                                      .maybeSingle();
+                                  final rawName = opProfile?['full_name']?.toString().trim() ?? '';
+                                  final opOwnerName = rawName.isNotEmpty
+                                      ? (rawName.toLowerCase().startsWith('operator')
+                                          ? rawName
+                                          : 'Operator $rawName')
+                                      : 'PSDC Operator';
+
                                   final existing = await _supabase
                                       .from('vehicles')
                                       .select('id')
@@ -22885,7 +22897,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                               0.0,
                                           'status': _selectedStatus,
                                           'is_available': true,
+                                          'is_posted': true,
                                           'owner_id': currentUserId,
+                                          'owner_role': 'operator',
+                                          'owner_name': opOwnerName,
                                         })
                                         .select()
                                         .single();

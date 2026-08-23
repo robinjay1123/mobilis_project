@@ -596,7 +596,7 @@ class AdminService {
 
       var partnerProfile = await supabase
           .from('partners')
-          .select('id')
+          .select('id, business_name, users:user_id(full_name)')
           .eq('user_id', partnerId)
           .maybeSingle();
 
@@ -607,7 +607,7 @@ class AdminService {
             'verification_status': 'approved',
             'created_at': DateTime.now().toIso8601String(),
           })
-          .select('id')
+          .select('id, business_name')
           .single();
 
       final partnerProfileId = partnerProfile['id']?.toString();
@@ -615,56 +615,75 @@ class AdminService {
         throw Exception('Partner profile could not be resolved');
       }
 
-      final createdVehicle = await supabase
-          .from('vehicles')
-          .insert({
-            'owner_id': partnerId,
-            'owner_role': 'partner',
-            'vehicle_name':
-                '${application['brand'] ?? ''} ${application['model'] ?? ''}'
-                    .trim(),
-            'brand': application['brand'],
-            'model': application['model'],
-            'year': application['year'],
-            'plate_number': application['plate_number'],
-            'seats': application['seats'] ?? 5,
-            'price_per_day': application['price_per_day'] ?? 0,
-            'price_per_hour': application['price_per_hour'] ?? 0,
-            'fuel_type': application['fuel_type'] ?? 'Gasoline',
-            'transmission': application['transmission'] ?? 'Manual',
-            'owner_is_driver': application['owner_is_driver'] ?? false,
-            'is_available': true,
-            'is_posted': true,
-            'status': 'available',
-            'created_at': DateTime.now().toIso8601String(),
-          })
-          .select('id')
-          .single();
-      final vehicleId = createdVehicle['id'];
+      final partnerName = (partnerProfile['business_name']?.toString().trim().isNotEmpty == true)
+          ? partnerProfile['business_name'].toString().trim()
+          : ((partnerProfile['users'] is Map && partnerProfile['users']['full_name']?.toString().trim().isNotEmpty == true)
+              ? partnerProfile['users']['full_name'].toString().trim()
+              : 'Mobilis Partner');
 
-      final partnerVehicle = await supabase
-          .from('partner_vehicles')
-          .insert({
-            'partner_id': partnerProfileId,
-            'brand': application['brand'],
-            'model': application['model'],
-            'year': application['year'],
-            'plate_number': application['plate_number'],
-            'seats': application['seats'] ?? 5,
-            'price_per_day': application['price_per_day'] ?? 0,
-            'price_per_hour': application['price_per_hour'] ?? 0,
-            'fuel_type': application['fuel_type'] ?? 'Gasoline',
-            'transmission': application['transmission'] ?? 'Manual',
-            'owner_is_driver': application['owner_is_driver'] ?? false,
-            'is_available': true,
-            'vehicle_id': vehicleId,
-            'status': 'available',
-            'created_at': DateTime.now().toIso8601String(),
-          })
-          .select('id')
-          .single();
+      final vehicleName =
+          '${application['brand'] ?? ''} ${application['model'] ?? ''}'.trim();
 
-      final partnerVehicleId = partnerVehicle['id'];
+      final existingPvId = application['partner_vehicle_id']?.toString();
+      String partnerVehicleId;
+
+      if (existingPvId != null && existingPvId.isNotEmpty) {
+        await supabase.from('partner_vehicles').update({
+          'partner_id': partnerProfileId,
+          'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
+          'brand': application['brand'],
+          'model': application['model'],
+          'year': application['year'],
+          'plate_number': application['plate_number'],
+          'seats': application['seats'] ?? 5,
+          'price_per_day': application['price_per_day'] ?? 0,
+          'price_per_hour': application['price_per_hour'] ?? 0,
+          'fuel_type': application['fuel_type'] ?? 'Gasoline',
+          'transmission': application['transmission'] ?? 'Manual',
+          'category': application['category'] ?? application['vehicle_type'] ?? 'Partner Vehicle',
+          'vehicle_type': application['vehicle_type'] ?? application['category'] ?? 'Partner Vehicle',
+          'owner_is_driver': application['owner_is_driver'] ?? false,
+          'owner_name': partnerName,
+          'owner_role': 'partner',
+          'is_available': true,
+          'is_posted': true,
+          'status': 'available',
+          'application_status': 'approved',
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', existingPvId);
+        partnerVehicleId = existingPvId;
+      } else {
+        final partnerVehicle = await supabase
+            .from('partner_vehicles')
+            .insert({
+              'partner_id': partnerProfileId,
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
+              'brand': application['brand'],
+              'model': application['model'],
+              'year': application['year'],
+              'plate_number': application['plate_number'],
+              'seats': application['seats'] ?? 5,
+              'price_per_day': application['price_per_day'] ?? 0,
+              'price_per_hour': application['price_per_hour'] ?? 0,
+              'fuel_type': application['fuel_type'] ?? 'Gasoline',
+              'transmission': application['transmission'] ?? 'Manual',
+              'category': application['category'] ?? application['vehicle_type'] ?? 'Partner Vehicle',
+              'vehicle_type': application['vehicle_type'] ?? application['category'] ?? 'Partner Vehicle',
+              'owner_is_driver': application['owner_is_driver'] ?? false,
+              'owner_name': partnerName,
+              'owner_role': 'partner',
+              'is_available': true,
+              'is_posted': true,
+              'status': 'available',
+              'application_status': 'approved',
+              'created_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .select('id')
+            .single();
+        partnerVehicleId = partnerVehicle['id'].toString();
+      }
+
       final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
       final photoUrls = <String>[
         if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty)
@@ -688,7 +707,6 @@ class AdminService {
               List.generate(photoUrls.length, (index) {
                 return {
                   'partner_vehicle_id': partnerVehicleId,
-                  'vehicle_id': vehicleId,
                   'image_url': photoUrls[index],
                   'display_order': index,
                 };
@@ -725,7 +743,7 @@ class AdminService {
             'verified_at': DateTime.now().toIso8601String(),
             'reviewed_at': DateTime.now().toIso8601String(),
             'partner_vehicle_id': partnerVehicleId,
-            'created_vehicle_id': vehicleId,
+            'created_vehicle_id': null,
             'rejection_reason': null,
           })
           .eq('id', applicationId);
@@ -760,7 +778,7 @@ class AdminService {
       debugPrint('Rejecting vehicle application: $applicationId');
       final application = await supabase
           .from('partner_vehicle_applications')
-          .select('partner_vehicle_id,created_vehicle_id,plate_number')
+          .select('partner_vehicle_id,plate_number')
           .eq('id', applicationId)
           .single();
       await supabase
@@ -780,36 +798,23 @@ class AdminService {
       if (partnerVehicleId != null && partnerVehicleId.isNotEmpty) {
         await supabase
             .from('partner_vehicles')
-            .update({'status': 'disabled', 'is_available': false})
-            .eq('id', partnerVehicleId);
-      }
-
-      final createdVehicleId = application['created_vehicle_id']?.toString();
-      if (createdVehicleId != null && createdVehicleId.isNotEmpty) {
-        await supabase
-            .from('vehicles')
             .update({
-              'status': 'inactive',
+              'application_status': 'rejected',
+              'status': 'disabled',
               'is_available': false,
-              'is_posted': false,
             })
-            .eq('id', createdVehicleId);
+            .eq('id', partnerVehicleId);
       }
 
       final plateNumber = application['plate_number']?.toString().trim();
       if (plateNumber != null && plateNumber.isNotEmpty) {
         await supabase
-            .from('vehicles')
-            .update({
-              'status': 'inactive',
-              'is_available': false,
-              'is_posted': false,
-            })
-            .eq('owner_role', 'partner')
-            .eq('plate_number', plateNumber);
-        await supabase
             .from('partner_vehicles')
-            .update({'status': 'disabled', 'is_available': false})
+            .update({
+              'application_status': 'rejected',
+              'status': 'disabled',
+              'is_available': false,
+            })
             .eq('plate_number', plateNumber);
       }
 

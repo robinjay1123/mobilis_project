@@ -14,7 +14,7 @@ class VehicleService {
       'category,vehicle_type,vehicle_name,description,color,fuel_type,'
       'transmission,location,'
       'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
-      'owner_role,rating,rating_count,'
+      'owner_role,owner_name,rating,rating_count,'
       'vehicle_images!vehicle_images_vehicle_id_fkey(image_url,display_order)';
   static const List<String> _bookingBlockingStatuses = [
     'pending',
@@ -464,18 +464,16 @@ class VehicleService {
           .map(Map<String, dynamic>.from)
           .where((vehicle) {
             final status = (vehicle['status'] ?? '').toString().toLowerCase();
-            final canonicalVehicleId = vehicle['vehicle_id']?.toString().trim();
+            final appStatus =
+                (vehicle['application_status'] ?? '').toString().toLowerCase();
             const visibleStatuses = {'available', 'approved', 'active'};
-            return visibleStatuses.contains(status) &&
+            final isApproved = appStatus == 'approved' ||
+                appStatus.isEmpty ||
+                visibleStatuses.contains(status);
+            return isApproved &&
+                visibleStatuses.contains(status) &&
                 vehicle['is_available'] != false &&
-                vehicle['is_posted'] != false &&
-                canonicalVehicleId != null &&
-                canonicalVehicleId.isNotEmpty &&
-                _hasApprovedPartnerApplication(
-                  vehicle,
-                  approvedLinks,
-                  legacyPartnerVehicle: true,
-                );
+                vehicle['is_posted'] != false;
           })
           .toList();
 
@@ -496,7 +494,8 @@ class VehicleService {
 
       return partnerVehicles.map((vehicle) {
         final normalized = _normalizePartnerVehicleRecord(vehicle);
-        normalized['id'] = vehicle['vehicle_id'];
+        normalized['id'] = vehicle['id'];
+        normalized['partner_vehicle_id'] = vehicle['id'];
         return normalized;
       }).toList();
     } catch (e) {
@@ -510,15 +509,44 @@ class VehicleService {
   // ---------------------------------------------------------------------------
   Future<List<Map<String, dynamic>>> getPartnerVehicles(String userId) async {
     try {
-      final response = await supabase
-          .from('vehicles')
-          .select(_vehicleSelect)
-          .eq('owner_id', userId)
-          .order('created_at', ascending: false);
+      final partnerProfile = await supabase
+          .from('partners')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+      final partnerId = partnerProfile?['id']?.toString();
+
+      List response;
+      if (partnerId != null && partnerId.isNotEmpty) {
+        response = await supabase
+            .from('partner_vehicles')
+            .select('*, partners:partner_id(id,user_id,business_name,users:user_id(full_name,email))')
+            .eq('partner_id', partnerId)
+            .order('created_at', ascending: false);
+      } else {
+        response = await supabase
+            .from('partner_vehicles')
+            .select('*, partners:partner_id(id,user_id,business_name,users:user_id(full_name,email))')
+            .order('created_at', ascending: false);
+      }
 
       final vehicles = List<Map<String, dynamic>>.from(response);
+      final partnerVehicleIds = vehicles
+          .map((v) => v['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      final imagesByPartnerVehicleId = await _fetchAndGroupPartnerImages(
+        partnerVehicleIds,
+      );
 
-      return _normalizeList(vehicles);
+      for (final vehicle in vehicles) {
+        final id = vehicle['id']?.toString();
+        vehicle['vehicle_images'] = id == null
+            ? <Map<String, dynamic>>[]
+            : imagesByPartnerVehicleId[id] ?? <Map<String, dynamic>>[];
+      }
+
+      return vehicles.map((v) => _normalizePartnerVehicleRecord(v)).toList();
     } on PostgrestException catch (e) {
       debugPrint('getPartnerVehicles error: ${e.message}');
       rethrow;
@@ -536,20 +564,47 @@ class VehicleService {
           .eq('id', vehicleId)
           .maybeSingle();
 
-      if (response == null) return null;
+      if (response != null) {
+        final vehicle = Map<String, dynamic>.from(response);
+        final normalized = _normalizeVehicleRecord(vehicle);
+        try {
+          final summary =
+              await TripRatingService().getVehicleRatingSummary(vehicleId);
+          if ((summary['count'] as num? ?? 0) > 0) {
+            normalized['rating'] = summary['average'];
+            normalized['rating_count'] = summary['count'];
+          }
+        } catch (_) {}
 
-      final vehicle = Map<String, dynamic>.from(response);
-      final normalized = _normalizeVehicleRecord(vehicle);
-      try {
-        final summary =
-            await TripRatingService().getVehicleRatingSummary(vehicleId);
-        if ((summary['count'] as num? ?? 0) > 0) {
-          normalized['rating'] = summary['average'];
-          normalized['rating_count'] = summary['count'];
-        }
-      } catch (_) {}
+        return normalized;
+      }
 
-      return normalized;
+      // Check partner_vehicles
+      final partnerResponse = await supabase
+          .from('partner_vehicles')
+          .select('*, partners:partner_id(id,user_id,business_name,users:user_id(full_name,email))')
+          .eq('id', vehicleId)
+          .maybeSingle();
+
+      if (partnerResponse != null) {
+        final partnerVehicle = Map<String, dynamic>.from(partnerResponse);
+        final images = await _fetchAndGroupPartnerImages([vehicleId]);
+        partnerVehicle['vehicle_images'] =
+            images[vehicleId] ?? <Map<String, dynamic>>[];
+        final normalized = _normalizePartnerVehicleRecord(partnerVehicle);
+        try {
+          final summary =
+              await TripRatingService().getVehicleRatingSummary(vehicleId);
+          if ((summary['count'] as num? ?? 0) > 0) {
+            normalized['rating'] = summary['average'];
+            normalized['rating_count'] = summary['count'];
+          }
+        } catch (_) {}
+
+        return normalized;
+      }
+
+      return null;
     } on PostgrestException catch (e) {
       debugPrint('getVehicleById error: ${e.message}');
       rethrow;
@@ -567,19 +622,34 @@ class VehicleService {
           .select('id,plate_number,owner_role,is_available,is_posted,status')
           .eq('id', vehicleId)
           .maybeSingle();
-      if (response == null) return false;
 
-      final vehicle = Map<String, dynamic>.from(response);
-      if (!_isVisibleForRent(vehicle)) return false;
-      final approvedLinks = await _getApprovedPartnerVehicleLinks();
-      if (!_isPartnerOwned(vehicle, approvedLinks['partner_owner_ids']!)) {
-        return true;
+      if (response != null) {
+        final vehicle = Map<String, dynamic>.from(response);
+        return _isVisibleForRent(vehicle);
       }
-      return _hasApprovedPartnerApplication(
-        vehicle,
-        approvedLinks,
-        legacyPartnerVehicle: false,
-      );
+
+      // Check partner_vehicles
+      final partnerResponse = await supabase
+          .from('partner_vehicles')
+          .select(
+            'id,plate_number,is_available,is_posted,status,application_status',
+          )
+          .eq('id', vehicleId)
+          .maybeSingle();
+
+      if (partnerResponse != null) {
+        final pv = Map<String, dynamic>.from(partnerResponse);
+        final status = (pv['status'] ?? '').toString().toLowerCase();
+        final appStatus =
+            (pv['application_status'] ?? '').toString().toLowerCase();
+        const visibleStatuses = {'available', 'approved', 'active'};
+        return visibleStatuses.contains(status) &&
+            (appStatus == 'approved' || appStatus.isEmpty) &&
+            pv['is_available'] != false &&
+            pv['is_posted'] != false;
+      }
+
+      return false;
     } catch (error) {
       debugPrint('Unable to validate vehicle booking eligibility: $error');
       return false;

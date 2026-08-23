@@ -3120,7 +3120,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       var partnerProfile = await _supabase
           .from('partners')
-          .select('id')
+          .select('id, business_name, users:user_id(full_name)')
           .eq('user_id', partnerId)
           .maybeSingle();
 
@@ -3131,7 +3131,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'verification_status': 'approved',
             'created_at': DateTime.now().toIso8601String(),
           })
-          .select('id')
+          .select('id, business_name')
           .single();
 
       final partnerProfileId = partnerProfile['id']?.toString();
@@ -3139,56 +3139,75 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         throw Exception('Partner profile could not be resolved');
       }
 
-      final createdVehicle = await _supabase
-          .from('vehicles')
-          .insert({
-            'owner_id': partnerId,
-            'owner_role': 'partner',
-            'vehicle_name':
-                '${application['brand'] ?? ''} ${application['model'] ?? ''}'
-                    .trim(),
-            'brand': application['brand'],
-            'model': application['model'],
-            'year': application['year'],
-            'plate_number': application['plate_number'],
-            'seats': application['seats'] ?? 5,
-            'price_per_day': application['price_per_day'] ?? 0,
-            'price_per_hour': application['price_per_hour'] ?? 0,
-            'fuel_type': application['fuel_type'] ?? 'Gasoline',
-            'transmission': application['transmission'] ?? 'Manual',
-            'owner_is_driver': application['owner_is_driver'] ?? false,
-            'is_available': true,
-            'is_posted': true,
-            'status': 'available',
-            'created_at': DateTime.now().toIso8601String(),
-          })
-          .select('id')
-          .single();
-      final vehicleId = createdVehicle['id'];
+      final partnerName = (partnerProfile['business_name']?.toString().trim().isNotEmpty == true)
+          ? partnerProfile['business_name'].toString().trim()
+          : ((partnerProfile['users'] is Map && partnerProfile['users']['full_name']?.toString().trim().isNotEmpty == true)
+              ? partnerProfile['users']['full_name'].toString().trim()
+              : 'Mobilis Partner');
 
-      final createdPartnerVehicle = await _supabase
-          .from('partner_vehicles')
-          .insert({
-            'partner_id': partnerProfileId,
-            'brand': application['brand'],
-            'model': application['model'],
-            'year': application['year'],
-            'plate_number': application['plate_number'],
-            'seats': application['seats'] ?? 5,
-            'price_per_day': application['price_per_day'] ?? 0,
-            'price_per_hour': application['price_per_hour'] ?? 0,
-            'fuel_type': application['fuel_type'] ?? 'Gasoline',
-            'transmission': application['transmission'] ?? 'Manual',
-            'owner_is_driver': application['owner_is_driver'] ?? false,
-            'is_available': true,
-            'vehicle_id': vehicleId,
-            'status': 'available',
-            'created_at': DateTime.now().toIso8601String(),
-          })
-          .select('id')
-          .single();
+      final vehicleName =
+          '${application['brand'] ?? ''} ${application['model'] ?? ''}'.trim();
 
-      final partnerVehicleId = createdPartnerVehicle['id'];
+      final existingPvId = application['partner_vehicle_id']?.toString();
+      String partnerVehicleId;
+
+      if (existingPvId != null && existingPvId.isNotEmpty) {
+        await _supabase.from('partner_vehicles').update({
+          'partner_id': partnerProfileId,
+          'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
+          'brand': application['brand'],
+          'model': application['model'],
+          'year': application['year'],
+          'plate_number': application['plate_number'],
+          'seats': application['seats'] ?? 5,
+          'price_per_day': application['price_per_day'] ?? 0,
+          'price_per_hour': application['price_per_hour'] ?? 0,
+          'fuel_type': application['fuel_type'] ?? 'Gasoline',
+          'transmission': application['transmission'] ?? 'Manual',
+          'category': application['category'] ?? application['vehicle_type'] ?? 'Partner Vehicle',
+          'vehicle_type': application['vehicle_type'] ?? application['category'] ?? 'Partner Vehicle',
+          'owner_is_driver': application['owner_is_driver'] ?? false,
+          'owner_name': partnerName,
+          'owner_role': 'partner',
+          'is_available': true,
+          'is_posted': true,
+          'status': 'available',
+          'application_status': 'approved',
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', existingPvId);
+        partnerVehicleId = existingPvId;
+      } else {
+        final createdPartnerVehicle = await _supabase
+            .from('partner_vehicles')
+            .insert({
+              'partner_id': partnerProfileId,
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
+              'brand': application['brand'],
+              'model': application['model'],
+              'year': application['year'],
+              'plate_number': application['plate_number'],
+              'seats': application['seats'] ?? 5,
+              'price_per_day': application['price_per_day'] ?? 0,
+              'price_per_hour': application['price_per_hour'] ?? 0,
+              'fuel_type': application['fuel_type'] ?? 'Gasoline',
+              'transmission': application['transmission'] ?? 'Manual',
+              'category': application['category'] ?? application['vehicle_type'] ?? 'Partner Vehicle',
+              'vehicle_type': application['vehicle_type'] ?? application['category'] ?? 'Partner Vehicle',
+              'owner_is_driver': application['owner_is_driver'] ?? false,
+              'owner_name': partnerName,
+              'owner_role': 'partner',
+              'is_available': true,
+              'is_posted': true,
+              'status': 'available',
+              'application_status': 'approved',
+              'created_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .select('id')
+            .single();
+        partnerVehicleId = createdPartnerVehicle['id'].toString();
+      }
+
       final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
       final photoUrls = <String>[
         if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty)
@@ -3212,7 +3231,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               List.generate(photoUrls.length, (index) {
                 return {
                   'partner_vehicle_id': partnerVehicleId,
-                  'vehicle_id': vehicleId,
                   'image_url': photoUrls[index],
                   'display_order': index,
                 };
@@ -3223,23 +3241,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final orUrl = application['or_document_url']?.toString();
       final crUrl = application['cr_document_url']?.toString();
 
-      if (partnerVehicleId != null) {
-        if (orUrl != null && orUrl.isNotEmpty) {
-          await _supabase.from('partner_vehicle_documents').insert({
-            'partner_vehicle_application_id': appId,
-            'document_type': 'or',
-            'file_url': orUrl,
-            'created_at': DateTime.now().toIso8601String(),
-          });
-        }
-        if (crUrl != null && crUrl.isNotEmpty) {
-          await _supabase.from('partner_vehicle_documents').insert({
-            'partner_vehicle_application_id': appId,
-            'document_type': 'cr',
-            'file_url': crUrl,
-            'created_at': DateTime.now().toIso8601String(),
-          });
-        }
+      if (orUrl != null && orUrl.isNotEmpty) {
+        await _supabase.from('partner_vehicle_documents').insert({
+          'partner_vehicle_application_id': appId,
+          'document_type': 'or',
+          'file_url': orUrl,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+      if (crUrl != null && crUrl.isNotEmpty) {
+        await _supabase.from('partner_vehicle_documents').insert({
+          'partner_vehicle_application_id': appId,
+          'document_type': 'cr',
+          'file_url': crUrl,
+          'created_at': DateTime.now().toIso8601String(),
+        });
       }
 
       await _supabase
@@ -3251,7 +3267,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'reviewed_at': DateTime.now().toIso8601String(),
             'verified_by': _supabase.auth.currentUser?.id,
             'partner_vehicle_id': partnerVehicleId,
-            'created_vehicle_id': vehicleId,
+            'created_vehicle_id': null,
             'rejection_reason': null,
           })
           .eq('id', appId);
@@ -3259,8 +3275,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       try {
         await GpsService().transferTrackerToVehicle(
           applicationId: appId,
-          targetVehicleId: partnerVehicleId?.toString() ?? vehicleId.toString(),
-          isPartnerVehicle: partnerVehicleId != null,
+          targetVehicleId: partnerVehicleId.toString(),
+          isPartnerVehicle: true,
         );
       } catch (trackerErr) {
         debugPrint('GPS tracker transfer note: $trackerErr');
