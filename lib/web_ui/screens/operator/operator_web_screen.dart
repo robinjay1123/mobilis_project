@@ -2117,6 +2117,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
                 vehicle_images(id, image_url, display_order)
               ),
+              partner_vehicles:partner_vehicle_id (
+                id,
+                brand,
+                model,
+                year,
+                plate_number,
+                vehicle_name,
+                price_per_day,
+                price_per_hour,
+                transmission,
+                vehicle_type,
+                category,
+                seats,
+                location,
+                latitude,
+                longitude,
+                image_url,
+                partners:partner_id (
+                  id,
+                  business_name,
+                  business_phone,
+                  users:user_id (
+                    id,
+                    full_name,
+                    email,
+                    phone
+                  )
+                ),
+                vehicle_images(id, image_url, display_order)
+              ),
               renter:users!bookings_renter_id_fkey (
                 id,
                 full_name,
@@ -2152,7 +2182,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .order('created_at', ascending: false)
           .limit(100);
 
-      _recentBookings = List<Map<String, dynamic>>.from(response).map((
+      final hydratedList = await BookingService().hydrateBookingVehicles(
+        List<Map<String, dynamic>>.from(response),
+      );
+
+      _recentBookings = hydratedList.map((
         booking,
       ) {
         final normalizedBooking = Map<String, dynamic>.from(booking);
@@ -2469,13 +2503,37 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     final images = vehicle['vehicle_images'];
-    if (images is! List) return '';
+    if (images is List && images.isNotEmpty) {
+      for (final image in images) {
+        if (image is! Map) continue;
+        final imageMap = Map<String, dynamic>.from(image);
+        final imageUrl = imageMap['image_url']?.toString().trim() ?? '';
+        if (imageUrl.isNotEmpty) return _normalizeVehicleImageUrl(imageUrl);
+      }
+    }
 
-    for (final image in images) {
-      if (image is! Map) continue;
-      final imageMap = Map<String, dynamic>.from(image);
-      final imageUrl = imageMap['image_url']?.toString().trim() ?? '';
-      if (imageUrl.isNotEmpty) return _normalizeVehicleImageUrl(imageUrl);
+    final id = vehicle['id']?.toString() ??
+        vehicle['partner_vehicle_id']?.toString() ??
+        vehicle['_partner_vehicle_id']?.toString() ??
+        '';
+    if (id.isNotEmpty) {
+      for (final v in _vehicles) {
+        if (v['id']?.toString() == id ||
+            v['partner_vehicle_id']?.toString() == id ||
+            v['_partner_vehicle_id']?.toString() == id) {
+          final cachedImg = v['image_url']?.toString().trim() ?? '';
+          if (cachedImg.isNotEmpty) return _normalizeVehicleImageUrl(cachedImg);
+          final vImgs = v['vehicle_images'] as List?;
+          if (vImgs != null && vImgs.isNotEmpty) {
+            for (final img in vImgs) {
+              if (img is Map) {
+                final url = img['image_url']?.toString().trim() ?? '';
+                if (url.isNotEmpty) return _normalizeVehicleImageUrl(url);
+              }
+            }
+          }
+        }
+      }
     }
 
     return '';
@@ -2839,8 +2897,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final year = vehicle['year']?.toString().trim() ?? '';
     final name = [brand, model].where((part) => part.isNotEmpty).join(' ');
 
-    if (name.isEmpty) return 'Unknown Vehicle';
-    return year.isEmpty ? name : '$name ($year)';
+    if (name.isNotEmpty) {
+      return year.isEmpty ? name : '$name ($year)';
+    }
+
+    final id = vehicle['id']?.toString() ??
+        vehicle['partner_vehicle_id']?.toString() ??
+        vehicle['_partner_vehicle_id']?.toString() ??
+        '';
+    if (id.isNotEmpty) {
+      for (final v in _vehicles) {
+        if (v['id']?.toString() == id ||
+            v['partner_vehicle_id']?.toString() == id ||
+            v['_partner_vehicle_id']?.toString() == id) {
+          final vName = v['vehicle_name']?.toString().trim() ?? '';
+          if (vName.isNotEmpty) return vName;
+          final b = v['brand']?.toString().trim() ?? '';
+          final m = v['model']?.toString().trim() ?? '';
+          final combo = '$b $m'.trim();
+          if (combo.isNotEmpty) return combo;
+        }
+      }
+    }
+
+    return 'Partner Vehicle';
   }
 
   double? _coordinateValue(dynamic value) {

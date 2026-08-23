@@ -218,6 +218,249 @@ class BookingService {
     }
   }
 
+  static Map<String, dynamic> _normalizePartnerVehicle(
+    Map<String, dynamic> pv,
+  ) {
+    final partner = pv['partners'] is Map
+        ? Map<String, dynamic>.from(pv['partners'] as Map)
+        : <String, dynamic>{};
+    final partnerUser = partner['users'] is Map
+        ? Map<String, dynamic>.from(partner['users'] as Map)
+        : <String, dynamic>{};
+    final partnerName =
+        partner['business_name']?.toString().trim().isNotEmpty == true
+            ? partner['business_name'].toString().trim()
+            : partnerUser['full_name']?.toString().trim().isNotEmpty == true
+                ? partnerUser['full_name'].toString().trim()
+                : pv['owner_name']?.toString().trim().isNotEmpty == true
+                    ? pv['owner_name'].toString().trim()
+                    : 'Mobilis Partner';
+
+    final brand = pv['brand']?.toString().trim() ?? '';
+    final model = pv['model']?.toString().trim() ?? '';
+    final combo = '$brand $model'.trim();
+    final vName = pv['vehicle_name']?.toString().trim().isNotEmpty == true
+        ? pv['vehicle_name'].toString().trim()
+        : combo.isNotEmpty
+            ? combo
+            : 'Partner Vehicle';
+
+    final directImage = pv['image_url']?.toString().trim() ?? '';
+    final rawImages = pv['vehicle_images'];
+    final images = rawImages is List
+        ? List<Map<String, dynamic>>.from(rawImages.whereType<Map>())
+        : <Map<String, dynamic>>[];
+
+    return {
+      ...pv,
+      'id': pv['id'],
+      'brand': brand,
+      'model': model,
+      'year': pv['year'],
+      'plate_number': pv['plate_number'],
+      'vehicle_name': vName,
+      'price_per_day': pv['price_per_day'],
+      'price_per_hour': pv['price_per_hour'],
+      'transmission': pv['transmission'],
+      'vehicle_type':
+          pv['vehicle_type'] ?? pv['category'] ?? 'Partner Vehicle',
+      'category': pv['category'] ?? pv['vehicle_type'] ?? 'Partner Vehicle',
+      'seats': pv['seats'],
+      'location': pv['location'],
+      'latitude': pv['latitude'],
+      'longitude': pv['longitude'],
+      'is_partner_vehicle': true,
+      'owner_role': 'partner',
+      'owner_name': partnerName,
+      'owner': {
+        'id': partnerUser['id'] ?? partner['user_id'],
+        'full_name': partnerName,
+        'role': 'partner',
+        'email': partnerUser['email'],
+        'phone': partner['business_phone'] ?? partnerUser['phone'],
+      },
+      'partner': partner,
+      'image_url': directImage.isNotEmpty
+          ? directImage
+          : (images.isNotEmpty
+              ? images.first['image_url']?.toString().trim()
+              : null),
+      'vehicle_images': images,
+    };
+  }
+
+  /// Hydrate any missing vehicle and partner vehicle info across booking rows
+  Future<List<Map<String, dynamic>>> hydrateBookingVehicles(
+    List<Map<String, dynamic>> rawBookings,
+  ) async {
+    if (rawBookings.isEmpty) return rawBookings;
+
+    final bookings =
+        rawBookings.map((b) => Map<String, dynamic>.from(b)).toList();
+    final missingVehicleIds = <String>{};
+
+    for (final booking in bookings) {
+      final vehicle = booking['vehicles'];
+      final hasValidVehicle = vehicle is Map<String, dynamic> &&
+          (vehicle['brand']?.toString().trim().isNotEmpty == true ||
+              vehicle['vehicle_name']?.toString().trim().isNotEmpty == true);
+
+      if (!hasValidVehicle) {
+        final partnerVehicle = booking['partner_vehicles'];
+        if (partnerVehicle is Map<String, dynamic> &&
+            (partnerVehicle['brand']?.toString().trim().isNotEmpty == true ||
+                partnerVehicle['vehicle_name']?.toString().trim().isNotEmpty ==
+                    true)) {
+          booking['vehicles'] = _normalizePartnerVehicle(partnerVehicle);
+          booking['is_partner_vehicle'] = true;
+        } else {
+          final id = booking['partner_vehicle_id']?.toString().trim() ??
+              booking['vehicle_id']?.toString().trim();
+          if (id != null && id.isNotEmpty) {
+            missingVehicleIds.add(id);
+          }
+        }
+      }
+    }
+
+    if (missingVehicleIds.isNotEmpty) {
+      final partnerMap = <String, Map<String, dynamic>>{};
+      try {
+        final pvRows = await supabase
+            .from('partner_vehicles')
+            .select('''
+              *,
+              partners:partner_id (
+                id,
+                business_name,
+                business_phone,
+                business_address,
+                users:user_id (
+                  id,
+                  full_name,
+                  email,
+                  phone
+                )
+              )
+            ''')
+            .inFilter('id', missingVehicleIds.toList());
+
+        for (final row in List<Map<String, dynamic>>.from(pvRows)) {
+          final id = row['id']?.toString();
+          if (id != null && id.isNotEmpty) {
+            partnerMap[id] = _normalizePartnerVehicle(row);
+          }
+        }
+      } catch (e) {
+        debugPrint('Error fetching missing partner_vehicles for bookings: $e');
+      }
+
+      if (partnerMap.isNotEmpty) {
+        try {
+          final pImages = await supabase
+              .from('vehicle_images')
+              .select('partner_vehicle_id, image_url, display_order')
+              .inFilter('partner_vehicle_id', partnerMap.keys.toList())
+              .order('display_order', ascending: true);
+
+          for (final img in List<Map<String, dynamic>>.from(pImages)) {
+            final vId = img['partner_vehicle_id']?.toString();
+            if (vId != null && partnerMap.containsKey(vId)) {
+              final pv = partnerMap[vId]!;
+              final currentImgs = List<Map<String, dynamic>>.from(
+                pv['vehicle_images'] as List? ?? [],
+              );
+              currentImgs.add(img);
+              pv['vehicle_images'] = currentImgs;
+              if (pv['image_url'] == null ||
+                  pv['image_url'].toString().isEmpty) {
+                pv['image_url'] = img['image_url'];
+              }
+            }
+          }
+        } catch (imgErr) {
+          debugPrint('Error fetching vehicle_images for partner cars: $imgErr');
+        }
+      }
+
+      final remainingIds = missingVehicleIds
+          .where((id) => !partnerMap.containsKey(id))
+          .toList();
+      final standardMap = <String, Map<String, dynamic>>{};
+      if (remainingIds.isNotEmpty) {
+        try {
+          final vRows = await supabase
+              .from('vehicles')
+              .select(
+                '*, vehicle_images(image_url, display_order), owner:owner_id(id, full_name, role, email, phone)',
+              )
+              .inFilter('id', remainingIds);
+          for (final row in List<Map<String, dynamic>>.from(vRows)) {
+            final id = row['id']?.toString();
+            if (id != null && id.isNotEmpty) {
+              standardMap[id] = Map<String, dynamic>.from(row);
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching missing standard vehicles: $e');
+        }
+      }
+
+      for (final booking in bookings) {
+        final vehicle = booking['vehicles'];
+        final hasValidVehicle = vehicle is Map<String, dynamic> &&
+            (vehicle['brand']?.toString().trim().isNotEmpty == true ||
+                vehicle['vehicle_name']?.toString().trim().isNotEmpty == true);
+
+        if (!hasValidVehicle) {
+          final id = booking['partner_vehicle_id']?.toString().trim() ??
+              booking['vehicle_id']?.toString().trim();
+          if (id != null) {
+            if (partnerMap.containsKey(id)) {
+              booking['vehicles'] = partnerMap[id];
+              booking['is_partner_vehicle'] = true;
+            } else if (standardMap.containsKey(id)) {
+              booking['vehicles'] = standardMap[id];
+            }
+          }
+        }
+      }
+    }
+
+    for (final booking in bookings) {
+      final v = booking['vehicles'];
+      if (v is Map<String, dynamic>) {
+        final vMap = Map<String, dynamic>.from(v);
+        if (vMap['image_url'] == null ||
+            vMap['image_url'].toString().trim().isEmpty) {
+          final images = vMap['vehicle_images'] as List?;
+          if (images != null && images.isNotEmpty) {
+            final firstImg = images.first;
+            if (firstImg is Map) {
+              vMap['image_url'] = firstImg['image_url'];
+            }
+          }
+        }
+        if (vMap['vehicle_name'] == null ||
+            vMap['vehicle_name'].toString().trim().isEmpty) {
+          final b = vMap['brand']?.toString().trim() ?? '';
+          final m = vMap['model']?.toString().trim() ?? '';
+          final combo = '$b $m'.trim();
+          if (combo.isNotEmpty) {
+            vMap['vehicle_name'] = combo;
+          }
+        }
+        booking['vehicles'] = vMap;
+        if (booking['vehicle_name'] == null ||
+            booking['vehicle_name'].toString().trim().isEmpty) {
+          booking['vehicle_name'] = vMap['vehicle_name'];
+        }
+      }
+    }
+
+    return bookings;
+  }
+
   // Get bookings for a renter
   // Note: bookings use renter_id which references users.id
   Future<List<Map<String, dynamic>>> getRenterBookings(String userId) async {
@@ -247,6 +490,36 @@ class BookingService {
               price_per_day,
               vehicle_images(image_url, display_order)
             ),
+            partner_vehicles:partner_vehicle_id (
+              id,
+              brand,
+              model,
+              year,
+              plate_number,
+              vehicle_name,
+              price_per_day,
+              price_per_hour,
+              transmission,
+              vehicle_type,
+              category,
+              seats,
+              location,
+              latitude,
+              longitude,
+              image_url,
+              partners:partner_id (
+                id,
+                business_name,
+                business_phone,
+                users:user_id (
+                  id,
+                  full_name,
+                  email,
+                  phone
+                )
+              ),
+              vehicle_images(image_url, display_order)
+            ),
             driver:drivers!bookings_driver_id_fkey (
               id,
               user_id,
@@ -271,7 +544,7 @@ class BookingService {
           .order('created_at', ascending: false);
 
       debugPrint('Fetched ${response.length} bookings');
-      return List<Map<String, dynamic>>.from(response);
+      return await hydrateBookingVehicles(List<Map<String, dynamic>>.from(response));
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching renter bookings: ${e.message}');
       rethrow;
@@ -301,7 +574,8 @@ class BookingService {
         booking['users'] = await _getUserById(renterId);
       }
 
-      return booking;
+      final hydrated = await hydrateBookingVehicles([booking]);
+      return hydrated.first;
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching booking: ${e.message}');
       rethrow;
@@ -1445,7 +1719,7 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, created_at, '
+            'id, renter_id, vehicle_id, partner_vehicle_id, start_at, end_at, start_date, end_date, status, total_price, created_at, '
             'reservation_fee_amount, reservation_payment_type, reservation_payment_covers_total, '
             'reservation_payment_reference, reservation_payment_status, reservation_payment_submitted_at, '
             'reservation_payment_proof_url, reservation_payment_method, rental_terms_accepted_at, '
@@ -1455,7 +1729,9 @@ class BookingService {
           .eq('status', 'pending')
           .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response);
+      return await hydrateBookingVehicles(
+        List<Map<String, dynamic>>.from(response),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching pending bookings: ${e.message}');
       return [];
@@ -1484,7 +1760,9 @@ class BookingService {
             '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
           )
           .order('created_at', ascending: false);
-      return List<Map<String, dynamic>>.from(response);
+      return await hydrateBookingVehicles(
+        List<Map<String, dynamic>>.from(response),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching operator bookings: ${e.message}');
       return [];
@@ -1520,7 +1798,9 @@ class BookingService {
             'awaiting_completion',
           ])
           .order('start_at', ascending: true);
-      return List<Map<String, dynamic>>.from(response);
+      return await hydrateBookingVehicles(
+        List<Map<String, dynamic>>.from(response),
+      );
     } on PostgrestException catch (e) {
       debugPrint(
         'Database error fetching operator active bookings: ${e.message}',
@@ -1541,7 +1821,7 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, '
+            'id, renter_id, vehicle_id, partner_vehicle_id, start_at, end_at, start_date, end_date, '
             'status, total_price, with_driver, driver_id, driver_assigned_at, created_at, '
             'pickup_location, dropoff_location, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, '
             'partner_booking_confirmed_at, reservation_payment_status, '
@@ -1556,7 +1836,9 @@ class BookingService {
           )
           .eq('status', 'pending')
           .order('created_at', ascending: false);
-      return List<Map<String, dynamic>>.from(response);
+      return await hydrateBookingVehicles(
+        List<Map<String, dynamic>>.from(response),
+      );
     } on PostgrestException catch (e) {
       debugPrint(
         'Database error fetching operator pending bookings: ${e.message}',
