@@ -5016,6 +5016,173 @@ class BookingService {
     }).eq('id', bookingId);
   }
 
+  /// Disburse partner net earnings / commission for a completed partner booking.
+  Future<void> disbursePartnerCommission({
+    required String bookingId,
+    required String operatorId,
+    required String paymentMethod,
+    required String referenceNumber,
+    String? receiptUrl,
+    required double netAmount,
+    required double commissionAmount,
+    String? partnerUserId,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    await supabase.from('bookings').update({
+      'partner_payout_disbursed': true,
+      'partner_payout_status': 'disbursed',
+      'partner_payout_amount': netAmount,
+      'partner_payout_commission': commissionAmount,
+      'partner_payout_method': paymentMethod,
+      'partner_payout_ref': referenceNumber,
+      'partner_payout_receipt_url': receiptUrl ?? '',
+      'partner_payout_disbursed_at': now,
+      'partner_payout_disbursed_by': operatorId,
+    }).eq('id', bookingId);
+
+    if (partnerUserId != null && partnerUserId.isNotEmpty) {
+      try {
+        await supabase.from('booking_payouts').upsert({
+          'booking_id': bookingId,
+          'recipient_user_id': partnerUserId,
+          'recipient_role': 'partner',
+          'gross_amount': netAmount + commissionAmount,
+          'deductions': commissionAmount,
+          'net_amount': netAmount,
+          'status': 'released',
+          'released_at': now,
+          'metadata': {
+            'commission_rate': 10,
+            'payment_method': paymentMethod,
+            'reference_number': referenceNumber,
+            'receipt_url': receiptUrl,
+          },
+          'updated_at': now,
+        }, onConflict: 'booking_id,recipient_user_id,recipient_role');
+      } catch (e) {
+        debugPrint('Could not upsert partner booking_payouts: $e');
+      }
+
+      try {
+        await NotificationService().createNotification(
+          userId: partnerUserId,
+          title: 'Partner Earnings Disbursed',
+          message:
+              'Your earnings of PHP ${netAmount.toStringAsFixed(2)} for booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()} have been disbursed via $paymentMethod (Ref: $referenceNumber).',
+          type: 'partner_payout_disbursed',
+          data: {
+            'booking_id': bookingId,
+            'amount': netAmount,
+            'reference': referenceNumber,
+            'receipt_url': receiptUrl,
+          },
+        );
+      } catch (e) {
+        debugPrint('Could not notify partner for payout: $e');
+      }
+    }
+  }
+
+  /// Disburse driver trip fee / commission for a completed driver booking.
+  Future<void> disburseDriverCommission({
+    required String bookingId,
+    required String operatorId,
+    required String paymentMethod,
+    required String referenceNumber,
+    String? receiptUrl,
+    required double netAmount,
+    required double commissionAmount,
+    String? driverUserId,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    await supabase.from('bookings').update({
+      'driver_payout_disbursed': true,
+      'driver_payout_status': 'disbursed',
+      'driver_payout_amount': netAmount,
+      'driver_payout_commission': commissionAmount,
+      'driver_payout_method': paymentMethod,
+      'driver_payout_ref': referenceNumber,
+      'driver_payout_receipt_url': receiptUrl ?? '',
+      'driver_payout_disbursed_at': now,
+      'driver_payout_disbursed_by': operatorId,
+    }).eq('id', bookingId);
+
+    if (driverUserId != null && driverUserId.isNotEmpty) {
+      try {
+        final earningPayload = <String, dynamic>{
+          'booking_id': bookingId,
+          'driver_id': driverUserId,
+          'trip_fee': netAmount + commissionAmount,
+          'commission_percentage': 15,
+          'commission_amount': commissionAmount,
+          'net_earnings': netAmount,
+          'payout_status': 'paid',
+          'payout_method': paymentMethod,
+          'payout_ref': referenceNumber,
+          'payout_receipt_url': receiptUrl ?? '',
+          'paid_at': now,
+        };
+        final existingEarning = await supabase
+            .from('driver_earnings')
+            .select('id')
+            .eq('booking_id', bookingId)
+            .maybeSingle();
+        if (existingEarning == null) {
+          await supabase.from('driver_earnings').insert(earningPayload);
+        } else {
+          await supabase
+              .from('driver_earnings')
+              .update(earningPayload)
+              .eq('id', existingEarning['id']);
+        }
+      } catch (e) {
+        debugPrint('Could not upsert driver_earnings: $e');
+      }
+
+      try {
+        await supabase.from('booking_payouts').upsert({
+          'booking_id': bookingId,
+          'recipient_user_id': driverUserId,
+          'recipient_role': 'driver',
+          'gross_amount': netAmount + commissionAmount,
+          'deductions': commissionAmount,
+          'net_amount': netAmount,
+          'status': 'released',
+          'released_at': now,
+          'metadata': {
+            'commission_rate': 15,
+            'payment_method': paymentMethod,
+            'reference_number': referenceNumber,
+            'receipt_url': receiptUrl,
+          },
+          'updated_at': now,
+        }, onConflict: 'booking_id,recipient_user_id,recipient_role');
+      } catch (e) {
+        debugPrint('Could not upsert driver booking_payouts: $e');
+      }
+
+      try {
+        await NotificationService().createNotification(
+          userId: driverUserId,
+          title: 'Driver Earnings Disbursed',
+          message:
+              'Your driver earnings of PHP ${netAmount.toStringAsFixed(2)} for booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()} have been disbursed via $paymentMethod (Ref: $referenceNumber).',
+          type: 'driver_payout_disbursed',
+          data: {
+            'booking_id': bookingId,
+            'amount': netAmount,
+            'reference': referenceNumber,
+            'receipt_url': receiptUrl,
+          },
+        );
+      } catch (e) {
+        debugPrint('Could not notify driver for payout: $e');
+      }
+    }
+  }
+
   // Get error message from exception
   String getErrorMessage(dynamic error) {
     if (error is PostgrestException) {

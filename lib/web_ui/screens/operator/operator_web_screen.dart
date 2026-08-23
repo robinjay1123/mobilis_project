@@ -49,6 +49,7 @@ import '../../../services/image_optimization_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/booking_viewed_service.dart';
 import '../../../services/mpin_service.dart';
+import '../../../services/payout_method_service.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -10821,6 +10822,113 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
     }
 
+    final statusLower = (booking['status']?.toString() ?? '').toLowerCase().trim();
+    final isPartner = _isPartnerVehicleBooking(booking);
+
+    // Completed / Ongoing Return Inspection Actions
+    if (statusLower == 'completed' ||
+        statusLower == 'awaiting_completion' ||
+        statusLower == 'return_pending_inspection' ||
+        group == BookingStatusGroup.completed) {
+      // 1. Security Deposit Refund Button / Badge
+      if (booking['security_deposit_refunded'] == true) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () {
+              final receiptUrl = booking['security_deposit_refund_receipt_url']?.toString();
+              if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                _showReceiptProofDialog(receiptUrl, isDark);
+              }
+            },
+            icon: Icons.check_circle_outline,
+            label: compact ? 'Dep. Refunded' : 'Deposit Refunded',
+            foregroundColor: const Color(0xFF10B981),
+            borderColor: const Color(0xFF10B981),
+            compact: compact,
+          ),
+        );
+      } else {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => _showSecurityDepositRefundDialog(booking),
+            icon: Icons.assignment_return_rounded,
+            label: compact ? 'Refund Deposit' : 'Return Deposit',
+            foregroundColor: Colors.white,
+            backgroundColor: const Color(0xFF10B981),
+            compact: compact,
+          ),
+        );
+      }
+
+      // 2. Partner Commission Disburse Button / Badge
+      if (isPartner) {
+        final partnerDisbursed = booking['partner_payout_disbursed'] == true ||
+            (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed');
+        if (partnerDisbursed) {
+          buttons.add(
+            _buildOperatorBookingActionButton(
+              onPressed: () {
+                final receiptUrl = booking['partner_payout_receipt_url']?.toString();
+                if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                  _showReceiptProofDialog(receiptUrl, isDark);
+                }
+              },
+              icon: Icons.check_circle_outline,
+              label: compact ? 'Partner Paid' : 'Partner Disbursed',
+              foregroundColor: Colors.purpleAccent,
+              borderColor: Colors.purpleAccent,
+              compact: compact,
+            ),
+          );
+        } else {
+          buttons.add(
+            _buildOperatorBookingActionButton(
+              onPressed: () => _showDisbursePartnerPayoutDialog(booking),
+              icon: Icons.payments_outlined,
+              label: compact ? 'Disburse Partner' : 'Disburse Partner Payout',
+              foregroundColor: Colors.white,
+              backgroundColor: Colors.purple.shade600,
+              compact: compact,
+            ),
+          );
+        }
+      }
+
+      // 3. Driver Commission Disburse Button / Badge
+      if (needsDriver) {
+        final driverDisbursed = booking['driver_payout_disbursed'] == true ||
+            (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed');
+        if (driverDisbursed) {
+          buttons.add(
+            _buildOperatorBookingActionButton(
+              onPressed: () {
+                final receiptUrl = booking['driver_payout_receipt_url']?.toString();
+                if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                  _showReceiptProofDialog(receiptUrl, isDark);
+                }
+              },
+              icon: Icons.check_circle_outline,
+              label: compact ? 'Driver Paid' : 'Driver Disbursed',
+              foregroundColor: const Color(0xFF38BDF8),
+              borderColor: const Color(0xFF38BDF8),
+              compact: compact,
+            ),
+          );
+        } else {
+          buttons.add(
+            _buildOperatorBookingActionButton(
+              onPressed: () => _showDisburseDriverPayoutDialog(booking),
+              icon: Icons.paid_outlined,
+              label: compact ? 'Disburse Driver' : 'Disburse Driver Fee',
+              foregroundColor: Colors.white,
+              backgroundColor: const Color(0xFF0284C7),
+              compact: compact,
+            ),
+          );
+        }
+      }
+    }
+
     if (compact) {
       return FittedBox(
         fit: BoxFit.scaleDown,
@@ -11362,15 +11470,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
-                      if ((statusLower == 'active' ||
+                      if (statusLower == 'active' ||
                               statusLower == 'ongoing' ||
                               statusLower == 'return_pending_inspection' ||
                               statusLower == 'awaiting_completion' ||
                               statusLower == 'completed' ||
-                              group == BookingStatusGroup.ongoing) &&
-                          !_isPartnerOwnedBooking(booking)) ...[
-                        if (booking['security_deposit_return_eligible'] == true &&
-                            booking['security_deposit_refunded'] != true)
+                              group == BookingStatusGroup.ongoing ||
+                              group == BookingStatusGroup.completed) ...[
+                        if (booking['security_deposit_refunded'] != true)
                           ElevatedButton.icon(
                             onPressed: () {
                               Navigator.pop(dialogContext);
@@ -11405,6 +11512,86 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             icon: const Icon(Icons.check_circle_outline, size: 17),
                             label: const Text('Deposit Refunded'),
                           ),
+                        if (_isPartnerVehicleBooking(booking)) ...[
+                          if (booking['partner_payout_disbursed'] == true ||
+                              (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed'))
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                final receiptUrl = booking['partner_payout_receipt_url']?.toString();
+                                if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                                  _showReceiptProofDialog(receiptUrl, isDark);
+                                }
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.purpleAccent,
+                                side: const BorderSide(color: Colors.purpleAccent),
+                                minimumSize: const Size(0, 44),
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                              ),
+                              icon: const Icon(Icons.check_circle_outline, size: 17),
+                              label: const Text('Partner Payout Disbursed'),
+                            )
+                          else if (statusLower == 'completed' ||
+                              statusLower == 'awaiting_completion' ||
+                              group == BookingStatusGroup.completed)
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(dialogContext);
+                                _showDisbursePartnerPayoutDialog(booking);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.purple.shade600,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size(0, 44),
+                                padding: const EdgeInsets.symmetric(horizontal: 18),
+                              ),
+                              icon: const Icon(Icons.payments_outlined, size: 17),
+                              label: const Text(
+                                'Disburse Partner Payout',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                        ],
+                        if (_bookingNeedsDriver(booking['with_driver'])) ...[
+                          if (booking['driver_payout_disbursed'] == true ||
+                              (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed'))
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                final receiptUrl = booking['driver_payout_receipt_url']?.toString();
+                                if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                                  _showReceiptProofDialog(receiptUrl, isDark);
+                                }
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF38BDF8),
+                                side: const BorderSide(color: Color(0xFF38BDF8)),
+                                minimumSize: const Size(0, 44),
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                              ),
+                              icon: const Icon(Icons.check_circle_outline, size: 17),
+                              label: const Text('Driver Payout Disbursed'),
+                            )
+                          else if (statusLower == 'completed' ||
+                              statusLower == 'awaiting_completion' ||
+                              group == BookingStatusGroup.completed)
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(dialogContext);
+                                _showDisburseDriverPayoutDialog(booking);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF0284C7),
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size(0, 44),
+                                padding: const EdgeInsets.symmetric(horizontal: 18),
+                              ),
+                              icon: const Icon(Icons.paid_outlined, size: 17),
+                              label: const Text(
+                                'Disburse Driver Fee',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                        ],
                         if (_isOperatorRatingFullyCompleted(booking))
                           Tooltip(
                             message: 'Rating is complete',
@@ -14950,6 +15137,962 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     referenceController.dispose();
   }
 
+  Future<void> _showDisbursePartnerPayoutDialog(
+    Map<String, dynamic> booking,
+  ) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bookingId = booking['id']?.toString() ?? '';
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final partnerVehicle = booking['partner_vehicles'] as Map<String, dynamic>? ?? {};
+    final partnerData = (partnerVehicle['partners'] ?? vehicle['partners'] ?? vehicle['owner']) as Map<String, dynamic>? ?? {};
+    final partnerUserData = (partnerData['users'] ?? partnerData['user']) as Map<String, dynamic>? ?? {};
+
+    final partnerUserId = (partnerData['user_id'] ?? partnerVehicle['partner_id'] ?? vehicle['owner_id'] ?? booking['partner_id'] ?? booking['partner_user_id'])?.toString();
+    final partnerName = partnerData['business_name']?.toString() ??
+        partnerUserData['full_name']?.toString() ??
+        partnerData['full_name']?.toString() ??
+        'Partner Owner';
+    final partnerPhone = partnerData['business_phone']?.toString() ??
+        partnerUserData['phone']?.toString() ??
+        partnerData['phone']?.toString() ??
+        '';
+    final vehicleName = _vehicleTitle(partnerVehicle.isNotEmpty ? partnerVehicle : vehicle);
+
+    final rawRental = (booking['rental_subtotal'] as num?)?.toDouble() ??
+        ((booking['total_price'] as num?)?.toDouble() ?? 0.0);
+    final deliveryFee = (booking['delivery_fee'] as num?)?.toDouble() ?? 0.0;
+    final lateFee = (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
+    final rentalSubtotal = (rawRental > 0 ? rawRental : ((booking['total_price'] as num?)?.toDouble() ?? 0.0)) + deliveryFee + lateFee;
+    final commission = rentalSubtotal * 0.10;
+    final netPayout = (rentalSubtotal - commission).clamp(0.0, double.infinity);
+
+    final payoutAmountController =
+        TextEditingController(text: netPayout.toStringAsFixed(2));
+    final referenceController = TextEditingController();
+    String selectedMethod = 'GCash';
+    PlatformFile? receiptFile;
+    bool isSubmitting = false;
+
+    // Load registered payout methods
+    List<PayoutMethod> registeredMethods = [];
+    if (partnerUserId != null && partnerUserId.isNotEmpty) {
+      try {
+        registeredMethods = await PayoutMethodService().getPayoutMethods(partnerUserId);
+        if (registeredMethods.isNotEmpty) {
+          selectedMethod = registeredMethods.first.provider;
+        }
+      } catch (e) {
+        debugPrint('Could not load partner payout methods: $e');
+      }
+    }
+
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final effectiveNet = double.tryParse(payoutAmountController.text) ?? netPayout;
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF172235) : Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black26, blurRadius: 24, offset: Offset(0, 8)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withValues(alpha: 0.12),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Colors.purple.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.payments_outlined,
+                              color: Colors.purpleAccent,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Disburse Partner Commission / Payout',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$vehicleName • Booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark ? Colors.white60 : Colors.black54,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Partner Info & Payout Method Card
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF1E2D44) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF2C3E5A) : const Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: Colors.purple.withValues(alpha: 0.2),
+                                    child: const Icon(Icons.handshake_outlined, color: Colors.purpleAccent),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          partnerName,
+                                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        if (registeredMethods.isNotEmpty)
+                                          Text(
+                                            '${registeredMethods.first.provider}: ${registeredMethods.first.accountNumber} (${registeredMethods.first.accountName})',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: isDark ? Colors.purple[200] : Colors.purple[800],
+                                            ),
+                                          )
+                                        else if (partnerPhone.isNotEmpty)
+                                          Text(
+                                            'Phone / GCash: $partnerPhone',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: isDark ? Colors.white70 : const Color(0xFF334155),
+                                            ),
+                                          )
+                                        else
+                                          const Text(
+                                            'No registered payout method',
+                                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (registeredMethods.isNotEmpty || partnerPhone.isNotEmpty)
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        final target = registeredMethods.isNotEmpty
+                                            ? registeredMethods.first.accountNumber
+                                            : partnerPhone;
+                                        Clipboard.setData(ClipboardData(text: target));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Copied $target to clipboard.'),
+                                            backgroundColor: Colors.purple,
+                                            duration: const Duration(seconds: 2),
+                                          ),
+                                        );
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.purple.withValues(alpha: 0.15),
+                                        foregroundColor: Colors.purpleAccent,
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                      icon: const Icon(Icons.copy_rounded, size: 14),
+                                      label: const Text('Copy Account', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+
+                            // Revenue Breakdown Table
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Rental Gross (Subtotal + Fees)', style: TextStyle(fontSize: 12)),
+                                      Text('PHP ${rentalSubtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('PSDC Platform Commission (10%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                                      Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
+                                    ],
+                                  ),
+                                  const Divider(height: 16),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Net Payout to Partner (90%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                                      Text(
+                                        'PHP ${netPayout.toStringAsFixed(2)}',
+                                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.purpleAccent),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Payment Method & Reference
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Disbursement Method', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      DropdownButtonFormField<String>(
+                                        value: selectedMethod,
+                                        dropdownColor: isDark ? const Color(0xFF1E2D44) : Colors.white,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          filled: true,
+                                          fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(value: 'GCash', child: Text('GCash')),
+                                          DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                                          DropdownMenuItem(value: 'Maya', child: Text('Maya')),
+                                          DropdownMenuItem(value: 'PSDC Cash Counter', child: Text('PSDC Cash Counter')),
+                                        ],
+                                        onChanged: (val) {
+                                          if (val != null) setDialogState(() => selectedMethod = val);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Reference / Transaction No.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: referenceController,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          hintText: 'e.g. 2004918239',
+                                          filled: true,
+                                          fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Upload Receipt Section
+                            const Text('Proof of Disbursement (Receipt / Screenshot)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 6),
+                            if (receiptFile == null)
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final result = await FilePicker.platform.pickFiles(
+                                    type: FileType.custom,
+                                    allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+                                    withData: true,
+                                  );
+                                  if (result != null && result.files.isNotEmpty) {
+                                    setDialogState(() => receiptFile = result.files.first);
+                                  }
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(46),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                icon: const Icon(Icons.upload_file_rounded),
+                                label: const Text('Attach GCash / Transfer Receipt'),
+                              )
+                            else
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.purple.withValues(alpha: 0.4)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.receipt_long_rounded, color: Colors.purpleAccent),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        receiptFile!.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () => setDialogState(() => receiptFile = null),
+                                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                      tooltip: 'Remove receipt',
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Actions
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: isSubmitting
+                                  ? null
+                                  : () async {
+                                      final ref = referenceController.text.trim();
+                                      if (ref.isEmpty && receiptFile == null) {
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Please provide a reference number or upload a receipt.'),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                        return;
+                                      }
+
+                                      setDialogState(() => isSubmitting = true);
+
+                                      try {
+                                        String uploadedReceiptUrl = '';
+                                        if (receiptFile?.bytes != null) {
+                                          final currentUserId = _supabase.auth.currentUser?.id ?? '';
+                                          uploadedReceiptUrl = await BookingInspectionService().uploadEvidenceBytes(
+                                            userId: currentUserId,
+                                            bookingId: bookingId,
+                                            bytes: receiptFile!.bytes!,
+                                            extension: receiptFile!.extension ?? 'jpg',
+                                          );
+                                        }
+
+                                        final currentUserId = _supabase.auth.currentUser?.id ?? '';
+                                        await BookingService().disbursePartnerCommission(
+                                          bookingId: bookingId,
+                                          operatorId: currentUserId,
+                                          paymentMethod: selectedMethod,
+                                          referenceNumber: ref,
+                                          receiptUrl: uploadedReceiptUrl,
+                                          netAmount: effectiveNet,
+                                          commissionAmount: commission,
+                                          partnerUserId: partnerUserId,
+                                        );
+
+                                        if (dialogContext.mounted) {
+                                          Navigator.pop(dialogContext);
+                                        }
+                                        _loadRecentBookings();
+                                        _loadDashboardData(showLoading: false);
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Partner payout of PHP ${effectiveNet.toStringAsFixed(2)} disbursed to $partnerName successfully.',
+                                              ),
+                                              backgroundColor: Colors.purple,
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        setDialogState(() => isSubmitting = false);
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Failed to disburse partner payout: $e'),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.purple.shade600,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(46),
+                              ),
+                              child: isSubmitting
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                    )
+                                  : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    payoutAmountController.dispose();
+    referenceController.dispose();
+  }
+
+  Future<void> _showDisburseDriverPayoutDialog(
+    Map<String, dynamic> booking,
+  ) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bookingId = booking['id']?.toString() ?? '';
+    final driverData = booking['driver'] as Map<String, dynamic>? ?? {};
+    final driverUserData = (driverData['users'] ?? driverData['user']) as Map<String, dynamic>? ?? {};
+
+    final driverUserId = (booking['driver_id'] ?? driverData['user_id'] ?? driverUserData['id'])?.toString();
+    final driverName = driverUserData['full_name']?.toString() ??
+        driverData['full_name']?.toString() ??
+        'Assigned Driver';
+    final driverPhone = driverUserData['phone']?.toString() ??
+        driverData['phone']?.toString() ??
+        '';
+
+    final latestAssignment = _latestDriverAssignment(booking);
+    final driverGross = (booking['driver_fee'] as num?)?.toDouble() ??
+        (latestAssignment?['trip_fee'] as num?)?.toDouble() ??
+        0.0;
+    final commission = driverGross * 0.15;
+    final netPayout = (driverGross - commission).clamp(0.0, double.infinity);
+
+    final payoutAmountController =
+        TextEditingController(text: netPayout.toStringAsFixed(2));
+    final referenceController = TextEditingController();
+    String selectedMethod = 'GCash';
+    PlatformFile? receiptFile;
+    bool isSubmitting = false;
+
+    // Load registered payout methods
+    List<PayoutMethod> registeredMethods = [];
+    if (driverUserId != null && driverUserId.isNotEmpty) {
+      try {
+        registeredMethods = await PayoutMethodService().getPayoutMethods(driverUserId);
+        if (registeredMethods.isNotEmpty) {
+          selectedMethod = registeredMethods.first.provider;
+        }
+      } catch (e) {
+        debugPrint('Could not load driver payout methods: $e');
+      }
+    }
+
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final effectiveNet = double.tryParse(payoutAmountController.text) ?? netPayout;
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF172235) : Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black26, blurRadius: 24, offset: Offset(0, 8)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: const Color(0xFF0284C7).withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0284C7).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.paid_outlined,
+                              color: Color(0xFF0284C7),
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Disburse Driver Fee / Payout',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Driver: $driverName • Booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark ? Colors.white60 : Colors.black54,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Driver Info & Payout Method Card
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF1E2D44) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF2C3E5A) : const Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.2),
+                                    child: const Icon(Icons.drive_eta_rounded, color: Color(0xFF0284C7)),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          driverName,
+                                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        if (registeredMethods.isNotEmpty)
+                                          Text(
+                                            '${registeredMethods.first.provider}: ${registeredMethods.first.accountNumber} (${registeredMethods.first.accountName})',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF38BDF8),
+                                            ),
+                                          )
+                                        else if (driverPhone.isNotEmpty)
+                                          Text(
+                                            'Phone / GCash: $driverPhone',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: isDark ? Colors.white70 : const Color(0xFF334155),
+                                            ),
+                                          )
+                                        else
+                                          const Text(
+                                            'No registered payout method',
+                                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (registeredMethods.isNotEmpty || driverPhone.isNotEmpty)
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        final target = registeredMethods.isNotEmpty
+                                            ? registeredMethods.first.accountNumber
+                                            : driverPhone;
+                                        Clipboard.setData(ClipboardData(text: target));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Copied $target to clipboard.'),
+                                            backgroundColor: const Color(0xFF0284C7),
+                                            duration: const Duration(seconds: 2),
+                                          ),
+                                        );
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                                        foregroundColor: const Color(0xFF38BDF8),
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                      icon: const Icon(Icons.copy_rounded, size: 14),
+                                      label: const Text('Copy Account', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+
+                            // Revenue Breakdown Table
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Driver Gross Fee', style: TextStyle(fontSize: 12)),
+                                      Text('PHP ${driverGross.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('PSDC Platform Commission (15%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                                      Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
+                                    ],
+                                  ),
+                                  const Divider(height: 16),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Net Payout to Driver (85%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                                      Text(
+                                        'PHP ${netPayout.toStringAsFixed(2)}',
+                                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF38BDF8)),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Payment Method & Reference
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Disbursement Method', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      DropdownButtonFormField<String>(
+                                        value: selectedMethod,
+                                        dropdownColor: isDark ? const Color(0xFF1E2D44) : Colors.white,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          filled: true,
+                                          fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(value: 'GCash', child: Text('GCash')),
+                                          DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                                          DropdownMenuItem(value: 'Maya', child: Text('Maya')),
+                                          DropdownMenuItem(value: 'PSDC Cash Counter', child: Text('PSDC Cash Counter')),
+                                        ],
+                                        onChanged: (val) {
+                                          if (val != null) setDialogState(() => selectedMethod = val);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Reference / Transaction No.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: referenceController,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          hintText: 'e.g. 3009218273',
+                                          filled: true,
+                                          fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Upload Receipt Section
+                            const Text('Proof of Disbursement (Receipt / Screenshot)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 6),
+                            if (receiptFile == null)
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final result = await FilePicker.platform.pickFiles(
+                                    type: FileType.custom,
+                                    allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+                                    withData: true,
+                                  );
+                                  if (result != null && result.files.isNotEmpty) {
+                                    setDialogState(() => receiptFile = result.files.first);
+                                  }
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(46),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                icon: const Icon(Icons.upload_file_rounded),
+                                label: const Text('Attach GCash / Transfer Receipt'),
+                              )
+                            else
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.4)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.receipt_long_rounded, color: Color(0xFF0284C7)),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        receiptFile!.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () => setDialogState(() => receiptFile = null),
+                                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                      tooltip: 'Remove receipt',
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Actions
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: isSubmitting
+                                  ? null
+                                  : () async {
+                                      final ref = referenceController.text.trim();
+                                      if (ref.isEmpty && receiptFile == null) {
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Please provide a reference number or upload a receipt.'),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                        return;
+                                      }
+
+                                      setDialogState(() => isSubmitting = true);
+
+                                      try {
+                                        String uploadedReceiptUrl = '';
+                                        if (receiptFile?.bytes != null) {
+                                          final currentUserId = _supabase.auth.currentUser?.id ?? '';
+                                          uploadedReceiptUrl = await BookingInspectionService().uploadEvidenceBytes(
+                                            userId: currentUserId,
+                                            bookingId: bookingId,
+                                            bytes: receiptFile!.bytes!,
+                                            extension: receiptFile!.extension ?? 'jpg',
+                                          );
+                                        }
+
+                                        final currentUserId = _supabase.auth.currentUser?.id ?? '';
+                                        await BookingService().disburseDriverCommission(
+                                          bookingId: bookingId,
+                                          operatorId: currentUserId,
+                                          paymentMethod: selectedMethod,
+                                          referenceNumber: ref,
+                                          receiptUrl: uploadedReceiptUrl,
+                                          netAmount: effectiveNet,
+                                          commissionAmount: commission,
+                                          driverUserId: driverUserId,
+                                        );
+
+                                        if (dialogContext.mounted) {
+                                          Navigator.pop(dialogContext);
+                                        }
+                                        _loadRecentBookings();
+                                        _loadDashboardData(showLoading: false);
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Driver payout of PHP ${effectiveNet.toStringAsFixed(2)} disbursed to $driverName successfully.',
+                                              ),
+                                              backgroundColor: const Color(0xFF0284C7),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        setDialogState(() => isSubmitting = false);
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Failed to disburse driver payout: $e'),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF0284C7),
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(46),
+                              ),
+                              child: isSubmitting
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                    )
+                                  : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    payoutAmountController.dispose();
+    referenceController.dispose();
+  }
+
   Future<void> _showBookingSafetyReviewDialog(
     Map<String, dynamic> booking,
   ) async {
@@ -15325,7 +16468,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         key: false,
     };
     final selectedEvidence = <PlatformFile>[];
-    bool returnDepositEligible = false;
+    bool returnDepositEligible = true;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final shouldSave = await showDialog<bool>(
