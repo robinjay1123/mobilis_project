@@ -3385,67 +3385,90 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ),
                   ),
 
-                  // Driver delivery requires a pickup. Every rental still
-                  // records its own trip destination below.
-                  Container(
-                    margin: const EdgeInsets.only(top: 12),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkBgSecondary,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.borderColor),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.local_shipping_outlined,
-                          color: AppColors.primary,
+                  // Vehicle Delivery and Need a Driver are mutually exclusive.
+                  // When driver is selected, Vehicle Delivery is locked/dimmed.
+                  Opacity(
+                    opacity: _withDriver ? 0.4 : 1.0,
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 12),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBgSecondary,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _withDriver
+                              ? AppColors.borderColor.withOpacity(0.4)
+                              : AppColors.borderColor,
                         ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Vehicle Delivery',
-                                style: TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                'Have the vehicle delivered without hiring a driver.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ],
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.local_shipping_outlined,
+                            color: _withDriver
+                                ? AppColors.textSecondary
+                                : AppColors.primary,
                           ),
-                        ),
-                        Switch(
-                          value: _vehicleDelivery,
-                          activeThumbColor: AppColors.primary,
-                          onChanged: _withDriver
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _vehicleDelivery = value;
-                                    if (!value) {
-                                      _pickupProvince = null;
-                                      _pickupCity = null;
-                                      _pickupBarangay = null;
-                                      _pickupFreetext = null;
-                                      _pickupMapPin = null;
-                                      _pickupFreetextController.clear();
-                                      _deliveryDistanceKm = null;
-                                    }
-                                  });
-                                  if (value) _refreshDeliveryEstimate();
-                                },
-                        ),
-                      ],
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Vehicle Delivery',
+                                      style: TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (_withDriver) ...[
+                                      const SizedBox(width: 6),
+                                      const Icon(
+                                        Icons.lock_outline,
+                                        size: 13,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _withDriver
+                                      ? 'Unavailable when a driver is hired.'
+                                      : 'Have the vehicle delivered without hiring a driver.',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: _vehicleDelivery,
+                            activeColor: AppColors.primary,
+                            onChanged: _withDriver
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _vehicleDelivery = value;
+                                      if (!value) {
+                                        _pickupProvince = null;
+                                        _pickupCity = null;
+                                        _pickupBarangay = null;
+                                        _pickupFreetext = null;
+                                        _pickupMapPin = null;
+                                        _pickupFreetextController.clear();
+                                        _deliveryDistanceKm = null;
+                                      }
+                                    });
+                                    if (value) _refreshDeliveryEstimate();
+                                  },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
 
