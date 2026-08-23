@@ -25372,6 +25372,99 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
 
     if (confirmed != true) return;
+    if (!mounted) return;
+
+    final doubleConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (confirmCtx) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.help_outline_rounded, color: Color(0xFF10B981), size: 24),
+            const SizedBox(width: 10),
+            Text(
+              'Confirm Price Update',
+              style: TextStyle(
+                color: isDark ? Colors.white : _operatorInk,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Are you sure you want to approve and apply these new rates for $vehicleTitle?',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[200] : Colors.grey[900],
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '• New Daily Rate: PHP ${_formatCurrency(reqDaily)} /day',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF10B981)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '• New Hourly Rate: PHP ${_formatCurrency(reqHourly)} /hr',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF10B981)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Once confirmed, the vehicle prices will update automatically across the platform without opening the edit vehicle window.',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(confirmCtx, false),
+            child: Text('Cancel', style: TextStyle(color: Colors.grey[600])),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(confirmCtx, true),
+            icon: const Icon(Icons.check_circle_rounded, size: 18),
+            label: const Text('Yes, Apply Price', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (doubleConfirmed != true) return;
 
     try {
       final reqId = req['id']?.toString() ?? '';
@@ -25483,11 +25576,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ]);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Price approved and automatically updated to PHP ${_formatCurrency(reqDaily)}/day for $vehicleTitle!'),
-            backgroundColor: const Color(0xFF10B981),
-          ),
+        _showOperatorCheckModal(
+          title: 'Price Approved!',
+          message:
+              'Rates for $vehicleTitle have been automatically updated to PHP ${_formatCurrency(reqDaily)}/day (PHP ${_formatCurrency(reqHourly)}/hr).',
+          accentColor: const Color(0xFF10B981),
+          icon: Icons.check_circle_rounded,
         );
       }
     } catch (e) {
@@ -26303,6 +26397,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  void _showOperatorCheckModal({
+    required String title,
+    required String message,
+    Color accentColor = const Color(0xFF10B981),
+    IconData icon = Icons.check_circle_rounded,
+  }) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _OperatorCheckModal(
+        title: title,
+        message: message,
+        accentColor: accentColor,
+        icon: icon,
       ),
     );
   }
@@ -28396,6 +28508,152 @@ class _OperatorEnlargedDriverMapDialogState
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OperatorCheckModal extends StatefulWidget {
+  final String title;
+  final String message;
+  final Color accentColor;
+  final IconData icon;
+
+  const _OperatorCheckModal({
+    required this.title,
+    required this.message,
+    required this.accentColor,
+    required this.icon,
+  });
+
+  @override
+  State<_OperatorCheckModal> createState() => _OperatorCheckModalState();
+}
+
+class _OperatorCheckModalState extends State<_OperatorCheckModal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+  late final Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _scale = CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut);
+    _fade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.0, 0.4, curve: Curves.easeIn),
+    );
+    _ctrl.forward();
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return FadeTransition(
+      opacity: _fade,
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Center(
+          child: Container(
+            width: 320,
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E2535) : Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.12),
+                  blurRadius: 32,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ScaleTransition(
+                  scale: _scale,
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: widget.accentColor.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: widget.accentColor.withValues(alpha: 0.35),
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      widget.icon,
+                      size: 42,
+                      color: widget.accentColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  widget.title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  widget.message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 22),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      backgroundColor:
+                          widget.accentColor.withValues(alpha: 0.12),
+                      foregroundColor: widget.accentColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text(
+                      'Done',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
