@@ -499,6 +499,50 @@ class UserRestrictionService {
     }
   }
 
+  /// Permanently bans and blocks a user account immediately across all platform roles & bookings
+  Future<void> blockUserPermanently(String userId, String reason) async {
+    try {
+      final userResponse = await supabase
+          .from('users')
+          .select('id, role, email, phone, full_name')
+          .eq('id', userId)
+          .maybeSingle();
+
+      final role = userResponse?['role']?.toString().trim().toLowerCase() ?? '';
+      final now = DateTime.now().toIso8601String();
+
+      await supabase
+          .from('users')
+          .update({
+            'is_blocked': true,
+            'is_active': false,
+            'id_verified': false,
+            'verification_status': 'rejected',
+            'application_status': 'rejected',
+            'chat_restricted_until': null,
+            'account_restricted_until': null,
+            'restriction_level': 'third_attempt_blocked',
+            'restriction_reason': reason,
+            'suspension_reason': reason,
+            'suspended_at': now,
+            'updated_at': now,
+          })
+          .eq('id', userId);
+
+      await _applyRoleRestrictions(userId: userId, role: role);
+      await _handleRenterBookingsOnViolation(userId: userId);
+
+      await _recordBlockedIdentity(
+        userId: userId,
+        email: userResponse?['email']?.toString(),
+        phone: userResponse?['phone']?.toString(),
+        fullName: userResponse?['full_name']?.toString(),
+      );
+    } catch (e) {
+      debugPrint('Error in blockUserPermanently: $e');
+    }
+  }
+
   Future<void> markUserAsBlockedMatch({
     required String userId,
     required String matchedBlockedUserId,
