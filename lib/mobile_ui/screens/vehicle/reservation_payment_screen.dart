@@ -8,12 +8,19 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../profile/legal_terms_privacy_screen.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/mpin_service.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../utils/currency_formatter.dart';
 import '../../../utils/pricing_policy.dart';
 import '../../../utils/web_html.dart' as html;
+
+enum PaymentPurpose {
+  initialBooking,
+  releaseSettlement,
+  lateReturnPenalty,
+}
 
 class ReservationPaymentScreen extends StatefulWidget {
   final String userId;
@@ -30,6 +37,12 @@ class ReservationPaymentScreen extends StatefulWidget {
   final String? dropoffLocation;
   final bool withDriver;
   final double driverFee;
+  final PaymentPurpose paymentPurpose;
+  final double? paidReservationFee;
+  final double? lateFeeAmount;
+  final int? lateHours;
+  final DateTime? returnTimestamp;
+  final String? bookingId;
 
   const ReservationPaymentScreen({
     super.key,
@@ -47,6 +60,12 @@ class ReservationPaymentScreen extends StatefulWidget {
     this.dropoffLocation,
     this.withDriver = false,
     this.driverFee = 0.0,
+    this.paymentPurpose = PaymentPurpose.initialBooking,
+    this.paidReservationFee,
+    this.lateFeeAmount,
+    this.lateHours,
+    this.returnTimestamp,
+    this.bookingId,
   });
 
   @override
@@ -87,6 +106,10 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.paymentPurpose == PaymentPurpose.releaseSettlement ||
+        widget.paymentPurpose == PaymentPurpose.lateReturnPenalty) {
+      _payFullAmount = true;
+    }
     _loadInitialData();
   }
 
@@ -295,7 +318,32 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         ? widget.reservationFeeAmount
         : _settings.amount; // default ₱1,000
     final grandTotal = principalRentalSubtotal + securityDeposit;
-    final payableAmount = _payFullAmount ? grandTotal : reservationFee;
+    final resFeePaid = widget.paidReservationFee ?? reservationFee;
+
+    final dailyRate = (widget.vehicleData['price_per_day'] as num?)?.toDouble() ??
+        (widget.vehicleData['daily_rate'] as num?)?.toDouble() ??
+        widget.rentalTotal;
+    final lateHours = widget.lateHours ?? 1;
+    final lateFee = widget.lateFeeAmount ??
+        _settings.calculateLateFee(
+          seats: seats,
+          lateHours: lateHours,
+          dailyRate: dailyRate,
+        );
+
+    double payableAmount;
+    String paymentType;
+
+    if (widget.paymentPurpose == PaymentPurpose.lateReturnPenalty) {
+      payableAmount = lateFee;
+      paymentType = 'late_return_penalty';
+    } else if (widget.paymentPurpose == PaymentPurpose.releaseSettlement) {
+      payableAmount = (grandTotal - resFeePaid).clamp(0.0, double.infinity);
+      paymentType = 'release_settlement';
+    } else {
+      payableAmount = _payFullAmount ? grandTotal : reservationFee;
+      paymentType = _payFullAmount ? 'full_payment' : 'reservation_only';
+    }
 
     if (senderPhone.isEmpty) {
       setState(() {
@@ -313,7 +361,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
       return;
     }
 
-    // PSDC Desk / Over-the-counter payment (Requires Operator MPIN Authorization)
+    // PSDC Desk / Over-the-counter payment (Requires Operator MPIN Authorization & Evidence)
     if (_selectedPaymentChannel == 'desk') {
       if (_isDeskPaymentLocked) {
         setState(() {
@@ -329,16 +377,44 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         });
         return;
       }
+      if (_receiptFile == null) {
+        setState(() {
+          _errorText =
+              'Please upload receipt / settlement evidence photo before confirming.';
+        });
+        return;
+      }
 
       final opName = _deskApprovedOperatorName ?? 'PSDC Desk Operator';
       final refNum = 'DESK-${opName.replaceAll(' ', '').toUpperCase()}';
       final noteDesc =
           'The payment has been paid in desk (Authorized by $opName)';
 
+      setState(() {
+        _isUploading = true;
+        _errorText = null;
+      });
+
+      String proofUrl = 'desk_payment_authorized';
+      String? proofStoragePath;
+
+      try {
+        if (_receiptFile != null) {
+          final receiptUpload = await _paymentService.uploadReceiptProof(
+            userId: widget.userId,
+            file: _receiptFile!,
+          );
+          proofUrl = receiptUpload.publicUrl;
+          proofStoragePath = receiptUpload.storagePath;
+        }
+      } catch (e) {
+        debugPrint('Receipt upload warning during desk payment: $e');
+      }
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Payment authorized at PSDC Desk by $opName.'),
+          content: Text('Payment authorized and receipt attached at PSDC Desk by $opName.'),
           backgroundColor: const Color(0xFF10B981),
         ),
       );
@@ -348,13 +424,15 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         ReservationPaymentProof(
           amount: payableAmount,
           method: 'psdc_desk_counter',
-          paymentType: _payFullAmount ? 'full_payment' : 'reservation_only',
+          paymentType: paymentType,
           referenceNumber: refNum,
-          proofUrl: 'desk_payment_authorized',
-          proofStoragePath: null,
+          proofUrl: proofUrl,
+          proofStoragePath: proofStoragePath,
           senderPhone: senderPhone,
           securityDeposit: securityDeposit,
-          reservationFee: _payFullAmount ? 0.0 : reservationFee,
+          reservationFee: (widget.paymentPurpose == PaymentPurpose.initialBooking && !_payFullAmount)
+              ? reservationFee
+              : 0.0,
           operatorName: opName,
           operatorId: _deskApprovedOperatorId,
           notes: noteDesc,
@@ -401,13 +479,15 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         ReservationPaymentProof(
           amount: payableAmount,
           method: 'psdc_qr_payment',
-          paymentType: _payFullAmount ? 'full_payment' : 'reservation_only',
+          paymentType: paymentType,
           referenceNumber: reference,
           proofUrl: receiptUpload.publicUrl,
           proofStoragePath: receiptUpload.storagePath,
           senderPhone: senderPhone,
           securityDeposit: securityDeposit,
-          reservationFee: _payFullAmount ? 0.0 : reservationFee,
+          reservationFee: (widget.paymentPurpose == PaymentPurpose.initialBooking && !_payFullAmount)
+              ? reservationFee
+              : 0.0,
         ),
       );
     } catch (e) {
@@ -453,16 +533,39 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         ? widget.reservationFeeAmount
         : _settings.amount; // default ₱1,000
 
+    final dailyRate = (vehicle['price_per_day'] as num?)?.toDouble() ??
+        (vehicle['daily_rate'] as num?)?.toDouble() ??
+        widget.rentalTotal;
+
+    final lateHours = widget.lateHours ?? 1;
+    final lateFee = widget.lateFeeAmount ??
+        _settings.calculateLateFee(
+          seats: seats,
+          lateHours: lateHours,
+          dailyRate: dailyRate,
+        );
+
+    final resFeePaid = widget.paidReservationFee ?? reservationFee;
+
     // Grand total = Principal rental charges + Refundable security deposit
     final grandTotal = principalRentalSubtotal + securityDeposit;
 
-    // Full Payment: Grand Total (Principal + Security Deposit; No Reservation Fee)
-    // Reservation Only: Reservation Fee now to hold booking
-    final payableAmount = _payFullAmount ? grandTotal : reservationFee;
+    final isReleaseSettlement = widget.paymentPurpose == PaymentPurpose.releaseSettlement;
+    final isLatePenalty = widget.paymentPurpose == PaymentPurpose.lateReturnPenalty;
 
-    // Remaining balance due upon vehicle turnover
-    final remainingBalance =
-        _payFullAmount ? 0.0 : (grandTotal - reservationFee).clamp(0.0, double.infinity);
+    double payableAmount;
+    double remainingBalance = 0.0;
+
+    if (isLatePenalty) {
+      payableAmount = lateFee;
+      remainingBalance = 0.0;
+    } else if (isReleaseSettlement) {
+      payableAmount = (grandTotal - resFeePaid).clamp(0.0, double.infinity);
+      remainingBalance = 0.0;
+    } else {
+      payableAmount = _payFullAmount ? grandTotal : reservationFee;
+      remainingBalance = _payFullAmount ? 0.0 : (grandTotal - reservationFee).clamp(0.0, double.infinity);
+    }
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
@@ -477,7 +580,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           onPressed: _isUploading ? null : () => Navigator.pop(context),
         ),
         title: Text(
-          'Reservation Payment & Checkout',
+          isLatePenalty
+              ? 'Late Return Settlement'
+              : (isReleaseSettlement
+                  ? 'Trip Balance Settlement'
+                  : 'Reservation Payment & Checkout'),
           style: TextStyle(
             color: isDark ? Colors.white : const Color(0xFF0F172A),
             fontSize: 18,
@@ -503,6 +610,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
                     children: [
+                      if (isLatePenalty) ...[
+                        _buildLateReturnInfographicCard(isDark, seats, dailyRate),
+                        const SizedBox(height: 16),
+                      ],
+
                       // VEHICLE & BOOKING SUMMARY CARD
                       _buildVehicleSummaryCard(
                         isDark: isDark,
@@ -513,26 +625,50 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                       ),
                       const SizedBox(height: 16),
 
+                      if (isReleaseSettlement) ...[
+                        _buildPreReleaseNoticeCard(isDark),
+                        const SizedBox(height: 16),
+                      ],
+
                       // PAYMENT CHANNEL SELECTOR (Online via QR vs PSDC Desk)
                       _buildChannelSelector(isDark),
                       const SizedBox(height: 16),
 
-                      // FULL AMOUNT TOGGLE (placed ABOVE the breakdown)
-                      _buildFullAmountSwitchCard(isDark),
-                      const SizedBox(height: 16),
+                      if (!isReleaseSettlement && !isLatePenalty) ...[
+                        // FULL AMOUNT TOGGLE (placed ABOVE the breakdown)
+                        _buildFullAmountSwitchCard(isDark),
+                        const SizedBox(height: 16),
+                      ],
 
                       // COMPUTATION & TOTAL BREAKDOWN CARD
-                      _buildBreakdownCard(
-                        isDark: isDark,
-                        isPartnerVehicle: isPartnerVehicle,
-                        partnerCommission: partnerCommission,
-                        principalRentalSubtotal: principalRentalSubtotal,
-                        securityDeposit: securityDeposit,
-                        reservationFee: reservationFee,
-                        grandTotal: grandTotal,
-                        payableAmount: payableAmount,
-                        remainingBalance: remainingBalance,
-                      ),
+                      if (isLatePenalty)
+                        _buildLatePenaltyBreakdownCard(
+                          isDark: isDark,
+                          lateHours: lateHours,
+                          seats: seats,
+                          dailyRate: dailyRate,
+                          lateFeeAmount: lateFee,
+                        )
+                      else if (isReleaseSettlement)
+                        _buildReleaseSettlementBreakdownCard(
+                          isDark: isDark,
+                          principalRentalSubtotal: principalRentalSubtotal,
+                          securityDeposit: securityDeposit,
+                          reservationFeePaid: resFeePaid,
+                          remainingBalance: payableAmount,
+                        )
+                      else
+                        _buildBreakdownCard(
+                          isDark: isDark,
+                          isPartnerVehicle: isPartnerVehicle,
+                          partnerCommission: partnerCommission,
+                          principalRentalSubtotal: principalRentalSubtotal,
+                          securityDeposit: securityDeposit,
+                          reservationFee: reservationFee,
+                          grandTotal: grandTotal,
+                          payableAmount: payableAmount,
+                          remainingBalance: remainingBalance,
+                        ),
                       const SizedBox(height: 16),
 
                       // CHANNEL SPECIFIC INSTRUCTIONS & INPUTS
@@ -1536,21 +1672,92 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: isDark ? const Color(0xFF0F172A) : Colors.white,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                'The payment has been paid in desk (Authorized by ${_deskApprovedOperatorName ?? 'PSDC Desk Operator'}). Click Confirm Payment below to complete.',
-                style: TextStyle(
-                  color: isDark ? Colors.white60 : const Color(0xFF475569),
-                  fontSize: 11.5,
-                  height: 1.35,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _receiptFile != null
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFFE5A93C).withValues(alpha: 0.5),
+                  width: 1.5,
                 ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _receiptFile != null
+                            ? Icons.check_circle_rounded
+                            : Icons.add_a_photo_outlined,
+                        color: _receiptFile != null
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFFE5A93C),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _receiptFile != null
+                            ? 'Evidence / Receipt Attached'
+                            : 'Upload Proof / Receipt Evidence (Required)',
+                        style: TextStyle(
+                          color: _receiptFile != null
+                              ? const Color(0xFF10B981)
+                              : (isDark ? Colors.white : const Color(0xFF0F172A)),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _receiptFile != null
+                        ? 'Attachment: ${_receiptFile!.name}'
+                        : 'Please attach a photo of the desk receipt or transaction document to enable payment confirmation.',
+                    style: TextStyle(
+                      color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                      fontSize: 11.5,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isUploading ? null : _pickReceipt,
+                      icon: Icon(
+                        _receiptFile != null
+                            ? Icons.change_circle_outlined
+                            : Icons.upload_file_rounded,
+                        size: 16,
+                      ),
+                      label: Text(
+                        _receiptFile != null
+                            ? 'Change Attached Receipt'
+                            : 'Attach Receipt / Evidence Photo',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _receiptFile != null
+                            ? const Color(0xFF10B981)
+                            : AppColors.primary,
+                        side: BorderSide(
+                          color: _receiptFile != null
+                              ? const Color(0xFF10B981)
+                              : AppColors.primary,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 8),
@@ -2098,6 +2305,29 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     required bool isDark,
     required double payableAmount,
   }) {
+    final isDesk = _selectedPaymentChannel == 'desk';
+    final deskValid = _isDeskMpinApproved && !_isDeskPaymentLocked && _receiptFile != null;
+    final canConfirm = !_isUploading && (!isDesk || deskValid);
+
+    String btnLabel;
+    if (_isUploading) {
+      btnLabel = 'Uploading Proof...';
+    } else if (isDesk) {
+      if (!_isDeskMpinApproved) {
+        btnLabel = 'Enter Operator MPIN';
+      } else if (_receiptFile == null) {
+        btnLabel = 'Upload Evidence to Confirm';
+      } else {
+        btnLabel = 'Confirm PSDC Desk Payment';
+      }
+    } else {
+      btnLabel = widget.paymentPurpose == PaymentPurpose.lateReturnPenalty
+          ? 'Pay Late Return Fee'
+          : (widget.paymentPurpose == PaymentPurpose.releaseSettlement
+              ? 'Settle Trip Balance'
+              : 'Submit Payment Proof');
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       decoration: BoxDecoration(
@@ -2145,11 +2375,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
               child: SizedBox(
                 height: 48,
                 child: ElevatedButton.icon(
-                  onPressed: (_isUploading ||
-                          (_selectedPaymentChannel == 'desk' &&
-                              (!_isDeskMpinApproved || _isDeskPaymentLocked)))
-                      ? null
-                      : _confirmPayment,
+                  onPressed: canConfirm ? _confirmPayment : null,
                   icon: _isUploading
                       ? const SizedBox(
                           width: 18,
@@ -2161,23 +2387,17 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                         )
                       : const Icon(Icons.check_circle_outline, size: 20),
                   label: Text(
-                    _isUploading
-                        ? 'Uploading Proof...'
-                        : _selectedPaymentChannel == 'desk'
-                            ? (_isDeskMpinApproved
-                                ? 'Confirm PSDC Desk Payment'
-                                : 'Enter Operator MPIN to Confirm')
-                            : 'Submit Payment Proof',
+                    btnLabel,
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: (_selectedPaymentChannel == 'desk' && !_isDeskMpinApproved)
+                    backgroundColor: !canConfirm
                         ? (isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1))
                         : AppColors.primary,
-                    foregroundColor: (_selectedPaymentChannel == 'desk' && !_isDeskMpinApproved)
+                    foregroundColor: !canConfirm
                         ? (isDark ? Colors.white38 : Colors.black38)
                         : Colors.black,
                     elevation: 0,
@@ -2190,6 +2410,414 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLateReturnInfographicCard(bool isDark, int seats, double dailyRate) {
+    final hours = widget.lateHours ?? 1;
+    final returnTime = widget.returnTimestamp ?? DateTime.now();
+    final isWholeDayCap = hours >= _settings.lateFeeDayCapHours;
+    final hourlyRate = seats >= 6 ? _settings.lateFee6PlusSeater : _settings.lateFee4to5Seater;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? [const Color(0xFF451A1A), const Color(0xFF2D1214)]
+              : [const Color(0xFFFEF2F2), const Color(0xFFFEE2E2)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFEF4444).withValues(alpha: 0.6),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFEF4444),
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Oh no! You are late on returning the vehicle.',
+                      style: TextStyle(
+                        color: Color(0xFFDC2626),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Return initiated past scheduled return time',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF7F1D1D),
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+              ),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Return Click Timestamp:',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      DateFormat('MMM dd, yyyy • h:mm a').format(returnTime),
+                      style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Overdue Duration:',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '$hours hour${hours > 1 ? 's' : ''} overdue',
+                        style: const TextStyle(
+                          color: Color(0xFFDC2626),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Vehicle Capacity Tier:',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '$seats Seater (${seats >= 6 ? '₱350/hr tier' : '₱200/hr tier'})',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      isWholeDayCap ? 'Late Fee Rule (≥ 6 hrs):' : 'Late Fee Rule (< 6 hrs):',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      isWholeDayCap
+                          ? 'Whole Day Price Cap'
+                          : '₱${hourlyRate.toStringAsFixed(0)}/hr × $hours hr${hours > 1 ? 's' : ''}',
+                      style: const TextStyle(
+                        color: Color(0xFFDC2626),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.black26 : Colors.white.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Icon(Icons.info_outline, size: 15, color: Color(0xFFE5A93C)),
+                const SizedBox(width: 6),
+                Text(
+                  'All return procedures and penalty fees are based on the ',
+                  style: TextStyle(
+                    color: isDark ? Colors.white70 : const Color(0xFF475569),
+                    fontSize: 11.5,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LegalTermsPrivacyScreen(
+                          initialTab: 'terms',
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text(
+                    'Terms and Rental Agreement',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11.5,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+                Text(
+                  '.',
+                  style: TextStyle(
+                    color: isDark ? Colors.white70 : const Color(0xFF475569),
+                    fontSize: 11.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreReleaseNoticeCard(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF3B82F6).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF3B82F6).withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.notifications_active_rounded,
+              color: Color(0xFF3B82F6),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Pre-Trip Release Settlement',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
+                    color: Color(0xFF2563EB),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Please settle your remaining balance prior to vehicle handover at the station or delivery.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: isDark ? Colors.white70 : const Color(0xFF1E40AF),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReleaseSettlementBreakdownCard({
+    required bool isDark,
+    required double principalRentalSubtotal,
+    required double securityDeposit,
+    required double reservationFeePaid,
+    required double remainingBalance,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.receipt_long_rounded, color: AppColors.primary, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Pre-Release Payment Breakdown',
+                style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildBreakdownRow('Rental Total (Subtotal & Services)', principalRentalSubtotal, isDark: isDark),
+          const SizedBox(height: 8),
+          _buildBreakdownRow('Refundable Security Deposit', securityDeposit, isDark: isDark),
+          const SizedBox(height: 8),
+          _buildBreakdownRow(
+            'Less Reservation Fee Paid',
+            reservationFeePaid,
+            isDark: isDark,
+            isDiscount: true,
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1),
+          ),
+          _buildBreakdownRow(
+            'Total Remaining Balance Due',
+            remainingBalance,
+            isDark: isDark,
+            isBold: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLatePenaltyBreakdownCard({
+    required bool isDark,
+    required int lateHours,
+    required int seats,
+    required double dailyRate,
+    required double lateFeeAmount,
+  }) {
+    final isWholeDayCap = lateHours >= _settings.lateFeeDayCapHours;
+    final hourlyRate = seats >= 6 ? _settings.lateFee6PlusSeater : _settings.lateFee4to5Seater;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.receipt_long_rounded, color: Color(0xFFEF4444), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Late Return Fee Breakdown',
+                style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildBreakdownRow(
+            'Overdue duration',
+            lateHours.toDouble(),
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+          _buildBreakdownRow(
+            isWholeDayCap
+                ? 'Late fee rate (≥6 hrs: Full day price)'
+                : 'Late fee rate (₱${hourlyRate.toStringAsFixed(0)}/hr × $lateHours hr${lateHours > 1 ? 's' : ''})',
+            lateFeeAmount,
+            isDark: isDark,
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1),
+          ),
+          _buildBreakdownRow(
+            'Total Penalty to Pay',
+            lateFeeAmount,
+            isDark: isDark,
+            isBold: true,
+          ),
+        ],
       ),
     );
   }

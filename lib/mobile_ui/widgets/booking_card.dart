@@ -29,6 +29,10 @@ class BookingCard extends StatelessWidget {
   final bool isActive;
   final String? carImageUrl;
   final Widget? ongoingSummary;
+  final bool isPaidInFull;
+  final bool showPayNowButton;
+  final VoidCallback? onPayNow;
+  final String? preReleaseNotice;
 
   const BookingCard({
     super.key,
@@ -46,12 +50,16 @@ class BookingCard extends StatelessWidget {
     this.onTrack,
     this.onCancel,
     this.onRateTrip,
+    this.onPayNow,
     this.showMessageButton = false,
     this.showTrackButton = false,
     this.showCancelButton = false,
     this.showRating = true,
     this.showRateButton = false,
     this.isAlreadyRated = false,
+    this.isPaidInFull = false,
+    this.showPayNowButton = false,
+    this.preReleaseNotice,
     this.detailsButtonLabel = 'View Details',
     this.trackButtonLabel = 'Track Ongoing Trip',
     this.isActive = false,
@@ -306,6 +314,89 @@ class BookingCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
+            if (isPaidInFull && (normalizedStatus == 'approved' || normalizedStatus == 'confirmed' || normalizedStatus == 'pending_release')) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'You have already paid for this trip and it is ready for release.',
+                        style: TextStyle(
+                          color: isDark ? AppColors.success : const Color(0xFF15803D),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ] else if (showPayNowButton) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.info_outline_rounded, color: Colors.amber, size: 15),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            preReleaseNotice ?? 'Payment is required before vehicle release (1 day prior).',
+                            style: const TextStyle(
+                              color: Colors.amber,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: onPayNow,
+                        icon: const Icon(Icons.payment_rounded, color: Colors.black, size: 16),
+                        label: const Text(
+                          'Pay Now',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: Colors.black,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             if (showTrackButton) ...[
               SizedBox(
                 width: double.infinity,

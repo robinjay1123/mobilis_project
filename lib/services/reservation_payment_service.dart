@@ -17,15 +17,15 @@ class ReservationPaymentSettings {
   final String instructions;
 
   const ReservationPaymentSettings({
-    required this.amount,
+    this.amount = 1000.0,
     this.deposit4to5Seater = 2000.0,
     this.deposit6PlusSeater = 3000.0,
     this.lateFee4to5Seater = 200.0,
     this.lateFee6PlusSeater = 350.0,
     this.lateFeeDayCapHours = 6,
-    required this.qrUrl,
-    required this.accountName,
-    required this.instructions,
+    this.qrUrl = '',
+    this.accountName = 'PSDC Mobilis Account',
+    this.instructions = '',
   });
 
   /// Dynamically calculate the security deposit based on seat count.

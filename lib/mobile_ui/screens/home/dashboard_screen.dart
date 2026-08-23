@@ -26,9 +26,7 @@ import '../../../services/trip_rating_service.dart';
 import '../../../services/booking_receipt_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
-import '../../widgets/conversation_tile.dart';
 import '../../widgets/status_badge.dart';
-import '../../widgets/notification_item.dart';
 import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
 import '../../widgets/role_ui.dart';
@@ -42,9 +40,10 @@ import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
-import '../../widgets/dialog_status_indicator.dart';
 import '../profile/unified_profile_screen.dart';
 import '../tracking/trip_navigation_screen.dart';
+import '../vehicle/reservation_payment_screen.dart';
+import '../../widgets/return_inspection_notice_modal.dart';
 import '../../widgets/trip_route_history_dialog.dart';
 import '../../../utils/booking_status.dart';
 import '../../../utils/currency_formatter.dart';
@@ -5135,6 +5134,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     booking['returnedAt'] != null;
                 final isRated = _isRenterBookingFullyRated(booking);
 
+                final isPaidInFull = booking['reservationPaymentCoversTotal'] == true ||
+                    booking['reservationPaymentType'] == 'full_payment' ||
+                    booking['payment_status'] == 'paid_in_full' ||
+                    booking['is_full_payment'] == true ||
+                    booking['pre_trip_settlement_paid'] == true;
+                final isApprovedOrReady = booking['statusGroup'] == 'Approved' ||
+                    rawStatus == 'approved' ||
+                    rawStatus == 'confirmed' ||
+                    rawStatus == 'pending_release';
+                final showPayNow = isApprovedOrReady && !isPaidInFull;
+
                 return BookingCard(
                   carName: booking['carName'],
                   rentalPartner: booking['rentalPartner'],
@@ -5154,6 +5164,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ((booking['rating'] as num?)?.toDouble() ?? 0) > 0,
                   showRateButton: isReturnSubmitted,
                   isAlreadyRated: isRated,
+                  isPaidInFull: isPaidInFull,
+                  showPayNowButton: showPayNow,
+                  onPayNow: () => _handlePreTripReleasePayment(booking),
                   onRateTrip: () async {
                     final submitted = await Navigator.of(context).push<bool>(
                       MaterialPageRoute(
@@ -6011,6 +6024,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
+    final isPaidInFull = booking['reservationPaymentCoversTotal'] == true ||
+        booking['reservationPaymentType'] == 'full_payment' ||
+        booking['payment_status'] == 'paid_in_full' ||
+        booking['is_full_payment'] == true ||
+        booking['pre_trip_settlement_paid'] == true;
+    final isApprovedOrReady = booking['statusGroup'] == 'Approved' ||
+        rawStatus == 'approved' ||
+        rawStatus == 'confirmed' ||
+        rawStatus == 'pending_release';
+    final showPayNow = isApprovedOrReady && !isPaidInFull;
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => _RenterBookingDetailsPage(
@@ -6021,6 +6045,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           pendingRoles: pendingRoles,
           paymentTypeLabel: _bookingPaymentTypeLabel(booking),
           amountPaidLabel: _bookingAmountPaidLabel(booking),
+          isPaidInFull: isPaidInFull,
+          onPayRemainingBalance: showPayNow
+              ? () => _handlePreTripReleasePayment(booking)
+              : null,
           onMessage: _canOpenBookingConversation(booking)
               ? () => _openBookingConversation(booking)
               : null,
@@ -7846,27 +7874,128 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _handlePreTripReleasePayment(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final renterId = AuthService().currentUser?.id ?? '';
+    if (bookingId.isEmpty || renterId.isEmpty) return;
+
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final seats = (vehicle['seats'] as num?)?.toInt() ??
+        (booking['seats'] as num?)?.toInt() ??
+        5;
+    final totalCost =
+        (booking['totalCost'] as num?)?.toDouble() ??
+        (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
+        0.0;
+    final rentalSubtotal =
+        (booking['rentalSubtotal'] as num?)?.toDouble() ?? totalCost;
+    final deliveryFee =
+        (booking['deliveryFee'] as num?)?.toDouble() ?? 0.0;
+    final reservationFee =
+        (booking['reservationFeeAmount'] as num?)?.toDouble() ??
+        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+        1000.0;
+
+    final proof = await Navigator.of(context).push<ReservationPaymentProof>(
+      MaterialPageRoute(
+        builder: (_) => ReservationPaymentScreen(
+          userId: renterId,
+          vehicleData: vehicle.isNotEmpty
+              ? vehicle
+              : {
+                  'id': booking['vehicle_id'],
+                  'vehicle_name': booking['carName'],
+                  'brand': booking['carName'],
+                  'seats': seats,
+                  'image_url': booking['imageUrl'],
+                },
+          rentalTotal: totalCost,
+          rentalSubtotal: rentalSubtotal,
+          deliveryFee: deliveryFee,
+          discountAmount: (booking['discount_amount'] as num?)?.toDouble() ?? 0.0,
+          reservationFeeAmount: reservationFee,
+          requiresLongBookingReservation: false,
+          paymentPurpose: PaymentPurpose.releaseSettlement,
+          paidReservationFee: reservationFee,
+          bookingId: bookingId,
+        ),
+      ),
+    );
+
+    if (proof == null) return;
+
+    try {
+      await Supabase.instance.client.from('bookings').update({
+        'reservation_payment_covers_total': true,
+        'reservation_payment_type': 'full_payment',
+        'payment_status': 'paid_in_full',
+        'pre_trip_settlement_paid': true,
+        'pre_trip_settlement_amount': proof.amount,
+        'pre_trip_settlement_method': proof.method,
+        'pre_trip_settlement_reference': proof.referenceNumber,
+        'pre_trip_settlement_proof_url': proof.proofUrl,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', bookingId);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Remaining balance payment submitted! You are ready for vehicle release.',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      _loadBookings();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error recording payment: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _handleRenterReturnVehicle(Map<String, dynamic> booking) async {
     final bookingId = booking['id']?.toString() ?? '';
     final renterId = AuthService().currentUser?.id ?? '';
     if (bookingId.isEmpty || renterId.isEmpty) return;
 
     final endRaw =
-        booking['end_at']?.toString() ?? booking['end_date']?.toString();
+        booking['end_at']?.toString() ??
+        booking['end_date']?.toString() ??
+        booking['end_date_raw']?.toString();
     final scheduledEnd = endRaw != null
         ? DateTime.tryParse(endRaw)?.toLocal()
         : null;
     final now = DateTime.now();
 
     int lateHours = 0;
-    double latePenaltyFee = 0.0;
     if (scheduledEnd != null && now.isAfter(scheduledEnd)) {
       final lateMinutes = now.difference(scheduledEnd).inMinutes;
       lateHours = (lateMinutes / 60.0).ceil();
-      if (lateHours > 0) {
-        latePenaltyFee = lateHours * 300.0; // ₱300/hr penalty
-      }
     }
+
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final seats = (vehicle['seats'] as num?)?.toInt() ??
+        (booking['seats'] as num?)?.toInt() ??
+        5;
+    final dailyRate = (vehicle['price_per_day'] as num?)?.toDouble() ??
+        (booking['totalCost'] as num?)?.toDouble() ??
+        1500.0;
+
+    ReservationPaymentSettings? settings;
+    try {
+      settings = await ReservationPaymentService().getSettings();
+    } catch (_) {}
+    final latePenaltyFee = (settings ?? const ReservationPaymentSettings()).calculateLateFee(
+      seats: seats,
+      lateHours: lateHours,
+      dailyRate: dailyRate,
+    );
 
     final totalCost =
         (booking['totalCost'] as num?)?.toDouble() ??
@@ -7876,7 +8005,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final coversTotal =
         booking['reservationPaymentCoversTotal'] == true ||
-        booking['reservation_payment_covers_total'] == true;
+        booking['reservation_payment_covers_total'] == true ||
+        booking['reservationPaymentType'] == 'full_payment' ||
+        booking['payment_status'] == 'paid_in_full';
     final reservationFee =
         (booking['reservationFeeAmount'] as num?)?.toDouble() ??
         (booking['reservation_fee_amount'] as num?)?.toDouble() ??
@@ -7891,31 +8022,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
       0.0,
       double.infinity,
     );
-    final totalPaymentDue = remainingRentalBalance + latePenaltyFee;
 
-    // If fully paid upfront and 0 late penalty fee, skip payment window directly!
-    if (totalPaymentDue <= 0) {
+    // If late, open ReservationPaymentScreen in lateReturnPenalty mode
+    if (lateHours > 0) {
+      final proof = await Navigator.of(context).push<ReservationPaymentProof>(
+        MaterialPageRoute(
+          builder: (_) => ReservationPaymentScreen(
+            userId: renterId,
+            vehicleData: vehicle.isNotEmpty
+                ? vehicle
+                : {
+                    'id': booking['vehicle_id'],
+                    'vehicle_name': booking['carName'],
+                    'brand': booking['carName'],
+                    'seats': seats,
+                    'price_per_day': dailyRate,
+                    'image_url': booking['imageUrl'],
+                  },
+            rentalTotal: totalCost,
+            rentalSubtotal: (booking['rentalSubtotal'] as num?)?.toDouble() ?? totalCost,
+            deliveryFee: (booking['deliveryFee'] as num?)?.toDouble() ?? 0.0,
+            discountAmount: 0.0,
+            reservationFeeAmount: 0.0,
+            requiresLongBookingReservation: false,
+            paymentPurpose: PaymentPurpose.lateReturnPenalty,
+            lateFeeAmount: latePenaltyFee,
+            lateHours: lateHours,
+            returnTimestamp: now,
+            bookingId: bookingId,
+          ),
+        ),
+      );
+
+      if (proof == null) return; // Renter cancelled or went back
+
       try {
         await BookingService().renterInitiateReturn(
           bookingId: bookingId,
           renterId: renterId,
-          paymentMethod: 'none',
-          paymentReference: '',
-          proofUrl: null,
+          paymentMethod: proof.method,
+          paymentReference: proof.referenceNumber,
+          proofUrl: proof.proofUrl,
           lateHours: lateHours,
           lateFee: latePenaltyFee,
-          settledAmount: 0.0,
+          settledAmount: proof.amount,
         );
 
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Vehicle return initiated! Please rate your trip experience.',
-            ),
-            backgroundColor: AppColors.success,
-          ),
+
+        await ReturnInspectionNoticeModal.show(
+          context,
+          vehicleTitle: booking['carName']?.toString() ?? 'Vehicle',
         );
+
+        if (!mounted) return;
 
         await Navigator.of(context).push(
           MaterialPageRoute(
@@ -7940,621 +8100,124 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    String selectedPaymentMethod = 'psdc_qr';
-    final referenceController = TextEditingController();
-    XFile? receiptFile;
-    String? errorText;
-    bool isUploading = false;
+    // If remaining rental balance > 0 (not late, but unsettled remaining rental balance)
+    if (remainingRentalBalance > 0) {
+      final proof = await Navigator.of(context).push<ReservationPaymentProof>(
+        MaterialPageRoute(
+          builder: (_) => ReservationPaymentScreen(
+            userId: renterId,
+            vehicleData: vehicle.isNotEmpty
+                ? vehicle
+                : {
+                    'id': booking['vehicle_id'],
+                    'vehicle_name': booking['carName'],
+                    'brand': booking['carName'],
+                    'seats': seats,
+                    'price_per_day': dailyRate,
+                    'image_url': booking['imageUrl'],
+                  },
+            rentalTotal: totalCost,
+            rentalSubtotal: (booking['rentalSubtotal'] as num?)?.toDouble() ?? totalCost,
+            deliveryFee: (booking['deliveryFee'] as num?)?.toDouble() ?? 0.0,
+            discountAmount: (booking['discount_amount'] as num?)?.toDouble() ?? 0.0,
+            reservationFeeAmount: reservationFee,
+            requiresLongBookingReservation: false,
+            paymentPurpose: PaymentPurpose.releaseSettlement,
+            paidReservationFee: reservationFee,
+            bookingId: bookingId,
+          ),
+        ),
+      );
 
-    // Load PSDC Payment Settings (QR Code URL, Account Name)
-    ReservationPaymentSettings? paymentSettings;
+      if (proof == null) return;
+
+      try {
+        await BookingService().renterInitiateReturn(
+          bookingId: bookingId,
+          renterId: renterId,
+          paymentMethod: proof.method,
+          paymentReference: proof.referenceNumber,
+          proofUrl: proof.proofUrl,
+          lateHours: 0,
+          lateFee: 0.0,
+          settledAmount: proof.amount,
+        );
+
+        if (!mounted) return;
+
+        await ReturnInspectionNoticeModal.show(
+          context,
+          vehicleTitle: booking['carName']?.toString() ?? 'Vehicle',
+        );
+
+        if (!mounted) return;
+
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => TripRatingFlowScreen(
+              bookingId: bookingId,
+              reviewerRole: 'renter',
+            ),
+          ),
+        );
+
+        _loadBookings();
+        return;
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error initiating vehicle return: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+    }
+
+    // Fully paid on-time return
     try {
-      paymentSettings = await ReservationPaymentService().getSettings();
-    } catch (_) {}
+      await BookingService().renterInitiateReturn(
+        bookingId: bookingId,
+        renterId: renterId,
+        paymentMethod: 'none',
+        paymentReference: '',
+        proofUrl: null,
+        lateHours: 0,
+        lateFee: 0.0,
+        settledAmount: 0.0,
+      );
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (dialogCtx, setDialogState) {
-          Future<void> pickReceipt() async {
-            final picked = await ImagePicker().pickImage(
-              source: ImageSource.gallery,
-              imageQuality: 85,
-            );
-            if (picked == null) return;
-            setDialogState(() {
-              receiptFile = picked;
-              errorText = null;
-            });
-          }
+      if (!mounted) return;
 
-          return AlertDialog(
-            backgroundColor: AppColors.darkCard,
-            title: const Row(
-              children: [
-                Icon(Icons.assignment_return_rounded, color: AppColors.primary),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Return & Settlement',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (errorText != null) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(8),
-                      margin: const EdgeInsets.only(bottom: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.redAccent),
-                      ),
-                      child: Text(
-                        errorText!,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                  DialogStatusIndicator(
-                    compact: true,
-                    isComplete:
-                        totalPaymentDue <= 0 ||
-                        selectedPaymentMethod == 'cash_at_desk' ||
-                        (receiptFile != null &&
-                            RegExp(
-                              r'^\d{6,13}$',
-                            ).hasMatch(referenceController.text.trim())),
-                    completeLabel: 'Settlement information complete',
-                    incompleteLabel: 'Settlement information required',
-                    completeDetail: 'Payment details are ready to submit.',
-                    incompleteDetail:
-                        'Add the receipt and a valid 6 to 13-digit reference number.',
-                  ),
-                  const SizedBox(height: 12),
-                  if (lateHours > 0) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: Colors.red.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.warning_amber_rounded,
-                            color: Colors.redAccent,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Late Return Alert: Overdue by ${lateHours}h. Late penalty fee: ₱${latePenaltyFee.toStringAsFixed(0)} (₱300/hr).',
-                              style: const TextStyle(
-                                color: Colors.redAccent,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkBg,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.borderColor),
-                    ),
-                    child: Column(
-                      children: [
-                        _paymentRow(
-                          'Rental Total Price',
-                          '₱${totalCost.toStringAsFixed(0)}',
-                        ),
-                        const SizedBox(height: 4),
-                        _paymentRow(
-                          coversTotal
-                              ? 'Deposit / Full Paid'
-                              : 'Reservation Deposit Paid',
-                          '-₱${amountPaid.toStringAsFixed(0)}',
-                          isGreen: true,
-                        ),
-                        if (remainingRentalBalance > 0) ...[
-                          const SizedBox(height: 4),
-                          _paymentRow(
-                            'Remaining Rental Balance',
-                            '₱${remainingRentalBalance.toStringAsFixed(0)}',
-                          ),
-                        ],
-                        if (lateHours > 0) ...[
-                          const SizedBox(height: 4),
-                          _paymentRow(
-                            'Late Return Penalty (${lateHours}h)',
-                            '₱${latePenaltyFee.toStringAsFixed(0)}',
-                            isRed: true,
-                          ),
-                        ],
-                        const Divider(color: AppColors.borderColor, height: 16),
-                        _paymentRow(
-                          'Total Final Payment Due',
-                          '₱${totalPaymentDue.toStringAsFixed(0)}',
-                          isBold: true,
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (totalPaymentDue > 0) ...[
-                    const SizedBox(height: 14),
-                    const Text(
-                      'Select Payment Method for Settlement:',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    DropdownButtonFormField<String>(
-                      value: selectedPaymentMethod,
-                      dropdownColor: AppColors.darkCard,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: AppColors.darkBg,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'psdc_qr',
-                          child: Text('PSDC QR / E-Wallet Payment'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'cash_at_desk',
-                          child: Text('Cash at PSDC Desk / Garage'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setDialogState(() => selectedPaymentMethod = val);
-                        }
-                      },
-                    ),
-                    if (selectedPaymentMethod == 'psdc_qr') ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.darkBg,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Column(
-                          children: [
-                            const Text(
-                              'PSDC Official Payment QR',
-                              style: TextStyle(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              paymentSettings?.accountName ??
-                                  'PSDC Mobilis Account',
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 11,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: paymentSettings?.qrUrl.isNotEmpty == true
-                                  ? Image.network(
-                                      paymentSettings!.qrUrl,
-                                      height: 160,
-                                      width: 160,
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (_, __, ___) =>
-                                          _qrFallbackPlaceholder(),
-                                    )
-                                  : _qrFallbackPlaceholder(),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Scan using GCash / Maya / Bank app to pay settlement',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: AppColors.textTertiary,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Upload Payment Receipt / Proof Screenshot:',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      InkWell(
-                        onTap: pickReceipt,
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.darkBg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: receiptFile != null
-                                  ? AppColors.success
-                                  : AppColors.borderColor,
-                              style: BorderStyle.solid,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                receiptFile != null
-                                    ? Icons.check_circle_rounded
-                                    : Icons.upload_file_rounded,
-                                color: receiptFile != null
-                                    ? AppColors.success
-                                    : AppColors.primary,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  receiptFile != null
-                                      ? 'Receipt Attached: ${receiptFile!.name}'
-                                      : 'Tap to Upload Receipt / Proof Photo',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: receiptFile != null
-                                        ? AppColors.success
-                                        : Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: referenceController,
-                        keyboardType: TextInputType.number,
-                        maxLength: 13,
-                        onChanged: (_) => setDialogState(() {}),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(13),
-                        ],
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'Reference No. (6 to 13 digits)',
-                          hintStyle: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
-                          ),
-                          counterText: '',
-                          filled: true,
-                          fillColor: AppColors.darkBg,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Note: Reference number must be 6 to 13 digits.',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              if (!isUploading)
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                ),
-                onPressed: isUploading
-                    ? null
-                    : () async {
-                        if (totalPaymentDue > 0 &&
-                            selectedPaymentMethod == 'psdc_qr') {
-                          if (receiptFile == null) {
-                            setDialogState(() {
-                              errorText =
-                                  'Please attach your payment receipt screenshot first.';
-                            });
-                            return;
-                          }
-                          final ref = referenceController.text.trim();
-                          if (ref.isEmpty) {
-                            setDialogState(() {
-                              errorText =
-                                  'Please enter your payment reference number.';
-                            });
-                            return;
-                          }
-                          if (!RegExp(r'^\d{6,13}$').hasMatch(ref)) {
-                            setDialogState(() {
-                              errorText =
-                                  'Reference number must be between 6 and 13 digits.';
-                            });
-                            return;
-                          }
-                        }
+      await ReturnInspectionNoticeModal.show(
+        context,
+        vehicleTitle: booking['carName']?.toString() ?? 'Vehicle',
+      );
 
-                        setDialogState(() => isUploading = true);
+      if (!mounted) return;
 
-                        String? proofPublicUrl;
-                        if (receiptFile != null) {
-                          try {
-                            final uploadResult =
-                                await ReservationPaymentService()
-                                    .uploadReceiptProof(
-                                      userId: renterId,
-                                      file: receiptFile!,
-                                    );
-                            proofPublicUrl = uploadResult.publicUrl;
-                          } catch (uploadErr) {
-                            debugPrint(
-                              'Error uploading payment receipt: $uploadErr',
-                            );
-                          }
-                        }
-
-                        if (!dialogCtx.mounted) return;
-                        Navigator.pop(ctx, true);
-
-                        try {
-                          await BookingService().renterInitiateReturn(
-                            bookingId: bookingId,
-                            renterId: renterId,
-                            paymentMethod: selectedPaymentMethod,
-                            paymentReference: referenceController.text.trim(),
-                            proofUrl: proofPublicUrl,
-                            lateHours: lateHours,
-                            lateFee: latePenaltyFee,
-                            settledAmount: totalPaymentDue,
-                          );
-
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                totalPaymentDue > 0
-                                    ? 'Return payment & receipt submitted! Please rate your trip experience.'
-                                    : 'Vehicle return initiated! Please rate your trip experience.',
-                              ),
-                              backgroundColor: AppColors.success,
-                            ),
-                          );
-
-                          // 1. Immediately pop up Trip Rating Flow Screen for Renter
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => TripRatingFlowScreen(
-                                bookingId: bookingId,
-                                reviewerRole: 'renter',
-                              ),
-                            ),
-                          );
-
-                          _loadBookings();
-
-                          if (!mounted) return;
-
-                          // 2. Show Modal waiting for Operator Inspection & Verification
-                          await showDialog(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              backgroundColor: AppColors.darkCard,
-                              title: const Row(
-                                children: [
-                                  Icon(
-                                    Icons.hourglass_top_rounded,
-                                    color: Colors.amber,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Return & Rating Submitted',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              content: const Text(
-                                'Vehicle return, payment, and ratings have been submitted!\n\nWaiting for the operator/partner to complete the return inspection checklist and payment verification.',
-                                style: TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 13,
-                                  height: 1.4,
-                                ),
-                              ),
-                              actions: [
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.primary,
-                                  ),
-                                  onPressed: () => Navigator.pop(ctx),
-                                  child: const Text(
-                                    'OK',
-                                    style: TextStyle(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        } catch (e) {
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Error initiating vehicle return: $e',
-                              ),
-                              backgroundColor: AppColors.error,
-                            ),
-                          );
-                        }
-                      },
-                child: isUploading
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.black,
-                        ),
-                      )
-                    : Text(
-                        totalPaymentDue > 0
-                            ? 'Confirm Payment & Return'
-                            : 'Confirm Return Vehicle',
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _qrFallbackPlaceholder() {
-    return Container(
-      height: 160,
-      width: 160,
-      color: Colors.white,
-      padding: const EdgeInsets.all(12),
-      child: const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.qr_code_2_rounded, size: 80, color: Colors.black),
-          SizedBox(height: 4),
-          Text(
-            'PSDC PAY QR',
-            style: TextStyle(
-              color: Colors.black,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _paymentRow(
-    String label,
-    String amount, {
-    bool isGreen = false,
-    bool isRed = false,
-    bool isBold = false,
-  }) {
-    Color color = AppColors.textPrimary;
-    if (isGreen) color = Colors.greenAccent;
-    if (isRed) color = Colors.redAccent;
-    if (isBold) color = AppColors.primary;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: isBold ? Colors.white : AppColors.textSecondary,
-            fontSize: isBold ? 13 : 12,
-            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => TripRatingFlowScreen(
+            bookingId: bookingId,
+            reviewerRole: 'renter',
           ),
         ),
-        Text(
-          amount,
-          style: TextStyle(
-            color: color,
-            fontSize: isBold ? 14 : 12,
-            fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-          ),
+      );
+
+      _loadBookings();
+      return;
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error initiating vehicle return: $e'),
+          backgroundColor: AppColors.error,
         ),
-      ],
-    );
+      );
+      return;
+    }
   }
 
   Future<void> _showTripExtensionDialog(Map<String, dynamic> booking) async {
@@ -10183,6 +9846,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
   final VoidCallback? onReceipt;
   final bool isAlreadyRated;
   final VoidCallback? onRateTrip;
+  final VoidCallback? onPayRemainingBalance;
+  final bool isPaidInFull;
 
   const _RenterBookingDetailsPage({
     required this.booking,
@@ -10201,6 +9866,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     this.onReceipt,
     this.isAlreadyRated = false,
     this.onRateTrip,
+    this.onPayRemainingBalance,
+    this.isPaidInFull = false,
   });
 
   @override
@@ -10253,6 +9920,72 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             children: [
               _buildVehicleSummary(status),
               const SizedBox(height: 14),
+              if (isPaidInFull && !isApprovedTrip && !isCompletedTrip) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'You have already paid for this trip and it is ready for release.',
+                          style: TextStyle(
+                            color: AppColors.success,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ] else if (onPayRemainingBalance != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.payment_rounded, color: Colors.amber, size: 18),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Payment required before vehicle release (1 day prior).',
+                              style: TextStyle(
+                                color: Colors.amber,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      _buildPrimaryButton(
+                        icon: Icons.payment_rounded,
+                        label: 'Pay Now (Remaining Balance)',
+                        onPressed: onPayRemainingBalance!,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
               // Dedicated Rental Service & Driver Details Section
               _buildRentalServiceAndDriverSection(context),
               const SizedBox(height: 14),
