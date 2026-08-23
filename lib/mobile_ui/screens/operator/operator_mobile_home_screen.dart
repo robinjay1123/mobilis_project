@@ -2821,7 +2821,7 @@ class _BookingCard extends StatelessWidget {
     final deliveryFee = (booking['delivery_fee'] as num?)?.toDouble() ?? 0.0;
     final lateFee = (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
     final rentalSubtotal = (rawRental > 0 ? rawRental : ((booking['total_price'] as num?)?.toDouble() ?? 0.0)) + deliveryFee + lateFee;
-    final commission = rentalSubtotal * 0.10;
+    final commission = rentalSubtotal * 0.05;
     final netPayout = (rentalSubtotal - commission).clamp(0.0, double.infinity);
 
     final payoutAmountController =
@@ -2884,7 +2884,7 @@ class _BookingCard extends StatelessWidget {
                               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                             ),
                             Text(
-                              '10% PSDC commission deducted',
+                              '5% PSDC commission deducted',
                               style: TextStyle(fontSize: 11, color: Colors.grey),
                             ),
                           ],
@@ -2978,7 +2978,7 @@ class _BookingCard extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Platform Fee (10%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                            const Text('Platform Fee (5%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
                             Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange)),
                           ],
                         ),
@@ -2986,7 +2986,7 @@ class _BookingCard extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Net Payout (90%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                            const Text('Net Payout (95%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                             Text('PHP ${netPayout.toStringAsFixed(2)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.purpleAccent)),
                           ],
                         ),
@@ -3182,7 +3182,7 @@ class _BookingCard extends StatelessWidget {
         '';
 
     final driverGross = (booking['driver_fee'] as num?)?.toDouble() ?? 0.0;
-    final commission = driverGross * 0.15;
+    final commission = driverGross * 0.05;
     final netPayout = (driverGross - commission).clamp(0.0, double.infinity);
 
     final payoutAmountController =
@@ -3245,7 +3245,7 @@ class _BookingCard extends StatelessWidget {
                               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                             ),
                             Text(
-                              '15% PSDC commission deducted',
+                              '5% PSDC commission deducted',
                               style: TextStyle(fontSize: 11, color: Colors.grey),
                             ),
                           ],
@@ -3339,7 +3339,7 @@ class _BookingCard extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Platform Fee (15%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                            const Text('Platform Fee (5%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
                             Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange)),
                           ],
                         ),
@@ -3347,7 +3347,7 @@ class _BookingCard extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Net Driver Payout (85%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                            const Text('Net Driver Payout (95%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                             Text('PHP ${netPayout.toStringAsFixed(2)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8))),
                           ],
                         ),

@@ -212,7 +212,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         widget.vehicleData['partner_vehicle_id'] != null ||
         widget.vehicleData['partner_name'] != null;
     final partnerCommission =
-        isPartnerVehicle ? widget.rentalTotal * 0.10 : 0.0;
+        isPartnerVehicle ? widget.rentalTotal * 0.05 : 0.0;
     final principalRentalSubtotal = (widget.rentalSubtotal +
             widget.driverFee +
             widget.deliveryFee +
@@ -305,7 +305,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         widget.vehicleData['partner_vehicle_id'] != null ||
         widget.vehicleData['partner_name'] != null;
     final partnerCommission =
-        isPartnerVehicle ? widget.rentalTotal * 0.10 : 0.0;
+        isPartnerVehicle ? widget.rentalTotal * 0.05 : 0.0;
     final principalRentalSubtotal = (widget.rentalSubtotal +
             widget.driverFee +
             widget.deliveryFee +
@@ -518,7 +518,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         vehicle['partner_name'] != null;
 
     final partnerCommission =
-        isPartnerVehicle ? widget.rentalTotal * 0.10 : 0.0;
+        isPartnerVehicle ? widget.rentalTotal * 0.05 : 0.0;
 
     final principalRentalSubtotal = (widget.rentalSubtotal +
             widget.driverFee +

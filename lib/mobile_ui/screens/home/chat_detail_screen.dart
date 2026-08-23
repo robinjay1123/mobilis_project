@@ -12,6 +12,8 @@ import '../../../services/message_filter_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/user_restriction_service.dart';
 import '../../../services/support_faq_service.dart';
+import '../../../services/report_service.dart';
+import '../../../services/booking_inspection_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/restriction_ui.dart';
 import '../../widgets/optimized_network_image.dart';
@@ -1213,7 +1215,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               onPressed: () => showPolicyDetailsSheet(context),
               icon: Icon(Icons.info_outline, color: appBarTextColor),
             )
-          else
+          else ...[
+            IconButton(
+              tooltip: 'Report Issue or Participant',
+              onPressed: () => _showReportParticipantDialog(isDark),
+              icon: const Icon(Icons.flag_outlined, color: Colors.orange),
+            ),
             IconButton(
               tooltip: 'Conversation options',
               onPressed: () => _showConversationOptions(
@@ -1223,6 +1230,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
               icon: Icon(Icons.more_vert_rounded, color: appBarTextColor),
             ),
+          ],
         ],
       ),
       body: Stack(
@@ -2104,6 +2112,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   });
                 },
               ),
+              const SizedBox(height: 8),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                tileColor: isDark
+                    ? AppColors.darkBgSecondary
+                    : AppColors.lightBgSecondary,
+                leading: const Icon(
+                  Icons.report_problem_outlined,
+                  color: Colors.red,
+                ),
+                title: const Text(
+                  'Report participant or issue',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  'Report fake inspection, unreturned deposit, or misconduct to admin',
+                  style: TextStyle(
+                    color: textColor.withValues(alpha: 0.62),
+                    fontSize: 11,
+                  ),
+                ),
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  color: textColor.withValues(alpha: 0.55),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _showReportParticipantDialog(isDark);
+                  });
+                },
+              ),
             ],
           ),
         ),
@@ -2758,6 +2803,301 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first[0].toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  Future<void> _showReportParticipantDialog(bool isDark) async {
+    final currentUserId = _authService.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to submit a report.')),
+      );
+      return;
+    }
+
+    final allParticipants = await _participantsFuture;
+    final participants = allParticipants
+        .where((p) {
+          final id = p['id']?.toString() ?? p['user_id']?.toString();
+          return id != null && id.isNotEmpty && id != currentUserId;
+        })
+        .toList();
+
+    String? selectedReportedUserId =
+        participants.isNotEmpty ? (participants.first['id']?.toString() ?? participants.first['user_id']?.toString()) : null;
+    String selectedCategory = 'Security Deposit Not Returned / Unjustified Deduction';
+    final descriptionController = TextEditingController();
+    PlatformFile? evidenceFile;
+    bool isSubmitting = false;
+
+    final categories = const [
+      'Security Deposit Not Returned / Unjustified Deduction',
+      'Falsified Post-Trip Inspection / Fake Damages',
+      'Harassment / Unprofessional Misconduct',
+      'Off-Platform Payment Solicitation',
+      'Vehicle Condition Dispute',
+      'Other Policy Violation',
+    ];
+
+    final bookingContext = await _bookingContextFuture;
+    final bookingId = bookingContext?['id']?.toString();
+
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final dialogBg = isDark ? const Color(0xFF172235) : Colors.white;
+          final textColor = isDark ? Colors.white : AppColors.lightTextPrimary;
+
+          return Dialog(
+            backgroundColor: dialogBg,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.report_problem_rounded, color: Colors.red, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Report Participant / Issue',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                            Text(
+                              'Direct incident report to Admin Support',
+                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Participant Dropdown
+                  const Text('Select Participant to Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  if (participants.isNotEmpty)
+                    DropdownButtonFormField<String>(
+                      value: selectedReportedUserId,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      items: participants.map((p) {
+                        final id = p['id']?.toString() ?? p['user_id']?.toString() ?? '';
+                        final name = p['display_name']?.toString() ?? p['full_name']?.toString() ?? 'Participant';
+                        final role = p['display_role']?.toString() ?? p['role']?.toString() ?? 'User';
+                        return DropdownMenuItem<String>(
+                          value: id,
+                          child: Text('$name ($role)', maxLines: 1, overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList(),
+                      onChanged: (v) {
+                        if (v != null) setDialogState(() => selectedReportedUserId = v);
+                      },
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF1E2D44) : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('Reporting: ${widget.recipientName}', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                    ),
+                  const SizedBox(height: 12),
+
+                  // Category Dropdown
+                  const Text('Report Category / Subject', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    value: selectedCategory,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: categories.map((cat) {
+                      return DropdownMenuItem<String>(
+                        value: cat,
+                        child: Text(cat, style: const TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      );
+                    }).toList(),
+                    onChanged: (v) {
+                      if (v != null) setDialogState(() => selectedCategory = v);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Description
+                  const Text('Incident Details & Explanation', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  TextFormField(
+                    controller: descriptionController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Please provide clear details regarding the issue, deposit withholding, damage claim dispute, or misconduct...',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.all(12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Evidence Attachment
+                  if (evidenceFile == null)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.attach_file, size: 16),
+                      label: const Text('Attach Screenshot / Evidence (Optional)', style: TextStyle(fontSize: 12)),
+                      onPressed: () async {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+                          withData: true,
+                        );
+                        if (result != null && result.files.isNotEmpty) {
+                          setDialogState(() => evidenceFile = result.files.first);
+                        }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(40),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.image_outlined, size: 18, color: Colors.red),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              evidenceFile!.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                            onPressed: () => setDialogState(() => evidenceFile = null),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Submit
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.send_rounded, size: 16),
+                      label: isSubmitting
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Text('Submit Report to Admin', style: TextStyle(fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: isSubmitting
+                          ? null
+                          : () async {
+                              final details = descriptionController.text.trim();
+                              if (details.isEmpty) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please describe the incident before submitting.'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              final targetId = selectedReportedUserId ?? widget.conversationId;
+
+                              setDialogState(() => isSubmitting = true);
+
+                              try {
+                                String uploadedUrl = '';
+                                if (evidenceFile?.bytes != null) {
+                                  uploadedUrl = await BookingInspectionService().uploadEvidenceBytes(
+                                    userId: currentUserId,
+                                    bookingId: bookingId ?? 'report_${DateTime.now().millisecondsSinceEpoch}',
+                                    bytes: evidenceFile!.bytes!,
+                                    extension: evidenceFile!.extension ?? 'jpg',
+                                  );
+                                }
+
+                                await ReportService().submitUserReport(
+                                  reporterId: currentUserId,
+                                  reportedUserId: targetId,
+                                  bookingId: bookingId,
+                                  conversationId: widget.conversationId,
+                                  category: selectedCategory,
+                                  description: details,
+                                  evidenceUrl: uploadedUrl,
+                                  reporterRole: widget.userRole,
+                                );
+
+                                if (!context.mounted) return;
+                                Navigator.pop(dialogContext);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Report submitted successfully to Customer Support. Our safety team will review and take immediate action.'),
+                                    backgroundColor: Color(0xFF10B981),
+                                    duration: Duration(seconds: 4),
+                                  ),
+                                );
+                              } catch (e) {
+                                setDialogState(() => isSubmitting = false);
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Failed to submit report: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    descriptionController.dispose();
   }
 }
 

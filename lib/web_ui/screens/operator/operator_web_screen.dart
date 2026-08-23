@@ -15163,7 +15163,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final deliveryFee = (booking['delivery_fee'] as num?)?.toDouble() ?? 0.0;
     final lateFee = (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
     final rentalSubtotal = (rawRental > 0 ? rawRental : ((booking['total_price'] as num?)?.toDouble() ?? 0.0)) + deliveryFee + lateFee;
-    final commission = rentalSubtotal * 0.10;
+    final commission = rentalSubtotal * 0.05;
     final netPayout = (rentalSubtotal - commission).clamp(0.0, double.infinity);
 
     final payoutAmountController =
@@ -15378,7 +15378,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('PSDC Platform Commission (10%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                                      const Text('PSDC Platform Commission (5%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
                                       Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
                                     ],
                                   ),
@@ -15386,7 +15386,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Net Payout to Partner (90%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                                      const Text('Net Payout to Partner (95%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                                       Text(
                                         'PHP ${netPayout.toStringAsFixed(2)}',
                                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.purpleAccent),
@@ -15638,7 +15638,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final driverGross = (booking['driver_fee'] as num?)?.toDouble() ??
         (latestAssignment?['trip_fee'] as num?)?.toDouble() ??
         0.0;
-    final commission = driverGross * 0.15;
+    final commission = driverGross * 0.05;
     final netPayout = (driverGross - commission).clamp(0.0, double.infinity);
 
     final payoutAmountController =
@@ -15853,7 +15853,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('PSDC Platform Commission (15%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                                      const Text('PSDC Platform Commission (5%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
                                       Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
                                     ],
                                   ),
@@ -15861,7 +15861,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Net Payout to Driver (85%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                                      const Text('Net Payout to Driver (95%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                                       Text(
                                         'PHP ${netPayout.toStringAsFixed(2)}',
                                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF38BDF8)),

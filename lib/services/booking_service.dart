@@ -5053,7 +5053,7 @@ class BookingService {
           'status': 'released',
           'released_at': now,
           'metadata': {
-            'commission_rate': 10,
+            'commission_rate': 5,
             'payment_method': paymentMethod,
             'reference_number': referenceNumber,
             'receipt_url': receiptUrl,
@@ -5115,7 +5115,7 @@ class BookingService {
           'booking_id': bookingId,
           'driver_id': driverUserId,
           'trip_fee': netAmount + commissionAmount,
-          'commission_percentage': 15,
+          'commission_percentage': 5,
           'commission_amount': commissionAmount,
           'net_earnings': netAmount,
           'payout_status': 'paid',
@@ -5152,7 +5152,7 @@ class BookingService {
           'status': 'released',
           'released_at': now,
           'metadata': {
-            'commission_rate': 15,
+            'commission_rate': 5,
             'payment_method': paymentMethod,
             'reference_number': referenceNumber,
             'receipt_url': receiptUrl,
