@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../utils/input_validation.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -466,6 +468,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       TextEditingController();
   bool _isLoadingPrivacy = false;
   bool _isSavingPrivacy = false;
+  // Rental Terms PDF
+  String? _termsPdfUrl;
+  bool _isLoadingTermsPdf = false;
+  bool _isUploadingTermsPdf = false;
+  bool _isDeletingTermsPdf = false;
   final TextEditingController _reservationAmountController =
       TextEditingController();
   final TextEditingController _securityDeposit4to5Controller =
@@ -561,6 +568,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       _loadPrivacyPolicy(),
       _loadReservationPaymentSettings(),
       _loadSupportFaqSettings(),
+      _loadTermsPdfUrl(),
     ]);
   }
 
@@ -1447,6 +1455,120 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         setState(() => _isSavingTerms = false);
       }
     }
+  }
+
+  // ── Rental Terms PDF helpers ────────────────────────────────────────────
+
+  Future<void> _loadTermsPdfUrl() async {
+    if (mounted) setState(() => _isLoadingTermsPdf = true);
+    try {
+      final url = await TermsService().getRentalTermsPdfUrl();
+      if (mounted) setState(() => _termsPdfUrl = url);
+    } catch (e) {
+      debugPrint('Error loading terms PDF URL: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingTermsPdf = false);
+    }
+  }
+
+  Future<void> _uploadTermsPdf() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+      allowMultiple: false,
+      withData: true,
+    );
+    final file = result?.files.single;
+    final bytes = file?.bytes;
+    if (file == null || bytes == null || !mounted) return;
+
+    if (bytes.lengthInBytes > 20 * 1024 * 1024) {
+      _showAdminCheckModal(
+        title: 'File Too Large',
+        message: 'Please choose a PDF smaller than 20 MB.',
+        accentColor: AppColors.error,
+        icon: Icons.error_outline_rounded,
+      );
+      return;
+    }
+
+    setState(() => _isUploadingTermsPdf = true);
+    try {
+      final url = await TermsService().uploadRentalTermsPdf(bytes);
+      if (mounted) {
+        setState(() => _termsPdfUrl = url);
+        _showAdminCheckModal(
+          title: 'PDF Uploaded',
+          message: 'The rental terms PDF has been uploaded and is now available for renters to download.',
+          accentColor: AppColors.success,
+          icon: Icons.check_circle_rounded,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showAdminCheckModal(
+          title: 'Upload Failed',
+          message: 'Could not upload the PDF: $e',
+          accentColor: AppColors.error,
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingTermsPdf = false);
+    }
+  }
+
+  Future<void> _deleteTermsPdf() async {
+    final confirmed = await _showConfirmDialog(
+      title: 'Remove Terms PDF',
+      body: 'This will permanently remove the rental terms PDF. Renters will no longer be able to download it.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _isDeletingTermsPdf = true);
+    try {
+      await TermsService().deleteRentalTermsPdf();
+      if (mounted) {
+        setState(() => _termsPdfUrl = null);
+        _showAdminCheckModal(
+          title: 'PDF Removed',
+          message: 'The rental terms PDF has been removed.',
+          accentColor: Colors.orange,
+          icon: Icons.delete_outline_rounded,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showAdminCheckModal(
+          title: 'Remove Failed',
+          message: 'Could not remove the PDF: $e',
+          accentColor: AppColors.error,
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDeletingTermsPdf = false);
+    }
+  }
+
+  void _showAdminCheckModal({
+    required String title,
+    required String message,
+    required Color accentColor,
+    required IconData icon,
+  }) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _AdminCheckModal(
+        title: title,
+        message: message,
+        accentColor: accentColor,
+        icon: icon,
+      ),
+    );
   }
 
   Future<void> _loadPrivacyPolicy() async {
@@ -16787,4 +16909,151 @@ String _formatNumber(num value) {
     RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
     (Match m) => '${m[1]},',
   );
+}
+
+// ── Animated check/info modal used by admin settings ─────────────────────────
+class _AdminCheckModal extends StatefulWidget {
+  final String title;
+  final String message;
+  final Color accentColor;
+  final IconData icon;
+
+  const _AdminCheckModal({
+    required this.title,
+    required this.message,
+    required this.accentColor,
+    required this.icon,
+  });
+
+  @override
+  State<_AdminCheckModal> createState() => _AdminCheckModalState();
+}
+
+class _AdminCheckModalState extends State<_AdminCheckModal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+  late final Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _scale = CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut);
+    _fade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.0, 0.4, curve: Curves.easeIn),
+    );
+    _ctrl.forward();
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return FadeTransition(
+      opacity: _fade,
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Center(
+          child: Container(
+            width: 300,
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E2535) : Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.12),
+                  blurRadius: 32,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ScaleTransition(
+                  scale: _scale,
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: widget.accentColor.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: widget.accentColor.withValues(alpha: 0.35),
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      widget.icon,
+                      size: 42,
+                      color: widget.accentColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  widget.title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  widget.message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 22),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      backgroundColor:
+                          widget.accentColor.withValues(alpha: 0.12),
+                      foregroundColor: widget.accentColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text(
+                      'OK',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

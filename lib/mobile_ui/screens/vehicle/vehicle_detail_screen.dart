@@ -2168,142 +2168,274 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
+  /// Shows a small modal with an animated checkmark for quick feedback.
+  Future<void> _showCheckModal({
+    required BuildContext ctx,
+    required String title,
+    required String message,
+    Color accentColor = AppColors.primary,
+    IconData icon = Icons.check_circle_rounded,
+  }) async {
+    await showDialog<void>(
+      context: ctx,
+      barrierDismissible: true,
+      builder: (dialogCtx) => _CheckAnimationModal(
+        title: title,
+        message: message,
+        accentColor: accentColor,
+        icon: icon,
+      ),
+    );
+  }
+
   Future<String?> _showTermsAgreementDialog() async {
     final terms = await TermsService().getRentalTerms();
+    final pdfUrl = await TermsService().getRentalTermsPdfUrl();
     if (!mounted) return null;
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     var accepted = false;
+    var hasScrolledToBottom = false;
+    final scrollController = ScrollController();
+
+    void checkScrollEnd(StateSetter setDialogState) {
+      if (scrollController.hasClients) {
+        final pos = scrollController.position;
+        if (pos.pixels >= pos.maxScrollExtent - 50) {
+          if (!hasScrolledToBottom) {
+            setDialogState(() => hasScrolledToBottom = true);
+          }
+        }
+      }
+    }
 
     final acceptedTerms =
         await showDialog<bool>(
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) => StatefulBuilder(
-            builder: (context, setDialogState) => AlertDialog(
-              backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-              title: Text(
-                'Rental Terms & Agreement',
-                style: TextStyle(
-                  color: isDark
-                      ? AppColors.textPrimary
-                      : AppColors.lightTextPrimary,
-                  fontWeight: FontWeight.w700,
+            builder: (context, setDialogState) {
+              scrollController.addListener(
+                () => checkScrollEnd(setDialogState),
+              );
+              return AlertDialog(
+                backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+                title: Text(
+                  'Rental Terms & Agreement',
+                  style: TextStyle(
+                    color: isDark
+                        ? AppColors.textPrimary
+                        : AppColors.lightTextPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    DialogStatusIndicator(
-                      isComplete: accepted,
-                      completeLabel: 'Rental terms acknowledged',
-                      incompleteLabel: 'Agreement required',
-                      completeDetail: 'Ready to continue with the booking.',
-                      incompleteDetail:
-                          'Please review and accept the rental terms before continuing.',
-                    ),
-                    const SizedBox(height: 14),
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 320),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.darkBgSecondary
-                            : AppColors.lightBg,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isDark
-                              ? AppColors.borderColor
-                              : AppColors.lightBorderColor,
-                        ),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      DialogStatusIndicator(
+                        isComplete: accepted,
+                        completeLabel: 'Rental terms acknowledged',
+                        incompleteLabel: 'Agreement required',
+                        completeDetail: 'Ready to continue with the booking.',
+                        incompleteDetail:
+                            'Please review and accept the rental terms before continuing.',
                       ),
-                      child: SingleChildScrollView(
-                        child: Text(
-                          terms,
-                          style: TextStyle(
-                            height: 1.45,
+                      const SizedBox(height: 14),
+
+                      // ── Scroll-to-read container ──────────────────────────
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 320),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? AppColors.darkBgSecondary
+                              : AppColors.lightBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
                             color: isDark
-                                ? AppColors.textSecondary
-                                : AppColors.lightTextSecondary,
+                                ? AppColors.borderColor
+                                : AppColors.lightBorderColor,
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Checkbox(
-                          value: accepted,
-                          activeColor: AppColors.primary,
-                          checkColor: Colors.black,
-                          onChanged: (value) {
-                            setDialogState(() {
-                              accepted = value ?? false;
-                            });
-                          },
-                        ),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 10),
-                            child: Text(
-                              'I have read and agree to the rental terms, payment rules, and car rental policies.',
-                              style: TextStyle(
-                                color: isDark
-                                    ? AppColors.textPrimary
-                                    : AppColors.lightTextPrimary,
-                              ),
+                        child: SingleChildScrollView(
+                          controller: scrollController,
+                          child: Text(
+                            terms,
+                            style: TextStyle(
+                              height: 1.45,
+                              color: isDark
+                                  ? AppColors.textSecondary
+                                  : AppColors.lightTextSecondary,
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: Text(
-                    'Cancel',
-                    style: TextStyle(
-                      color: isDark
-                          ? AppColors.textSecondary
-                          : AppColors.lightTextSecondary,
-                    ),
+                      ),
+
+                      // ── Scroll hint / PDF download row ────────────────────
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          // Scroll hint
+                          if (!hasScrolledToBottom)
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.swipe_down_rounded,
+                                    size: 14,
+                                    color: isDark
+                                        ? AppColors.textSecondary
+                                        : AppColors.lightTextSecondary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Scroll to the end to enable acceptance',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? AppColors.textSecondary
+                                            : AppColors.lightTextSecondary,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            const Spacer(),
+
+                          // Download PDF button
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            icon: const Icon(
+                              Icons.picture_as_pdf_rounded,
+                              size: 16,
+                            ),
+                            label: const Text(
+                              'Download PDF',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            onPressed: () async {
+                              if (pdfUrl != null && pdfUrl.isNotEmpty) {
+                                final uri = Uri.parse(pdfUrl);
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(
+                                    uri,
+                                    mode: LaunchMode.externalApplication,
+                                  );
+                                }
+                              } else {
+                                if (context.mounted) {
+                                  await _showCheckModal(
+                                    ctx: context,
+                                    title: 'No PDF Available',
+                                    message:
+                                        'The admin has not uploaded a PDF version of the rental terms yet.',
+                                    accentColor: Colors.orange,
+                                    icon: Icons.info_outline_rounded,
+                                  );
+                                }
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 6),
+
+                      // ── Checkbox row (gated on scroll) ────────────────────
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Checkbox(
+                            value: accepted,
+                            activeColor: AppColors.primary,
+                            checkColor: Colors.black,
+                            // disabled until user scrolls to the end
+                            onChanged: hasScrolledToBottom
+                                ? (value) {
+                                    setDialogState(() {
+                                      accepted = value ?? false;
+                                    });
+                                  }
+                                : null,
+                          ),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Text(
+                                'I have read and agree to the rental terms, payment rules, and car rental policies.',
+                                style: TextStyle(
+                                  color: hasScrolledToBottom
+                                      ? (isDark
+                                            ? AppColors.textPrimary
+                                            : AppColors.lightTextPrimary)
+                                      : (isDark
+                                            ? AppColors.textSecondary
+                                            : AppColors.lightTextSecondary),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                ElevatedButton(
-                  onPressed: accepted
-                      ? () => Navigator.pop(dialogContext, true)
-                      : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: Text(
+                      'Cancel',
+                      style: TextStyle(
+                        color: isDark
+                            ? AppColors.textSecondary
+                            : AppColors.lightTextSecondary,
+                      ),
                     ),
-                    minimumSize: const Size(0, 44),
                   ),
-                  child: const Text(
-                    'Agree & Continue',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
+                  ElevatedButton(
+                    onPressed: accepted
+                        ? () => Navigator.pop(dialogContext, true)
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      minimumSize: const Size(0, 44),
+                    ),
+                    child: const Text(
+                      'Agree & Continue',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              );
+            },
           ),
         ) ??
         false;
 
+    scrollController.dispose();
     return acceptedTerms ? terms : null;
   }
+
 
   Future<bool> _showBookingDetailsReviewDialog({
     required DateTime startAt,
@@ -6568,6 +6700,170 @@ class _CalendarLegendDot extends StatelessWidget {
         const SizedBox(width: 6),
         Text(label, style: TextStyle(fontSize: 12, color: textColor)),
       ],
+    );
+  }
+}
+
+/// Animated modal that shows a bouncing icon (checkmark / info / warning)
+/// with a title and message. Auto-dismisses after 2.5 seconds.
+class _CheckAnimationModal extends StatefulWidget {
+  final String title;
+  final String message;
+  final Color accentColor;
+  final IconData icon;
+
+  const _CheckAnimationModal({
+    required this.title,
+    required this.message,
+    required this.accentColor,
+    required this.icon,
+  });
+
+  @override
+  State<_CheckAnimationModal> createState() => _CheckAnimationModalState();
+}
+
+class _CheckAnimationModalState extends State<_CheckAnimationModal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scaleAnim;
+  late final Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+
+    _scaleAnim = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.elasticOut,
+    );
+
+    _fadeAnim = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.0, 0.4, curve: Curves.easeIn),
+    );
+
+    _controller.forward();
+
+    // Auto-dismiss after 2.5 s
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return FadeTransition(
+      opacity: _fadeAnim,
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Center(
+          child: Container(
+            width: 280,
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E2535) : Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.12),
+                  blurRadius: 32,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Animated icon bubble
+                ScaleTransition(
+                  scale: _scaleAnim,
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: widget.accentColor.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: widget.accentColor.withValues(alpha: 0.35),
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      widget.icon,
+                      size: 42,
+                      color: widget.accentColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Title
+                Text(
+                  widget.title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : const Color(0xFF1A1A2E),
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Message
+                Text(
+                  widget.message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 22),
+
+                // Dismiss button
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      backgroundColor:
+                          widget.accentColor.withValues(alpha: 0.12),
+                      foregroundColor: widget.accentColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text(
+                      'OK',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -5,6 +7,10 @@ class TermsService {
   static const String rentalTermsKey = 'rental_terms';
   static const String termsOfServiceKey = 'terms_of_service';
   static const String privacyPolicyKey = 'privacy_policy';
+  static const String rentalTermsPdfUrlKey = 'rental_terms_pdf_url';
+  static const String _pdfBucket = 'app_documents';
+  static const String _pdfPath = 'rental_terms/rental_terms_agreement.pdf';
+
 
   static const String _missingSettingsTableMessage =
       'Settings storage is not set up yet. Apply the Supabase migration '
@@ -214,7 +220,64 @@ Profile and booking information is protected and must not be shared outside Mobi
     }
   }
 
+  /// Returns the public URL of the uploaded rental terms PDF, or null if none.
+  Future<String?> getRentalTermsPdfUrl() async {
+    try {
+      final response = await _supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', rentalTermsPdfUrlKey)
+          .maybeSingle();
+      final value = response?['value']?.toString().trim();
+      return (value == null || value.isEmpty) ? null : value;
+    } catch (e) {
+      debugPrint('Unable to load rental terms PDF URL: $e');
+      return null;
+    }
+  }
+
+  /// Uploads [bytes] as the rental terms PDF and saves its public URL.
+  Future<String> uploadRentalTermsPdf(Uint8List bytes) async {
+    await _supabase.storage.from(_pdfBucket).uploadBinary(
+      _pdfPath,
+      bytes,
+      fileOptions: const FileOptions(
+        contentType: 'application/pdf',
+        upsert: true,
+      ),
+    );
+
+    final publicUrl =
+        _supabase.storage.from(_pdfBucket).getPublicUrl(_pdfPath);
+
+    final userId = _supabase.auth.currentUser?.id;
+    await _supabase.from('app_settings').upsert({
+      'key': rentalTermsPdfUrlKey,
+      'value': publicUrl,
+      'description': 'Public URL of the rental terms & agreement PDF.',
+      'updated_by': userId,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, onConflict: 'key');
+
+    return publicUrl;
+  }
+
+  /// Removes the uploaded PDF from storage and clears its URL from settings.
+  Future<void> deleteRentalTermsPdf() async {
+    try {
+      await _supabase.storage.from(_pdfBucket).remove([_pdfPath]);
+    } catch (e) {
+      debugPrint('Could not remove PDF from storage (may already be gone): $e');
+    }
+
+    await _supabase
+        .from('app_settings')
+        .delete()
+        .eq('key', rentalTermsPdfUrlKey);
+  }
+
   bool _isMissingSettingsTable(PostgrestException e) {
+
     return e.code == 'PGRST205' ||
         e.message.contains('public.app_settings') ||
         e.message.contains('app_settings');
