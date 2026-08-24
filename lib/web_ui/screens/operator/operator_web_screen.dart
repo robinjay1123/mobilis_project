@@ -151,6 +151,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _bookingFilter = 'all';
   String _bookingSearchQuery = '';
   String _bookingDateFilter = 'all';
+  String _bookingVehicleTypeFilter = 'all';
   String _vehicleView = 'company';
   String _vehicleViewMode = 'table'; // 'table' or 'grid'
 
@@ -20601,7 +20602,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
               OutlinedButton.icon(
                 onPressed: () => _showOperatorTurnaroundBufferDialog(isDark),
-                icon: const Icon(
+                icon: Icon(
                   Icons.cleaning_services_rounded,
                   size: 16,
                   color: _operatorGold,
