@@ -41,6 +41,8 @@ import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
 import '../../../services/report_service.dart';
 import '../../../services/user_restriction_service.dart';
+import '../../../services/booking_viewed_service.dart';
+import '../../../services/trip_rating_service.dart';
 
 class AdminWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -2151,17 +2153,108 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .from('bookings')
           .select('''
             *,
-            vehicles:vehicle_id (id, brand, model, year, plate_number, owner_id, operator_id),
-            renter:renter_id (id, full_name, email),
+            vehicles:vehicle_id (
+              id,
+              brand,
+              model,
+              year,
+              plate_number,
+              owner_id,
+              owner_role,
+              operator_id,
+              is_partner_vehicle,
+              partner_id
+            ),
+            renter:renter_id (id, full_name, email, phone),
             drivers:drivers!bookings_driver_id_fkey (
               id,
               user_id,
-              users:users!drivers_user_id_fkey (id, full_name, email)
+              users:users!drivers_user_id_fkey (id, full_name, email, phone)
             )
           ''')
           .order('created_at', ascending: false);
 
-      _allBookings = List<Map<String, dynamic>>.from(response);
+      final rawBookings = List<Map<String, dynamic>>.from(response);
+
+      // Load partner profiles mapping
+      final partnerMap = <String, Map<String, dynamic>>{};
+      try {
+        final partnersResp = await _supabase
+            .from('partners')
+            .select(
+              'id, business_name, business_phone, business_address, user_id, users:user_id(id, full_name, email, phone)',
+            );
+        for (final p in List<Map<String, dynamic>>.from(partnersResp)) {
+          final pid = p['id']?.toString() ?? '';
+          final uid = p['user_id']?.toString() ?? '';
+          if (pid.isNotEmpty) partnerMap[pid] = p;
+          if (uid.isNotEmpty) partnerMap[uid] = p;
+        }
+      } catch (pe) {
+        debugPrint('Could not load partners mapping: $pe');
+      }
+
+      // Also check booking_settlements map for exact disbursement records
+      final settlementsMap = <String, Map<String, dynamic>>{};
+      try {
+        final settlementsResp = await _supabase
+            .from('booking_settlements')
+            .select(
+              'booking_id, status, released_at, partner_amount, partner_commission, driver_amount, gross_amount',
+            );
+        for (final s in List<Map<String, dynamic>>.from(settlementsResp)) {
+          final bId = s['booking_id']?.toString() ?? '';
+          if (bId.isNotEmpty) settlementsMap[bId] = s;
+        }
+      } catch (_) {}
+
+      // Merge partner and settlement details into each booking
+      for (final booking in rawBookings) {
+        final bId = booking['id']?.toString() ?? '';
+        final vehicle = booking['vehicles'] is Map<String, dynamic>
+            ? Map<String, dynamic>.from(booking['vehicles'])
+            : <String, dynamic>{};
+        final ownerId = vehicle['owner_id']?.toString() ?? '';
+        final partnerId =
+            booking['partner_id']?.toString() ??
+            vehicle['partner_id']?.toString() ??
+            ownerId;
+        final isPartner =
+            vehicle['is_partner_vehicle'] == true ||
+            vehicle['owner_role']?.toString().toLowerCase() == 'partner' ||
+            partnerMap.containsKey(partnerId) ||
+            partnerMap.containsKey(ownerId);
+
+        booking['is_partner_vehicle'] = isPartner;
+
+        if (isPartner) {
+          final partnerData = partnerMap[partnerId] ?? partnerMap[ownerId];
+          if (partnerData != null) {
+            final partnerUser = partnerData['users'] is Map<String, dynamic>
+                ? Map<String, dynamic>.from(partnerData['users'])
+                : <String, dynamic>{};
+            booking['partner_business_name'] =
+                partnerData['business_name'] ??
+                partnerUser['full_name'] ??
+                'Partner';
+            booking['partner_email'] = partnerUser['email'];
+            booking['partner_phone'] =
+                partnerData['business_phone'] ?? partnerUser['phone'];
+            booking['partner_name'] =
+                partnerData['business_name'] ??
+                partnerUser['full_name'] ??
+                'Mobilis Partner';
+          } else {
+            booking['partner_name'] = 'Mobilis Partner';
+          }
+        }
+
+        if (settlementsMap.containsKey(bId)) {
+          booking['settlement'] = settlementsMap[bId];
+        }
+      }
+
+      _allBookings = rawBookings;
       await _recalculateUnviewedBookings();
     } catch (e) {
       debugPrint('Error loading bookings: $e');
@@ -8509,6 +8602,267 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Map<String, dynamic> _getBookingCommissionBreakdown(
+    Map<String, dynamic> booking,
+  ) {
+    final total =
+        (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
+        0.0;
+    final rentalSubtotal =
+        (booking['rental_subtotal'] as num?)?.toDouble() ?? total;
+    final vehicle = booking['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(booking['vehicles'])
+        : <String, dynamic>{};
+    final isPartner =
+        booking['is_partner_vehicle'] == true ||
+        vehicle['is_partner_vehicle'] == true ||
+        vehicle['owner_role']?.toString().toLowerCase() == 'partner';
+
+    // 10% platform commission on rental, 90% partner net
+    final partnerCommission = isPartner ? rentalSubtotal * 0.10 : 0.0;
+    final partnerNet = isPartner
+        ? (rentalSubtotal - partnerCommission).clamp(0.0, double.infinity)
+        : 0.0;
+
+    final rawCommissionStatus =
+        booking['commission_status']?.toString().toLowerCase();
+    final settlement = booking['settlement'] as Map<String, dynamic>?;
+    final isSettlementReleased =
+        settlement?['status']?.toString().toLowerCase() == 'released';
+
+    String statusKey = 'not_applicable';
+    String statusLabel = 'PSDC Fleet';
+    if (isPartner) {
+      if (rawCommissionStatus == 'released' || isSettlementReleased) {
+        statusKey = 'released';
+        statusLabel = 'Disbursed';
+      } else if (rawCommissionStatus == 'processing') {
+        statusKey = 'processing';
+        statusLabel = 'Processing';
+      } else if (rawCommissionStatus == 'settlement_failed') {
+        statusKey = 'failed';
+        statusLabel = 'Failed';
+      } else {
+        final bookingStatus =
+            (booking['status']?.toString() ?? '').toLowerCase();
+        if (bookingStatus == 'completed') {
+          statusKey = 'pending_release';
+          statusLabel = 'Pending Disbursement';
+        } else if (bookingStatus == 'cancelled' ||
+            bookingStatus == 'rejected') {
+          statusKey = 'cancelled';
+          statusLabel = 'Cancelled';
+        } else {
+          statusKey = 'on_trip';
+          statusLabel = 'In Progress';
+        }
+      }
+    }
+
+    final releasedAtRaw =
+        settlement?['released_at'] ??
+        booking['commission_eligible_at'] ??
+        booking['updated_at'];
+    DateTime? releasedAt;
+    if (releasedAtRaw != null) {
+      releasedAt = DateTime.tryParse(releasedAtRaw.toString());
+    }
+
+    return {
+      'is_partner': isPartner,
+      'partner_name': booking['partner_name'] ?? 'Partner',
+      'partner_business_name': booking['partner_business_name'],
+      'partner_email': booking['partner_email'],
+      'partner_phone': booking['partner_phone'],
+      'total_amount': total,
+      'rental_amount': rentalSubtotal,
+      'partner_commission': partnerCommission,
+      'partner_net': partnerNet,
+      'status_key': statusKey,
+      'status_label': statusLabel,
+      'released_at': releasedAt,
+    };
+  }
+
+  Widget _buildCommissionDisbursementBadge(
+    Map<String, dynamic> breakdown,
+    bool isDark,
+  ) {
+    final isPartner = breakdown['is_partner'] == true;
+    if (!isPartner) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.blueGrey.withValues(alpha: 0.2)
+              : Colors.blueGrey.shade50,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isDark ? Colors.blueGrey.shade700 : Colors.blueGrey.shade200,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.apartment_rounded,
+              size: 13,
+              color: isDark ? Colors.blueGrey.shade300 : Colors.blueGrey.shade700,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              'PSDC Fleet (100%)',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: isDark
+                    ? Colors.blueGrey.shade300
+                    : Colors.blueGrey.shade700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final statusKey = breakdown['status_key'] as String;
+    final partnerNet = (breakdown['partner_net'] as num?)?.toDouble() ?? 0.0;
+    final commission =
+        (breakdown['partner_commission'] as num?)?.toDouble() ?? 0.0;
+    final releasedAt = breakdown['released_at'] as DateTime?;
+
+    if (statusKey == 'released') {
+      final dateStr = releasedAt != null
+          ? DateFormat('MMM d, h:mm a').format(releasedAt)
+          : '';
+      return Tooltip(
+        message:
+            'Partner Net: ₱${partnerNet.toStringAsFixed(0)} | Platform Commission (10%): ₱${commission.toStringAsFixed(0)}${dateStr.isNotEmpty ? '\nDisbursed: $dateStr' : ''}',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: isDark
+                ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                : const Color(0xFFECFDF5),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: const Color(0xFF10B981).withValues(alpha: 0.4),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.check_circle_rounded,
+                size: 13,
+                color: Color(0xFF10B981),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                'Disbursed (₱${partnerNet.toStringAsFixed(0)})',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF10B981),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (statusKey == 'pending_release') {
+      return Tooltip(
+        message:
+            'Trip completed. Ready for payout disbursement (Partner: ₱${partnerNet.toStringAsFixed(0)})',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: isDark
+                ? const Color(0xFFF59E0B).withValues(alpha: 0.15)
+                : const Color(0xFFFFFBEB),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.hourglass_top_rounded,
+                size: 13,
+                color: Color(0xFFF59E0B),
+              ),
+              const SizedBox(width: 5),
+              const Text(
+                'Pending Disbursement',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFF59E0B),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (statusKey == 'on_trip' || statusKey == 'processing') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF3B82F6).withValues(alpha: 0.15)
+              : const Color(0xFFEFF6FF),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: const Color(0xFF3B82F6).withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.schedule_rounded,
+              size: 13,
+              color: Color(0xFF3B82F6),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              statusKey == 'processing' ? 'Processing' : 'In Progress',
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF3B82F6),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.grey.withValues(alpha: 0.15)
+            : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        breakdown['status_label']?.toString() ?? 'N/A',
+        style: TextStyle(
+          fontSize: 10,
+          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+        ),
+      ),
+    );
+  }
+
   Widget _buildBookingsMasterTable(
     List<Map<String, dynamic>> sortedBookings,
     bool isDark,
@@ -8523,53 +8877,68 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: DataTable(
                 horizontalMargin: 16,
-                columnSpacing: 32,
+                columnSpacing: 24,
                 columns: [
                   DataColumn(
                     label: Text(
-                      'Booking ID',
+                      'Booking ID & Dates',
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                   DataColumn(
                     label: Text(
-                      'Vehicle',
+                      'Vehicle & Fleet',
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                   DataColumn(
                     label: Text(
-                      'Renter',
+                      'Renter & Driver',
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                   DataColumn(
                     label: Text(
-                      'Status',
+                      'Trip Status',
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                   DataColumn(
                     label: Text(
-                      'Total Cost',
+                      'Partner Disbursement',
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
                   DataColumn(
                     label: Text(
-                      'Tracking',
+                      'Total Amount',
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      'Actions',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
@@ -8581,71 +8950,226 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       : '#BK-$bookingId';
                   final vehicle = booking['vehicles'] as Map<String, dynamic>?;
                   final user = booking['renter'] as Map<String, dynamic>?;
+                  final driver = booking['drivers'] as Map<String, dynamic>?;
+                  final driverUser = driver?['users'] as Map<String, dynamic>?;
+                  final driverName = driverUser?['full_name']?.toString();
                   final status = booking['status'] as String? ?? 'pending';
                   final canTrack = _canTrackBooking(booking);
-                  final total =
-                      (booking['total_price'] as num?)?.toDouble() ??
-                      (booking['total_cost'] as num?)?.toDouble() ??
-                      0;
+                  final breakdown = _getBookingCommissionBreakdown(booking);
+                  final total = breakdown['total_amount'] as double;
+                  final isPartner = breakdown['is_partner'] == true;
+                  final partnerName = breakdown['partner_name'] as String;
+
+                  final startDateRaw =
+                      booking['start_date'] ?? booking['start_at'];
+                  final endDateRaw = booking['end_date'] ?? booking['end_at'];
+                  String dateRangeText = 'Dates not set';
+                  if (startDateRaw != null) {
+                    final startDt = DateTime.tryParse(startDateRaw.toString());
+                    final endDt = endDateRaw != null
+                        ? DateTime.tryParse(endDateRaw.toString())
+                        : null;
+                    if (startDt != null && endDt != null) {
+                      dateRangeText =
+                          '${DateFormat('MMM d').format(startDt)} - ${DateFormat('MMM d, yyyy').format(endDt)}';
+                    } else if (startDt != null) {
+                      dateRangeText = DateFormat('MMM d, yyyy').format(startDt);
+                    }
+                  }
 
                   return DataRow(
                     cells: [
                       DataCell(
-                        Text(
-                          refCode,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: isDark
-                                ? AppColors.primary
-                                : Colors.blue.shade800,
+                        InkWell(
+                          onTap: () =>
+                              _showAdminBookingDetailsModal(booking, isDark),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                refCode,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark
+                                      ? AppColors.primary
+                                      : Colors.blue.shade800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                dateRangeText,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: isDark
+                                      ? Colors.grey.shade400
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
                       DataCell(
-                        Text(
-                          vehicle != null
-                              ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['plate_number'] != null ? "(${vehicle['plate_number']})" : ""}'
-                              : 'Unknown',
-                          style: TextStyle(
-                            color: isDark ? Colors.white70 : Colors.black87,
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              vehicle != null
+                                  ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['plate_number'] != null ? "(${vehicle['plate_number']})" : ""}'
+                                  : 'Unknown Vehicle',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isPartner
+                                    ? const Color(0xFF0284C7).withValues(
+                                        alpha: 0.15,
+                                      )
+                                    : AppColors.primary.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                isPartner
+                                    ? '🤝 Partner: $partnerName'
+                                    : '🏢 PSDC Fleet',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: isPartner
+                                      ? const Color(0xFF0284C7)
+                                      : AppColors.primary,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       DataCell(
-                        Text(
-                          user?['full_name'] ?? 'Unknown',
-                          style: TextStyle(
-                            color: isDark ? Colors.white70 : Colors.black87,
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              user?['full_name'] ?? 'Unknown Renter',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white70 : Colors.black87,
+                                fontSize: 12,
+                              ),
+                            ),
+                            if (driverName != null && driverName.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.badge_outlined,
+                                    size: 11,
+                                    color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Driver: $driverName',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                       DataCell(_buildStatusBadge(status)),
                       DataCell(
-                        Text(
-                          'PHP ${total.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Colors.green,
-                          ),
+                        _buildCommissionDisbursementBadge(breakdown, isDark),
+                      ),
+                      DataCell(
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'PHP ${total.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                                fontSize: 13,
+                              ),
+                            ),
+                            if (isPartner) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                'Net ₱${(breakdown['partner_net'] as double).toStringAsFixed(0)} / Comm ₱${(breakdown['partner_commission'] as double).toStringAsFixed(0)}',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: isDark
+                                      ? Colors.grey.shade400
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                       DataCell(
-                        ElevatedButton.icon(
-                          onPressed: canTrack
-                              ? () => _openTrackingForBooking(booking)
-                              : null,
-                          icon: const Icon(Icons.location_on, size: 16),
-                          label: const Text('Track'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.black,
-                            disabledBackgroundColor: isDark
-                                ? Colors.grey.shade800
-                                : Colors.grey.shade300,
-                            disabledForegroundColor: isDark
-                                ? Colors.grey.shade500
-                                : Colors.grey.shade600,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.visibility_outlined, size: 18),
+                              tooltip: 'View Booking & Disbursement Details',
+                              color: isDark
+                                  ? AppColors.primary
+                                  : Colors.blue.shade800,
+                              onPressed: () => _showAdminBookingDetailsModal(
+                                booking,
+                                isDark,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            ElevatedButton.icon(
+                              onPressed: canTrack
+                                  ? () => _openTrackingForBooking(booking)
+                                  : null,
+                              icon: const Icon(Icons.location_on, size: 14),
+                              label: const Text(
+                                'Track',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                minimumSize: const Size(60, 32),
+                                disabledBackgroundColor: isDark
+                                    ? Colors.grey.shade800
+                                    : Colors.grey.shade300,
+                                disabledForegroundColor: isDark
+                                    ? Colors.grey.shade500
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -8657,6 +9181,721 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         },
       ),
       isDark,
+    );
+  }
+
+  void _showAdminBookingDetailsModal(
+    Map<String, dynamic> booking,
+    bool isDark,
+  ) {
+    final bookingId = booking['id']?.toString() ?? 'N/A';
+    final refCode = bookingId.length > 8
+        ? '#BK-${bookingId.substring(0, 8).toUpperCase()}'
+        : '#BK-$bookingId';
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final user = booking['renter'] as Map<String, dynamic>?;
+    final driver = booking['drivers'] as Map<String, dynamic>?;
+    final driverUser = driver?['users'] as Map<String, dynamic>?;
+    final status = booking['status'] as String? ?? 'pending';
+    final breakdown = _getBookingCommissionBreakdown(booking);
+    final isPartner = breakdown['is_partner'] == true;
+    final canTrack = _canTrackBooking(booking);
+
+    final pickup =
+        booking['pickup_location']?.toString() ?? 'Garage Pickup / PSDC';
+    final dropoff =
+        booking['dropoff_location']?.toString() ?? 'Return to Garage';
+
+    final startDateRaw = booking['start_date'] ?? booking['start_at'];
+    final endDateRaw = booking['end_date'] ?? booking['end_at'];
+    DateTime? startDt = startDateRaw != null
+        ? DateTime.tryParse(startDateRaw.toString())
+        : null;
+    DateTime? endDt = endDateRaw != null
+        ? DateTime.tryParse(endDateRaw.toString())
+        : null;
+
+    final createdAtRaw = booking['created_at'];
+    DateTime? createdDt = createdAtRaw != null
+        ? DateTime.tryParse(createdAtRaw.toString())
+        : null;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          bool isReleasing = false;
+          return AlertDialog(
+            backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(
+                color: isDark ? Colors.white12 : Colors.grey.shade200,
+              ),
+            ),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.receipt_long_rounded,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Booking Details $refCode',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      if (createdDt != null)
+                        Text(
+                          'Booked on ${DateFormat('MMMM d, yyyy • h:mm a').format(createdDt)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark
+                                ? Colors.grey.shade400
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _buildStatusBadge(status),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  onPressed: () => Navigator.pop(dialogCtx),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 680,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Section 1: Partner Commission & Disbursement Breakdown
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: isPartner
+                            ? (isDark
+                                ? const Color(0xFF0284C7).withValues(alpha: 0.1)
+                                : const Color(0xFFF0F9FF))
+                            : (isDark
+                                ? Colors.white.withValues(alpha: 0.04)
+                                : const Color(0xFFF8FAFC)),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isPartner
+                              ? const Color(0xFF0284C7).withValues(alpha: 0.3)
+                              : (isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade200),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    isPartner
+                                        ? Icons.handshake_rounded
+                                        : Icons.apartment_rounded,
+                                    size: 18,
+                                    color: isPartner
+                                        ? const Color(0xFF0284C7)
+                                        : AppColors.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    isPartner
+                                        ? 'Partner Vehicle & Commission Accounting'
+                                        : 'PSDC Fleet Direct Revenue',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark
+                                          ? Colors.white
+                                          : Colors.black87,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              _buildCommissionDisbursementBadge(
+                                breakdown,
+                                isDark,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          if (isPartner) ...[
+                            Text(
+                              'Partner: ${breakdown['partner_name']} ${breakdown['partner_business_name'] != null ? "(${breakdown['partner_business_name']})" : ""}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white70 : Colors.black87,
+                              ),
+                            ),
+                            if (breakdown['partner_email'] != null ||
+                                breakdown['partner_phone'] != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                'Contact: ${breakdown['partner_email'] ?? ''} ${breakdown['partner_phone'] != null ? "• ${breakdown['partner_phone']}" : ""}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.grey.shade400
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 14),
+                            // 3-box financial stat cards
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.black26
+                                          : Colors.white,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: isDark
+                                            ? Colors.white12
+                                            : Colors.grey.shade200,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'GROSS TOTAL',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDark
+                                                ? Colors.grey.shade400
+                                                : Colors.grey.shade600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '₱${(breakdown['total_amount'] as double).toStringAsFixed(0)}',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDark
+                                                ? Colors.white
+                                                : Colors.black87,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? const Color(0xFF10B981).withValues(
+                                              alpha: 0.1,
+                                            )
+                                          : const Color(0xFFECFDF5),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(
+                                          0xFF10B981,
+                                        ).withValues(alpha: 0.3),
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'PARTNER NET (90%)',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF10B981),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '₱${(breakdown['partner_net'] as double).toStringAsFixed(0)}',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF10B981),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? const Color(0xFFD4AF37).withValues(
+                                              alpha: 0.1,
+                                            )
+                                          : const Color(0xFFFFFBEB),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(
+                                          0xFFD4AF37,
+                                        ).withValues(alpha: 0.3),
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'PLATFORM COMM (10%)',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFFD4AF37),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '₱${(breakdown['partner_commission'] as double).toStringAsFixed(0)}',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFFD4AF37),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (breakdown['status_key'] ==
+                                'pending_release') ...[
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: isReleasing
+                                      ? null
+                                      : () async {
+                                          setModalState(
+                                            () => isReleasing = true,
+                                          );
+                                          try {
+                                            await TripRatingService()
+                                                .reconcileCompletedBooking(
+                                                  bookingId,
+                                                );
+                                            await _loadAllBookings();
+                                            if (dialogCtx.mounted) {
+                                              Navigator.pop(dialogCtx);
+                                            }
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Partner commission disbursed successfully!',
+                                                  ),
+                                                  backgroundColor:
+                                                      AppColors.success,
+                                                ),
+                                              );
+                                            }
+                                          } catch (e) {
+                                            setModalState(
+                                              () => isReleasing = false,
+                                            );
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('Error: $e'),
+                                                  backgroundColor:
+                                                      AppColors.error,
+                                                ),
+                                              );
+                                            }
+                                          }
+                                        },
+                                  icon: const Icon(
+                                    Icons.payments_rounded,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    isReleasing
+                                        ? 'Disbursing...'
+                                        : 'Disburse & Settle Commission Now',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF10B981),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ] else ...[
+                            Text(
+                              'This vehicle is directly owned & managed by PSDC. 100% of revenue (₱${(breakdown['total_amount'] as double).toStringAsFixed(0)}) is retained as internal company revenue.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.grey.shade400
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
+                    // Section 2: Vehicle & Trip Information
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.03)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white10
+                                    : Colors.grey.shade200,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.directions_car_rounded,
+                                      size: 16,
+                                      color: AppColors.primary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Vehicle Info',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  vehicle != null
+                                      ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['year'] ?? ''}'
+                                      : 'Unknown Vehicle',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Plate Number: ${vehicle?['plate_number'] ?? 'No Plate'}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.03)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white10
+                                    : Colors.grey.shade200,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.calendar_month_rounded,
+                                      size: 16,
+                                      color: AppColors.primary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Schedule & Route',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Start: ${startDt != null ? DateFormat('MMM d, yyyy • h:mm a').format(startDt) : 'Not set'}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? Colors.white70
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'End: ${endDt != null ? DateFormat('MMM d, yyyy • h:mm a').format(endDt) : 'Not set'}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? Colors.white70
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Pickup: $pickup\nDestination: $dropoff',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Section 3: Renter & Driver Info
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.03)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white10
+                                    : Colors.grey.shade200,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.person_rounded,
+                                      size: 16,
+                                      color: AppColors.primary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Renter Details',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  user?['full_name'] ?? 'Unknown Renter',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Email: ${user?['email'] ?? 'No email'}\nPhone: ${user?['phone'] ?? 'No phone'}',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.03)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white10
+                                    : Colors.grey.shade200,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.badge_rounded,
+                                      size: 16,
+                                      color: AppColors.primary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Driver Details',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  driverUser?['full_name'] ??
+                                      'Self-Drive (No Driver)',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  driverUser != null
+                                      ? 'Email: ${driverUser['email'] ?? 'N/A'}\nPhone: ${driverUser['phone'] ?? 'N/A'}'
+                                      : 'Trip is self-driven by renter.',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              if (canTrack)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(dialogCtx);
+                    _openTrackingForBooking(booking);
+                  },
+                  icon: const Icon(Icons.location_on, size: 16),
+                  label: const Text('Live GPS Track'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
