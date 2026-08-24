@@ -4861,6 +4861,9 @@ class BookingService {
     required String bookingId,
     required DateTime newStartAt,
     required DateTime newEndAt,
+    String? newDropoffLocation,
+    double? newDropoffLatitude,
+    double? newDropoffLongitude,
     String? reason,
   }) async {
     try {
@@ -4890,8 +4893,8 @@ class BookingService {
         }
       }
 
-      // Update booking dates and reschedule tracking
-      await supabase.from('bookings').update({
+      // Update booking dates, destination and reschedule tracking
+      final updateData = <String, dynamic>{
         'start_at': newStartAt.toIso8601String(),
         'end_at': newEndAt.toIso8601String(),
         'original_start_at': originalStart,
@@ -4900,7 +4903,19 @@ class BookingService {
         'reschedule_count': currentRescheduleCount + 1,
         'reschedule_reason': reason ?? 'Renter requested date change',
         'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', bookingId);
+      };
+
+      if (newDropoffLocation != null && newDropoffLocation.trim().isNotEmpty) {
+        updateData['dropoff_location'] = newDropoffLocation.trim();
+      }
+      if (newDropoffLatitude != null) {
+        updateData['dropoff_latitude'] = newDropoffLatitude;
+      }
+      if (newDropoffLongitude != null) {
+        updateData['dropoff_longitude'] = newDropoffLongitude;
+      }
+
+      await supabase.from('bookings').update(updateData).eq('id', bookingId);
 
       // Notify operator & partner
       try {
@@ -4916,6 +4931,8 @@ class BookingService {
             'booking_id': bookingId,
             'new_start': newStartAt.toIso8601String(),
             'new_end': newEndAt.toIso8601String(),
+            if (newDropoffLocation != null && newDropoffLocation.trim().isNotEmpty)
+              'new_dropoff_location': newDropoffLocation.trim(),
           },
         );
       } catch (e) {

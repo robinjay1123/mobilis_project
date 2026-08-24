@@ -9250,6 +9250,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     DateTime selectedStartDate = DateTime.now().add(const Duration(days: 2));
     DateTime selectedEndDate = selectedStartDate.add(Duration(days: durationDays));
+
+    final initialDestination = booking['dropoff_location']?.toString().trim() ??
+        booking['dropoffLocation']?.toString().trim() ??
+        booking['destination']?.toString().trim() ??
+        '';
+    final initialDropoffLat = (booking['dropoff_latitude'] ??
+            booking['dropoffLatitude'] as num?)
+        ?.toDouble();
+    final initialDropoffLng = (booking['dropoff_longitude'] ??
+            booking['dropoffLongitude'] as num?)
+        ?.toDouble();
+
+    final destinationController = TextEditingController(text: initialDestination);
+    double? selectedDropoffLat = initialDropoffLat;
+    double? selectedDropoffLng = initialDropoffLng;
+
     final reasonController = TextEditingController(text: 'Change of schedule');
     bool isSubmitting = false;
 
@@ -9335,6 +9351,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               fontSize: 11,
                             ),
                           ),
+                          if (initialDestination.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Current Destination: $initialDestination',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -9348,7 +9376,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    // New Start Date Picker Button
+                    // Unified Date Range Picker Button
                     ListTile(
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -9356,93 +9384,72 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                       tileColor: AppColors.darkBg,
                       leading: const Icon(
-                        Icons.calendar_today_rounded,
+                        Icons.calendar_month_rounded,
                         color: Color(0xFFE5A93C),
-                        size: 20,
+                        size: 22,
                       ),
                       title: const Text(
-                        'New Pickup Date',
+                        'New Trip Dates',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 11,
                         ),
                       ),
                       subtitle: Text(
-                        DateFormat('EEE, MMM d, yyyy').format(selectedStartDate),
+                        '${DateFormat('EEE, MMM d, yyyy').format(selectedStartDate)} – ${DateFormat('EEE, MMM d, yyyy').format(selectedEndDate)} (${selectedEndDate.difference(selectedStartDate).inDays} day${selectedEndDate.difference(selectedStartDate).inDays > 1 ? 's' : ''})',
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontWeight: FontWeight.bold,
-                          fontSize: 13,
+                          fontSize: 12,
                         ),
                       ),
-                      trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
+                      trailing: const Icon(
+                        Icons.edit_calendar_rounded,
+                        color: Color(0xFFE5A93C),
+                        size: 20,
+                      ),
                       onTap: isSubmitting
                           ? null
                           : () async {
-                              final picked = await showDatePicker(
+                              final picked = await showDateRangePicker(
                                 context: context,
-                                initialDate: selectedStartDate,
+                                initialDateRange: DateTimeRange(
+                                  start: selectedStartDate,
+                                  end: selectedEndDate,
+                                ),
                                 firstDate: DateTime.now().add(const Duration(days: 1)),
                                 lastDate: DateTime.now().add(const Duration(days: 90)),
+                                builder: (context, child) {
+                                  return Theme(
+                                    data: Theme.of(context).copyWith(
+                                      colorScheme: const ColorScheme.dark(
+                                        primary: Color(0xFFE5A93C),
+                                        onPrimary: Colors.black,
+                                        surface: AppColors.darkBgSecondary,
+                                        onSurface: AppColors.textPrimary,
+                                        secondary: Color(0xFF10B981),
+                                      ),
+                                      dialogTheme: const DialogThemeData(
+                                        backgroundColor: AppColors.darkBgSecondary,
+                                      ),
+                                    ),
+                                    child: child!,
+                                  );
+                                },
                               );
                               if (picked != null) {
                                 setModalState(() {
                                   selectedStartDate = DateTime(
-                                    picked.year,
-                                    picked.month,
-                                    picked.day,
+                                    picked.start.year,
+                                    picked.start.month,
+                                    picked.start.day,
                                     currentStart?.hour ?? 9,
                                     currentStart?.minute ?? 0,
                                   );
-                                  selectedEndDate = selectedStartDate.add(Duration(days: durationDays));
-                                });
-                              }
-                            },
-                    ),
-                    const SizedBox(height: 10),
-                    // New End Date Picker Button
-                    ListTile(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: const BorderSide(color: AppColors.borderColor),
-                      ),
-                      tileColor: AppColors.darkBg,
-                      leading: const Icon(
-                        Icons.flag_rounded,
-                        color: Color(0xFF10B981),
-                        size: 20,
-                      ),
-                      title: const Text(
-                        'New Return Date',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 11,
-                        ),
-                      ),
-                      subtitle: Text(
-                        DateFormat('EEE, MMM d, yyyy').format(selectedEndDate),
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                      trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
-                      onTap: isSubmitting
-                          ? null
-                          : () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: selectedEndDate,
-                                firstDate: selectedStartDate.add(const Duration(days: 1)),
-                                lastDate: selectedStartDate.add(const Duration(days: 60)),
-                              );
-                              if (picked != null) {
-                                setModalState(() {
                                   selectedEndDate = DateTime(
-                                    picked.year,
-                                    picked.month,
-                                    picked.day,
+                                    picked.end.year,
+                                    picked.end.month,
+                                    picked.end.day,
                                     currentEnd?.hour ?? 18,
                                     currentEnd?.minute ?? 0,
                                   );
@@ -9451,12 +9458,93 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             },
                     ),
                     const SizedBox(height: 14),
+                    const Text(
+                      'Trip Destination',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Leave as is or pin a new destination on map',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Destination Text Field with Pin Destination Map Picker
+                    TextField(
+                      controller: destinationController,
+                      maxLines: 2,
+                      minLines: 1,
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        labelText: 'Destination Address',
+                        hintText: 'Enter destination or pin on map',
+                        labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                        prefixIcon: const Icon(
+                          Icons.location_on_rounded,
+                          color: Color(0xFF10B981),
+                          size: 20,
+                        ),
+                        suffixIcon: IconButton(
+                          tooltip: 'Pin destination on map',
+                          icon: const Icon(
+                            Icons.map_outlined,
+                            color: Color(0xFFE5A93C),
+                            size: 22,
+                          ),
+                          onPressed: isSubmitting
+                              ? null
+                              : () async {
+                                  final selection = await MobilisLocationPickerModal.show(
+                                    context,
+                                    title: 'Pin trip destination',
+                                    subtitle:
+                                        'Search an address or place a pin for your rescheduled trip destination.',
+                                    confirmLabel: 'Use this destination',
+                                    initialAddress: destinationController.text.trim().isNotEmpty
+                                        ? destinationController.text.trim()
+                                        : initialDestination,
+                                    initialLatitude: selectedDropoffLat,
+                                    initialLongitude: selectedDropoffLng,
+                                  );
+                                  if (selection != null) {
+                                    setModalState(() {
+                                      destinationController.text = selection.address;
+                                      selectedDropoffLat = selection.latitude;
+                                      selectedDropoffLng = selection.longitude;
+                                    });
+                                  }
+                                },
+                        ),
+                        filled: true,
+                        fillColor: AppColors.darkBg,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.borderColor),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.borderColor),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFE5A93C)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     TextField(
                       controller: reasonController,
                       maxLines: 2,
                       style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
                       decoration: InputDecoration(
-                        labelText: 'Reason for Date Change',
+                        labelText: 'Reason for Date / Destination Change',
                         labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                         filled: true,
                         fillColor: AppColors.darkBg,
@@ -9484,6 +9572,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               bookingId: bookingId,
                               newStartAt: selectedStartDate.toUtc(),
                               newEndAt: selectedEndDate.toUtc(),
+                              newDropoffLocation: destinationController.text.trim().isNotEmpty
+                                  ? destinationController.text.trim()
+                                  : null,
+                              newDropoffLatitude: selectedDropoffLat,
+                              newDropoffLongitude: selectedDropoffLng,
                               reason: reasonController.text.trim(),
                             );
                             if (mounted) {
