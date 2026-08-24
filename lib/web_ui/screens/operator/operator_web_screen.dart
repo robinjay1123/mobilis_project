@@ -50,6 +50,7 @@ import '../../../services/image_optimization_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/booking_viewed_service.dart';
 import '../../../services/payout_method_service.dart';
+import '../../../services/mpin_service.dart';
 import '../../../services/vehicle_turnaround_service.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
