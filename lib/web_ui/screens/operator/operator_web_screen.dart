@@ -17,6 +17,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
+import 'package:intl/intl.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
 import '../../../mobile_ui/screens/profile/trip_rating_flow_screen.dart';
@@ -22474,12 +22475,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           if (isCleaning)
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'relist',
               child: Row(
                 children: [
                   Icon(Icons.flash_on_rounded, size: 18, color: _operatorGold),
-                  SizedBox(width: 9),
+                  const SizedBox(width: 9),
                   Text(
                     'Relist Immediately (Cleaned)',
                     style: TextStyle(
@@ -25827,7 +25828,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   color: _operatorGold.withOpacity(0.15),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.cleaning_services_rounded,
                   color: _operatorGold,
                   size: 20,
@@ -26001,7 +26002,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   color: _operatorGold.withOpacity(0.15),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.cleaning_services_rounded,
                   color: _operatorGold,
                   size: 20,
