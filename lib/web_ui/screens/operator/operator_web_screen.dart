@@ -48,8 +48,8 @@ import '../../../services/tracking_service.dart';
 import '../../../services/image_optimization_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/booking_viewed_service.dart';
-import '../../../services/mpin_service.dart';
 import '../../../services/payout_method_service.dart';
+import '../../../services/vehicle_turnaround_service.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -150,8 +150,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _bookingFilter = 'all';
   String _bookingSearchQuery = '';
   String _bookingDateFilter = 'all';
-  String _bookingVehicleTypeFilter = 'all';
   String _vehicleView = 'company';
+  String _vehicleViewMode = 'table'; // 'table' or 'grid'
 
   String _operatorPickupLabel(String? value) =>
       PhilippineLocations.normalizePsdcGarageLabel(value);
@@ -2361,6 +2361,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _loadVehicles() async {
     try {
+      await VehicleTurnaroundService().processExpiredTurnarounds();
       final currentUserId = _supabase.auth.currentUser?.id;
       var vehicleQuery = _supabase
           .from('vehicles')
@@ -20597,6 +20598,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ],
                 ),
               ),
+              OutlinedButton.icon(
+                onPressed: () => _showOperatorTurnaroundBufferDialog(isDark),
+                icon: const Icon(
+                  Icons.cleaning_services_rounded,
+                  size: 16,
+                  color: _operatorGold,
+                ),
+                label: const Text('Turnaround Buffer'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: isDark ? Colors.white : _operatorInk,
+                  side: BorderSide(
+                    color: isDark
+                        ? _operatorGold.withOpacity(0.4)
+                        : _operatorNavy.withOpacity(0.3),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
               ElevatedButton.icon(
                 onPressed: () => _showAddVehicleDialog(isDark),
                 style: ElevatedButton.styleFrom(
@@ -20735,20 +20761,78 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                         ),
                       );
+                      final styleToggle = Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.05)
+                              : const Color(0xFFF1F3F5),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.table_rows_rounded, size: 18),
+                              tooltip: 'Table / List view',
+                              color: _vehicleViewMode == 'table'
+                                  ? _operatorGold
+                                  : (isDark
+                                      ? Colors.white54
+                                      : Colors.grey.shade600),
+                              padding: const EdgeInsets.all(6),
+                              constraints: const BoxConstraints(),
+                              onPressed: () =>
+                                  setState(() => _vehicleViewMode = 'table'),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.grid_view_rounded, size: 18),
+                              tooltip: 'Grid / Cards view',
+                              color: _vehicleViewMode == 'grid'
+                                  ? _operatorGold
+                                  : (isDark
+                                      ? Colors.white54
+                                      : Colors.grey.shade600),
+                              padding: const EdgeInsets.all(6),
+                              constraints: const BoxConstraints(),
+                              onPressed: () =>
+                                  setState(() => _vehicleViewMode = 'grid'),
+                            ),
+                          ],
+                        ),
+                      );
+
                       if (compact) {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: tabs,
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: tabs,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                styleToggle,
+                              ],
                             ),
                             const SizedBox(height: 12),
                             search,
                           ],
                         );
                       }
-                      return Row(children: [tabs, const Spacer(), search]);
+                      return Row(
+                        children: [
+                          tabs,
+                          const SizedBox(width: 10),
+                          styleToggle,
+                          const Spacer(),
+                          search,
+                        ],
+                      );
                     },
                   ),
                 ),
@@ -20762,10 +20846,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   bool _operatorVehicleIsAvailable(Map<String, dynamic> vehicle) {
+    // Check if vehicle is in an active cleaning turnaround buffer
+    final cleaningUntilRaw =
+        vehicle['cleaning_until'] ?? vehicle['auto_relist_at'];
+    if (cleaningUntilRaw != null) {
+      final cleaningUntil = DateTime.tryParse(cleaningUntilRaw.toString());
+      if (cleaningUntil != null && DateTime.now().isBefore(cleaningUntil)) {
+        return false;
+      }
+    }
+
+    final status =
+        vehicle['status']?.toString().trim().toLowerCase() ?? '';
+    if (status == 'cleaning') {
+      return false;
+    }
+
+    if (vehicle['is_posted'] == true) {
+      return true;
+    }
+
     if (vehicle['is_available'] is bool) {
       return vehicle['is_available'] == true;
     }
-    final status = vehicle['status']?.toString().trim().toLowerCase() ?? '';
+
     return status == 'active' || status == 'available' || status == 'approved';
   }
 
@@ -20910,6 +21014,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       );
     }
+    if (_vehicleViewMode == 'grid') {
+      return _buildOperatorVehicleGrid(vehicles, isDark);
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 900) {
@@ -20974,6 +21082,266 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  Widget _buildOperatorVehicleGrid(
+    List<Map<String, dynamic>> vehicles,
+    bool isDark,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 1200
+            ? 3
+            : constraints.maxWidth >= 720
+                ? 2
+                : 1;
+        const spacing = 16.0;
+        final rows = <Widget>[];
+
+        for (var start = 0; start < vehicles.length; start += columns) {
+          final end = (start + columns).clamp(0, vehicles.length);
+          rows.add(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var index = start; index < end; index++) ...[
+                  if (index > start) const SizedBox(width: spacing),
+                  Expanded(
+                    child: _buildOperatorVehicleCard(vehicles[index], isDark),
+                  ),
+                ],
+                for (var pad = 0; pad < (columns - (end - start)); pad++) ...[
+                  const SizedBox(width: spacing),
+                  const Expanded(child: SizedBox()),
+                ],
+              ],
+            ),
+          );
+          if (end < vehicles.length) {
+            rows.add(const SizedBox(height: spacing));
+          }
+        }
+
+        return Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(children: rows),
+        );
+      },
+    );
+  }
+
+  Widget _buildOperatorVehicleCard(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) {
+    final foreground = isDark ? Colors.white : _operatorInk;
+    final isPartner =
+        vehicle['_source'] == 'partner' || _vehicleView == 'partner';
+    final owner = isPartner
+        ? vehicle['partner_name']?.toString() ?? 'Mobilis Partner'
+        : 'PSDC Fleet';
+    final posted = vehicle['is_posted'] == true;
+    final imageUrl = _primaryVehicleImageUrl(vehicle);
+    final pricePerDay =
+        ((vehicle['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0);
+    final pricePerHour =
+        ((vehicle['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0);
+    final plateNumber = vehicle['plate_number']?.toString() ?? 'No plate';
+    final vehicleType =
+        vehicle['category'] ?? vehicle['vehicle_type'] ?? 'Sedan';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white12 : Colors.grey.shade200,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Stack(
+            children: [
+              Container(
+                height: 160,
+                width: double.infinity,
+                color: isDark ? Colors.white10 : Colors.grey.shade200,
+                child: imageUrl.isEmpty
+                    ? Icon(
+                        Icons.directions_car_outlined,
+                        size: 48,
+                        color: isDark ? Colors.white38 : Colors.grey.shade400,
+                      )
+                    : OptimizedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        errorWidget:
+                            const Icon(Icons.directions_car_outlined),
+                      ),
+              ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isPartner
+                        ? const Color(0xFF0284C7)
+                        : _operatorNavyDeep,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    isPartner ? 'PARTNER' : 'PSDC',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.65),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    plateNumber,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _vehicleTitle(vehicle),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: foreground,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$owner • $vehicleType',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade600,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _buildOperatorVehicleMenu(vehicle, isDark),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.04)
+                        : const Color(0xFFF7F8FA),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '₱$pricePerDay/day',
+                        style: TextStyle(
+                          color: _operatorGold,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        '₱$pricePerHour/hr',
+                        style: TextStyle(
+                          color: isDark ? Colors.white70 : Colors.black87,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildOperatorVehicleStatus(vehicle, isDark),
+                    if (!isPartner)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Transform.scale(
+                            scale: 0.72,
+                            child: Switch(
+                              value: posted,
+                              onChanged: (value) =>
+                                  _togglePostingStatus(vehicle, value),
+                              activeTrackColor: _operatorGold,
+                              activeThumbColor: _operatorNavyDeep,
+                            ),
+                          ),
+                          Text(
+                            posted ? 'POSTED' : 'HIDDEN',
+                            style: TextStyle(
+                              color: foreground,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _vehicleHeaderLabel(
     String label,
     int flex,
@@ -21007,7 +21375,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final owner = isPartner
         ? vehicle['partner_name']?.toString() ?? 'Mobilis Partner'
         : 'PSDC';
-    final available = _operatorVehicleIsAvailable(vehicle);
     final posted = vehicle['is_posted'] == true;
     Widget cell(Widget child, int flex) => Expanded(flex: flex, child: child);
     return Container(
@@ -21038,7 +21405,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             3,
           ),
-          cell(_buildOperatorVehicleStatus(available, isDark), 2),
+          cell(_buildOperatorVehicleStatus(vehicle, isDark), 2),
           cell(
             Text(
               'PHP ${((vehicle['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}/day\nPHP ${((vehicle['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}/hour',
@@ -21130,20 +21497,100 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  Widget _buildOperatorVehicleStatus(bool available, bool isDark) {
-    final color = available ? const Color(0xFF2E7D32) : const Color(0xFFC62828);
-    return Row(
-      children: [
-        Icon(Icons.circle, size: 8, color: color),
-        const SizedBox(width: 7),
-        Flexible(
-          child: Text(
-            available ? 'Available' : 'Unavailable',
+  Widget _buildOperatorVehicleStatus(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) {
+    final cleaningUntilRaw =
+        vehicle['cleaning_until'] ?? vehicle['auto_relist_at'];
+    DateTime? cleaningUntil;
+    if (cleaningUntilRaw != null) {
+      cleaningUntil = DateTime.tryParse(cleaningUntilRaw.toString());
+    }
+    final isCleaning = (vehicle['status'] == 'cleaning' || cleaningUntil != null) &&
+        cleaningUntil != null &&
+        DateTime.now().isBefore(cleaningUntil);
+
+    if (isCleaning) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.cleaning_services_rounded,
+            size: 12,
+            color: Color(0xFFF59E0B),
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Tooltip(
+              message:
+                  'Cleaning turnaround until ${DateFormat('h:mm a, MMM d').format(cleaningUntil)}',
+              child: Text(
+                'Cleaning (${DateFormat('h:mm a').format(cleaningUntil)})',
+                style: const TextStyle(
+                  color: Color(0xFFF59E0B),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final posted = vehicle['is_posted'] == true;
+    final available = _operatorVehicleIsAvailable(vehicle);
+
+    if (posted && available) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.circle, size: 8, color: Color(0xFF10B981)),
+          const SizedBox(width: 6),
+          Text(
+            'Available',
             style: TextStyle(
               color: isDark ? Colors.white : _operatorInk,
               fontSize: 10,
               fontWeight: FontWeight.w700,
             ),
+          ),
+        ],
+      );
+    }
+
+    if (!posted) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 8, color: Colors.grey.shade400),
+          const SizedBox(width: 6),
+          Text(
+            'Unlisted',
+            style: TextStyle(
+              color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.circle, size: 8, color: Color(0xFFEF4444)),
+        const SizedBox(width: 6),
+        Text(
+          'Unavailable',
+          style: TextStyle(
+            color: isDark ? Colors.white : _operatorInk,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ],
@@ -21951,52 +22398,56 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final posted = vehicle['is_posted'] == true;
     final isPartner =
         vehicle['_source'] == 'partner' || _vehicleView == 'partner';
-    if (isPartner) {
-      return Align(
-        alignment: Alignment.center,
-        child: ElevatedButton.icon(
-          onPressed: () => _showOperatorVehicleDetailsDialog(vehicle, isDark),
-          icon: const Icon(Icons.visibility_outlined, size: 14),
-          label: const Text(
-            'View Details',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-            ),
-          ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: isDark
-                ? const Color(0xFF1B2A44)
-                : const Color(0xFFEBF1F7),
-            foregroundColor: isDark
-                ? const Color(0xFFFFD56B)
-                : const Color(0xFF0F2B48),
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(9),
-              side: BorderSide(
-                color: isDark
-                    ? const Color(0xFFD4AF37).withOpacity(0.4)
-                    : const Color(0xFF0F2B48).withOpacity(0.2),
-              ),
-            ),
-          ),
-        ),
-      );
+    final cleaningUntilRaw =
+        vehicle['cleaning_until'] ?? vehicle['auto_relist_at'];
+    DateTime? cleaningUntil;
+    if (cleaningUntilRaw != null) {
+      cleaningUntil = DateTime.tryParse(cleaningUntilRaw.toString());
     }
+    final isCleaning = (vehicle['status'] == 'cleaning' || cleaningUntil != null) &&
+        cleaningUntil != null &&
+        DateTime.now().isBefore(cleaningUntil);
+
     return Align(
       alignment: Alignment.center,
       child: PopupMenuButton<String>(
         tooltip: 'Vehicle actions',
-        onSelected: (action) {
+        onSelected: (action) async {
           if (action == 'view') {
             _showOperatorVehicleDetailsDialog(vehicle, isDark);
           } else if (action == 'edit') {
             _showEditVehicleDialog(vehicle, isDark);
           } else if (action == 'toggle') {
             _togglePostingStatus(vehicle, !posted);
+          } else if (action == 'turnaround') {
+            _showVehicleTurnaroundDialog(vehicle, isDark);
+          } else if (action == 'relist') {
+            final vehicleId = vehicle['id']?.toString() ?? '';
+            final partnerVehicleId = vehicle['partner_vehicle_id']?.toString() ??
+                vehicle['_partner_vehicle_id']?.toString();
+            await VehicleTurnaroundService().relistVehicleImmediately(
+              vehicleId: vehicleId,
+              partnerVehicleId: partnerVehicleId,
+            );
+            if (isPartner) {
+              vehicle['is_available'] = true;
+              vehicle['status'] = 'available';
+            } else {
+              vehicle['is_posted'] = true;
+              vehicle['is_available'] = true;
+              vehicle['status'] = 'active';
+            }
+            vehicle['cleaning_until'] = null;
+            vehicle['auto_relist_at'] = null;
+            await _loadVehicles();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Vehicle relisted & marked available immediately!'),
+                  backgroundColor: AppColors.success,
+                ),
+              );
+            }
           } else if (action == 'delete') {
             _deleteVehicle(vehicle['id']);
           }
@@ -22017,8 +22468,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             child: Row(
               children: [
                 const Icon(Icons.edit_outlined, size: 18),
-                const SizedBox(width: 9),
+                SizedBox(width: 9),
                 Text(isPartner ? 'Manage Price' : 'Edit Vehicle'),
+              ],
+            ),
+          ),
+          if (isCleaning)
+            const PopupMenuItem(
+              value: 'relist',
+              child: Row(
+                children: [
+                  Icon(Icons.flash_on_rounded, size: 18, color: _operatorGold),
+                  SizedBox(width: 9),
+                  Text(
+                    'Relist Immediately (Cleaned)',
+                    style: TextStyle(
+                      color: _operatorGold,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const PopupMenuItem(
+            value: 'turnaround',
+            child: Row(
+              children: [
+                Icon(Icons.cleaning_services_rounded, size: 18),
+                SizedBox(width: 9),
+                Text('Turnaround Buffer'),
               ],
             ),
           ),
@@ -22032,7 +22510,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       : Icons.visibility_outlined,
                   size: 18,
                 ),
-                const SizedBox(width: 9),
+                SizedBox(width: 9),
                 Text(posted ? 'Hide Listing' : 'Post Vehicle'),
               ],
             ),
@@ -22068,7 +22546,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic> vehicle,
     bool isDark,
   ) {
-    final available = _operatorVehicleIsAvailable(vehicle);
     final isPartner =
         vehicle['_source'] == 'partner' || _vehicleView == 'partner';
     return Container(
@@ -22090,7 +22567,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _buildOperatorVehicleStatus(available, isDark)),
+              Expanded(child: _buildOperatorVehicleStatus(vehicle, isDark)),
               if (!isPartner)
                 Text(
                   vehicle['is_posted'] == true ? 'POSTED' : 'HIDDEN',
@@ -25256,27 +25733,51 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           vehicle['_source'] == 'partner' ||
           vehicle['source'] == 'partner' ||
           vehicle['is_partner_vehicle'] == true;
+      final vehicleId = vehicle['id']?.toString() ?? '';
+      final partnerVehicleId = vehicle['partner_vehicle_id']?.toString() ??
+          vehicle['_partner_vehicle_id']?.toString();
+
+      if (isPosted) {
+        await VehicleTurnaroundService().relistVehicleImmediately(
+          vehicleId: vehicleId,
+          partnerVehicleId: partnerVehicleId,
+        );
+      }
+
       if (isPartnerVehicle) {
-        final partnerVehicleId =
-            vehicle['partner_vehicle_id'] ??
-            vehicle['_partner_vehicle_id'] ??
-            vehicle['id'];
+        final targetId = partnerVehicleId ?? vehicleId;
         await _supabase
             .from('partner_vehicles')
             .update({
+              'is_posted': isPosted,
               'is_available': isPosted,
+              'status': isPosted ? 'available' : 'hidden',
+              'cleaning_until': isPosted ? null : vehicle['cleaning_until'],
+              'auto_relist_at': isPosted ? null : vehicle['auto_relist_at'],
               'updated_at': DateTime.now().toIso8601String(),
             })
-            .eq('id', partnerVehicleId);
+            .eq('id', targetId);
       } else {
         await _supabase
             .from('vehicles')
-            .update({'is_posted': isPosted})
-            .eq('id', vehicle['id']);
+            .update({
+              'is_posted': isPosted,
+              'is_available': isPosted,
+              'status': isPosted ? 'active' : 'hidden',
+              'cleaning_until': isPosted ? null : vehicle['cleaning_until'],
+              'auto_relist_at': isPosted ? null : vehicle['auto_relist_at'],
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', vehicleId);
       }
 
       vehicle['is_posted'] = isPosted;
       vehicle['is_available'] = isPosted;
+      if (isPosted) {
+        vehicle['status'] = 'active';
+        vehicle['cleaning_until'] = null;
+        vehicle['auto_relist_at'] = null;
+      }
       await _loadVehicles();
 
       if (mounted) {
@@ -25284,20 +25785,463 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           SnackBar(
             content: Text(
               isPosted
-                  ? 'Vehicle posted successfully!'
+                  ? 'Vehicle posted & available successfully!'
                   : 'Vehicle unlisted successfully!',
             ),
-            backgroundColor: Colors.green,
+            backgroundColor: AppColors.success,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
         );
       }
     }
+  }
+
+  void _showOperatorTurnaroundBufferDialog(bool isDark) async {
+    final currentBuffer =
+        await VehicleTurnaroundService().getGlobalTurnaroundMinutes();
+    if (!mounted) return;
+
+    int selectedBuffer = currentBuffer;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: _operatorGold.withOpacity(0.3),
+            ),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _operatorGold.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.cleaning_services_rounded,
+                  color: _operatorGold,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Post-Trip Turnaround Buffer',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Set the default automatic unlist duration when a vehicle is returned. The car will be unlisted for turnaround cleaning and inspection for this duration before automatically relisting for bookings.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white70 : Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.05)
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isDark ? Colors.white10 : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: VehicleTurnaroundService.turnaroundOptions
+                              .contains(selectedBuffer)
+                          ? selectedBuffer
+                          : 60,
+                      isExpanded: true,
+                      dropdownColor:
+                          isDark ? const Color(0xFF1E293B) : Colors.white,
+                      items: VehicleTurnaroundService.turnaroundOptions
+                          .map((minutes) {
+                        return DropdownMenuItem<int>(
+                          value: minutes,
+                          child: Row(
+                            children: [
+                              Icon(
+                                minutes == 0
+                                    ? Icons.flash_on_rounded
+                                    : Icons.timer_outlined,
+                                size: 16,
+                                color: minutes == 0
+                                    ? _operatorGold
+                                    : Colors.grey,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                VehicleTurnaroundService.getLabelForMinutes(
+                                  minutes,
+                                ),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: minutes == selectedBuffer
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setModalState(() => selectedBuffer = val);
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Note: When turnaround cleaning finishes early, you can click "Relist Immediately" anytime or turn the POSTED switch on to make the car available right away.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white38 : Colors.grey.shade500,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await VehicleTurnaroundService()
+                    .setGlobalTurnaroundMinutes(selectedBuffer);
+                if (dialogCtx.mounted) {
+                  Navigator.pop(dialogCtx);
+                }
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Turnaround buffer set to ${VehicleTurnaroundService.getLabelForMinutes(selectedBuffer)}',
+                      ),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                }
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: _operatorGold,
+                foregroundColor: _operatorNavyDeep,
+              ),
+              child: const Text(
+                'Save Settings',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showVehicleTurnaroundDialog(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) async {
+    final vehicleId = vehicle['id']?.toString() ?? '';
+    final partnerVehicleId = vehicle['partner_vehicle_id']?.toString() ??
+        vehicle['_partner_vehicle_id']?.toString();
+    final currentMinutes =
+        await VehicleTurnaroundService().getVehicleTurnaroundMinutes(vehicleId);
+    final activeTurnaround =
+        await VehicleTurnaroundService().getActiveTurnaround(vehicleId);
+    if (!mounted) return;
+
+    int selectedBuffer = currentMinutes;
+    bool isRelisting = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: _operatorGold.withOpacity(0.3),
+            ),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _operatorGold.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.cleaning_services_rounded,
+                  color: _operatorGold,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Turnaround Buffer Settings',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      _vehicleTitle(vehicle),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (activeTurnaround != null) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Colors.amber.withOpacity(0.4),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.cleaning_services_rounded,
+                              color: Colors.amber,
+                              size: 16,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'Currently In Cleaning Turnaround',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.amber,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          activeTurnaround['auto_relist_at'] != null
+                              ? 'Auto-relists at: ${DateFormat('h:mm a, MMM d').format(DateTime.tryParse(activeTurnaround['auto_relist_at'].toString()) ?? DateTime.now())}'
+                              : 'Turnaround buffer active',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: isRelisting
+                                ? null
+                                : () async {
+                                    setModalState(() => isRelisting = true);
+                                    await VehicleTurnaroundService()
+                                        .relistVehicleImmediately(
+                                          vehicleId: vehicleId,
+                                          partnerVehicleId: partnerVehicleId,
+                                        );
+                                    vehicle['is_available'] = true;
+                                    vehicle['is_posted'] = true;
+                                    vehicle['status'] = 'active';
+                                    vehicle['cleaning_until'] = null;
+                                    vehicle['auto_relist_at'] = null;
+                                    await _loadVehicles();
+                                    if (dialogCtx.mounted) {
+                                      Navigator.pop(dialogCtx);
+                                    }
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Vehicle relisted & marked available!'),
+                                          backgroundColor: AppColors.success,
+                                        ),
+                                      );
+                                    }
+                                  },
+                            icon: const Icon(Icons.flash_on_rounded, size: 14),
+                            label: Text(
+                              isRelisting
+                                  ? 'Relisting...'
+                                  : 'Relist Immediately (Cleaned)',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _operatorGold,
+                              foregroundColor: _operatorNavyDeep,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 10,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const Text(
+                  'Configure how long this vehicle should be unlisted for turnaround cleaning after each return:',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.05)
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isDark ? Colors.white10 : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: VehicleTurnaroundService.turnaroundOptions
+                              .contains(selectedBuffer)
+                          ? selectedBuffer
+                          : 60,
+                      isExpanded: true,
+                      dropdownColor:
+                          isDark ? const Color(0xFF1E293B) : Colors.white,
+                      items: VehicleTurnaroundService.turnaroundOptions
+                          .map((minutes) {
+                        return DropdownMenuItem<int>(
+                          value: minutes,
+                          child: Row(
+                            children: [
+                              Icon(
+                                minutes == 0
+                                    ? Icons.flash_on_rounded
+                                    : Icons.timer_outlined,
+                                size: 16,
+                                color: minutes == 0
+                                    ? _operatorGold
+                                    : Colors.grey,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                VehicleTurnaroundService.getLabelForMinutes(
+                                  minutes,
+                                ),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: minutes == selectedBuffer
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setModalState(() => selectedBuffer = val);
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await VehicleTurnaroundService().setVehicleTurnaroundMinutes(
+                  vehicleId: vehicleId,
+                  minutes: selectedBuffer,
+                  partnerVehicleId: partnerVehicleId,
+                );
+                if (dialogCtx.mounted) {
+                  Navigator.pop(dialogCtx);
+                }
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Turnaround buffer for ${_vehicleTitle(vehicle)} set to ${VehicleTurnaroundService.getLabelForMinutes(selectedBuffer)}',
+                      ),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                }
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: _operatorGold,
+                foregroundColor: _operatorNavyDeep,
+              ),
+              child: const Text(
+                'Save Buffer',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildSettingsContent(bool isDark) {
