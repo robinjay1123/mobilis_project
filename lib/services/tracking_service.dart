@@ -645,23 +645,49 @@ class TrackingService {
 
       final activeList = <Map<String, dynamic>>[];
       final vehiclesWithActiveTracking = <String>{};
+      final seenVehicles = <String>{};
 
       for (final loc in List<Map<String, dynamic>>.from(response)) {
         final booking = loc['bookings'] as Map<String, dynamic>?;
         final status = booking?['status']?.toString().toLowerCase() ?? '';
-        if (activeStatuses.contains(status) &&
-            _canViewTracking(access, booking)) {
+        final isReturnedOrCompleted = booking?['returned_at'] != null ||
+            booking?['completed_at'] != null ||
+            booking?['completion_stage'] == 'completed' ||
+            booking?['completion_stage'] == 'awaiting_payment' ||
+            booking?['completion_stage'] == 'completed_pending_review' ||
+            {'completed', 'returned', 'cancelled', 'rejected'}.contains(status);
+
+        final vid = loc['vehicle_id']?.toString() ??
+            booking?['vehicles']?['id']?.toString() ??
+            '';
+
+        if (vid.isNotEmpty && seenVehicles.contains(vid)) {
+          continue;
+        }
+
+        final isTripActive =
+            activeStatuses.contains(status) && !isReturnedOrCompleted;
+
+        if (isTripActive && _canViewTracking(access, booking)) {
           final enriched = Map<String, dynamic>.from(loc);
           enriched['has_active_booking'] = true;
           enriched['is_active_booking'] = true;
           activeList.add(enriched);
 
-          final vid = loc['vehicle_id']?.toString() ??
-              booking?['vehicles']?['id']?.toString() ??
-              '';
           if (vid.isNotEmpty) {
+            seenVehicles.add(vid);
             vehiclesWithActiveTracking.add(vid);
           }
+        } else if (vid.isNotEmpty) {
+          // Booking is finished/returned: show the vehicle at its last known position as Idle
+          final enriched = Map<String, dynamic>.from(loc);
+          enriched['has_active_booking'] = false;
+          enriched['is_active_booking'] = false;
+          enriched['bookings'] = null;
+          enriched['status'] = 'Available (Idle)';
+          enriched['vehicle'] = booking?['vehicles'] ?? loc['vehicle'];
+          activeList.add(enriched);
+          seenVehicles.add(vid);
         }
       }
 
@@ -1036,6 +1062,38 @@ class TrackingService {
               );
             } catch (logErr) {
               debugPrint('GPS movement trail logging note: $logErr');
+            }
+          } else {
+            // Vehicle is currently IDLE (no active on-trip booking)
+            try {
+              await supabase.from('vehicle_trackers').update({
+                'last_latitude': position.latitude,
+                'last_longitude': position.longitude,
+                'last_speed': position.speedKph,
+                'last_location_at': position.gpsTime?.toUtc().toIso8601String() ??
+                    DateTime.now().toUtc().toIso8601String(),
+                'last_sync_at': DateTime.now().toUtc().toIso8601String(),
+                'connection_status': 'connected',
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+              }).eq('id', tracker.id);
+
+              if (tracker.vehicleId != null && tracker.vehicleId!.isNotEmpty) {
+                await supabase.from('vehicles').update({
+                  'latitude': position.latitude,
+                  'longitude': position.longitude,
+                  'updated_at': DateTime.now().toIso8601String(),
+                }).eq('id', tracker.vehicleId!);
+              }
+              if (tracker.partnerVehicleId != null &&
+                  tracker.partnerVehicleId!.isNotEmpty) {
+                await supabase.from('partner_vehicles').update({
+                  'latitude': position.latitude,
+                  'longitude': position.longitude,
+                  'updated_at': DateTime.now().toIso8601String(),
+                }).eq('id', tracker.partnerVehicleId!);
+              }
+            } catch (idleErr) {
+              debugPrint('Error updating idle tracker position: $idleErr');
             }
           }
         } catch (e) {

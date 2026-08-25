@@ -2910,6 +2910,13 @@ class BookingService {
     }
 
     try {
+      await supabase
+          .from('tracking_locations')
+          .delete()
+          .eq('booking_id', bookingId);
+    } catch (_) {}
+
+    try {
       await TripRatingService().syncRatingFlowForBooking(
         bookingId,
         operatorFallbackUserId: inspectorId,
