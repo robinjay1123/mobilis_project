@@ -435,34 +435,52 @@ class BookingService {
     // 1. Hydrate vehicles from partner_vehicles and vehicles
     if (missingVehicleIds.isNotEmpty) {
       final partnerMap = <String, Map<String, dynamic>>{};
+      final missingList = missingVehicleIds.toList();
       try {
-        final pvRows = await supabase
-            .from('partner_vehicles')
-            .select('''
-              *,
-              partners:partner_id (
-                id,
-                business_name,
-                business_phone,
-                business_address,
-                users:user_id (
+        List pvRows = [];
+        try {
+          pvRows = await supabase
+              .from('partner_vehicles')
+              .select('''
+                *,
+                partners:partner_id (
                   id,
-                  full_name,
-                  email,
-                  phone
+                  business_name,
+                  business_phone,
+                  business_address,
+                  users:user_id (
+                    id,
+                    full_name,
+                    email,
+                    phone
+                  )
                 )
-              )
-            ''')
-            .inFilter('id', missingVehicleIds.toList());
+              ''')
+              .inFilter('id', missingList);
+        } catch (e) {
+          pvRows = await supabase
+              .from('partner_vehicles')
+              .select('*')
+              .inFilter('id', missingList);
+        }
+
+        try {
+          final pvRowsByVid = await supabase
+              .from('partner_vehicles')
+              .select('*')
+              .inFilter('vehicle_id', missingList);
+          pvRows.addAll(pvRowsByVid);
+        } catch (_) {}
 
         for (final row in List<Map<String, dynamic>>.from(pvRows)) {
           final id = row['id']?.toString();
           final vid = row['vehicle_id']?.toString();
+          final normalized = _normalizePartnerVehicle(row);
           if (id != null && id.isNotEmpty) {
-            partnerMap[id] = _normalizePartnerVehicle(row);
+            partnerMap[id] = normalized;
           }
           if (vid != null && vid.isNotEmpty) {
-            partnerMap[vid] = _normalizePartnerVehicle(row);
+            partnerMap[vid] = normalized;
           }
         }
       } catch (e) {
@@ -522,19 +540,32 @@ class BookingService {
 
       for (final booking in bookings) {
         final vehicle = booking['vehicles'];
+        final brand = vehicle is Map ? vehicle['brand']?.toString().trim() ?? '' : '';
+        final model = vehicle is Map ? vehicle['model']?.toString().trim() ?? '' : '';
+        final vName = vehicle is Map ? vehicle['vehicle_name']?.toString().trim() ?? '' : '';
         final hasValidVehicle = vehicle is Map<String, dynamic> &&
-            (vehicle['brand']?.toString().trim().isNotEmpty == true ||
-                vehicle['vehicle_name']?.toString().trim().isNotEmpty == true);
+            (brand.isNotEmpty ||
+                model.isNotEmpty ||
+                (vName.isNotEmpty &&
+                    vName.toLowerCase() != 'partner vehicle' &&
+                    vName.toLowerCase() != 'unknown vehicle' &&
+                    vName.toLowerCase() != 'vehicle'));
 
         if (!hasValidVehicle) {
-          final id = booking['partner_vehicle_id']?.toString().trim() ??
-              booking['vehicle_id']?.toString().trim();
-          if (id != null) {
+          final pvid = booking['partner_vehicle_id']?.toString().trim();
+          final vid = booking['vehicle_id']?.toString().trim();
+          final id = (pvid != null && pvid.isNotEmpty) ? pvid : vid;
+          if (id != null && id.isNotEmpty) {
             if (partnerMap.containsKey(id)) {
               booking['vehicles'] = partnerMap[id];
               booking['is_partner_vehicle'] = true;
+            } else if (vid != null && partnerMap.containsKey(vid)) {
+              booking['vehicles'] = partnerMap[vid];
+              booking['is_partner_vehicle'] = true;
             } else if (standardMap.containsKey(id)) {
               booking['vehicles'] = standardMap[id];
+            } else if (vid != null && standardMap.containsKey(vid)) {
+              booking['vehicles'] = standardMap[vid];
             }
           }
         }

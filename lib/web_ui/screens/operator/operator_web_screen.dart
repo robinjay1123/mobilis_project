@@ -2428,7 +2428,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }
 
       // Filter only approved/verified partner vehicles from partner_vehicles table
-      const blockedStatuses = {'pending', 'rejected', 'deleted', 'disabled'};
+      const blockedStatuses = {'rejected', 'deleted'};
       final approvedPartnerVehiclesResp = partnerVehiclesResp
           .whereType<Map<String, dynamic>>()
           .where((pv) {
@@ -2437,7 +2437,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             final status =
                 (pv['status'] ?? '').toString().trim().toLowerCase();
             if (blockedStatuses.contains(appStatus) ||
-                (blockedStatuses.contains(status) && appStatus != 'approved')) {
+                blockedStatuses.contains(status)) {
               return false;
             }
             return true;
@@ -2511,6 +2511,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           }
         } catch (e) {
           debugPrint('Error loading fallback partner application photos: $e');
+        }
+
+        try {
+          final docPhotos = await _supabase
+              .from('partner_vehicle_application_documents')
+              .select('partner_vehicle_application_id,file_url')
+              .eq('document_type', 'vehicle_photo')
+              .inFilter('partner_vehicle_application_id', candidateIds);
+          for (final doc in List<Map<String, dynamic>>.from(docPhotos)) {
+            final appId = doc['partner_vehicle_application_id']?.toString();
+            final fileUrl = doc['file_url']?.toString().trim();
+            if (appId != null && fileUrl != null && fileUrl.isNotEmpty) {
+              partnerImagesByVehicleId
+                  .putIfAbsent(appId, () => [])
+                  .add({'image_url': fileUrl, 'display_order': 0});
+            }
+          }
+        } catch (e) {
+          debugPrint('Error loading partner application document photos: $e');
         }
       }
 
@@ -2691,9 +2710,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     imageUrl = imageUrl.replaceFirst(RegExp(r'^/+'), '');
-    if (imageUrl.startsWith('$_vehicleImagesBucket/')) {
-      imageUrl = imageUrl.substring(_vehicleImagesBucket.length + 1);
+    const knownBuckets = [
+      'vehicle_images',
+      'vehicle-images',
+      'partner_documents',
+      'partner-documents',
+      'partner_vehicle_application_documents',
+      'documents',
+      'avatars',
+    ];
+
+    for (final bucket in knownBuckets) {
+      if (imageUrl.startsWith('$bucket/')) {
+        final relativePath = imageUrl.substring(bucket.length + 1);
+        return _supabase.storage.from(bucket).getPublicUrl(relativePath);
+      }
     }
+
     return _supabase.storage.from(_vehicleImagesBucket).getPublicUrl(imageUrl);
   }
 
