@@ -30,6 +30,7 @@ import '../../../services/verification_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/gps_service.dart';
 import '../../../services/admin_service.dart';
+import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/support_faq_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
