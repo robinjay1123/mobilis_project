@@ -27709,18 +27709,46 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         } catch (err) {
           debugPrint('Error updating partner_vehicles table: $err');
         }
+      } else if (applicationId.isNotEmpty) {
+        try {
+          final appRes = await _supabase
+              .from('partner_vehicle_applications')
+              .select('partner_vehicle_id')
+              .eq('id', applicationId)
+              .maybeSingle();
+          final resolvedPvId = appRes?['partner_vehicle_id']?.toString();
+          if (resolvedPvId != null && resolvedPvId.isNotEmpty) {
+            await _supabase.from('partner_vehicles').update({
+              'price_per_day': reqDaily,
+              'price_per_hour': reqHourly,
+              'updated_at': DateTime.now().toIso8601String(),
+            }).eq('id', resolvedPvId);
+          }
+        } catch (err) {
+          debugPrint('Error resolving partner_vehicles from application: $err');
+        }
       }
 
-      // 3. Automatically update partner_applications table
+      // 3. Automatically update partner_vehicle_applications table
       if (applicationId.isNotEmpty) {
         try {
-          await _supabase.from('partner_applications').update({
+          await _supabase.from('partner_vehicle_applications').update({
             'price_per_day': reqDaily,
             'price_per_hour': reqHourly,
             'updated_at': DateTime.now().toIso8601String(),
           }).eq('id', applicationId);
         } catch (err) {
-          debugPrint('Error updating partner_applications table: $err');
+          debugPrint('Error updating partner_vehicle_applications table: $err');
+        }
+      } else if (partnerVehicleId.isNotEmpty) {
+        try {
+          await _supabase.from('partner_vehicle_applications').update({
+            'price_per_day': reqDaily,
+            'price_per_hour': reqHourly,
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('partner_vehicle_id', partnerVehicleId);
+        } catch (err) {
+          debugPrint('Error updating partner_vehicle_applications table: $err');
         }
       }
 
