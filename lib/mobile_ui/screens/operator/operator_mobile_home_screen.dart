@@ -11,6 +11,7 @@ import 'package:mobilis_by_psdc_app/services/booking_inspection_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_viewed_service.dart';
 import 'package:mobilis_by_psdc_app/services/payout_method_service.dart';
+import 'package:mobilis_by_psdc_app/utils/pricing_policy.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -3181,7 +3182,17 @@ class _BookingCard extends StatelessWidget {
         driverData['phone']?.toString() ??
         '';
 
-    final driverGross = (booking['driver_fee'] as num?)?.toDouble() ?? 0.0;
+    double driverGross = (booking['driver_fee'] as num?)?.toDouble() ?? 0.0;
+    if (driverGross <= 0) {
+      final start = DateTime.tryParse((booking['start_at'] ?? booking['start_date'])?.toString() ?? '');
+      final end = DateTime.tryParse((booking['end_at'] ?? booking['end_date'])?.toString() ?? '');
+      int days = 1;
+      if (start != null && end != null && end.isAfter(start)) {
+        days = (end.difference(start).inMinutes / Duration.minutesPerDay).ceil();
+        if (days <= 0) days = 1;
+      }
+      driverGross = days * PricingPolicy.driverDailyRate;
+    }
     final commission = driverGross * 0.05;
     final netPayout = (driverGross - commission).clamp(0.0, double.infinity);
 

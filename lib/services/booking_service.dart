@@ -820,6 +820,13 @@ class BookingService {
         }
       }
 
+      double? effectiveDriverFee = driverFee;
+      if (withDriver && (effectiveDriverFee == null || effectiveDriverFee <= 0)) {
+        final minutes = endAt.difference(startAt).inMinutes;
+        final days = minutes <= 0 ? 1 : (minutes / Duration.minutesPerDay).ceil();
+        effectiveDriverFee = (days <= 0 ? 1 : days) * PricingPolicy.driverDailyRate;
+      }
+
       final bookingPayload = <String, dynamic>{
         'renter_id': renterId,
         'vehicle_id': vehicleId,
@@ -848,7 +855,8 @@ class BookingService {
           'delivery_rate_per_km': deliveryRatePerKm,
         'delivery_fee': deliveryFee ?? 0,
         'with_driver': withDriver,
-        if (driverFee != null && driverFee > 0) 'driver_fee': driverFee,
+        if (effectiveDriverFee != null && effectiveDriverFee > 0)
+          'driver_fee': effectiveDriverFee,
         'pickup_location': pickupLocation,
         'dropoff_location': cleanDestination,
         if (pickupLatitude != null) 'pickup_latitude': pickupLatitude,
@@ -2000,12 +2008,29 @@ class BookingService {
 
       final booking = await supabase
           .from('bookings')
-          .select('id, with_driver, status, renter_id, operator_id')
+          .select('id, with_driver, driver_fee, start_at, end_at, start_date, end_date, status, renter_id, operator_id')
           .eq('id', bookingId)
           .maybeSingle();
 
       if (booking == null) {
         throw Exception('Booking not found');
+      }
+
+      double effectiveTripFee = tripFee;
+      if (effectiveTripFee <= 0) {
+        final existingFee = (booking['driver_fee'] as num?)?.toDouble() ?? 0.0;
+        if (existingFee > 0) {
+          effectiveTripFee = existingFee;
+        } else {
+          final start = DateTime.tryParse((booking['start_at'] ?? booking['start_date'])?.toString() ?? '');
+          final end = DateTime.tryParse((booking['end_at'] ?? booking['end_date'])?.toString() ?? '');
+          int days = 1;
+          if (start != null && end != null && end.isAfter(start)) {
+            days = (end.difference(start).inMinutes / Duration.minutesPerDay).ceil();
+            if (days <= 0) days = 1;
+          }
+          effectiveTripFee = days * PricingPolicy.driverDailyRate;
+        }
       }
 
       final driver = await _getDriverAssignmentTarget(driverId);
@@ -2053,7 +2078,7 @@ class BookingService {
           .insert({
             'booking_id': bookingId,
             'driver_id': driverUserId,
-            'trip_fee': tripFee,
+            'trip_fee': effectiveTripFee,
             'status': 'pending_offer',
             'offered_at': now,
             'created_at': now,
@@ -2067,6 +2092,7 @@ class BookingService {
         final updateData = <String, dynamic>{
           'driver_id': driverUserId,
           'with_driver': true,
+          'driver_fee': effectiveTripFee,
           'status': 'pending',
           'driver_assigned_at': now,
           'updated_at': now,

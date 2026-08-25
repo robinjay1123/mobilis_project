@@ -2064,6 +2064,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 deliveryRatePerKm: PricingPolicy.deliveryRatePerKm,
                 deliveryFee: _deliveryFee,
                 withDriver: _withDriver,
+                driverFee: _driverFee,
                 pickupLocation: _getPickupLocation(),
                 dropoffLocation: _getDropoffLocation(),
                 pickupLatitude: _pickupMapPin?.latitude,

@@ -23,6 +23,7 @@ import '../../../mobile_ui/screens/profile/settings_screen.dart';
 import '../../../mobile_ui/screens/profile/trip_rating_flow_screen.dart';
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
+import '../../../utils/pricing_policy.dart';
 import '../../../utils/csv_export.dart';
 import '../../../utils/locations.dart';
 import '../../../utils/philippine_geocoding.dart';
@@ -15645,9 +15646,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '';
 
     final latestAssignment = _latestDriverAssignment(booking);
-    final driverGross = (booking['driver_fee'] as num?)?.toDouble() ??
+    double driverGross = (booking['driver_fee'] as num?)?.toDouble() ??
         (latestAssignment?['trip_fee'] as num?)?.toDouble() ??
         0.0;
+    if (driverGross <= 0) {
+      final start = DateTime.tryParse((booking['start_at'] ?? booking['start_date'])?.toString() ?? '');
+      final end = DateTime.tryParse((booking['end_at'] ?? booking['end_date'])?.toString() ?? '');
+      int days = 1;
+      if (start != null && end != null && end.isAfter(start)) {
+        days = (end.difference(start).inMinutes / Duration.minutesPerDay).ceil();
+        if (days <= 0) days = 1;
+      }
+      driverGross = days * PricingPolicy.driverDailyRate;
+    }
     final commission = driverGross * 0.05;
     final netPayout = (driverGross - commission).clamp(0.0, double.infinity);
 
