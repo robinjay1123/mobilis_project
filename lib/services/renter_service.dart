@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'booking_service.dart';
 
 class RenterService {
   static final RenterService _instance = RenterService._internal();
@@ -282,26 +283,15 @@ class RenterService {
   }) async {
     try {
       debugPrint('Fetching booking history for user: $userId');
-
-      var query = supabase
-          .from('bookings')
-          .select(
-            'id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, price_per_day), users:users!bookings_renter_id_fkey(full_name, email)',
-          )
-          .eq('renter_id', userId);
-
-      if (status != null) {
-        query = query.eq('status', status);
+      final all = await BookingService().getRenterBookings(userId);
+      if (status != null && status.isNotEmpty) {
+        final normalized = status.trim().toLowerCase();
+        return all
+            .where((b) => (b['status']?.toString().toLowerCase().trim() ?? '') == normalized)
+            .take(limit)
+            .toList();
       }
-
-      final response = await query
-          .order('created_at', ascending: false)
-          .limit(limit);
-
-      return List<Map<String, dynamic>>.from(response);
-    } on PostgrestException catch (e) {
-      debugPrint('Database error fetching booking history: ${e.message}');
-      return [];
+      return all.take(limit).toList();
     } catch (e) {
       debugPrint('Error fetching booking history: $e');
       return [];
@@ -310,43 +300,18 @@ class RenterService {
 
   /// Get specific booking details
   Future<Map<String, dynamic>?> getBookingById(String bookingId) async {
-    try {
-      debugPrint('Fetching booking details: $bookingId');
-      final response = await supabase
-          .from('bookings')
-          .select(
-            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, pickup_location, dropoff_location, created_at, vehicles(*), users:users!bookings_renter_id_fkey(id, full_name, email, phone)',
-          )
-          .eq('id', bookingId)
-          .maybeSingle();
-
-      return response;
-    } on PostgrestException catch (e) {
-      debugPrint('Database error fetching booking: ${e.message}');
-      return null;
-    } catch (e) {
-      debugPrint('Error fetching booking: $e');
-      return null;
-    }
+    return await BookingService().getBookingById(bookingId);
   }
 
   /// Get active bookings (not completed/cancelled)
   Future<List<Map<String, dynamic>>> getActiveBookings(String userId) async {
     try {
       debugPrint('Fetching active bookings for user: $userId');
-      final response = await supabase
-          .from('bookings')
-          .select(
-            'id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number)',
-          )
-          .eq('renter_id', userId)
-          .inFilter('status', ['pending', 'approved', 'confirmed', 'active'])
-          .order('created_at', ascending: false);
-
-      return List<Map<String, dynamic>>.from(response);
-    } on PostgrestException catch (e) {
-      debugPrint('Database error fetching active bookings: ${e.message}');
-      return [];
+      final all = await BookingService().getRenterBookings(userId);
+      return all.where((b) {
+        final s = b['status']?.toString().toLowerCase().trim() ?? '';
+        return {'pending', 'approved', 'confirmed', 'active', 'ongoing'}.contains(s);
+      }).toList();
     } catch (e) {
       debugPrint('Error fetching active bookings: $e');
       return [];

@@ -2257,8 +2257,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       _allBookings = rawBookings;
       await _recalculateUnviewedBookings();
     } catch (e) {
-      debugPrint('Error loading bookings: $e');
-      _allBookings = [];
+      debugPrint('Error loading bookings in admin web: $e, falling back to BookingService.getAllBookings()');
+      try {
+        final fallback = await BookingService().getAllBookings();
+        _allBookings = fallback;
+        await _recalculateUnviewedBookings();
+      } catch (fallbackErr) {
+        debugPrint('Admin fallback load bookings failed: $fallbackErr');
+        _allBookings = [];
+      }
     }
   }
 

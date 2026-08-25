@@ -145,16 +145,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   Future<void> _loadAllBookings() async {
     try {
-      final response = await _supabase
-          .from('bookings')
-          .select('''
-            *,
-            vehicles:vehicle_id (brand, model, year),
-            users:renter_id (full_name, email)
-          ''')
-          .order('created_at', ascending: false);
-
-      _allBookings = List<Map<String, dynamic>>.from(response);
+      final bookings = await BookingService().getAllBookings();
+      _allBookings = bookings;
       await _recalculateUnviewedBookings();
     } catch (e) {
       debugPrint('Error loading bookings: $e');

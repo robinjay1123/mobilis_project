@@ -2231,10 +2231,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _recalculatePendingBookings();
     } catch (e, st) {
       debugPrint(
-        '[Bookings] Error loading recent bookings (driver embed via drivers -> users): $e',
+        '[Bookings] Error loading recent bookings: $e, falling back to BookingService.getAllBookings()',
       );
-      debugPrint('[Bookings] Stack trace: $st');
-      _recentBookings = [];
+      try {
+        final fallbackList = await BookingService().getAllBookings();
+        _recentBookings = fallbackList;
+        _recalculatePendingBookings();
+      } catch (fbErr) {
+        debugPrint('[Bookings] Operator fallback loading failed: $fbErr');
+        _recentBookings = [];
+      }
     }
   }
 
