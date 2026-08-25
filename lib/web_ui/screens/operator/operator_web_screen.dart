@@ -2421,12 +2421,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
       }
 
-      final partnerVehicleIds = partnerVehiclesResp
+      // Filter only approved/verified partner vehicles from partner_vehicles table
+      const blockedStatuses = {'pending', 'rejected', 'deleted', 'disabled'};
+      final approvedPartnerVehiclesResp = partnerVehiclesResp
           .whereType<Map<String, dynamic>>()
+          .where((pv) {
+            final appStatus =
+                (pv['application_status'] ?? '').toString().trim().toLowerCase();
+            final status =
+                (pv['status'] ?? '').toString().trim().toLowerCase();
+            if (blockedStatuses.contains(appStatus) ||
+                (blockedStatuses.contains(status) && appStatus != 'approved')) {
+              return false;
+            }
+            return true;
+          })
+          .toList();
+
+      final partnerVehicleIds = approvedPartnerVehiclesResp
           .map((pv) => pv['id']?.toString() ?? '')
           .where((id) => id.isNotEmpty)
           .toList();
+
       final partnerImagesByVehicleId = <String, List<Map<String, dynamic>>>{};
+      final partnerAppPhotosByVehicleId = <String, String>{};
+
       if (partnerVehicleIds.isNotEmpty) {
         try {
           final partnerImages = await _supabase
@@ -2446,10 +2465,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         } catch (e) {
           debugPrint('Error loading partner vehicle images: $e');
         }
+
+        try {
+          final appPhotos = await _supabase
+              .from('partner_vehicle_applications')
+              .select('partner_vehicle_id,vehicle_photo_url')
+              .inFilter('partner_vehicle_id', partnerVehicleIds);
+          for (final app in List<Map<String, dynamic>>.from(appPhotos)) {
+            final pvid = app['partner_vehicle_id']?.toString();
+            final photoUrl = app['vehicle_photo_url']?.toString().trim();
+            if (pvid != null && photoUrl != null && photoUrl.isNotEmpty) {
+              partnerAppPhotosByVehicleId[pvid] = photoUrl;
+            }
+          }
+        } catch (e) {
+          debugPrint('Error loading fallback partner application photos: $e');
+        }
       }
 
-      final normalizedPartnerVehicles = partnerVehiclesResp
-          .whereType<Map<String, dynamic>>()
+      final normalizedPartnerVehicles = approvedPartnerVehiclesResp
           .map((pv) {
             final partner = pv['partners'] is Map<String, dynamic>
                 ? Map<String, dynamic>.from(pv['partners'])
@@ -2465,6 +2499,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 : 'Mobilis Partner';
             final partnerVehicleId = pv['id']?.toString() ?? '';
             final images = partnerImagesByVehicleId[partnerVehicleId] ?? [];
+            final fallbackPhoto = partnerAppPhotosByVehicleId[partnerVehicleId] ??
+                pv['vehicle_photo_url']?.toString().trim() ??
+                pv['photo_url']?.toString().trim() ??
+                '';
+            final resolvedImageUrl = images.isNotEmpty
+                ? images.first['image_url']
+                : ((pv['image_url']?.toString().trim().isNotEmpty == true)
+                    ? pv['image_url']
+                    : fallbackPhoto);
+
+            final resolvedImages = images.isNotEmpty
+                ? images
+                : (resolvedImageUrl != null && resolvedImageUrl.isNotEmpty
+                    ? [{'image_url': resolvedImageUrl, 'display_order': 0}]
+                    : <Map<String, dynamic>>[]);
+
             final merged = Map<String, dynamic>.from(pv)
               ..['_source'] = 'partner'
               ..['source'] = 'partner'
@@ -2477,10 +2527,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   partner['business_phone'] ?? partnerUser['phone']
               ..['partner_address'] = partner['business_address']
               ..['owner_name'] = partnerName
-              ..['vehicle_images'] = images
-              ..['image_url'] = images.isNotEmpty
-                  ? images.first['image_url']
-                  : pv['image_url']
+              ..['vehicle_images'] = resolvedImages
+              ..['image_url'] = resolvedImageUrl
+              ..['vehicle_photo_url'] = fallbackPhoto
               ..['vehicle_name'] =
                   pv['vehicle_name'] ??
                   '${pv['brand'] ?? ''} ${pv['model'] ?? ''}'.trim()
@@ -2509,7 +2558,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _primaryVehicleImageUrl(Map<String, dynamic>? vehicle) {
     if (vehicle == null || vehicle.isEmpty) return '';
 
-    final directImageUrl = vehicle['image_url']?.toString().trim() ?? '';
+    final directImageUrl = (vehicle['image_url'] ??
+            vehicle['vehicle_photo_url'] ??
+            vehicle['photo_url'])
+        ?.toString()
+        .trim() ??
+        '';
     if (directImageUrl.isNotEmpty) {
       return _normalizeVehicleImageUrl(directImageUrl);
     }
@@ -2519,7 +2573,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       for (final image in images) {
         if (image is! Map) continue;
         final imageMap = Map<String, dynamic>.from(image);
-        final imageUrl = imageMap['image_url']?.toString().trim() ?? '';
+        final imageUrl = (imageMap['image_url'] ??
+                imageMap['file_url'] ??
+                imageMap['url'])
+            ?.toString()
+            .trim() ??
+            '';
         if (imageUrl.isNotEmpty) return _normalizeVehicleImageUrl(imageUrl);
       }
     }
@@ -2529,17 +2588,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         vehicle['_partner_vehicle_id']?.toString() ??
         '';
     if (id.isNotEmpty) {
-      for (final v in _vehicles) {
+      final pool = [..._vehicles, ..._partnerVehicles];
+      for (final v in pool) {
         if (v['id']?.toString() == id ||
             v['partner_vehicle_id']?.toString() == id ||
             v['_partner_vehicle_id']?.toString() == id) {
-          final cachedImg = v['image_url']?.toString().trim() ?? '';
+          final cachedImg = (v['image_url'] ??
+                  v['vehicle_photo_url'] ??
+                  v['photo_url'])
+              ?.toString()
+              .trim() ??
+              '';
           if (cachedImg.isNotEmpty) return _normalizeVehicleImageUrl(cachedImg);
           final vImgs = v['vehicle_images'] as List?;
           if (vImgs != null && vImgs.isNotEmpty) {
             for (final img in vImgs) {
               if (img is Map) {
-                final url = img['image_url']?.toString().trim() ?? '';
+                final url = (img['image_url'] ?? img['file_url'] ?? img['url'])
+                    ?.toString()
+                    .trim() ??
+                    '';
                 if (url.isNotEmpty) return _normalizeVehicleImageUrl(url);
               }
             }
