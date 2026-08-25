@@ -2438,44 +2438,69 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           })
           .toList();
 
-      final partnerVehicleIds = approvedPartnerVehiclesResp
-          .map((pv) => pv['id']?.toString() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toList();
+      final candidateIdsSet = <String>{};
+      for (final pv in approvedPartnerVehiclesResp) {
+        final id = pv['id']?.toString();
+        final vid = pv['vehicle_id']?.toString();
+        final pvid = pv['partner_vehicle_id']?.toString();
+        final appId = pv['application_id']?.toString();
+        if (id != null && id.isNotEmpty) candidateIdsSet.add(id);
+        if (vid != null && vid.isNotEmpty) candidateIdsSet.add(vid);
+        if (pvid != null && pvid.isNotEmpty) candidateIdsSet.add(pvid);
+        if (appId != null && appId.isNotEmpty) candidateIdsSet.add(appId);
+      }
+      final candidateIds = candidateIdsSet.toList();
 
       final partnerImagesByVehicleId = <String, List<Map<String, dynamic>>>{};
       final partnerAppPhotosByVehicleId = <String, String>{};
 
-      if (partnerVehicleIds.isNotEmpty) {
+      if (candidateIds.isNotEmpty) {
         try {
           final partnerImages = await _supabase
               .from('vehicle_images')
-              .select('partner_vehicle_id,image_url,display_order')
-              .inFilter('partner_vehicle_id', partnerVehicleIds);
+              .select('id,partner_vehicle_id,vehicle_id,image_url,display_order')
+              .inFilter('partner_vehicle_id', candidateIds);
           for (final image in List<Map<String, dynamic>>.from(partnerImages)) {
             final partnerVehicleId = image['partner_vehicle_id']?.toString();
-            if (partnerVehicleId == null || partnerVehicleId.isEmpty) continue;
-            partnerImagesByVehicleId
-                .putIfAbsent(partnerVehicleId, () => [])
-                .add({
-                  'image_url': image['image_url'],
-                  'display_order': image['display_order'],
-                });
+            if (partnerVehicleId != null && partnerVehicleId.isNotEmpty) {
+              partnerImagesByVehicleId
+                  .putIfAbsent(partnerVehicleId, () => [])
+                  .add(image);
+            }
           }
         } catch (e) {
-          debugPrint('Error loading partner vehicle images: $e');
+          debugPrint('Error loading partner vehicle images by partner_vehicle_id: $e');
+        }
+
+        try {
+          final canonicalImages = await _supabase
+              .from('vehicle_images')
+              .select('id,partner_vehicle_id,vehicle_id,image_url,display_order')
+              .inFilter('vehicle_id', candidateIds);
+          for (final image in List<Map<String, dynamic>>.from(canonicalImages)) {
+            final vehicleId = image['vehicle_id']?.toString();
+            if (vehicleId != null && vehicleId.isNotEmpty) {
+              partnerImagesByVehicleId
+                  .putIfAbsent(vehicleId, () => [])
+                  .add(image);
+            }
+          }
+        } catch (e) {
+          debugPrint('Error loading partner vehicle images by vehicle_id: $e');
         }
 
         try {
           final appPhotos = await _supabase
               .from('partner_vehicle_applications')
-              .select('partner_vehicle_id,vehicle_photo_url')
-              .inFilter('partner_vehicle_id', partnerVehicleIds);
+              .select('id,partner_vehicle_id,vehicle_photo_url')
+              .inFilter('partner_vehicle_id', candidateIds);
           for (final app in List<Map<String, dynamic>>.from(appPhotos)) {
             final pvid = app['partner_vehicle_id']?.toString();
+            final appId = app['id']?.toString();
             final photoUrl = app['vehicle_photo_url']?.toString().trim();
-            if (pvid != null && photoUrl != null && photoUrl.isNotEmpty) {
-              partnerAppPhotosByVehicleId[pvid] = photoUrl;
+            if (photoUrl != null && photoUrl.isNotEmpty) {
+              if (pvid != null && pvid.isNotEmpty) partnerAppPhotosByVehicleId[pvid] = photoUrl;
+              if (appId != null && appId.isNotEmpty) partnerAppPhotosByVehicleId[appId] = photoUrl;
             }
           }
         } catch (e) {
@@ -2498,22 +2523,53 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ? partnerUser['full_name'].toString()
                 : 'Mobilis Partner';
             final partnerVehicleId = pv['id']?.toString() ?? '';
-            final images = partnerImagesByVehicleId[partnerVehicleId] ?? [];
+            final canonicalVehicleId = pv['vehicle_id']?.toString() ?? '';
+            final appId = pv['application_id']?.toString() ?? '';
+
+            final imagesList = <Map<String, dynamic>>[];
+            final seenUrls = <String>{};
+
+            void collectImages(List<Map<String, dynamic>>? imgs) {
+              if (imgs == null) return;
+              for (final img in imgs) {
+                final url = (img['image_url'] ?? img['file_url'] ?? img['url'])?.toString().trim() ?? '';
+                if (url.isNotEmpty && !seenUrls.contains(url)) {
+                  seenUrls.add(url);
+                  imagesList.add(img);
+                }
+              }
+            }
+
+            collectImages(partnerImagesByVehicleId[partnerVehicleId]);
+            if (canonicalVehicleId.isNotEmpty) {
+              collectImages(partnerImagesByVehicleId[canonicalVehicleId]);
+            }
+            if (appId.isNotEmpty) {
+              collectImages(partnerImagesByVehicleId[appId]);
+            }
+
             final fallbackPhoto = partnerAppPhotosByVehicleId[partnerVehicleId] ??
+                (canonicalVehicleId.isNotEmpty ? partnerAppPhotosByVehicleId[canonicalVehicleId] : null) ??
+                (appId.isNotEmpty ? partnerAppPhotosByVehicleId[appId] : null) ??
                 pv['vehicle_photo_url']?.toString().trim() ??
                 pv['photo_url']?.toString().trim() ??
+                pv['image_url']?.toString().trim() ??
                 '';
-            final resolvedImageUrl = images.isNotEmpty
-                ? images.first['image_url']
-                : ((pv['image_url']?.toString().trim().isNotEmpty == true)
-                    ? pv['image_url']
-                    : fallbackPhoto);
 
-            final resolvedImages = images.isNotEmpty
-                ? images
-                : (resolvedImageUrl != null && resolvedImageUrl.isNotEmpty
-                    ? [{'image_url': resolvedImageUrl, 'display_order': 0}]
-                    : <Map<String, dynamic>>[]);
+            if (fallbackPhoto.isNotEmpty && !seenUrls.contains(fallbackPhoto)) {
+              imagesList.add({'image_url': fallbackPhoto, 'display_order': imagesList.length});
+              seenUrls.add(fallbackPhoto);
+            }
+
+            imagesList.sort((a, b) {
+              final aOrder = (a['display_order'] as num?)?.toInt() ?? 9999;
+              final bOrder = (b['display_order'] as num?)?.toInt() ?? 9999;
+              return aOrder.compareTo(bOrder);
+            });
+
+            final resolvedImageUrl = imagesList.isNotEmpty
+                ? imagesList.first['image_url']?.toString()
+                : fallbackPhoto;
 
             final merged = Map<String, dynamic>.from(pv)
               ..['_source'] = 'partner'
@@ -2527,7 +2583,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   partner['business_phone'] ?? partnerUser['phone']
               ..['partner_address'] = partner['business_address']
               ..['owner_name'] = partnerName
-              ..['vehicle_images'] = resolvedImages
+              ..['vehicle_images'] = imagesList
               ..['image_url'] = resolvedImageUrl
               ..['vehicle_photo_url'] = fallbackPhoto
               ..['vehicle_name'] =

@@ -2469,16 +2469,83 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
 
     if (partnerVehicleIds.isNotEmpty) {
-      final images = await _supabase
-          .from('vehicle_images')
-          .select('partner_vehicle_id,image_url,display_order')
-          .inFilter('partner_vehicle_id', partnerVehicleIds);
-      final grouped = _groupImagesByKey(
-        List<Map<String, dynamic>>.from(images),
-        'partner_vehicle_id',
-      );
+      final candidatePartnerIds = <String>{...partnerVehicleIds};
+      for (final pv in partnerVehicles) {
+        final vid = pv['vehicle_id']?.toString();
+        if (vid != null && vid.isNotEmpty) candidatePartnerIds.add(vid);
+      }
+      final idsList = candidatePartnerIds.toList();
+
+      final groupedPv = <String, List<Map<String, dynamic>>>{};
+      try {
+        final imagesByPvId = await _supabase
+            .from('vehicle_images')
+            .select('partner_vehicle_id,vehicle_id,image_url,display_order')
+            .inFilter('partner_vehicle_id', idsList);
+        for (final img in List<Map<String, dynamic>>.from(imagesByPvId)) {
+          final pvid = img['partner_vehicle_id']?.toString();
+          if (pvid != null && pvid.isNotEmpty) {
+            groupedPv.putIfAbsent(pvid, () => []).add(img);
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final imagesByVid = await _supabase
+            .from('vehicle_images')
+            .select('partner_vehicle_id,vehicle_id,image_url,display_order')
+            .inFilter('vehicle_id', idsList);
+        for (final img in List<Map<String, dynamic>>.from(imagesByVid)) {
+          final vid = img['vehicle_id']?.toString();
+          if (vid != null && vid.isNotEmpty) {
+            groupedPv.putIfAbsent(vid, () => []).add(img);
+          }
+        }
+      } catch (_) {}
+
       for (final vehicle in partnerVehicles) {
-        vehicle['vehicle_images'] = grouped[vehicle['id']?.toString()] ?? [];
+        final pvid = vehicle['id']?.toString() ?? '';
+        final vid = vehicle['vehicle_id']?.toString() ?? '';
+        final imgs = <Map<String, dynamic>>[];
+        final seen = <String>{};
+
+        for (final img in groupedPv[pvid] ?? []) {
+          final url = (img['image_url'] ?? img['url'])?.toString().trim() ?? '';
+          if (url.isNotEmpty && !seen.contains(url)) {
+            seen.add(url);
+            imgs.add(img);
+          }
+        }
+        if (vid.isNotEmpty) {
+          for (final img in groupedPv[vid] ?? []) {
+            final url = (img['image_url'] ?? img['url'])?.toString().trim() ?? '';
+            if (url.isNotEmpty && !seen.contains(url)) {
+              seen.add(url);
+              imgs.add(img);
+            }
+          }
+        }
+
+        final directPhoto = (vehicle['vehicle_photo_url'] ??
+                vehicle['photo_url'] ??
+                vehicle['image_url'])
+            ?.toString()
+            .trim() ??
+            '';
+        if (directPhoto.isNotEmpty && !seen.contains(directPhoto)) {
+          imgs.add({'image_url': directPhoto, 'display_order': imgs.length});
+        }
+
+        imgs.sort((a, b) {
+          final aOrder = (a['display_order'] as num?)?.toInt() ?? 9999;
+          final bOrder = (b['display_order'] as num?)?.toInt() ?? 9999;
+          return aOrder.compareTo(bOrder);
+        });
+
+        vehicle['vehicle_images'] = imgs;
+        if (vehicle['image_url'] == null || vehicle['image_url'].toString().isEmpty) {
+          vehicle['image_url'] = imgs.isNotEmpty ? imgs.first['image_url'] : directPhoto;
+        }
       }
     }
   }
