@@ -203,14 +203,10 @@ class VehicleService {
     Map<String, Set<String>> approvedLinks,
   ) {
     if (!_isVisibleForRent(vehicle)) return false;
-    if (!_isPartnerOwned(vehicle, approvedLinks['partner_owner_ids']!)) {
-      return true;
-    }
-    return _hasApprovedPartnerApplication(
-      vehicle,
-      approvedLinks,
-      legacyPartnerVehicle: false,
-    );
+    final status = (vehicle['status'] ?? '').toString().toLowerCase();
+    const blockedStatuses = {'rejected', 'deleted', 'archived', 'disabled', 'sold'};
+    if (blockedStatuses.contains(status)) return false;
+    return true;
   }
 
   Future<Map<String, Set<String>>> _getApprovedPartnerVehicleLinks() async {
@@ -466,14 +462,24 @@ class VehicleService {
             final status = (vehicle['status'] ?? '').toString().toLowerCase();
             final appStatus =
                 (vehicle['application_status'] ?? '').toString().toLowerCase();
-            const visibleStatuses = {'available', 'approved', 'active'};
-            final isApproved = appStatus == 'approved' ||
-                appStatus.isEmpty ||
-                visibleStatuses.contains(status);
-            return isApproved &&
-                visibleStatuses.contains(status) &&
-                vehicle['is_available'] != false &&
-                vehicle['is_posted'] != false;
+            const blockedStatuses = {
+              'rejected',
+              'deleted',
+              'archived',
+              'disabled',
+              'sold',
+              'pending',
+            };
+            if (blockedStatuses.contains(status) ||
+                blockedStatuses.contains(appStatus)) {
+              return false;
+            }
+            final isPosted = vehicle['is_posted'] == true ||
+                vehicle['is_available'] == true ||
+                status == 'available' ||
+                status == 'approved' ||
+                status == 'active';
+            return isPosted;
           })
           .toList();
 

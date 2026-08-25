@@ -995,23 +995,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (_nearbyLatitude != null && _nearbyLongitude != null) {
       final nearby = <Map<String, dynamic>>[];
-      final fallbackNearby = <Map<String, dynamic>>[];
+      final others = <Map<String, dynamic>>[];
 
       for (final vehicle in filtered) {
         final copy = Map<String, dynamic>.from(vehicle);
         final distance = _vehicleDistanceKm(copy);
         if (distance != null) {
           copy['distance_km'] = distance;
-          // Keep only vehicles within the nearby search radius when coordinates
-          // are available.
           if (distance <= 75) {
             nearby.add(copy);
+          } else {
+            others.add(copy);
           }
           continue;
         }
 
         if (_vehicleMatchesNearbyText(copy)) {
-          fallbackNearby.add(copy);
+          nearby.add(copy);
+        } else {
+          others.add(copy);
         }
       }
 
@@ -1024,7 +1026,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       filtered
         ..clear()
         ..addAll(nearby)
-        ..addAll(fallbackNearby);
+        ..addAll(search.isEmpty ? others : []);
     }
 
     if (!mounted) return;
