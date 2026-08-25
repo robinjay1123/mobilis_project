@@ -311,12 +311,17 @@ class BookingService {
 
     final brand = pv['brand']?.toString().trim() ?? '';
     final model = pv['model']?.toString().trim() ?? '';
-    final combo = '$brand $model'.trim();
-    final vName = pv['vehicle_name']?.toString().trim().isNotEmpty == true
-        ? pv['vehicle_name'].toString().trim()
-        : combo.isNotEmpty
-            ? combo
-            : 'Partner Vehicle';
+    final combo = [brand, model].where((part) => part.isNotEmpty).join(' ');
+    final rawVName = pv['vehicle_name']?.toString().trim() ?? '';
+    final vName = combo.isNotEmpty
+        ? combo
+        : (rawVName.isNotEmpty &&
+                rawVName.toLowerCase() != 'partner vehicle' &&
+                rawVName.toLowerCase() != 'unknown vehicle'
+            ? rawVName
+            : (pv['plate_number']?.toString().isNotEmpty == true
+                ? 'Vehicle (${pv['plate_number']})'
+                : 'Partner Vehicle'));
 
     final directImage = pv['image_url']?.toString().trim() ?? '';
     final rawImages = pv['vehicle_images'];
@@ -380,9 +385,15 @@ class BookingService {
       if (bId.isNotEmpty) allBookingIds.add(bId);
 
       final vehicle = booking['vehicles'];
+      final brand = vehicle is Map ? vehicle['brand']?.toString().trim() ?? '' : '';
+      final model = vehicle is Map ? vehicle['model']?.toString().trim() ?? '' : '';
+      final vName = vehicle is Map ? vehicle['vehicle_name']?.toString().trim() ?? '' : '';
       final hasValidVehicle = vehicle is Map<String, dynamic> &&
-          (vehicle['brand']?.toString().trim().isNotEmpty == true ||
-              vehicle['vehicle_name']?.toString().trim().isNotEmpty == true);
+          (brand.isNotEmpty ||
+              model.isNotEmpty ||
+              (vName.isNotEmpty &&
+                  vName.toLowerCase() != 'partner vehicle' &&
+                  vName.toLowerCase() != 'unknown vehicle'));
 
       if (!hasValidVehicle) {
         final partnerVehicle = booking['partner_vehicles'];
@@ -446,8 +457,12 @@ class BookingService {
 
         for (final row in List<Map<String, dynamic>>.from(pvRows)) {
           final id = row['id']?.toString();
+          final vid = row['vehicle_id']?.toString();
           if (id != null && id.isNotEmpty) {
             partnerMap[id] = _normalizePartnerVehicle(row);
+          }
+          if (vid != null && vid.isNotEmpty) {
+            partnerMap[vid] = _normalizePartnerVehicle(row);
           }
         }
       } catch (e) {

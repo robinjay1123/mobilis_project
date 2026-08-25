@@ -3025,35 +3025,53 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   String _vehicleTitle(Map<String, dynamic> vehicle) {
-    final vehicleName = vehicle['vehicle_name']?.toString().trim() ?? '';
-    if (vehicleName.isNotEmpty) return vehicleName;
-
     final brand = vehicle['brand']?.toString().trim() ?? '';
     final model = vehicle['model']?.toString().trim() ?? '';
     final year = vehicle['year']?.toString().trim() ?? '';
-    final name = [brand, model].where((part) => part.isNotEmpty).join(' ');
+    final combo = [brand, model].where((part) => part.isNotEmpty).join(' ');
 
-    if (name.isNotEmpty) {
-      return year.isEmpty ? name : '$name ($year)';
+    if (combo.isNotEmpty) {
+      return year.isEmpty ? combo : '$combo ($year)';
+    }
+
+    final vehicleName = vehicle['vehicle_name']?.toString().trim() ?? '';
+    if (vehicleName.isNotEmpty &&
+        vehicleName.toLowerCase() != 'partner vehicle' &&
+        vehicleName.toLowerCase() != 'unknown vehicle') {
+      return vehicleName;
     }
 
     final id = vehicle['id']?.toString() ??
         vehicle['partner_vehicle_id']?.toString() ??
+        vehicle['vehicle_id']?.toString() ??
         vehicle['_partner_vehicle_id']?.toString() ??
         '';
     if (id.isNotEmpty) {
-      for (final v in _vehicles) {
+      final pool = [..._partnerVehicles, ..._vehicles];
+      for (final v in pool) {
         if (v['id']?.toString() == id ||
             v['partner_vehicle_id']?.toString() == id ||
+            v['vehicle_id']?.toString() == id ||
             v['_partner_vehicle_id']?.toString() == id) {
-          final vName = v['vehicle_name']?.toString().trim() ?? '';
-          if (vName.isNotEmpty) return vName;
           final b = v['brand']?.toString().trim() ?? '';
           final m = v['model']?.toString().trim() ?? '';
-          final combo = '$b $m'.trim();
-          if (combo.isNotEmpty) return combo;
+          final y = v['year']?.toString().trim() ?? '';
+          final vCombo = [b, m].where((part) => part.isNotEmpty).join(' ');
+          if (vCombo.isNotEmpty) return y.isEmpty ? vCombo : '$vCombo ($y)';
+
+          final vName = v['vehicle_name']?.toString().trim() ?? '';
+          if (vName.isNotEmpty &&
+              vName.toLowerCase() != 'partner vehicle' &&
+              vName.toLowerCase() != 'unknown vehicle') {
+            return vName;
+          }
         }
       }
+    }
+
+    final plate = vehicle['plate_number']?.toString().trim() ?? '';
+    if (plate.isNotEmpty) {
+      return 'Vehicle ($plate)';
     }
 
     return 'Partner Vehicle';

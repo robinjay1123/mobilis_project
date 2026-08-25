@@ -5027,11 +5027,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                                 true
                                             ? booking['user_name'] as String
                                             : 'Unknown Renter')));
-                      final vehicleTitle = vehicle != null
-                          ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'
-                                .trim()
-                          : (booking['vehicle_name'] ?? 'Unknown Vehicle')
-                                .toString();
+                      final brand = vehicle?['brand']?.toString().trim() ?? '';
+                      final model = vehicle?['model']?.toString().trim() ?? '';
+                      final combo = [brand, model].where((part) => part.isNotEmpty).join(' ');
+                      final vName = vehicle?['vehicle_name']?.toString().trim() ?? '';
+                      final vehicleTitle = combo.isNotEmpty
+                          ? combo
+                          : (vName.isNotEmpty &&
+                                  vName.toLowerCase() != 'partner vehicle' &&
+                                  vName.toLowerCase() != 'unknown vehicle'
+                              ? vName
+                              : (vehicle?['plate_number']?.toString().isNotEmpty == true
+                                  ? 'Vehicle (${vehicle!['plate_number']})'
+                                  : (booking['vehicle_name']?.toString() ?? 'Partner Vehicle')));
                       final status = booking['status'] as String? ?? 'pending';
                       final total =
                           (booking['total_cost'] as num?)?.toDouble() ??
@@ -8366,9 +8374,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final withDriver = booking['with_driver'] == true;
 
-    final vehicleTitle = vehicle != null
-        ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
-        : 'Unknown Vehicle';
+    final vBrand = vehicle?['brand']?.toString().trim() ?? '';
+    final vModel = vehicle?['model']?.toString().trim() ?? '';
+    final vCombo = [vBrand, vModel].where((part) => part.isNotEmpty).join(' ');
+    final rawVName = vehicle?['vehicle_name']?.toString().trim() ?? '';
+    final vehicleTitle = vCombo.isNotEmpty
+        ? vCombo
+        : (rawVName.isNotEmpty &&
+                rawVName.toLowerCase() != 'partner vehicle' &&
+                rawVName.toLowerCase() != 'unknown vehicle'
+            ? rawVName
+            : (vehicle?['plate_number']?.toString().isNotEmpty == true
+                ? 'Vehicle (${vehicle!['plate_number']})'
+                : 'Partner Vehicle'));
     final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
     final renterName =
         renter?['full_name']?.toString().trim() ?? 'Unknown Renter';
