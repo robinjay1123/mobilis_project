@@ -632,15 +632,11 @@ class TrackingService {
           ''')
           .order('recorded_at', ascending: false);
 
-      const activeStatuses = {
-        'active',
+      const onTripStatuses = {
         'ongoing',
+        'active',
         'picked_up',
         'in_progress',
-        'confirmed',
-        'approved',
-        'assigned',
-        'return_pending_inspection',
       };
 
       final activeList = <Map<String, dynamic>>[];
@@ -666,7 +662,7 @@ class TrackingService {
         }
 
         final isTripActive =
-            activeStatuses.contains(status) && !isReturnedOrCompleted;
+            onTripStatuses.contains(status) && !isReturnedOrCompleted;
 
         if (isTripActive && _canViewTracking(access, booking)) {
           final enriched = Map<String, dynamic>.from(loc);
@@ -679,7 +675,7 @@ class TrackingService {
             vehiclesWithActiveTracking.add(vid);
           }
         } else if (vid.isNotEmpty) {
-          // Booking is finished/returned: show the vehicle at its last known position as Idle
+          // Booking is approved/pending/finished: vehicle is currently Idle
           final enriched = Map<String, dynamic>.from(loc);
           enriched['has_active_booking'] = false;
           enriched['is_active_booking'] = false;
@@ -963,14 +959,10 @@ class TrackingService {
             driver_id
           ''')
           .inFilter('status', [
-            'active',
             'ongoing',
+            'active',
             'picked_up',
             'in_progress',
-            'confirmed',
-            'approved',
-            'assigned',
-            'return_pending_inspection',
           ]);
       final activeBookings = List<Map<String, dynamic>>.from(activeBookingsRows);
       final bookingByVehicleId = <String, Map<String, dynamic>>{};

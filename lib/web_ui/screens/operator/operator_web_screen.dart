@@ -7155,9 +7155,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildTrackingRow(Map<String, dynamic> location, bool isDark) {
-    final hasActiveBooking = location['has_active_booking'] == true &&
-        location['bookings'] != null;
     final booking = location['bookings'] as Map<String, dynamic>?;
+    final bStatus = (booking?['status'] ?? '').toString().toLowerCase();
+    final hasActiveBooking = location['has_active_booking'] == true &&
+        booking != null &&
+        {'ongoing', 'active', 'in_progress', 'picked_up'}.contains(bStatus) &&
+        booking['returned_at'] == null &&
+        booking['completed_at'] == null;
     final vehicle = (booking?['vehicles'] ?? location['vehicle'])
         as Map<String, dynamic>?;
     final tracker = location['tracker'] as Map<String, dynamic>?;
