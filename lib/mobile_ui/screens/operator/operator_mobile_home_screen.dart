@@ -2699,9 +2699,16 @@ class _BookingCard extends StatelessWidget {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: referenceController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 13,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(13),
+                    ],
                     decoration: const InputDecoration(
-                      labelText: 'Reference Number',
-                      hintText: 'e.g. 10023498172',
+                      labelText: 'Reference Number (13-digit max)',
+                      hintText: 'e.g. 1002349817283',
+                      counterText: '',
                       isDense: true,
                       border: OutlineInputBorder(),
                     ),
@@ -2784,6 +2791,15 @@ class _BookingCard extends StatelessWidget {
                                 ScaffoldMessenger.of(dialogContext).showSnackBar(
                                   const SnackBar(
                                     content: Text('Please provide a reference number or receipt.'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (ref.isNotEmpty && ref.length > 13) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
                                     backgroundColor: Colors.orange,
                                   ),
                                 );
@@ -3088,9 +3104,16 @@ class _BookingCard extends StatelessWidget {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: referenceController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 13,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(13),
+                    ],
                     decoration: const InputDecoration(
-                      labelText: 'Reference Number',
-                      hintText: 'e.g. 2004918239',
+                      labelText: 'Reference Number (13-digit max)',
+                      hintText: 'e.g. 2004918239012',
+                      counterText: '',
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
@@ -3158,6 +3181,15 @@ class _BookingCard extends StatelessWidget {
                                 ScaffoldMessenger.of(dialogContext).showSnackBar(
                                   const SnackBar(
                                     content: Text('Please provide a reference number or receipt.'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (ref.isNotEmpty && ref.length > 13) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
                                     backgroundColor: Colors.orange,
                                   ),
                                 );
@@ -3459,9 +3491,16 @@ class _BookingCard extends StatelessWidget {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: referenceController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 13,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(13),
+                    ],
                     decoration: const InputDecoration(
-                      labelText: 'Reference Number',
-                      hintText: 'e.g. 3009218273',
+                      labelText: 'Reference Number (13-digit max)',
+                      hintText: 'e.g. 3009218273849',
+                      counterText: '',
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
@@ -3529,6 +3568,15 @@ class _BookingCard extends StatelessWidget {
                                 ScaffoldMessenger.of(dialogContext).showSnackBar(
                                   const SnackBar(
                                     content: Text('Please provide a reference number or receipt.'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (ref.isNotEmpty && ref.length > 13) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
                                     backgroundColor: Colors.orange,
                                   ),
                                 );

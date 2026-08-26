@@ -15338,13 +15338,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text('Reference / Transaction No.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const Text('Reference / Transaction No. (13-digit max)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                                       const SizedBox(height: 6),
                                       TextFormField(
                                         controller: referenceController,
+                                        keyboardType: TextInputType.number,
+                                        maxLength: 13,
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.digitsOnly,
+                                          LengthLimitingTextInputFormatter(13),
+                                        ],
                                         decoration: InputDecoration(
                                           isDense: true,
-                                          hintText: 'e.g. 10023498172',
+                                          counterText: '',
+                                          hintText: 'e.g. 1002349817283',
                                           filled: true,
                                           fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -15435,6 +15442,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         ScaffoldMessenger.of(dialogContext).showSnackBar(
                                           const SnackBar(
                                             content: Text('Please provide a reference number or upload a receipt.'),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      if (ref.isNotEmpty && ref.length > 13) {
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
                                             backgroundColor: Colors.orange,
                                           ),
                                         );
@@ -15821,13 +15837,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text('Reference / Transaction No.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const Text('Reference / Transaction No. (13-digit max)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                                       const SizedBox(height: 6),
                                       TextFormField(
                                         controller: referenceController,
+                                        keyboardType: TextInputType.number,
+                                        maxLength: 13,
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.digitsOnly,
+                                          LengthLimitingTextInputFormatter(13),
+                                        ],
                                         decoration: InputDecoration(
                                           isDense: true,
-                                          hintText: 'e.g. 2004918239',
+                                          counterText: '',
+                                          hintText: 'e.g. 2004918239012',
                                           filled: true,
                                           fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -15918,6 +15941,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         ScaffoldMessenger.of(dialogContext).showSnackBar(
                                           const SnackBar(
                                             content: Text('Please provide a reference number or upload a receipt.'),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      if (ref.isNotEmpty && ref.length > 13) {
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
                                             backgroundColor: Colors.orange,
                                           ),
                                         );
@@ -16306,13 +16338,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text('Reference / Transaction No.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const Text('Reference / Transaction No. (13-digit max)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                                       const SizedBox(height: 6),
                                       TextFormField(
                                         controller: referenceController,
+                                        keyboardType: TextInputType.number,
+                                        maxLength: 13,
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.digitsOnly,
+                                          LengthLimitingTextInputFormatter(13),
+                                        ],
                                         decoration: InputDecoration(
                                           isDense: true,
-                                          hintText: 'e.g. 3009218273',
+                                          counterText: '',
+                                          hintText: 'e.g. 3009218273849',
                                           filled: true,
                                           fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -16403,6 +16442,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         ScaffoldMessenger.of(dialogContext).showSnackBar(
                                           const SnackBar(
                                             content: Text('Please provide a reference number or upload a receipt.'),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      if (ref.isNotEmpty && ref.length > 13) {
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
                                             backgroundColor: Colors.orange,
                                           ),
                                         );
