@@ -1739,17 +1739,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   bool _isCompanyOwnedBooking(Map<String, dynamic> booking) {
     if (_isPartnerOwnedBooking(booking)) return false;
-    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final vehicle = booking['vehicles'];
     return vehicle != null;
   }
 
   bool _isPartnerOwnedBooking(Map<String, dynamic> booking) {
-    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-    final owner = vehicle?['owner'] as Map<String, dynamic>?;
-    return owner?['role']?.toString().trim().toLowerCase() == 'partner' ||
-        vehicle?['owner_role']?.toString().trim().toLowerCase() == 'partner' ||
-        vehicle?['is_partner_vehicle'] == true ||
-        vehicle?['partner_vehicle_id'] != null;
+    final vehicleRaw = booking['vehicles'] ?? booking['partner_vehicles'];
+    final vehicle = vehicleRaw is Map<String, dynamic>
+        ? vehicleRaw
+        : (vehicleRaw is Map ? Map<String, dynamic>.from(vehicleRaw) : <String, dynamic>{});
+    final ownerRaw = vehicle['owner'] ?? vehicle['partners'] ?? booking['partner'];
+    final owner = ownerRaw is Map<String, dynamic>
+        ? ownerRaw
+        : (ownerRaw is Map ? Map<String, dynamic>.from(ownerRaw) : <String, dynamic>{});
+    final partnerId = booking['partner_id'] ?? vehicle['partner_id'] ?? booking['partner_vehicle_id'];
+    return (partnerId != null && partnerId.toString().trim().isNotEmpty) ||
+        owner['role']?.toString().trim().toLowerCase() == 'partner' ||
+        vehicle['owner_role']?.toString().trim().toLowerCase() == 'partner' ||
+        vehicle['is_partner_vehicle'] == true ||
+        booking['is_partner_booking'] == true;
   }
 
   bool _canTrackBooking(Map<String, dynamic> booking) {
@@ -2728,8 +2736,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return '';
   }
 
-  String _normalizeVehicleImageUrl(String value) {
-    var imageUrl = value.trim();
+  String _normalizeVehicleImageUrl(dynamic value, [dynamic vehicleImages]) {
+    if (value == null && vehicleImages == null) return '';
+    var imageUrl = value?.toString().trim() ?? '';
+    if (imageUrl.isEmpty && vehicleImages is List && vehicleImages.isNotEmpty) {
+      final first = vehicleImages.first;
+      if (first is Map) {
+        imageUrl = first['image_url']?.toString().trim() ?? '';
+      } else {
+        imageUrl = first.toString().trim();
+      }
+    }
     if (imageUrl.isEmpty ||
         imageUrl.startsWith('http://') ||
         imageUrl.startsWith('https://') ||
@@ -8770,152 +8787,70 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildExtendTripRequestsSection(bool isDark) {
-    final allExtensionBookings = _recentBookings.where((b) {
-      final ext = b['extension_status']?.toString().toLowerCase().trim();
-      return ext != null && ext.isNotEmpty && ext != 'none';
-    }).toList();
+    try {
+      final allExtensionBookings = _recentBookings.where((b) {
+        final ext = b['extension_status']?.toString().toLowerCase().trim();
+        return ext != null && ext.isNotEmpty && ext != 'none';
+      }).toList();
 
-    final filteredExtensions = allExtensionBookings.where((booking) {
-      final status =
-          booking['extension_status']?.toString().toLowerCase().trim() ?? '';
-      final matchesFilter = switch (_extensionFilter) {
-        'all' => true,
-        'pending' => status == 'pending' ||
-            status == 'pending_operator' ||
-            status == 'pending_partner',
-        'payment_pending' =>
-            status == 'accepted' || status == 'payment_pending',
-        'payment_completed' => status == 'payment_completed',
-        'pending_final_confirmation' => status == 'pending_final_confirmation',
-        'finalized' => status == 'finalized' || status == 'approved',
-        'rejected' => status == 'rejected' || status == 'cancelled',
-        _ => true,
-      };
-      if (!matchesFilter) return false;
+      final filteredExtensions = allExtensionBookings.where((booking) {
+        final status =
+            booking['extension_status']?.toString().toLowerCase().trim() ?? '';
+        final matchesFilter = switch (_extensionFilter) {
+          'all' => true,
+          'pending' => status == 'pending' ||
+              status == 'pending_operator' ||
+              status == 'pending_partner',
+          'payment_pending' =>
+              status == 'accepted' || status == 'payment_pending',
+          'payment_completed' => status == 'payment_completed',
+          'pending_final_confirmation' => status == 'pending_final_confirmation',
+          'finalized' => status == 'finalized' || status == 'approved',
+          'rejected' => status == 'rejected' || status == 'cancelled',
+          _ => true,
+        };
+        if (!matchesFilter) return false;
 
-      if (_extensionSearchQuery.isNotEmpty) {
-        final query = _extensionSearchQuery.toLowerCase();
-        final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-        final renter = booking['renter'] as Map<String, dynamic>? ?? {};
-        final owner = vehicle['owner'] as Map<String, dynamic>? ?? {};
-        final bId = booking['id']?.toString() ?? '';
-        final shortBId = bId.length >= 8 ? bId.substring(0, 8) : bId;
-        final haystack = [
-          bId,
-          'EXT-$shortBId',
-          renter['full_name'],
-          renter['email'],
-          renter['phone'],
-          _vehicleTitle(vehicle),
-          vehicle['plate_number'],
-          owner['full_name'],
-          booking['dropoff_location'],
-          booking['extension_requested_destination'],
-        ].whereType<Object>().join(' ').toLowerCase();
-        if (!haystack.contains(query)) return false;
-      }
+        if (_extensionSearchQuery.isNotEmpty) {
+          final query = _extensionSearchQuery.toLowerCase();
+          final vehicleRaw = booking['vehicles'] ?? booking['partner_vehicles'];
+          final vehicle = vehicleRaw is Map<String, dynamic>
+              ? vehicleRaw
+              : (vehicleRaw is Map ? Map<String, dynamic>.from(vehicleRaw) : <String, dynamic>{});
+          final renterRaw = booking['renter'] ?? booking['users'];
+          final renter = renterRaw is Map<String, dynamic>
+              ? renterRaw
+              : (renterRaw is Map ? Map<String, dynamic>.from(renterRaw) : <String, dynamic>{});
+          final ownerRaw = vehicle['owner'] ?? vehicle['partners'] ?? booking['partner'];
+          final owner = ownerRaw is Map<String, dynamic>
+              ? ownerRaw
+              : (ownerRaw is Map ? Map<String, dynamic>.from(ownerRaw) : <String, dynamic>{});
+          final bId = booking['id']?.toString() ?? '';
+          final shortBId = bId.length >= 8 ? bId.substring(0, 8) : bId;
+          final haystack = [
+            bId,
+            'EXT-$shortBId',
+            renter['full_name'],
+            renter['email'],
+            renter['phone'],
+            _vehicleTitle(vehicle),
+            vehicle['plate_number'],
+            owner['full_name'],
+            booking['dropoff_location'],
+            booking['extension_requested_destination'],
+          ].whereType<Object>().join(' ').toLowerCase();
+          if (!haystack.contains(query)) return false;
+        }
 
-      return true;
-    }).toList();
+        return true;
+      }).toList();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkCard : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-            ),
-          ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildExtensionFilterTab(
-                  'all',
-                  'All Requests (${allExtensionBookings.length})',
-                  isDark,
-                ),
-                _buildExtensionFilterTab('pending', 'Pending Review', isDark),
-                _buildExtensionFilterTab(
-                  'payment_pending',
-                  'Payment Pending',
-                  isDark,
-                ),
-                _buildExtensionFilterTab(
-                  'payment_completed',
-                  'Payment Review',
-                  isDark,
-                ),
-                _buildExtensionFilterTab(
-                  'pending_final_confirmation',
-                  'Pending Confirmation',
-                  isDark,
-                ),
-                _buildExtensionFilterTab('finalized', 'Finalized', isDark),
-                _buildExtensionFilterTab(
-                  'rejected',
-                  'Rejected / Cancelled',
-                  isDark,
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 18),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkCard : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _extensionSearchController,
-                  onChanged: (value) => setState(() {
-                    _extensionSearchQuery = value.trim();
-                  }),
-                  decoration: InputDecoration(
-                    hintText:
-                        'Search request ID, renter, vehicle, destination, or owner...',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    filled: true,
-                    fillColor: isDark
-                        ? Colors.white.withOpacity(0.05)
-                        : const Color(0xFFF2F4F6),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Text(
-                '${filteredExtensions.length} request${filteredExtensions.length == 1 ? '' : 's'}',
-                style: TextStyle(
-                  color: isDark ? Colors.grey[300] : Colors.grey.shade700,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        if (filteredExtensions.isEmpty)
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(48),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: isDark ? AppColors.darkCard : Colors.white,
               borderRadius: BorderRadius.circular(16),
@@ -8923,60 +8858,177 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 color: isDark ? AppColors.borderColor : Colors.grey.shade200,
               ),
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildExtensionFilterTab(
+                    'all',
+                    'All Requests (${allExtensionBookings.length})',
+                    isDark,
+                  ),
+                  _buildExtensionFilterTab('pending', 'Pending Review', isDark),
+                  _buildExtensionFilterTab(
+                    'payment_pending',
+                    'Payment Pending',
+                    isDark,
+                  ),
+                  _buildExtensionFilterTab(
+                    'payment_completed',
+                    'Payment Review',
+                    isDark,
+                  ),
+                  _buildExtensionFilterTab(
+                    'pending_final_confirmation',
+                    'Pending Confirmation',
+                    isDark,
+                  ),
+                  _buildExtensionFilterTab('finalized', 'Finalized', isDark),
+                  _buildExtensionFilterTab(
+                    'rejected',
+                    'Rejected / Cancelled',
+                    isDark,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkCard : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
+            ),
+            child: Row(
               children: [
-                Icon(
-                  Icons.update_disabled_rounded,
-                  size: 56,
-                  color: isDark ? Colors.grey[600] : Colors.grey.shade400,
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'No trip extension requests found',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
+                Expanded(
+                  child: TextField(
+                    controller: _extensionSearchController,
+                    onChanged: (value) => setState(() {
+                      _extensionSearchQuery = value.trim();
+                    }),
+                    decoration: InputDecoration(
+                      hintText:
+                          'Search request ID, renter, vehicle, destination, or owner...',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                      filled: true,
+                      fillColor: isDark
+                          ? Colors.white.withOpacity(0.05)
+                          : const Color(0xFFF2F4F6),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(width: 14),
                 Text(
-                  _extensionFilter == 'all'
-                      ? 'When renters request to extend their active rentals, they will appear here.'
-                      : 'No extension requests currently match the selected filter.',
+                  '${filteredExtensions.length} request${filteredExtensions.length == 1 ? '' : 's'}',
                   style: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    color: isDark ? Colors.grey[300] : Colors.grey.shade700,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
                   ),
                 ),
               ],
             ),
-          )
-        else
-          ...filteredExtensions.map(
-            (booking) {
-              try {
-                return _buildExtendTripRequestCard(booking, isDark);
-              } catch (e) {
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.red.withOpacity(0.3)),
-                  ),
-                  child: Text(
-                    'Error displaying extension request (${booking['id']}): $e',
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-                  ),
-                );
-              }
-            },
           ),
-      ],
-    );
+          const SizedBox(height: 20),
+          if (filteredExtensions.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(48),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.update_disabled_rounded,
+                    size: 56,
+                    color: isDark ? Colors.grey[600] : Colors.grey.shade400,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'No trip extension requests found',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _extensionFilter == 'all'
+                        ? 'When renters request to extend their active rentals, they will appear here.'
+                        : 'No extension requests currently match the selected filter.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ...filteredExtensions.map(
+              (booking) {
+                try {
+                  return _buildExtendTripRequestCard(booking, isDark);
+                } catch (e) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      'Error displaying extension request (${booking['id']}): $e',
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                    ),
+                  );
+                }
+              },
+            ),
+        ],
+      );
+    } catch (err, stack) {
+      debugPrint('Error building extension requests section: $err\n$stack');
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.red.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.red.withOpacity(0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Unable to display Extend Trip Requests',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.redAccent),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Details: $err',
+              style: TextStyle(fontSize: 12, color: isDark ? Colors.grey[300] : Colors.grey[800]),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Widget _buildExtendTripRequestCard(
@@ -8988,9 +9040,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         bookingId.length >= 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase();
     final requestId = 'EXT-$shortBId';
 
-    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-    final renter = (booking['renter'] ?? booking['users']) as Map<String, dynamic>? ?? {};
-    final owner = (vehicle['owner'] ?? vehicle['partners']) as Map<String, dynamic>? ?? {};
+    final vehicleRaw = booking['vehicles'] ?? booking['partner_vehicles'];
+    final vehicle = vehicleRaw is Map<String, dynamic>
+        ? vehicleRaw
+        : (vehicleRaw is Map ? Map<String, dynamic>.from(vehicleRaw) : <String, dynamic>{});
+    final renterRaw = booking['renter'] ?? booking['users'];
+    final renter = renterRaw is Map<String, dynamic>
+        ? renterRaw
+        : (renterRaw is Map ? Map<String, dynamic>.from(renterRaw) : <String, dynamic>{});
+    final ownerRaw = vehicle['owner'] ?? vehicle['partners'] ?? booking['partner'];
+    final owner = ownerRaw is Map<String, dynamic>
+        ? ownerRaw
+        : (ownerRaw is Map ? Map<String, dynamic>.from(ownerRaw) : <String, dynamic>{});
     final isPartner = _isPartnerOwnedBooking(booking);
 
     final extStatus =
@@ -9011,18 +9072,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       (booking['end_at'] ?? booking['end_date'])?.toString() ?? '',
     );
 
-    final extensionDays = (booking['extension_days'] as num?)?.toInt() ?? 1;
-    final additionalPrice =
-        (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
-    final originalPrice =
-        ((booking['principal_total_price'] as num?)?.toDouble() ??
-            (booking['total_price'] as num?)?.toDouble() ??
-            0.0) -
-        (extStatus == 'finalized' ? additionalPrice : 0.0);
-    final updatedTotalPrice =
-        extStatus == 'finalized'
-            ? ((booking['total_price'] as num?)?.toDouble() ?? 0.0)
-            : originalPrice + additionalPrice;
+    final extensionDays = int.tryParse(booking['extension_days']?.toString() ?? '') ??
+        (booking['extension_days'] is num ? (booking['extension_days'] as num).toInt() : 1);
+    final additionalPrice = double.tryParse(booking['extension_additional_price']?.toString() ?? '') ??
+        (booking['extension_additional_price'] is num ? (booking['extension_additional_price'] as num).toDouble() : 0.0);
+    final rawPrincipal = double.tryParse((booking['principal_total_price'] ?? booking['total_price'])?.toString() ?? '') ?? 0.0;
+    final originalPrice = rawPrincipal - (extStatus == 'finalized' ? additionalPrice : 0.0);
+    final updatedTotalPrice = extStatus == 'finalized'
+        ? (double.tryParse(booking['total_price']?.toString() ?? '') ?? (originalPrice + additionalPrice))
+        : (originalPrice + additionalPrice);
 
     final currentDestination =
         booking['dropoff_location']?.toString().trim() ?? 'PSDC Main Garage';
@@ -10932,9 +10990,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  String? _operatorUserAvatarUrl(Map<String, dynamic> user) {
+  String? _operatorUserAvatarUrl(dynamic user) {
+    if (user == null) return null;
+    final map = user is Map<String, dynamic>
+        ? user
+        : (user is Map ? Map<String, dynamic>.from(user) : <String, dynamic>{});
     for (final key in const ['avatar_url', 'profile_picture_url']) {
-      final value = user[key]?.toString().trim();
+      final value = map[key]?.toString().trim();
       if (value != null && value.isNotEmpty) return value;
     }
     return null;
