@@ -639,7 +639,7 @@ class TrackingService {
         'in_progress',
       };
 
-      final activeList = <Map<String, dynamic>>[];
+      final candidateList = <Map<String, dynamic>>[];
       final vehiclesWithActiveTracking = <String>{};
       final seenVehicles = <String>{};
 
@@ -657,10 +657,6 @@ class TrackingService {
             booking?['vehicles']?['id']?.toString() ??
             '';
 
-        if (vid.isNotEmpty && seenVehicles.contains(vid)) {
-          continue;
-        }
-
         final isTripActive =
             onTripStatuses.contains(status) && !isReturnedOrCompleted;
 
@@ -668,13 +664,13 @@ class TrackingService {
           final enriched = Map<String, dynamic>.from(loc);
           enriched['has_active_booking'] = true;
           enriched['is_active_booking'] = true;
-          activeList.add(enriched);
+          candidateList.add(enriched);
 
           if (vid.isNotEmpty) {
             seenVehicles.add(vid);
             vehiclesWithActiveTracking.add(vid);
           }
-        } else if (vid.isNotEmpty) {
+        } else if (vid.isNotEmpty && !seenVehicles.contains(vid)) {
           // Booking is approved/pending/finished: vehicle is currently Idle
           final enriched = Map<String, dynamic>.from(loc);
           enriched['has_active_booking'] = false;
@@ -682,7 +678,7 @@ class TrackingService {
           enriched['bookings'] = null;
           enriched['status'] = 'Available (Idle)';
           enriched['vehicle'] = booking?['vehicles'] ?? loc['vehicle'];
-          activeList.add(enriched);
+          candidateList.add(enriched);
           seenVehicles.add(vid);
         }
       }
@@ -765,7 +761,7 @@ class TrackingService {
 
           final lastSpeed = (t['last_speed'] as num?)?.toDouble() ?? 0.0;
 
-          activeList.add({
+          candidateList.add({
             'id': 'idle_tracker_${t['id']}',
             'vehicle_id': vid,
             'latitude': lat,
@@ -789,7 +785,44 @@ class TrackingService {
         debugPrint('Error fetching idle vehicle trackers: $e');
       }
 
-      return activeList;
+      // 3. Strict deduplication by vehicle plate number & vehicle ID
+      final dedupedMap = <String, Map<String, dynamic>>{};
+      for (final loc in candidateList) {
+        final veh = (loc['vehicle'] ?? loc['bookings']?['vehicles']) as Map?;
+        final rawPlate = veh?['plate_number']?.toString() ??
+            loc['tracker']?['device_identifier']?.toString() ??
+            '';
+        final plate = rawPlate.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+        final vid = loc['vehicle_id']?.toString() ?? veh?['id']?.toString() ?? '';
+        final dedupKey = plate.isNotEmpty
+            ? 'plate_$plate'
+            : (vid.isNotEmpty ? 'vid_$vid' : 'id_${loc['id']}');
+
+        if (!dedupedMap.containsKey(dedupKey)) {
+          dedupedMap[dedupKey] = loc;
+          continue;
+        }
+
+        final existing = dedupedMap[dedupKey]!;
+        final existingIsActive = existing['has_active_booking'] == true;
+        final newIsActive = loc['has_active_booking'] == true;
+
+        if (newIsActive && !existingIsActive) {
+          dedupedMap[dedupKey] = loc; // Active trip replaces idle
+        } else if (newIsActive == existingIsActive) {
+          final existingDate = DateTime.tryParse(
+            existing['recorded_at']?.toString() ?? existing['updated_at']?.toString() ?? '',
+          );
+          final newDate = DateTime.tryParse(
+            loc['recorded_at']?.toString() ?? loc['updated_at']?.toString() ?? '',
+          );
+          if (newDate != null && (existingDate == null || newDate.isAfter(existingDate))) {
+            dedupedMap[dedupKey] = loc; // More recent ping replaces older ping
+          }
+        }
+      }
+
+      return dedupedMap.values.toList();
     } catch (e) {
       debugPrint('Error loading tracking locations: $e');
       return [];

@@ -2626,19 +2626,42 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   List<Map<String, dynamic>> _visibleTrackingLocations() {
-    if (_focusedTrackingBookingId == null ||
-        _focusedTrackingBookingId!.isEmpty) {
-      return _trackingLocations;
-    }
+    final source = (_focusedTrackingBookingId == null ||
+            _focusedTrackingBookingId!.isEmpty)
+        ? _trackingLocations
+        : _trackingLocations.where((location) {
+            final booking = location['bookings'] as Map<String, dynamic>?;
+            final bookingId = booking?['id']?.toString();
+            final rowId = location['id']?.toString();
+            return bookingId == _focusedTrackingBookingId ||
+                rowId == _focusedTrackingBookingId ||
+                location['vehicle_id']?.toString() ==
+                    _focusedTrackingBookingId;
+          }).toList();
 
-    return _trackingLocations.where((location) {
-      final booking = location['bookings'] as Map<String, dynamic>?;
-      final bookingId = booking?['id']?.toString();
-      final rowId = location['id']?.toString();
-      return bookingId == _focusedTrackingBookingId ||
-          rowId == _focusedTrackingBookingId ||
-          location['vehicle_id']?.toString() == _focusedTrackingBookingId;
-    }).toList();
+    final seenKeys = <String>{};
+    final deduped = <Map<String, dynamic>>[];
+    for (final loc in (source.isNotEmpty ? source : _trackingLocations)) {
+      final veh = (loc['vehicle'] ?? loc['bookings']?['vehicles']) as Map?;
+      final rawPlate = veh?['plate_number']?.toString() ??
+          loc['tracker']?['device_identifier']?.toString() ??
+          '';
+      final plate =
+          rawPlate.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+      final vid =
+          loc['vehicle_id']?.toString() ?? veh?['id']?.toString() ?? '';
+      final trackerId = loc['tracker']?['id']?.toString() ??
+          loc['id']?.toString() ??
+          '';
+      final key = plate.isNotEmpty
+          ? 'plate_$plate'
+          : (vid.isNotEmpty ? 'vid_$vid' : 'track_$trackerId');
+      if (!seenKeys.contains(key)) {
+        seenKeys.add(key);
+        deduped.add(loc);
+      }
+    }
+    return deduped;
   }
 
   Future<void> _loadPendingVerifications() async {
