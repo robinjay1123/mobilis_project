@@ -694,22 +694,6 @@ class AdminService {
       ];
 
       try {
-        final appDocPhotos = await supabase
-            .from('partner_vehicle_application_documents')
-            .select('file_url')
-            .eq('partner_vehicle_application_id', applicationId)
-            .eq('document_type', 'vehicle_photo');
-        for (final doc in List<Map<String, dynamic>>.from(appDocPhotos)) {
-          final url = doc['file_url']?.toString().trim();
-          if (url != null && url.isNotEmpty && !photoUrls.contains(url)) {
-            photoUrls.add(url);
-          }
-        }
-      } catch (e) {
-        debugPrint('Note: partner_vehicle_application_documents lookup: $e');
-      }
-
-      try {
         final photoDocs = await supabase
             .from('partner_vehicle_documents')
             .select('file_url')

@@ -2515,7 +2515,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
         try {
           final docPhotos = await _supabase
-              .from('partner_vehicle_application_documents')
+              .from('partner_vehicle_documents')
               .select('partner_vehicle_application_id,file_url')
               .eq('document_type', 'vehicle_photo')
               .inFilter('partner_vehicle_application_id', candidateIds);
@@ -2529,7 +2529,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             }
           }
         } catch (e) {
-          debugPrint('Error loading partner application document photos: $e');
+          debugPrint('Error loading partner vehicle document photos: $e');
         }
       }
 
