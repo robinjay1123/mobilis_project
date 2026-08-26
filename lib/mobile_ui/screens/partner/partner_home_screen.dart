@@ -3293,6 +3293,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final target = resolveNotificationTarget(raw);
     final targetType = (raw['type'] ?? '').toString().toLowerCase();
 
+    final bookingId = target.bookingId;
+    final booking = bookingId == null
+        ? <String, dynamic>{}
+        : bookings.firstWhere(
+            (item) => item['id']?.toString() == bookingId,
+            orElse: () => <String, dynamic>{},
+          );
+
     if (targetType == 'policy_restriction' ||
         raw['data']?['event'] == 'active_trip_safety_freeze' ||
         raw['data']?['event'] == 'owner_active_safety_freeze') {
@@ -3324,14 +3332,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       }
       return;
     }
-
-    final bookingId = target.bookingId;
-    final booking = bookingId == null
-        ? <String, dynamic>{}
-        : bookings.firstWhere(
-            (item) => item['id']?.toString() == bookingId,
-            orElse: () => <String, dynamic>{},
-          );
 
     if (target.destination == NotificationDestination.tracking) {
       if (booking.isNotEmpty) {

@@ -8955,7 +8955,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           )
         else
           ...filteredExtensions.map(
-            (booking) => _buildExtendTripRequestCard(booking, isDark),
+            (booking) {
+              try {
+                return _buildExtendTripRequestCard(booking, isDark);
+              } catch (e) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    'Error displaying extension request (${booking['id']}): $e',
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                  ),
+                );
+              }
+            },
           ),
       ],
     );
@@ -8971,8 +8989,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final requestId = 'EXT-$shortBId';
 
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
-    final owner = vehicle['owner'] as Map<String, dynamic>? ?? {};
+    final renter = (booking['renter'] ?? booking['users']) as Map<String, dynamic>? ?? {};
+    final owner = (vehicle['owner'] ?? vehicle['partners']) as Map<String, dynamic>? ?? {};
     final isPartner = _isPartnerOwnedBooking(booking);
 
     final extStatus =
@@ -10065,6 +10083,119 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       'Dec',
     ];
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
+  String _formatBookingDateTime(DateTime? dt) {
+    if (dt == null) return 'N/A';
+    final local = dt.toLocal();
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final ampm = local.hour >= 12 ? 'PM' : 'AM';
+    return '${months[local.month - 1]} ${local.day}, ${local.year} $hour:$minute $ampm';
+  }
+
+  bool _isPartnerOwnedBooking(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final partnerId = vehicle['partner_id'] ?? booking['partner_id'];
+    return partnerId != null && partnerId.toString().isNotEmpty;
+  }
+
+  String _vehicleTitle(Map<String, dynamic> vehicle) {
+    final brand = vehicle['brand']?.toString().trim() ?? '';
+    final model = vehicle['model']?.toString().trim() ?? '';
+    final year = vehicle['year']?.toString().trim() ?? '';
+    final title = '$year $brand $model'.trim();
+    return title.isNotEmpty ? title : 'Vehicle';
+  }
+
+  String? _operatorUserAvatarUrl(Map<String, dynamic> user) {
+    final avatar = user['avatar_url']?.toString().trim() ??
+        user['profile_picture_url']?.toString().trim() ??
+        '';
+    return avatar.isNotEmpty ? avatar : null;
+  }
+
+  String _normalizeVehicleImageUrl(dynamic url, [dynamic vehicleImages]) {
+    if (url != null && url.toString().trim().isNotEmpty) {
+      return url.toString().trim();
+    }
+    if (vehicleImages is List && vehicleImages.isNotEmpty) {
+      final first = vehicleImages.first;
+      if (first is Map) {
+        return first['image_url']?.toString().trim() ?? '';
+      }
+      return first.toString().trim();
+    }
+    return '';
+  }
+
+  void _showReceiptProofDialog(String url, bool isDark) {
+    if (url.isEmpty) return;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 600, maxHeight: 700),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkCard : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Payment Proof Receipt',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    url,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Center(
+                      child: Text('Failed to load receipt image'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openBookingConversation(Map<String, dynamic> booking) async {
+    setState(() {
+      _selectedIndex = 4; // Messages tab
+    });
   }
 
   bool _bookingFilterMatches(Map<String, dynamic> booking, String filter) {
