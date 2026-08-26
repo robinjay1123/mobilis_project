@@ -684,23 +684,55 @@ class AdminService {
         partnerVehicleId = partnerVehicle['id'].toString();
       }
 
-      final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
+      final vehiclePhotoUrl = (application['vehicle_photo_url'] ??
+              application['photo_url'] ??
+              application['image_url'])
+          ?.toString();
       final photoUrls = <String>[
         if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty)
           vehiclePhotoUrl,
       ];
-      final photoDocs = await supabase
-          .from('partner_vehicle_documents')
-          .select('file_url')
-          .eq('partner_vehicle_application_id', applicationId)
-          .eq('document_type', 'vehicle_photo');
-      for (final doc in List<Map<String, dynamic>>.from(photoDocs)) {
-        final url = doc['file_url']?.toString();
-        if (url != null && url.isNotEmpty && !photoUrls.contains(url)) {
-          photoUrls.add(url);
+
+      try {
+        final appDocPhotos = await supabase
+            .from('partner_vehicle_application_documents')
+            .select('file_url')
+            .eq('partner_vehicle_application_id', applicationId)
+            .eq('document_type', 'vehicle_photo');
+        for (final doc in List<Map<String, dynamic>>.from(appDocPhotos)) {
+          final url = doc['file_url']?.toString().trim();
+          if (url != null && url.isNotEmpty && !photoUrls.contains(url)) {
+            photoUrls.add(url);
+          }
         }
+      } catch (e) {
+        debugPrint('Note: partner_vehicle_application_documents lookup: $e');
       }
+
+      try {
+        final photoDocs = await supabase
+            .from('partner_vehicle_documents')
+            .select('file_url')
+            .eq('partner_vehicle_application_id', applicationId)
+            .eq('document_type', 'vehicle_photo');
+        for (final doc in List<Map<String, dynamic>>.from(photoDocs)) {
+          final url = doc['file_url']?.toString().trim();
+          if (url != null && url.isNotEmpty && !photoUrls.contains(url)) {
+            photoUrls.add(url);
+          }
+        }
+      } catch (e) {
+        debugPrint('Note: partner_vehicle_documents lookup: $e');
+      }
+
       if (photoUrls.isNotEmpty) {
+        try {
+          await supabase
+              .from('vehicle_images')
+              .delete()
+              .eq('partner_vehicle_id', partnerVehicleId);
+        } catch (_) {}
+
         await supabase
             .from('vehicle_images')
             .insert(
@@ -712,6 +744,13 @@ class AdminService {
                 };
               }),
             );
+
+        try {
+          await supabase
+              .from('partner_vehicles')
+              .update({'image_url': photoUrls.first})
+              .eq('id', partnerVehicleId);
+        } catch (_) {}
       }
 
       final orUrl = application['or_document_url']?.toString();
