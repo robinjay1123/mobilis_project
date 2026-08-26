@@ -3296,11 +3296,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     if (targetType == 'policy_restriction' ||
         raw['data']?['event'] == 'active_trip_safety_freeze' ||
         raw['data']?['event'] == 'owner_active_safety_freeze') {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => const PartnerSafetyReviewScreen(isDarkMode: true),
-        ),
-      );
+      if (booking.isNotEmpty) {
+        _openPartnerBookingSafetyReview(context, booking);
+      } else {
+        setState(() => selectedNavIndex = 1);
+      }
       return;
     }
 
@@ -3334,11 +3334,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           );
 
     if (target.destination == NotificationDestination.tracking) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => const PartnerTrackingScreen(isDarkMode: true),
-        ),
-      );
+      if (booking.isNotEmpty) {
+        _openTrackingScreen(booking);
+      } else {
+        setState(() => selectedNavIndex = 1);
+      }
       return;
     }
 
@@ -3364,11 +3364,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
     switch (target.destination) {
       case NotificationDestination.payment:
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => const PartnerRevenueScreen(isDarkMode: true),
-          ),
-        );
+        _openRevenuePayoutScreen();
         return;
       case NotificationDestination.ratings:
         Navigator.of(context).push(
@@ -3390,11 +3386,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         setState(() => selectedNavIndex = 1);
         return;
       case NotificationDestination.tracking:
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => const PartnerTrackingScreen(isDarkMode: true),
-          ),
-        );
+        if (booking.isNotEmpty) {
+          _openTrackingScreen(booking);
+        } else {
+          setState(() => selectedNavIndex = 1);
+        }
         return;
       case NotificationDestination.messages:
         setState(() => selectedNavIndex = 2);
