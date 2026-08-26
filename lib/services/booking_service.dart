@@ -5110,7 +5110,7 @@ class BookingService {
     required String operatorId,
   }) async {
     final now = DateTime.now().toUtc();
-    await supabase.from('bookings').update({
+    final updatePayload = <String, dynamic>{
       'security_deposit_refunded': true,
       'security_deposit_refund_amount': refundAmount,
       'security_deposit_refund_deduction': deductionAmount,
@@ -5119,8 +5119,12 @@ class BookingService {
       'security_deposit_refund_ref': refundReference,
       'security_deposit_refund_receipt_url': refundReceiptUrl,
       'security_deposit_refunded_at': now.toIso8601String(),
-      'security_deposit_refunded_by': operatorId,
-    }).eq('id', bookingId);
+    };
+    if (operatorId.trim().isNotEmpty) {
+      updatePayload['security_deposit_refunded_by'] = operatorId.trim();
+    }
+
+    await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
 
     // Fetch booking to notify renter
     try {
@@ -5178,7 +5182,7 @@ class BookingService {
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
 
-    await supabase.from('bookings').update({
+    final updatePayload = <String, dynamic>{
       'partner_payout_disbursed': true,
       'partner_payout_status': 'disbursed',
       'partner_payout_amount': netAmount,
@@ -5187,12 +5191,23 @@ class BookingService {
       'partner_payout_ref': referenceNumber,
       'partner_payout_receipt_url': receiptUrl ?? '',
       'partner_payout_disbursed_at': now,
-      'partner_payout_disbursed_by': operatorId,
-    }).eq('id', bookingId);
+    };
+    if (operatorId.trim().isNotEmpty) {
+      updatePayload['partner_payout_disbursed_by'] = operatorId.trim();
+    }
+
+    await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
 
     if (partnerUserId != null && partnerUserId.isNotEmpty) {
       try {
-        await supabase.from('booking_payouts').upsert({
+        final existingPayout = await supabase
+            .from('booking_payouts')
+            .select('id')
+            .eq('booking_id', bookingId)
+            .eq('recipient_role', 'partner')
+            .maybeSingle();
+
+        final payoutData = {
           'booking_id': bookingId,
           'recipient_user_id': partnerUserId,
           'recipient_role': 'partner',
@@ -5208,9 +5223,19 @@ class BookingService {
             'receipt_url': receiptUrl,
           },
           'updated_at': now,
-        }, onConflict: 'booking_id,recipient_user_id,recipient_role');
+        };
+
+        if (existingPayout != null) {
+          await supabase
+              .from('booking_payouts')
+              .update(payoutData)
+              .eq('id', existingPayout['id']);
+        } else {
+          payoutData['created_at'] = now;
+          await supabase.from('booking_payouts').insert(payoutData);
+        }
       } catch (e) {
-        debugPrint('Could not upsert partner booking_payouts: $e');
+        debugPrint('Could not record partner booking_payouts: $e');
       }
 
       try {
@@ -5246,7 +5271,7 @@ class BookingService {
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
 
-    await supabase.from('bookings').update({
+    final updatePayload = <String, dynamic>{
       'driver_payout_disbursed': true,
       'driver_payout_status': 'disbursed',
       'driver_payout_amount': netAmount,
@@ -5255,14 +5280,33 @@ class BookingService {
       'driver_payout_ref': referenceNumber,
       'driver_payout_receipt_url': receiptUrl ?? '',
       'driver_payout_disbursed_at': now,
-      'driver_payout_disbursed_by': operatorId,
-    }).eq('id', bookingId);
+    };
+    if (operatorId.trim().isNotEmpty) {
+      updatePayload['driver_payout_disbursed_by'] = operatorId.trim();
+    }
 
-    if (driverUserId != null && driverUserId.isNotEmpty) {
+    await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
+
+    // Resolve driver user ID if not explicitly passed
+    String? resolvedDriverUserId = driverUserId;
+    if (resolvedDriverUserId == null || resolvedDriverUserId.isEmpty) {
+      try {
+        final b = await supabase
+            .from('bookings')
+            .select('driver_id, drivers(user_id)')
+            .eq('id', bookingId)
+            .maybeSingle();
+        final driverJoin = b?['drivers'] as Map<String, dynamic>?;
+        resolvedDriverUserId = driverJoin?['user_id']?.toString() ??
+            b?['driver_id']?.toString();
+      } catch (_) {}
+    }
+
+    if (resolvedDriverUserId != null && resolvedDriverUserId.isNotEmpty) {
       try {
         final earningPayload = <String, dynamic>{
           'booking_id': bookingId,
-          'driver_id': driverUserId,
+          'driver_id': resolvedDriverUserId,
           'trip_fee': netAmount + commissionAmount,
           'commission_percentage': 5,
           'commission_amount': commissionAmount,
@@ -5291,9 +5335,16 @@ class BookingService {
       }
 
       try {
-        await supabase.from('booking_payouts').upsert({
+        final existingPayout = await supabase
+            .from('booking_payouts')
+            .select('id')
+            .eq('booking_id', bookingId)
+            .eq('recipient_role', 'driver')
+            .maybeSingle();
+
+        final payoutData = {
           'booking_id': bookingId,
-          'recipient_user_id': driverUserId,
+          'recipient_user_id': resolvedDriverUserId,
           'recipient_role': 'driver',
           'gross_amount': netAmount + commissionAmount,
           'deductions': commissionAmount,
@@ -5307,14 +5358,24 @@ class BookingService {
             'receipt_url': receiptUrl,
           },
           'updated_at': now,
-        }, onConflict: 'booking_id,recipient_user_id,recipient_role');
+        };
+
+        if (existingPayout != null) {
+          await supabase
+              .from('booking_payouts')
+              .update(payoutData)
+              .eq('id', existingPayout['id']);
+        } else {
+          payoutData['created_at'] = now;
+          await supabase.from('booking_payouts').insert(payoutData);
+        }
       } catch (e) {
-        debugPrint('Could not upsert driver booking_payouts: $e');
+        debugPrint('Could not record driver booking_payouts: $e');
       }
 
       try {
         await NotificationService().createNotification(
-          userId: driverUserId,
+          userId: resolvedDriverUserId,
           title: 'Driver Earnings Disbursed',
           message:
               'Your driver earnings of PHP ${netAmount.toStringAsFixed(2)} for booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()} have been disbursed via $paymentMethod (Ref: $referenceNumber).',

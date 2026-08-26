@@ -16058,12 +16058,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final bookingId = booking['id']?.toString() ?? '';
     final driverData = booking['driver'] as Map<String, dynamic>? ?? {};
     final driverUserData = (driverData['users'] ?? driverData['user']) as Map<String, dynamic>? ?? {};
+    final driverUserJoined = (booking['driver_user'] ?? booking['driver_profile']) as Map<String, dynamic>? ?? {};
 
-    final driverUserId = (booking['driver_id'] ?? driverData['user_id'] ?? driverUserData['id'])?.toString();
+    final driverUserId = (driverData['user_id'] ??
+            driverUserData['id'] ??
+            driverUserJoined['id'] ??
+            booking['driver_id'])
+        ?.toString();
     final driverName = driverUserData['full_name']?.toString() ??
+        driverUserJoined['full_name']?.toString() ??
         driverData['full_name']?.toString() ??
+        booking['driver_name']?.toString() ??
         'Assigned Driver';
     final driverPhone = driverUserData['phone']?.toString() ??
+        driverUserJoined['phone']?.toString() ??
         driverData['phone']?.toString() ??
         '';
 
