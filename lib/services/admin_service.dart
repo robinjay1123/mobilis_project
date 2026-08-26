@@ -1191,6 +1191,26 @@ class AdminService {
               operator_id,
               renter_id,
               vehicle_id,
+              is_partner_booking,
+              partner_id,
+              security_deposit_refunded,
+              security_deposit_refund_amount,
+              security_deposit_refund_method,
+              security_deposit_refund_ref,
+              security_deposit_refunded_at,
+              security_deposit_refunded_by,
+              partner_payout_disbursed,
+              partner_payout_amount,
+              partner_payout_method,
+              partner_payout_ref,
+              partner_payout_disbursed_at,
+              partner_payout_disbursed_by,
+              driver_payout_disbursed,
+              driver_payout_amount,
+              driver_payout_method,
+              driver_payout_ref,
+              driver_payout_disbursed_at,
+              driver_payout_disbursed_by,
               extension_status,
               extension_requested_at,
               extension_requested_end_at,
@@ -1216,6 +1236,9 @@ class AdminService {
           final shortId = bookingId.length > 8
               ? '#${bookingId.substring(0, 8).toUpperCase()}'
               : '#$bookingId';
+
+          final isPartnerBooking = booking['is_partner_booking'] == true ||
+              (booking['partner_id']?.toString().isNotEmpty == true);
 
           final renterMap = booking['renter'] is Map<String, dynamic>
               ? Map<String, dynamic>.from(booking['renter'])
@@ -1244,7 +1267,7 @@ class AdminService {
               : <String, dynamic>{};
           final operatorName = operatorMap['full_name']?.toString().trim().isNotEmpty == true
               ? operatorMap['full_name'].toString().trim()
-              : 'Operator Desk';
+              : (isPartnerBooking ? 'Partner Owner' : 'Operator Desk');
 
           final createdAt = booking['created_at']?.toString();
           final status = (booking['status'] ?? '').toString().toLowerCase();
@@ -1276,17 +1299,19 @@ class AdminService {
             final key = 'approve-$bookingId';
             if (!seenKeys.contains(key)) {
               seenKeys.add(key);
+              final approverRole = isPartnerBooking ? 'partner' : 'operator';
+              final approverTitle = isPartnerBooking ? 'Partner Host' : operatorName;
               logs.add({
                 'id': key,
                 'timestamp': approvedAt,
                 'category': 'BOOKING APPROVAL',
                 'action_type': 'booking_approved',
                 'entity_type': 'booking',
-                'actor_name': operatorName,
-                'actor_role': 'operator',
-                'notes': '$operatorName approved reservation $shortId for Renter $renterName ($vehicleDisplay)',
+                'actor_name': approverTitle,
+                'actor_role': approverRole,
+                'notes': '$approverTitle approved reservation $shortId for Renter $renterName ($vehicleDisplay)',
                 'booking_id': bookingId,
-                'metadata': {'operator_name': operatorName, 'renter_name': renterName, 'vehicle': vehicleDisplay},
+                'metadata': {'approver': approverTitle, 'role': approverRole, 'renter_name': renterName, 'vehicle': vehicleDisplay},
               });
             }
           }
@@ -1313,7 +1338,28 @@ class AdminService {
             }
           }
 
-          // Log D: Trip Extension Requests
+          // Log D: Trip Pickup / Key Release
+          final pickedUpAt = booking['picked_up_at']?.toString();
+          if (pickedUpAt != null && pickedUpAt.isNotEmpty) {
+            final key = 'pickup-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': pickedUpAt,
+                'category': 'TRIP PICKUP',
+                'action_type': 'trip_started',
+                'entity_type': 'booking',
+                'actor_name': renterName,
+                'actor_role': 'renter',
+                'notes': 'Keys released and trip started for $shortId ($vehicleDisplay)',
+                'booking_id': bookingId,
+                'metadata': {'renter_name': renterName, 'vehicle': vehicleDisplay},
+              });
+            }
+          }
+
+          // Log E: Trip Extension Requests
           final extRequestedAt = booking['extension_requested_at']?.toString();
           if (extRequestedAt != null && extRequestedAt.isNotEmpty) {
             final key = 'ext-req-$bookingId';
@@ -1371,7 +1417,7 @@ class AdminService {
                 'action_type': 'trip_extension_finalized',
                 'entity_type': 'booking_extension',
                 'actor_name': operatorName,
-                'actor_role': 'operator',
+                'actor_role': isPartnerBooking ? 'partner' : 'operator',
                 'notes': '$operatorName finalized and committed Trip Extension schedule for $shortId ($vehicleDisplay)',
                 'booking_id': bookingId,
                 'metadata': {'operator_name': operatorName, 'vehicle': vehicleDisplay},
@@ -1379,29 +1425,124 @@ class AdminService {
             }
           }
 
-          // Log E: Final Payment Confirmed
+          // Log F: Final Payment Confirmed
           final paymentStatus = booking['final_payment_status']?.toString().toLowerCase();
           final paymentConfirmedAt = booking['final_payment_confirmed_at']?.toString();
           if (paymentStatus == 'paid' && paymentConfirmedAt != null && paymentConfirmedAt.isNotEmpty) {
             final key = 'payment-$bookingId';
             if (!seenKeys.contains(key)) {
               seenKeys.add(key);
+              final verifierTitle = isPartnerBooking ? 'Partner Host' : operatorName;
+              final verifierRole = isPartnerBooking ? 'partner' : 'operator';
               logs.add({
                 'id': key,
                 'timestamp': paymentConfirmedAt,
                 'category': 'PAYMENT CONFIRMED',
                 'action_type': 'payment_confirmed',
                 'entity_type': 'booking',
-                'actor_name': operatorName,
-                'actor_role': 'operator',
-                'notes': '$operatorName confirmed full final payment for reservation $shortId (Renter: $renterName)',
+                'actor_name': verifierTitle,
+                'actor_role': verifierRole,
+                'notes': '$verifierTitle verified & confirmed final payment for reservation $shortId (Renter: $renterName)',
                 'booking_id': bookingId,
-                'metadata': {'operator_name': operatorName, 'renter_name': renterName},
+                'metadata': {'verifier': verifierTitle, 'role': verifierRole, 'renter_name': renterName},
               });
             }
           }
 
-          // Log F: Trip Completed
+          // Log G: Vehicle Return
+          final returnedAt = booking['returned_at']?.toString();
+          if (returnedAt != null && returnedAt.isNotEmpty) {
+            final key = 'return-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': returnedAt,
+                'category': 'TRIP RETURN',
+                'action_type': 'vehicle_returned',
+                'entity_type': 'booking',
+                'actor_name': renterName,
+                'actor_role': 'renter',
+                'notes': '$renterName returned vehicle $vehicleDisplay for reservation $shortId',
+                'booking_id': bookingId,
+                'metadata': {'renter_name': renterName, 'vehicle': vehicleDisplay},
+              });
+            }
+          }
+
+          // Log H: Security Deposit Refund
+          if (booking['security_deposit_refunded'] == true) {
+            final refundAt = booking['security_deposit_refunded_at']?.toString() ?? booking['updated_at']?.toString() ?? '';
+            final refundAmount = (booking['security_deposit_refund_amount'] as num?)?.toDouble() ?? 0.0;
+            final refundMethod = booking['security_deposit_refund_method']?.toString() ?? 'GCash';
+            final refundRef = booking['security_deposit_refund_ref']?.toString() ?? '';
+            final key = 'deposit-refund-$bookingId';
+            if (!seenKeys.contains(key) && refundAt.isNotEmpty) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': refundAt,
+                'category': 'REFUNDS & PAYOUTS',
+                'action_type': 'security_deposit_refunded',
+                'entity_type': 'deposit_refund',
+                'actor_name': operatorName,
+                'actor_role': 'operator',
+                'notes': '$operatorName refunded PHP ${refundAmount.toStringAsFixed(0)} deposit to $renterName via $refundMethod (Ref: $refundRef)',
+                'booking_id': bookingId,
+                'metadata': {'amount': refundAmount, 'method': refundMethod, 'reference': refundRef, 'renter': renterName},
+              });
+            }
+          }
+
+          // Log I: Partner Commission Disbursement
+          if (booking['partner_payout_disbursed'] == true) {
+            final payoutAt = booking['partner_payout_disbursed_at']?.toString() ?? booking['updated_at']?.toString() ?? '';
+            final payoutAmount = (booking['partner_payout_amount'] as num?)?.toDouble() ?? 0.0;
+            final payoutMethod = booking['partner_payout_method']?.toString() ?? 'GCash';
+            final payoutRef = booking['partner_payout_ref']?.toString() ?? '';
+            final key = 'partner-payout-$bookingId';
+            if (!seenKeys.contains(key) && payoutAt.isNotEmpty) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': payoutAt,
+                'category': 'REFUNDS & PAYOUTS',
+                'action_type': 'partner_payout_disbursed',
+                'entity_type': 'payout',
+                'actor_name': operatorName,
+                'actor_role': 'operator',
+                'notes': '$operatorName disbursed PHP ${payoutAmount.toStringAsFixed(2)} partner earnings via $payoutMethod (Ref: $payoutRef)',
+                'booking_id': bookingId,
+                'metadata': {'amount': payoutAmount, 'method': payoutMethod, 'reference': payoutRef},
+              });
+            }
+          }
+
+          // Log J: Driver Fee Disbursement
+          if (booking['driver_payout_disbursed'] == true) {
+            final payoutAt = booking['driver_payout_disbursed_at']?.toString() ?? booking['updated_at']?.toString() ?? '';
+            final payoutAmount = (booking['driver_payout_amount'] as num?)?.toDouble() ?? 0.0;
+            final payoutMethod = booking['driver_payout_method']?.toString() ?? 'GCash';
+            final payoutRef = booking['driver_payout_ref']?.toString() ?? '';
+            final key = 'driver-payout-$bookingId';
+            if (!seenKeys.contains(key) && payoutAt.isNotEmpty) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': payoutAt,
+                'category': 'REFUNDS & PAYOUTS',
+                'action_type': 'driver_payout_disbursed',
+                'entity_type': 'payout',
+                'actor_name': operatorName,
+                'actor_role': 'operator',
+                'notes': '$operatorName disbursed PHP ${payoutAmount.toStringAsFixed(2)} driver trip fee to $driverName via $payoutMethod (Ref: $payoutRef)',
+                'booking_id': bookingId,
+                'metadata': {'amount': payoutAmount, 'method': payoutMethod, 'reference': payoutRef, 'driver': driverName},
+              });
+            }
+          }
+
+          // Log K: Trip Completed
           final completedAt = booking['completed_at']?.toString();
           if (status == 'completed' && completedAt != null && completedAt.isNotEmpty) {
             final key = 'complete-$bookingId';
@@ -1414,7 +1555,7 @@ class AdminService {
                 'action_type': 'booking_completed',
                 'entity_type': 'booking',
                 'actor_name': operatorName,
-                'actor_role': 'operator',
+                'actor_role': isPartnerBooking ? 'partner' : 'operator',
                 'notes': 'Reservation $shortId for Renter $renterName ($vehicleDisplay) is fully completed',
                 'booking_id': bookingId,
                 'metadata': {'renter_name': renterName, 'vehicle': vehicleDisplay},
@@ -1426,7 +1567,63 @@ class AdminService {
         debugPrint('Warning synthesizing booking action logs: $e');
       }
 
-      // 3. Fetch Vehicle Return Inspections
+      // 3. Fetch Partner Price Change Requests
+      try {
+        final priceReqRows = await supabase
+            .from('partner_price_change_requests')
+            .select('id, partner_id, partner_vehicle_id, requested_price_per_day, requested_price_per_hour, status, approved, declined, created_at, updated_at, partner:partners!partner_id(business_name, full_name, user_id)')
+            .order('created_at', ascending: false)
+            .limit(50);
+
+        for (final row in List<Map<String, dynamic>>.from(priceReqRows)) {
+          final id = row['id']?.toString() ?? '';
+          final key = 'price-req-$id';
+          if (seenKeys.contains(key)) continue;
+          seenKeys.add(key);
+
+          final partnerMap = row['partner'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(row['partner'])
+              : <String, dynamic>{};
+          final partnerName = partnerMap['business_name']?.toString() ?? partnerMap['full_name']?.toString() ?? 'Partner';
+          final daily = (row['requested_price_per_day'] as num?)?.toDouble() ?? 0.0;
+          final status = (row['status'] ?? 'pending').toString();
+          final isApproved = row['approved'] == true || status == 'approved';
+          final isDeclined = row['declined'] == true || status == 'declined' || status == 'rejected';
+
+          String actionStatus = 'submitted';
+          String actorName = partnerName;
+          String actorRole = 'partner';
+          if (isApproved) {
+            actionStatus = 'approved';
+            actorName = 'Operator / Admin';
+            actorRole = 'admin';
+          } else if (isDeclined) {
+            actionStatus = 'declined';
+            actorName = 'Operator / Admin';
+            actorRole = 'admin';
+          }
+
+          logs.add({
+            'id': key,
+            'timestamp': row['updated_at']?.toString() ?? row['created_at']?.toString() ?? '',
+            'category': 'PRICING & VEHICLES',
+            'action_type': 'partner_price_request_$actionStatus',
+            'entity_type': 'price_request',
+            'actor_name': actorName,
+            'actor_role': actorRole,
+            'notes': isApproved
+                ? '$actorName approved price change for Partner $partnerName (PHP ${daily.toStringAsFixed(0)}/day)'
+                : isDeclined
+                    ? '$actorName declined price change for Partner $partnerName'
+                    : '$partnerName requested rental rate adjustment to PHP ${daily.toStringAsFixed(0)}/day',
+            'metadata': {'partner_name': partnerName, 'rate_day': daily, 'status': status},
+          });
+        }
+      } catch (e) {
+        debugPrint('Warning fetching partner price request logs: $e');
+      }
+
+      // 4. Fetch Vehicle Return Inspections
       try {
         final inspectionRows = await supabase
             .from('booking_vehicle_inspections')
@@ -1469,7 +1666,7 @@ class AdminService {
         debugPrint('Warning fetching inspection action logs: $e');
       }
 
-      // 4. Sort all combined logs by timestamp descending
+      // 5. Sort all combined logs by timestamp descending
       logs.sort((a, b) {
         final aTime = DateTime.tryParse(a['timestamp']?.toString() ?? '') ?? DateTime(1970);
         final bTime = DateTime.tryParse(b['timestamp']?.toString() ?? '') ?? DateTime(1970);

@@ -2867,6 +2867,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (bookingId.isEmpty) {
         throw Exception('Invalid booking id');
       }
+      if (_isPartnerOwnedBooking(booking)) {
+        throw Exception('Partner bookings are managed and approved solely by the Partner.');
+      }
 
       final operatorId = _supabase.auth.currentUser?.id;
       if (operatorId == null || operatorId.isEmpty) {
@@ -3014,6 +3017,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   /// ❌ Reject booking with reason
   Future<void> _rejectBooking(String bookingId, String reason) async {
     try {
+      Map<String, dynamic>? targetBooking;
+      for (final b in _recentBookings) {
+        if (b['id']?.toString() == bookingId) {
+          targetBooking = b;
+          break;
+        }
+      }
+      if (targetBooking != null && _isPartnerOwnedBooking(targetBooking)) {
+        throw Exception('Partner bookings are managed solely by the Partner and cannot be rejected by the operator.');
+      }
+
       final bookingService = BookingService();
       await bookingService.rejectBooking(bookingId, reason);
 
@@ -11129,7 +11143,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
     ];
 
-    if (group == BookingStatusGroup.pending) {
+    if (group == BookingStatusGroup.pending && !_isPartnerOwnedBooking(booking)) {
       buttons.add(
         _buildOperatorBookingActionButton(
           onPressed: waitingForDriver
@@ -25631,31 +25645,78 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         builder: (context, constraints) {
                           final compact = constraints.maxWidth < 850;
                           final imgPanel = imagePanel();
-                          final formPanel = Form(
-                            key: formKey,
-                            child: _buildRegisterVehicleFields(
-                              isDark: isDark,
-                              category: category,
-                              vehicleType: vehicleType,
-                              fuelType: fuelType,
-                              transmission: transmission,
-                              status: status,
-                              onCategoryChanged: (value) => setDialogState(
-                                () => category = value ?? category,
+                          final formPanel = IgnorePointer(
+                            ignoring: isPartnerVehicle,
+                            child: Form(
+                              key: formKey,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (isPartnerVehicle) ...[
+                                    Container(
+                                      width: double.infinity,
+                                      margin: const EdgeInsets.only(bottom: 20),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 12,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.purple.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: Colors.purple.withValues(alpha: 0.4),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.handshake_outlined,
+                                            color: Colors.purpleAccent,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              'Partner Vehicle (View Only) — Owned and managed directly by the Partner. Operators cannot modify specifications, rates, or listings.',
+                                              style: TextStyle(
+                                                color: isDark
+                                                    ? Colors.purple[200]
+                                                    : Colors.purple[800],
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                  _buildRegisterVehicleFields(
+                                    isDark: isDark,
+                                    category: category,
+                                    vehicleType: vehicleType,
+                                    fuelType: fuelType,
+                                    transmission: transmission,
+                                    status: status,
+                                    onCategoryChanged: (value) => setDialogState(
+                                      () => category = value ?? category,
+                                    ),
+                                    onVehicleTypeChanged: (value) => setDialogState(
+                                      () => vehicleType = value ?? vehicleType,
+                                    ),
+                                    onFuelTypeChanged: (value) => setDialogState(
+                                      () => fuelType = value ?? fuelType,
+                                    ),
+                                    onTransmissionChanged: (value) => setDialogState(
+                                      () => transmission = value ?? transmission,
+                                    ),
+                                    onStatusChanged: (value) => setDialogState(
+                                      () => status = value ?? status,
+                                    ),
+                                    setDialogState: setDialogState,
+                                  ),
+                                ],
                               ),
-                              onVehicleTypeChanged: (value) => setDialogState(
-                                () => vehicleType = value ?? vehicleType,
-                              ),
-                              onFuelTypeChanged: (value) => setDialogState(
-                                () => fuelType = value ?? fuelType,
-                              ),
-                              onTransmissionChanged: (value) => setDialogState(
-                                () => transmission = value ?? transmission,
-                              ),
-                              onStatusChanged: (value) => setDialogState(
-                                () => status = value ?? status,
-                              ),
-                              setDialogState: setDialogState,
                             ),
                           );
                           return SingleChildScrollView(
@@ -26138,14 +26199,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     if (confirm == true) {
       try {
-        final partnerVehicle = _partnerVehicles.any(
+        final isPartner = _partnerVehicles.any(
           (vehicle) =>
               vehicle['id']?.toString() == vehicleId?.toString() ||
               vehicle['partner_vehicle_id']?.toString() ==
                   vehicleId?.toString(),
         );
+        if (isPartner) {
+          throw Exception('Operators cannot delete partner vehicles.');
+        }
         await _supabase
-            .from(partnerVehicle ? 'partner_vehicles' : 'vehicles')
+            .from('vehicles')
             .delete()
             .eq('id', vehicleId);
         _loadVehicles();
@@ -26176,6 +26240,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           vehicle['_source'] == 'partner' ||
           vehicle['source'] == 'partner' ||
           vehicle['is_partner_vehicle'] == true;
+      if (isPartnerVehicle) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Partner vehicle availability is managed directly by the Partner.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
       final vehicleId = vehicle['id']?.toString() ?? '';
       final partnerVehicleId = vehicle['partner_vehicle_id']?.toString() ??
           vehicle['_partner_vehicle_id']?.toString();
