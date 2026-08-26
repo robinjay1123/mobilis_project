@@ -18105,7 +18105,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       ),
     );
   }
-  }
 
   // ── Safety & Incident Reports ─────────────────────────────────────────────
 
