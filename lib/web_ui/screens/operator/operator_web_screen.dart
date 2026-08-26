@@ -1071,7 +1071,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       },
     );
     _trackingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 11),
       (_) {
         if (mounted && (_selectedIndex == 8 || _selectedIndex == 0)) {
           _refreshTrackingLocations();
