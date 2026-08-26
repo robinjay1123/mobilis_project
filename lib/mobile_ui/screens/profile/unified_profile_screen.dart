@@ -15,6 +15,7 @@ import 'emergency_contact_screen.dart';
 import 'legal_terms_privacy_screen.dart';
 import 'ratings_reviews_screen.dart';
 import 'settings_screen.dart';
+import 'payment_methods_screen.dart';
 
 class ProfileStatItem {
   final String label;
@@ -237,6 +238,17 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => EmergencyContactScreen(isDarkMode: widget.isDarkMode),
+      ),
+    );
+  }
+
+  void _openPaymentMethods() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PaymentMethodsScreen(
+          isDarkMode: widget.isDarkMode,
+          role: widget.role,
+        ),
       ),
     );
   }
@@ -522,6 +534,14 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                   title: 'Help Center',
                   subtitle: 'FAQs, support, reports, terms, and privacy',
                   onTap: _openHelpCenter,
+                ),
+                _settingsTile(
+                  icon: Icons.account_balance_wallet_outlined,
+                  title: _isRenter ? 'Refund & Payment Accounts' : 'Disbursement & Payout Accounts',
+                  subtitle: _isRenter
+                      ? 'Link GCash/Maya/Bank QR for security deposit refunds'
+                      : 'Link GCash/Maya/Bank QR for disbursements & earnings',
+                  onTap: _openPaymentMethods,
                 ),
                 _settingsTile(
                   icon: Icons.health_and_safety_outlined,

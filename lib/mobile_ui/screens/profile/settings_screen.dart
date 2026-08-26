@@ -26,6 +26,7 @@ import '../../widgets/leaflet_map.dart';
 import '../../widgets/location_picker_modal.dart';
 import 'legal_terms_privacy_screen.dart';
 import 'ratings_reviews_screen.dart';
+import 'payment_methods_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -602,6 +603,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await _loadAccount();
       widget.onProfileUpdated?.call();
     }
+  }
+
+  Future<void> _openPaymentMethods() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PaymentMethodsScreen(
+          isDarkMode: widget.isDarkMode,
+          role: _role,
+        ),
+      ),
+    );
   }
 
   void _openNotificationSettings() {
@@ -5653,13 +5665,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   : 'Email, password, and account protection',
                               onTap: _openAccountSecurity,
                             ),
-                            if (!widget.operatorMode)
+                            if (!widget.operatorMode) ...[
                               _SettingsMenuRow(
                                 icon: Icons.location_on_outlined,
                                 title: 'My Addresses',
                                 subtitle: _addressSubtitle,
                                 onTap: _openAddresses,
                               ),
+                              _SettingsMenuRow(
+                                icon: Icons.account_balance_wallet_outlined,
+                                title: _role == 'renter'
+                                    ? 'Refund & Payment Accounts'
+                                    : 'Disbursement & Payout Accounts',
+                                subtitle: _role == 'renter'
+                                    ? 'Linked GCash/Maya/Bank QR for security deposit refunds'
+                                    : 'Linked GCash/Maya/Bank QR for disbursements & earnings',
+                                onTap: _openPaymentMethods,
+                              ),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 24),

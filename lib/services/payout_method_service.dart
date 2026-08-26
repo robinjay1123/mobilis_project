@@ -213,20 +213,17 @@ class PayoutMethodService {
     final filename = 'payout_qr_${userId}_${DateTime.now().millisecondsSinceEpoch}.$extension';
     final path = 'payout_qrs/$userId/$filename';
 
-    try {
-      await _supabase.storage.from('partner_documents').uploadBinary(
-            path,
-            bytes,
-            fileOptions: FileOptions(
-              contentType: 'image/$extension',
-              upsert: true,
-            ),
-          );
-      return _supabase.storage.from('partner_documents').getPublicUrl(path);
-    } catch (_) {
-      // Fallback bucket
+    const buckets = [
+      'partner_documents',
+      'driver_documents',
+      'documents',
+      'avatars',
+      'vehicle_images',
+    ];
+
+    for (final bucket in buckets) {
       try {
-        await _supabase.storage.from('driver_documents').uploadBinary(
+        await _supabase.storage.from(bucket).uploadBinary(
               path,
               bytes,
               fileOptions: FileOptions(
@@ -234,12 +231,13 @@ class PayoutMethodService {
                 upsert: true,
               ),
             );
-        return _supabase.storage.from('driver_documents').getPublicUrl(path);
+        return _supabase.storage.from(bucket).getPublicUrl(path);
       } catch (e) {
-        debugPrint('⚠️ Storage upload error: $e');
-        rethrow;
+        debugPrint('ℹ️ Payout QR upload tried $bucket: $e');
       }
     }
+
+    throw Exception('Failed to upload QR code to cloud storage. Please check your internet connection or try again.');
   }
 
   Future<void> _persistMethods(String userId, List<PayoutMethod> methods) async {
