@@ -2215,12 +2215,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ) {
         final normalizedBooking = Map<String, dynamic>.from(booking);
         var vehicle = booking['vehicles'];
-        if (vehicle is! Map || (vehicle as Map).isEmpty) {
-          if (booking['partner_vehicles'] is Map &&
-              (booking['partner_vehicles'] as Map).isNotEmpty) {
-            vehicle = booking['partner_vehicles'];
-          }
+        final pv = booking['partner_vehicles'];
+
+        final brand = vehicle is Map ? vehicle['brand']?.toString().trim() ?? '' : '';
+        final model = vehicle is Map ? vehicle['model']?.toString().trim() ?? '' : '';
+        final vName = vehicle is Map ? vehicle['vehicle_name']?.toString().trim() ?? '' : '';
+        final isGenericPlaceholder = (brand.isEmpty && model.isEmpty) ||
+            vName.toLowerCase() == 'partner vehicle' ||
+            vName.toLowerCase() == 'unknown vehicle' ||
+            vName.toLowerCase() == 'vehicle';
+
+        if ((vehicle is! Map || (vehicle as Map).isEmpty || isGenericPlaceholder) &&
+            pv is Map &&
+            pv.isNotEmpty) {
+          vehicle = pv;
         }
+
         if (vehicle is Map) {
           final normalizedVehicle = Map<String, dynamic>.from(vehicle);
           normalizedVehicle['image_url'] = _primaryVehicleImageUrl(
@@ -3082,19 +3092,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return calendarDays < 1 ? 1 : calendarDays;
   }
 
-  String _vehicleTitle(Map<String, dynamic> vehicle) {
-    // 1. Direct brand / model in map
-    final brand = vehicle['brand']?.toString().trim() ?? '';
-    final model = vehicle['model']?.toString().trim() ?? '';
-    final year = vehicle['year']?.toString().trim() ?? '';
+  String _vehicleTitle(dynamic input) {
+    if (input == null) return 'Partner Vehicle';
+    final map = input is Map<String, dynamic>
+        ? input
+        : (input is Map ? Map<String, dynamic>.from(input) : <String, dynamic>{});
+    if (map.isEmpty) return 'Partner Vehicle';
+
+    // 1. Check direct brand / model in map
+    final brand = map['brand']?.toString().trim() ?? '';
+    final model = map['model']?.toString().trim() ?? '';
+    final year = map['year']?.toString().trim() ?? '';
     final combo = [brand, model].where((part) => part.isNotEmpty).join(' ');
     if (combo.isNotEmpty) {
       return year.isEmpty ? combo : '$combo ($year)';
     }
 
-    // 2. If map contains nested 'partner_vehicles' or 'vehicles'
-    if (vehicle['partner_vehicles'] is Map) {
-      final pv = Map<String, dynamic>.from(vehicle['partner_vehicles'] as Map);
+    // 2. If map contains nested 'partner_vehicles'
+    if (map['partner_vehicles'] is Map) {
+      final pv = Map<String, dynamic>.from(map['partner_vehicles'] as Map);
       final b = pv['brand']?.toString().trim() ?? '';
       final m = pv['model']?.toString().trim() ?? '';
       final y = pv['year']?.toString().trim() ?? '';
@@ -3103,12 +3119,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final vName = pv['vehicle_name']?.toString().trim() ?? '';
       if (vName.isNotEmpty &&
           vName.toLowerCase() != 'partner vehicle' &&
-          vName.toLowerCase() != 'unknown vehicle') {
+          vName.toLowerCase() != 'unknown vehicle' &&
+          vName.toLowerCase() != 'vehicle') {
         return vName;
       }
     }
-    if (vehicle['vehicles'] is Map) {
-      final v = Map<String, dynamic>.from(vehicle['vehicles'] as Map);
+
+    // 3. If map contains nested 'vehicles'
+    if (map['vehicles'] is Map) {
+      final v = Map<String, dynamic>.from(map['vehicles'] as Map);
       final b = v['brand']?.toString().trim() ?? '';
       final m = v['model']?.toString().trim() ?? '';
       final y = v['year']?.toString().trim() ?? '';
@@ -3117,29 +3136,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final vName = v['vehicle_name']?.toString().trim() ?? '';
       if (vName.isNotEmpty &&
           vName.toLowerCase() != 'partner vehicle' &&
-          vName.toLowerCase() != 'unknown vehicle') {
+          vName.toLowerCase() != 'unknown vehicle' &&
+          vName.toLowerCase() != 'vehicle') {
         return vName;
       }
     }
 
-    // 3. Check vehicle_name if not generic
-    final vehicleName = vehicle['vehicle_name']?.toString().trim() ?? '';
+    // 4. Check vehicle_name if not generic placeholder
+    final vehicleName = map['vehicle_name']?.toString().trim() ?? '';
     if (vehicleName.isNotEmpty &&
         vehicleName.toLowerCase() != 'partner vehicle' &&
-        vehicleName.toLowerCase() != 'unknown vehicle') {
+        vehicleName.toLowerCase() != 'unknown vehicle' &&
+        vehicleName.toLowerCase() != 'vehicle') {
       return vehicleName;
     }
 
-    // 4. Candidate IDs to check in _partnerVehicles & _vehicles
+    // 5. Candidate IDs to check in _partnerVehicles & _vehicles pool
     final candidateIds = <String>{
-      if (vehicle['id'] != null) vehicle['id'].toString(),
-      if (vehicle['partner_vehicle_id'] != null) vehicle['partner_vehicle_id'].toString(),
-      if (vehicle['vehicle_id'] != null) vehicle['vehicle_id'].toString(),
-      if (vehicle['_partner_vehicle_id'] != null) vehicle['_partner_vehicle_id'].toString(),
-      if (vehicle['partner_vehicles'] is Map && (vehicle['partner_vehicles'] as Map)['id'] != null)
-        (vehicle['partner_vehicles'] as Map)['id'].toString(),
-      if (vehicle['vehicles'] is Map && (vehicle['vehicles'] as Map)['id'] != null)
-        (vehicle['vehicles'] as Map)['id'].toString(),
+      if (map['id'] != null) map['id'].toString(),
+      if (map['partner_vehicle_id'] != null) map['partner_vehicle_id'].toString(),
+      if (map['vehicle_id'] != null) map['vehicle_id'].toString(),
+      if (map['_partner_vehicle_id'] != null) map['_partner_vehicle_id'].toString(),
+      if (map['partner_vehicles'] is Map && (map['partner_vehicles'] as Map)['id'] != null)
+        (map['partner_vehicles'] as Map)['id'].toString(),
+      if (map['vehicles'] is Map && (map['vehicles'] as Map)['id'] != null)
+        (map['vehicles'] as Map)['id'].toString(),
     }.where((id) => id.isNotEmpty).toSet();
 
     final pool = [..._partnerVehicles, ..._vehicles];
@@ -3160,17 +3181,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           final vName = v['vehicle_name']?.toString().trim() ?? '';
           if (vName.isNotEmpty &&
               vName.toLowerCase() != 'partner vehicle' &&
-              vName.toLowerCase() != 'unknown vehicle') {
+              vName.toLowerCase() != 'unknown vehicle' &&
+              vName.toLowerCase() != 'vehicle') {
             return vName;
           }
         }
       }
     }
 
-    // 5. Match by plate number in pool if ID didn't match
-    final plate = (vehicle['plate_number'] ??
-            (vehicle['vehicles'] is Map ? (vehicle['vehicles'] as Map)['plate_number'] : null) ??
-            (vehicle['partner_vehicles'] is Map ? (vehicle['partner_vehicles'] as Map)['plate_number'] : null))
+    // 6. Match by plate number in pool if ID didn't match
+    final plate = (map['plate_number'] ??
+            (map['vehicles'] is Map ? (map['vehicles'] as Map)['plate_number'] : null) ??
+            (map['partner_vehicles'] is Map ? (map['partner_vehicles'] as Map)['plate_number'] : null))
         ?.toString()
         .trim() ??
         '';
@@ -10702,7 +10724,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
-                    _vehicleTitle(vehicle),
+                    _vehicleTitle(
+                      vehicle.isNotEmpty && vehicle['brand'] != null
+                          ? vehicle
+                          : booking,
+                    ),
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
