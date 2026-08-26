@@ -54,14 +54,43 @@ void main() {
       expect(bookingService.getBookingRemainingBalance(booking), 5000.0);
     });
 
-    test('getBookingRemainingBalance falls back to reservation_fee if paid_amount is missing', () {
+    test('isBookingFullyPaid returns true when reservation_payment_covers_total is true', () {
       final booking = {
-        'id': 'booking-5',
-        'total_price': 8000.0,
-        'reservation_fee': 2000.0,
+        'id': 'booking-6',
+        'status': 'approved',
+        'reservation_payment_covers_total': true,
+        'total_price': 14400.0,
       };
 
-      expect(bookingService.getBookingRemainingBalance(booking), 6000.0);
+      expect(bookingService.isBookingFullyPaid(booking), isTrue);
+      expect(bookingService.getBookingRemainingBalance(booking), 0.0);
+    });
+
+    test('isBookingFullyPaid returns true when reservation_payment_type is full_payment', () {
+      final booking = {
+        'id': 'booking-7',
+        'status': 'approved',
+        'reservation_payment_type': 'full_payment',
+        'total_price': 14400.0,
+      };
+
+      expect(bookingService.isBookingFullyPaid(booking), isTrue);
+      expect(bookingService.getBookingRemainingBalance(booking), 0.0);
+    });
+
+    test('isBookingFullyPaid returns false when reservation fee only and reservation_payment_type is reservation_only', () {
+      final booking = {
+        'id': 'booking-8',
+        'status': 'approved',
+        'reservation_payment_type': 'reservation_only',
+        'reservation_payment_covers_total': false,
+        'reservation_fee_amount': 1000.0,
+        'total_price': 14400.0,
+      };
+
+      expect(bookingService.isBookingFullyPaid(booking), isFalse);
+      expect(bookingService.getBookingRemainingBalance(booking), 13400.0);
     });
   });
 }
+

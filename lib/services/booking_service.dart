@@ -1446,12 +1446,30 @@ class BookingService {
         .toLowerCase();
     if (paymentStatus == 'paid' ||
         paymentStatus == 'full_paid' ||
-        paymentStatus == 'fully_paid') {
+        paymentStatus == 'fully_paid' ||
+        paymentStatus == 'paid_in_full') {
       return true;
+    }
+
+    if (booking['reservation_payment_covers_total'] == true ||
+        booking['reservationPaymentCoversTotal'] == true ||
+        booking['reservation_payment_type']?.toString().toLowerCase() == 'full_payment' ||
+        booking['reservationPaymentType']?.toString().toLowerCase() == 'full_payment' ||
+        booking['is_full_payment'] == true) {
+      final resStatus = (booking['reservation_payment_status'] ??
+              booking['reservationPaymentStatus'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      if (resStatus != 'rejected' && resStatus != 'failed') {
+        return true;
+      }
     }
 
     final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
         (booking['totalCost'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
         0.0;
     final paidAmount = (booking['paid_amount'] as num?)?.toDouble() ?? 0.0;
     if (totalPrice > 0 && paidAmount >= totalPrice) return true;
@@ -1464,8 +1482,11 @@ class BookingService {
     if (isBookingFullyPaid(booking)) return 0.0;
     final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
         (booking['totalCost'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
         0.0;
     final paidAmount = (booking['paid_amount'] as num?)?.toDouble() ??
+        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+        (booking['reservationFeeAmount'] as num?)?.toDouble() ??
         (booking['reservation_fee'] as num?)?.toDouble() ??
         0.0;
     final balance = totalPrice - paidAmount;
@@ -1487,23 +1508,17 @@ class BookingService {
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
 
-    final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
-        (booking['totalCost'] as num?)?.toDouble() ??
-        0.0;
-
     await supabase.from('bookings').update({
-      'payment_status': 'paid',
+      'reservation_payment_covers_total': true,
+      'reservation_payment_type': 'full_payment',
+      'reservation_payment_status': 'verified',
       'final_payment_status': 'paid',
-      'paid_amount': totalPrice,
-      'release_payment_method': paymentMethod,
-      'release_payment_reference': paymentReference ?? 'DESK-SETTLED',
+      'final_payment_method': paymentMethod,
+      'final_payment_reference': paymentReference ?? 'DESK-SETTLED',
       if (proofUrl != null && proofUrl.isNotEmpty)
-        'release_payment_proof_url': proofUrl,
-      if (operatorName != null && operatorName.isNotEmpty)
-        'desk_payment_operator_name': operatorName,
-      if (notes != null && notes.isNotEmpty) 'desk_payment_notes': notes,
-      'release_payment_settled_at': now,
-      'release_payment_settled_by': actorId,
+        'final_payment_proof_url': proofUrl,
+      'final_payment_confirmed_at': now,
+      'final_payment_confirmed_by': actorId,
       'updated_at': now,
     }).eq('id', bookingId);
   }

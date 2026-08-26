@@ -2157,7 +2157,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 location,
                 latitude,
                 longitude,
-                image_url,
                 partners:partner_id (
                   id,
                   business_name,
@@ -17993,7 +17992,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       final bookingRows = await _supabase
           .from('bookings')
-          .select('id, status, operator_id, start_at, start_date, safety_freeze, vehicles!bookings_vehicle_id_fkey(owner_id)')
+          .select('id, status, operator_id, start_at, start_date, vehicles!bookings_vehicle_id_fkey(owner_id)')
           .inFilter('status', activeStatuses)
           .order('updated_at', ascending: false);
       final eligibleBookings = List<Map<String, dynamic>>.from(bookingRows)
@@ -18098,7 +18097,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 start_date,
                 end_date,
                 status,
-                safety_freeze,
                 cancellation_reason,
                 vehicles!bookings_vehicle_id_fkey (
                   brand,

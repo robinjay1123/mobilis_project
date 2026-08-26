@@ -452,17 +452,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final user = authService.currentUser;
       if (user == null) return;
 
-      final supabase = Supabase.instance.client;
-      final notifications = await supabase
-          .from('notifications')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false)
-          .limit(50);
-
-      final systemNotifications = List<Map<String, dynamic>>.from(
-        notifications,
-      ).where((item) => !isMessageNotification(item)).toList();
+      final systemNotifications =
+          await NotificationService().getNotifications(user.id);
 
       if (mounted) {
         setState(() {
@@ -2350,9 +2341,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final driverName = driverUser?['full_name']?.toString().trim();
       final driverPhone = driverUser?['phone']?.toString().trim() ?? '';
       final driverEmail = driverUser?['email']?.toString().trim() ?? '';
-      final paymentStatus =
-          booking['payment_status']?.toString().trim().isNotEmpty == true
-          ? booking['payment_status'].toString().trim()
+      final isFullyPaidBooking =
+          booking['reservation_payment_covers_total'] == true ||
+          booking['reservation_payment_type'] == 'full_payment' ||
+          booking['final_payment_status'] == 'paid' ||
+          BookingService().isBookingFullyPaid(booking);
+      final paymentStatus = isFullyPaidBooking
+          ? 'Paid in full'
           : booking['reservation_payment_status']
                     ?.toString()
                     .trim()
@@ -2425,6 +2420,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ? (withDriver ? 'To be assigned' : 'Not requested')
             : toProfessionalTitleCase(driverName),
         'paymentStatus': paymentStatus,
+        'final_payment_status': booking['final_payment_status']?.toString().trim(),
         'reservationPaymentType': booking['reservation_payment_type']
             ?.toString()
             .trim(),
@@ -5185,11 +5181,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     booking['returnedAt'] != null;
                 final isRated = _isRenterBookingFullyRated(booking);
 
-                final isPaidInFull = booking['reservationPaymentCoversTotal'] == true ||
+                final isPaidInFull = BookingService().isBookingFullyPaid(booking) ||
+                    booking['reservationPaymentCoversTotal'] == true ||
+                    booking['reservation_payment_covers_total'] == true ||
                     booking['reservationPaymentType'] == 'full_payment' ||
-                    booking['payment_status'] == 'paid_in_full' ||
-                    booking['is_full_payment'] == true ||
-                    booking['pre_trip_settlement_paid'] == true;
+                    booking['reservation_payment_type'] == 'full_payment' ||
+                    booking['final_payment_status'] == 'paid' ||
+                    booking['is_full_payment'] == true;
                 final isApprovedOrReady = booking['statusGroup'] == 'Approved' ||
                     rawStatus == 'approved' ||
                     rawStatus == 'confirmed' ||
@@ -6079,11 +6077,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    final isPaidInFull = booking['reservationPaymentCoversTotal'] == true ||
+    final isPaidInFull = BookingService().isBookingFullyPaid(booking) ||
+        booking['reservationPaymentCoversTotal'] == true ||
+        booking['reservation_payment_covers_total'] == true ||
         booking['reservationPaymentType'] == 'full_payment' ||
-        booking['payment_status'] == 'paid_in_full' ||
-        booking['is_full_payment'] == true ||
-        booking['pre_trip_settlement_paid'] == true;
+        booking['reservation_payment_type'] == 'full_payment' ||
+        booking['final_payment_status'] == 'paid' ||
+        booking['is_full_payment'] == true;
     final isApprovedOrReady = booking['statusGroup'] == 'Approved' ||
         rawStatus == 'approved' ||
         rawStatus == 'confirmed' ||
@@ -7981,23 +7981,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (proof == null) return;
 
     try {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final isDeskPayment = proof.method == 'psdc_desk_counter';
+
       await Supabase.instance.client.from('bookings').update({
         'reservation_payment_covers_total': true,
         'reservation_payment_type': 'full_payment',
-        'payment_status': 'paid_in_full',
-        'pre_trip_settlement_paid': true,
-        'pre_trip_settlement_amount': proof.amount,
-        'pre_trip_settlement_method': proof.method,
-        'pre_trip_settlement_reference': proof.referenceNumber,
-        'pre_trip_settlement_proof_url': proof.proofUrl,
-        'updated_at': DateTime.now().toIso8601String(),
+        'reservation_payment_status': isDeskPayment ? 'verified' : 'pending_review',
+        'reservation_payment_method': proof.method,
+        'reservation_payment_reference': proof.referenceNumber,
+        if (proof.proofUrl.isNotEmpty)
+          'reservation_payment_proof_url': proof.proofUrl,
+        if (proof.senderPhone != null && proof.senderPhone!.isNotEmpty)
+          'reservation_payment_sender_phone': proof.senderPhone,
+        'reservation_payment_submitted_at': now,
+        'final_payment_status': isDeskPayment ? 'paid' : 'submitted',
+        'final_payment_method': proof.method,
+        'final_payment_reference': proof.referenceNumber,
+        if (proof.proofUrl.isNotEmpty)
+          'final_payment_proof_url': proof.proofUrl,
+        if (isDeskPayment) ...{
+          'final_payment_confirmed_at': now,
+          if (proof.operatorId != null && proof.operatorId!.isNotEmpty)
+            'final_payment_confirmed_by': proof.operatorId,
+        },
+        'updated_at': now,
       }).eq('id', bookingId);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Remaining balance payment submitted! You are ready for vehicle release.',
+            isDeskPayment
+                ? 'Remaining balance payment verified at PSDC Desk! Vehicle is ready for release.'
+                : 'Remaining balance payment submitted! You are ready for vehicle release.',
           ),
           backgroundColor: AppColors.success,
         ),
@@ -8062,7 +8079,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         booking['reservationPaymentCoversTotal'] == true ||
         booking['reservation_payment_covers_total'] == true ||
         booking['reservationPaymentType'] == 'full_payment' ||
-        booking['payment_status'] == 'paid_in_full';
+        booking['reservation_payment_type'] == 'full_payment' ||
+        booking['final_payment_status'] == 'paid' ||
+        BookingService().isBookingFullyPaid(booking);
     final reservationFee =
         (booking['reservationFeeAmount'] as num?)?.toDouble() ??
         (booking['reservation_fee_amount'] as num?)?.toDouble() ??
@@ -10477,7 +10496,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             children: [
               _buildVehicleSummary(status),
               const SizedBox(height: 14),
-              if (isPaidInFull && !isApprovedTrip && !isCompletedTrip) ...[
+              if (isPaidInFull && !isCompletedTrip) ...[
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),

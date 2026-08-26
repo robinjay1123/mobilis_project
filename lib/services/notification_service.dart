@@ -12,7 +12,59 @@ class NotificationService {
 
   NotificationService._internal();
 
-  final supabase = Supabase.instance.client;
+  SupabaseClient get supabase => Supabase.instance.client;
+
+  /// Deduplicates notifications to prevent identical notifications from stacking in the UI.
+  List<Map<String, dynamic>> deduplicateNotifications(
+    List<Map<String, dynamic>> items,
+  ) {
+    final seenIds = <String>{};
+    final seenSignatures = <String, DateTime>{};
+    final result = <Map<String, dynamic>>[];
+
+    for (final item in items) {
+      if (isMessageNotification(item)) continue;
+
+      final id = item['id']?.toString().trim() ?? '';
+      if (id.isNotEmpty && !seenIds.add(id)) {
+        continue;
+      }
+
+      final title = (item['title'] ?? '').toString().trim().toLowerCase();
+      final message = (item['message'] ?? '').toString().trim().toLowerCase();
+      final type = (item['type'] ?? '').toString().trim().toLowerCase();
+      final createdAtStr = item['created_at']?.toString();
+      final createdAt = createdAtStr != null
+          ? DateTime.tryParse(createdAtStr)
+          : null;
+
+      final data = item['data'] is Map ? item['data'] as Map : null;
+      final bookingId = data?['booking_id']?.toString().trim() ?? '';
+      final vehicleId = data?['vehicle_id']?.toString().trim() ?? '';
+      final event = data?['event']?.toString().trim() ?? '';
+
+      final sig = '${type}_${bookingId}_${vehicleId}_${event}_${title}_$message';
+
+      if (createdAt != null && seenSignatures.containsKey(sig)) {
+        final lastSeenTime = seenSignatures[sig]!;
+        if (lastSeenTime.difference(createdAt).abs().inMinutes <= 30) {
+          continue;
+        }
+      } else if (seenSignatures.containsKey(sig)) {
+        continue;
+      }
+
+      if (createdAt != null) {
+        seenSignatures[sig] = createdAt;
+      } else {
+        seenSignatures[sig] = DateTime.now();
+      }
+
+      result.add(item);
+    }
+
+    return result;
+  }
 
   // Get all notifications for a user
   Future<List<Map<String, dynamic>>> getNotifications(String userId) async {
@@ -25,10 +77,10 @@ class NotificationService {
           .eq('user_id', userId)
           .order('created_at', ascending: false);
 
-      final notifications = List<Map<String, dynamic>>.from(
-        response,
-      ).where((item) => !isMessageNotification(item)).toList();
-      debugPrint('Fetched ${notifications.length} system notifications');
+      final notifications = deduplicateNotifications(
+        List<Map<String, dynamic>>.from(response),
+      );
+      debugPrint('Fetched ${notifications.length} system notifications (deduplicated)');
       return notifications;
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching notifications: ${e.message}');
@@ -53,10 +105,10 @@ class NotificationService {
           .eq('is_read', false)
           .order('created_at', ascending: false);
 
-      final notifications = List<Map<String, dynamic>>.from(
-        response,
-      ).where((item) => !isMessageNotification(item)).toList();
-      debugPrint('Fetched ${notifications.length} unread system notifications');
+      final notifications = deduplicateNotifications(
+        List<Map<String, dynamic>>.from(response),
+      );
+      debugPrint('Fetched ${notifications.length} unread system notifications (deduplicated)');
       return notifications;
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching unread notifications: ${e.message}');
@@ -74,13 +126,13 @@ class NotificationService {
 
       final response = await supabase
           .from('notifications')
-          .select('id, type, title, data')
+          .select('id, user_id, type, title, message, data, created_at')
           .eq('user_id', userId)
           .eq('is_read', false);
 
-      final count = List<Map<String, dynamic>>.from(
-        response,
-      ).where((item) => !isMessageNotification(item)).length;
+      final count = deduplicateNotifications(
+        List<Map<String, dynamic>>.from(response),
+      ).length;
       debugPrint('Unread count: $count');
       return count;
     } on PostgrestException catch (e) {
@@ -143,6 +195,30 @@ class NotificationService {
   }) async {
     try {
       debugPrint('Creating notification for user: $userId');
+
+      // Check if identical notification was created within last 2 minutes
+      try {
+        final recentRows = await supabase
+            .from('notifications')
+            .select()
+            .eq('user_id', userId)
+            .eq('title', title)
+            .eq('message', message)
+            .order('created_at', ascending: false)
+            .limit(1);
+
+        if (recentRows.isNotEmpty) {
+          final first = Map<String, dynamic>.from(recentRows.first);
+          final createdAt = DateTime.tryParse(first['created_at']?.toString() ?? '');
+          if (createdAt != null &&
+              DateTime.now().difference(createdAt).inMinutes.abs() < 2) {
+            debugPrint('Duplicate notification suppressed for user: $userId, title: $title');
+            return first;
+          }
+        }
+      } catch (checkErr) {
+        debugPrint('Notification deduplication check error: $checkErr');
+      }
 
       final response = await supabase
           .from('notifications')
