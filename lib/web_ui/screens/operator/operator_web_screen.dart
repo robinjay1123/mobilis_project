@@ -21063,44 +21063,46 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ],
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: () => _showOperatorTurnaroundBufferDialog(isDark),
-                icon: Icon(
-                  Icons.cleaning_services_rounded,
-                  size: 16,
-                  color: _operatorGold,
-                ),
-                label: const Text('Turnaround Buffer'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: isDark ? Colors.white : _operatorInk,
-                  side: BorderSide(
-                    color: isDark
-                        ? _operatorGold.withOpacity(0.4)
-                        : _operatorNavy.withOpacity(0.3),
+              if (_vehicleView != 'partner') ...[
+                OutlinedButton.icon(
+                  onPressed: () => _showOperatorTurnaroundBufferDialog(isDark),
+                  icon: Icon(
+                    Icons.cleaning_services_rounded,
+                    size: 16,
+                    color: _operatorGold,
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              ElevatedButton.icon(
-                onPressed: () => _showAddVehicleDialog(isDark),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _operatorNavy,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 16,
+                  label: const Text('Turnaround Buffer'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: isDark ? Colors.white : _operatorInk,
+                    side: BorderSide(
+                      color: isDark
+                          ? _operatorGold.withValues(alpha: 0.4)
+                          : _operatorNavy.withValues(alpha: 0.3),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('Add New Vehicle'),
-              ),
+                const SizedBox(width: 10),
+                ElevatedButton.icon(
+                  onPressed: () => _showAddVehicleDialog(isDark),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _operatorNavy,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Add New Vehicle'),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 24),
@@ -22062,16 +22064,68 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  void _showOperatorVehicleDetailsDialog(
+  Future<void> _showOperatorVehicleDetailsDialog(
     Map<String, dynamic> vehicle,
     bool isDark,
-  ) {
-    final isPartner = vehicle['_source'] == 'partner';
+  ) async {
+    final isPartner = vehicle['_source'] == 'partner' ||
+        vehicle['is_partner_vehicle'] == true ||
+        vehicle['partner_vehicle_id'] != null;
     final owner = isPartner
         ? vehicle['partner_name']?.toString() ?? 'Mobilis Partner'
         : 'PSDC';
     final available = _operatorVehicleIsAvailable(vehicle);
     final posted = vehicle['is_posted'] == true;
+    final vehicleId = vehicle['id']?.toString() ?? '';
+    final partnerVehicleId = vehicle['partner_vehicle_id']?.toString() ??
+        vehicle['_partner_vehicle_id']?.toString();
+
+    // Query active GPS tracker & telemetry
+    Map<String, dynamic>? trackerInfo;
+    Map<String, dynamic>? latestLocation;
+
+    try {
+      if (vehicleId.isNotEmpty) {
+        final tRows = await _supabase
+            .from('vehicle_trackers')
+            .select()
+            .eq('vehicle_id', vehicleId)
+            .neq('connection_status', 'disconnected')
+            .limit(1);
+        final list = List<Map<String, dynamic>>.from(tRows);
+        if (list.isNotEmpty) trackerInfo = list.first;
+      }
+      if (trackerInfo == null && partnerVehicleId != null && partnerVehicleId.isNotEmpty) {
+        final ptRows = await _supabase
+            .from('vehicle_trackers')
+            .select()
+            .eq('partner_vehicle_id', partnerVehicleId)
+            .neq('connection_status', 'disconnected')
+            .limit(1);
+        final list = List<Map<String, dynamic>>.from(ptRows);
+        if (list.isNotEmpty) trackerInfo = list.first;
+      }
+    } catch (e) {
+      debugPrint('Tracker lookup note: $e');
+    }
+
+    try {
+      if (vehicleId.isNotEmpty) {
+        final locRows = await _supabase
+            .from('tracking_locations')
+            .select('latitude, longitude, speed_mps, heading_degrees, recorded_at, source')
+            .eq('vehicle_id', vehicleId)
+            .order('recorded_at', ascending: false)
+            .limit(1);
+        final list = List<Map<String, dynamic>>.from(locRows);
+        if (list.isNotEmpty) latestLocation = list.first;
+      }
+    } catch (e) {
+      debugPrint('Tracking location lookup note: $e');
+    }
+
+    final hasGpsTracker = trackerInfo != null || latestLocation != null;
+
     final imageUrls = <String>{};
     final primaryImageUrl = _primaryVehicleImageUrl(vehicle);
     if (primaryImageUrl.isNotEmpty) imageUrls.add(primaryImageUrl);
@@ -22082,6 +22136,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
     final images = imageUrls.toList();
     var selectedImage = 0;
+
+    if (!mounted) return;
 
     showDialog<void>(
       context: context,
@@ -22245,7 +22301,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         width: tileWidth,
                         child: _operatorVehicleSpecTile(
                           'Seats / Color',
-                          '${vehicle['seats'] ?? 'N/A'} seats - ${vehicle['color'] ?? 'Not provided'}',
+                          '${vehicle['seats'] ?? 'N/A'} seats • ${vehicle['color'] ?? 'Not provided'}',
                           Icons.event_seat_outlined,
                           isDark,
                         ),
@@ -22267,7 +22323,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: isDark
-                        ? Colors.white.withOpacity(0.04)
+                        ? Colors.white.withValues(alpha: 0.04)
                         : const Color(0xFFF5F6F7),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
@@ -22291,7 +22347,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _operatorDetailSectionTitle(
-                'Asset Status & Live Data',
+                'Asset Status & Live Telemetry',
                 secondary,
               ),
               const SizedBox(height: 12),
@@ -22324,7 +22380,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     const SizedBox(height: 15),
                     _operatorVehicleHealthRow(
-                      'Location',
+                      'Base Location',
                       vehicle['location']?.toString().trim().isNotEmpty == true
                           ? vehicle['location'].toString()
                           : 'Not provided',
@@ -22340,6 +22396,135 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       _operatorGold,
                       foreground,
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              _operatorDetailSectionTitle(
+                'Live GPS Tracking Status',
+                secondary,
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF132035) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: hasGpsTracker
+                        ? const Color(0xFF0284C7).withValues(alpha: 0.5)
+                        : (isDark ? Colors.white10 : Colors.grey.shade300),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: (hasGpsTracker ? const Color(0xFF0284C7) : Colors.grey)
+                                .withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            hasGpsTracker ? Icons.gps_fixed_rounded : Icons.gps_off_rounded,
+                            size: 20,
+                            color: hasGpsTracker ? const Color(0xFF0284C7) : Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                hasGpsTracker
+                                    ? 'GPS Tracker Connected'
+                                    : 'No Active GPS Tracker Device',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                  color: hasGpsTracker ? const Color(0xFF38BDF8) : foreground,
+                                ),
+                              ),
+                              if (trackerInfo != null)
+                                Text(
+                                  'Provider: ${(trackerInfo['provider'] ?? 'Aika168').toString().toUpperCase()} • Device: ${trackerInfo['device_identifier'] ?? 'N/A'}',
+                                  style: TextStyle(fontSize: 11, color: secondary),
+                                )
+                              else if (latestLocation != null)
+                                Text(
+                                  'Source: ${latestLocation['source'] ?? 'Driver Telemetry'}',
+                                  style: TextStyle(fontSize: 11, color: secondary),
+                                )
+                              else
+                                Text(
+                                  'Manual updates via booking inspection logs',
+                                  style: TextStyle(fontSize: 11, color: secondary),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (latestLocation != null) ...[
+                      const Divider(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Latest Coordinates', style: TextStyle(fontSize: 12, color: secondary)),
+                          Text(
+                            '${(latestLocation['latitude'] as num?)?.toStringAsFixed(4) ?? 'N/A'}, ${(latestLocation['longitude'] as num?)?.toStringAsFixed(4) ?? 'N/A'}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Last Recorded Ping', style: TextStyle(fontSize: 12, color: secondary)),
+                          Text(
+                            latestLocation['recorded_at'] != null
+                                ? DateFormat('MMM d, h:mm a').format(
+                                    DateTime.tryParse(latestLocation['recorded_at'].toString())?.toLocal() ?? DateTime.now(),
+                                  )
+                                : 'Recent',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _selectNavigationIndex(6);
+                            setState(() {
+                              _focusedTrackingBookingId = vehicleId;
+                            });
+                            _loadTrackingLocations();
+                          },
+                          icon: const Icon(Icons.map_rounded, size: 16),
+                          label: const Text(
+                            'Open in Live Map',
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF0284C7),
+                            side: const BorderSide(color: Color(0xFF0284C7)),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -22863,6 +23048,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final posted = vehicle['is_posted'] == true;
     final isPartner =
         vehicle['_source'] == 'partner' || _vehicleView == 'partner';
+
+    // For Partner Vehicles: Only display direct "View Details" button without 3-dots menu
+    if (isPartner) {
+      return Align(
+        alignment: Alignment.center,
+        child: OutlinedButton.icon(
+          onPressed: () => _showOperatorVehicleDetailsDialog(vehicle, isDark),
+          icon: const Icon(Icons.visibility_outlined, size: 14),
+          label: const Text(
+            'View Details',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF0284C7),
+            side: BorderSide(
+              color: const Color(0xFF0284C7).withValues(alpha: 0.5),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      );
+    }
+
     final cleaningUntilRaw =
         vehicle['cleaning_until'] ?? vehicle['auto_relist_at'];
     DateTime? cleaningUntil;
@@ -22894,14 +23105,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               vehicleId: vehicleId,
               partnerVehicleId: partnerVehicleId,
             );
-            if (isPartner) {
-              vehicle['is_available'] = true;
-              vehicle['status'] = 'available';
-            } else {
-              vehicle['is_posted'] = true;
-              vehicle['is_available'] = true;
-              vehicle['status'] = 'active';
-            }
+            vehicle['is_posted'] = true;
+            vehicle['is_available'] = true;
+            vehicle['status'] = 'active';
             vehicle['cleaning_until'] = null;
             vehicle['auto_relist_at'] = null;
             await _loadVehicles();
@@ -22928,13 +23134,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
           ),
-          PopupMenuItem(
+          const PopupMenuItem(
             value: 'edit',
             child: Row(
               children: [
-                const Icon(Icons.edit_outlined, size: 18),
+                Icon(Icons.edit_outlined, size: 18),
                 SizedBox(width: 9),
-                Text(isPartner ? 'Manage Price' : 'Edit Vehicle'),
+                Text('Edit Vehicle'),
               ],
             ),
           ),
