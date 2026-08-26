@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:mobilis_by_psdc_app/mobile_ui/theme/app_colors.dart';
+import 'package:mobilis_by_psdc_app/mobile_ui/widgets/optimized_network_image.dart';
 import 'package:mobilis_by_psdc_app/services/auth_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_inspection_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_service.dart';
@@ -1260,12 +1261,63 @@ class _BookingCard extends StatelessWidget {
 
   String get _vehicleName {
     final v = booking['vehicles'] as Map? ?? {};
-    final name = v['vehicle_name']?.toString().trim();
-    if (name != null && name.isNotEmpty) return name;
     final brand = v['brand']?.toString().trim() ?? '';
     final model = v['model']?.toString().trim() ?? '';
+    final year = v['year']?.toString().trim() ?? '';
     final combo = '$brand $model'.trim();
+    if (combo.isNotEmpty) return year.isEmpty ? combo : '$combo ($year)';
+
+    final pv = booking['partner_vehicles'] as Map? ?? {};
+    final pvBrand = pv['brand']?.toString().trim() ?? '';
+    final pvModel = pv['model']?.toString().trim() ?? '';
+    final pvYear = pv['year']?.toString().trim() ?? '';
+    final pvCombo = '$pvBrand $pvModel'.trim();
+    if (pvCombo.isNotEmpty) return pvYear.isEmpty ? pvCombo : '$pvCombo ($pvYear)';
+
+    final name = v['vehicle_name']?.toString().trim() ??
+        pv['vehicle_name']?.toString().trim();
+    if (name != null &&
+        name.isNotEmpty &&
+        name.toLowerCase() != 'partner vehicle' &&
+        name.toLowerCase() != 'unknown vehicle' &&
+        name.toLowerCase() != 'vehicle') {
+      return name;
+    }
     return combo.isEmpty ? 'Vehicle' : combo;
+  }
+
+  String get _vehicleImageUrl {
+    final v = booking['vehicles'] as Map? ?? {};
+    final direct = (v['image_url'] ??
+            v['vehicle_photo_url'] ??
+            v['photo_url'] ??
+            booking['vehicle_image_url'] ??
+            booking['image_url'])
+        ?.toString()
+        .trim() ??
+        '';
+    if (direct.isNotEmpty) return direct;
+    final imgs = v['vehicle_images'];
+    if (imgs is List && imgs.isNotEmpty) {
+      for (final img in imgs) {
+        if (img is Map) {
+          final u = (img['image_url'] ?? img['file_url'] ?? img['url'])
+              ?.toString()
+              .trim() ??
+              '';
+          if (u.isNotEmpty) return u;
+        }
+      }
+    }
+    final pv = booking['partner_vehicles'] as Map? ?? {};
+    final pvDirect = (pv['image_url'] ??
+            pv['vehicle_photo_url'] ??
+            pv['photo_url'])
+        ?.toString()
+        .trim() ??
+        '';
+    if (pvDirect.isNotEmpty) return pvDirect;
+    return '';
   }
 
   String get _renterName {
@@ -1412,6 +1464,25 @@ class _BookingCard extends StatelessWidget {
           children: [
             Row(
               children: [
+                if (_vehicleImageUrl.isNotEmpty) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 44,
+                      height: 34,
+                      child: OptimizedNetworkImage(
+                        imageUrl: _vehicleImageUrl,
+                        fit: BoxFit.cover,
+                        errorWidget: Icon(
+                          Icons.directions_car_outlined,
+                          size: 20,
+                          color: textSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
                 Expanded(
                   child: Row(
                     children: [

@@ -3836,10 +3836,46 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         renter?['full_name']?.toString().trim().isNotEmpty == true
         ? renter!['full_name'].toString().trim()
         : 'Unknown Renter';
-    final vehicleTitle =
-        [vehicle?['vehicle_name'], vehicle?['brand'], vehicle?['model']]
-            .where((part) => part != null && part.toString().trim().isNotEmpty)
-            .join(' ');
+    final brand = vehicle?['brand']?.toString().trim() ?? '';
+    final model = vehicle?['model']?.toString().trim() ?? '';
+    final year = vehicle?['year']?.toString().trim() ?? '';
+    final rawVehicleName = vehicle?['vehicle_name']?.toString().trim() ?? '';
+    final combo = [brand, model].where((part) => part.isNotEmpty).join(' ');
+    final vehicleTitle = combo.isNotEmpty
+        ? (year.isNotEmpty ? '$combo ($year)' : combo)
+        : (rawVehicleName.isNotEmpty &&
+                rawVehicleName.toLowerCase() != 'partner vehicle' &&
+                rawVehicleName.toLowerCase() != 'unknown vehicle' &&
+                rawVehicleName.toLowerCase() != 'vehicle'
+            ? rawVehicleName
+            : 'Partner Vehicle');
+
+    final directImg = (vehicle?['image_url'] ??
+            vehicle?['vehicle_photo_url'] ??
+            vehicle?['photo_url'] ??
+            booking['vehicle_image_url'] ??
+            booking['image_url'])
+        ?.toString()
+        .trim() ??
+        '';
+    String vehicleImageUrl = directImg;
+    if (vehicleImageUrl.isEmpty) {
+      final vImgs = vehicle?['vehicle_images'];
+      if (vImgs is List && vImgs.isNotEmpty) {
+        for (final img in vImgs) {
+          if (img is Map) {
+            final u = (img['image_url'] ?? img['file_url'] ?? img['url'])
+                ?.toString()
+                .trim() ??
+                '';
+            if (u.isNotEmpty) {
+              vehicleImageUrl = u;
+              break;
+            }
+          }
+        }
+      }
+    }
     final bookingStatus = _bookingStatusLabel(booking, tracking);
     final statusGroup = bookingStatusGroup(booking['status']);
     final dateRange = _formatBookingRange(
@@ -3876,23 +3912,49 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         children: [
           Row(
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8E0C0),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Text(
-                  _initialsForName(renterName),
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.w700,
+              if (vehicleImageUrl.isNotEmpty) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: OptimizedNetworkImage(
+                      imageUrl: vehicleImageUrl,
+                      fit: BoxFit.cover,
+                      errorWidget: Container(
+                        color: const Color(0xFFE8E0C0),
+                        alignment: Alignment.center,
+                        child: Text(
+                          _initialsForName(renterName),
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
+                const SizedBox(width: 12),
+              ] else ...[
+                Container(
+                  width: 48,
+                  height: 48,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8E0C0),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    _initialsForName(renterName),
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
