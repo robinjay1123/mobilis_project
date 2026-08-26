@@ -596,6 +596,83 @@ class TripRatingService {
     }
 
     final uniqueTargets = deduped.values.toList();
+
+    // ── Avatar enrichment pass ──────────────────────────────────────────────
+    // For any non-vehicle target whose avatar is still empty, do a direct
+    // lookup on the users table so the rating card always shows a photo.
+    for (final target in uniqueTargets) {
+      final role = target['role']?.toString() ?? '';
+      if (role == 'vehicle') continue; // vehicle uses carousel imagery
+      final currentAvatar = target['avatarUrl']?.toString().trim() ?? '';
+      if (currentAvatar.isNotEmpty) continue; // already have a photo
+
+      final uid = target['userId']?.toString().trim() ?? '';
+      if (uid.isEmpty) continue;
+      try {
+        final userRow = await supabase
+            .from('users')
+            .select('avatar_url, profile_picture_url')
+            .eq('id', uid)
+            .maybeSingle();
+        if (userRow != null) {
+          final url = (userRow['avatar_url']?.toString().trim().isNotEmpty == true
+                  ? userRow['avatar_url']
+                  : userRow['profile_picture_url'])
+              ?.toString()
+              .trim();
+          if (url != null && url.isNotEmpty) {
+            target['avatarUrl'] = url;
+          }
+        }
+      } catch (_) {} // non-fatal — fall back to initials
+    }
+
+    // ── Vehicle image enrichment pass ──────────────────────────────────────
+    // If a vehicle target has no carousel images, fetch them from vehicle_images.
+    for (final target in uniqueTargets) {
+      if (target['role']?.toString() != 'vehicle') continue;
+      final vehicleImages = target['vehicleImages'];
+      final hasImages = vehicleImages is List && vehicleImages.isNotEmpty;
+      final hasMainImage = (target['avatarUrl']?.toString().trim().isNotEmpty == true);
+      if (hasImages || hasMainImage) continue;
+
+      final vid = target['userId']?.toString().trim() ?? '';
+      if (vid.isEmpty) continue;
+      try {
+        // Fetch primary image_url from vehicles table
+        final vehicleRow = await supabase
+            .from('vehicles')
+            .select('image_url')
+            .eq('id', vid)
+            .maybeSingle();
+        final mainUrl = vehicleRow?['image_url']?.toString().trim() ?? '';
+        if (mainUrl.isNotEmpty) {
+          target['avatarUrl'] = mainUrl;
+          target['imageUrl'] = mainUrl;
+        }
+        // Fetch additional images from vehicle_images table
+        final imgRows = await supabase
+            .from('vehicle_images')
+            .select('image_url, display_order')
+            .eq('vehicle_id', vid)
+            .order('display_order', ascending: true);
+        if (imgRows is List && imgRows.isNotEmpty) {
+          target['vehicleImages'] = List<Map<String, dynamic>>.from(
+            imgRows.map((r) => Map<String, dynamic>.from(r as Map)),
+          );
+          if (mainUrl.isEmpty) {
+            final firstUrl =
+                imgRows.first['image_url']?.toString().trim() ?? '';
+            if (firstUrl.isNotEmpty) {
+              target['avatarUrl'] = firstUrl;
+              target['imageUrl'] = firstUrl;
+            }
+          }
+        }
+      } catch (_) {} // non-fatal
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     for (final target in uniqueTargets) {
       target['alreadyRated'] = await _hasExistingRating(
         bookingId: bookingId,
@@ -614,6 +691,7 @@ class TripRatingService {
         .toList();
     return pendingTargets;
   }
+
 
   Future<bool> isReviewerRatingComplete({
     required String bookingId,

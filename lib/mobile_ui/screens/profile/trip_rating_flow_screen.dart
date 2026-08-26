@@ -909,33 +909,45 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
             }),
             const SizedBox(height: 16),
           ] else ...[
-            // User avatar display
-            Container(
-              width: 88,
-              height: 88,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(24),
-                image: avatarUrl.isNotEmpty
-                    ? DecorationImage(
-                        image: OptimizedNetworkImageProvider(avatarUrl),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-              ),
-              child: avatarUrl.isEmpty
-                  ? Text(
-                      name.isNotEmpty ? name[0].toUpperCase() : 'U',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
+            // User avatar display — shows profile photo with initials fallback
+            ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: SizedBox(
+                width: 88,
+                height: 88,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Initials backdrop (shown when no photo or photo fails)
+                    Container(
+                      color: AppColors.primary.withValues(alpha: 0.16),
+                      alignment: Alignment.center,
+                      child: Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    )
-                  : null,
+                    ),
+                    // Profile photo on top — error stays transparent so initials show
+                    if (avatarUrl.isNotEmpty)
+                      OptimizedNetworkImage(
+                        imageUrl: avatarUrl,
+                        width: 88,
+                        height: 88,
+                        fit: BoxFit.cover,
+                        isThumbnail: true,
+                        errorWidget: const SizedBox.shrink(),
+                        placeholder: const SizedBox.shrink(),
+                      ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 14),
+
           ],
           Text(
             name,
