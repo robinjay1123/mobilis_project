@@ -501,7 +501,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(FontAwesomeIcons.google, size: 20),
+                                const FaIcon(FontAwesomeIcons.google, size: 20),
                                 const SizedBox(width: 12),
                                 const Text(
                                   'Continue with Google',

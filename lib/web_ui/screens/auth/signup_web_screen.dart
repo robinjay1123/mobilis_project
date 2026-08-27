@@ -562,7 +562,7 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                                         ),
                                         child: Column(
                                           children: [
-                                            Icon(
+                                            FaIcon(
                                               FontAwesomeIcons.car,
                                               color: selectedRole == 'renter'
                                                   ? Colors.black
@@ -627,7 +627,7 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                                         ),
                                         child: Column(
                                           children: [
-                                            Icon(
+                                            FaIcon(
                                               FontAwesomeIcons.building,
                                               color: selectedRole == 'partner'
                                                   ? Colors.black
@@ -689,7 +689,7 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                                   ),
                                   child: Row(
                                     children: [
-                                      Icon(
+                                      FaIcon(
                                         FontAwesomeIcons.userTie,
                                         color: selectedRole == 'driver'
                                             ? Colors.black
