@@ -9260,6 +9260,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
 
+    final rescheduleCount = (booking['reschedule_count'] as num?)?.toInt() ??
+        (booking['rescheduleCount'] as num?)?.toInt() ?? 0;
+    if (rescheduleCount >= 1) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This booking has already been rescheduled once. Rescheduling of booking is one time only.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
     DateTime? currentStart = booking['startDateObj'] as DateTime? ??
         (booking['start_at'] != null ? DateTime.tryParse(booking['start_at']) : null);
     DateTime? currentEnd = booking['endDateObj'] as DateTime? ??
@@ -9384,6 +9397,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // ONE-TIME RESCHEDULE NOTICE BANNER
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE5A93C).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: const Color(0xFFE5A93C).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Color(0xFFE5A93C), size: 16),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Note: Reschedule of booking is one time only.',
+                              style: TextStyle(
+                                color: Color(0xFFE5A93C),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -10060,6 +10102,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _handleBookingCancellation(Map<String, dynamic> booking) async {
     final reasonController = TextEditingController();
+    final rescheduleCount = (booking['reschedule_count'] as num?)?.toInt() ??
+        (booking['rescheduleCount'] as num?)?.toInt() ?? 0;
 
     final actionChoice = await showDialog<String>(
       context: context,
@@ -10116,7 +10160,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            'Per platform policy, the ₱1,000 security deposit / reservation fee is NON-REFUNDABLE upon cancellation. However, you can Reschedule your trip to new dates and keep 100% of your deposit!',
+                            'Per platform policy, the ₱1,000 security deposit / reservation fee is NON-REFUNDABLE upon cancellation. However, you can Reschedule your trip to new dates and keep 100% of your deposit!\n\nNote: Reschedule of booking is one time only.',
                             style: TextStyle(
                               color: Colors.grey.shade300,
                               fontSize: 11,
@@ -10148,15 +10192,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () => Navigator.pop(dialogContext, 'reschedule'),
+                  onPressed: rescheduleCount >= 1
+                      ? () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('This booking has already been rescheduled once. Rescheduling of booking is one time only.'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
+                      : () => Navigator.pop(dialogContext, 'reschedule'),
                   icon: const Icon(Icons.event_repeat_rounded, size: 18),
-                  label: const Text(
-                    'Reschedule Trip (Keep ₱1,000 Deposit)',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  label: Text(
+                    rescheduleCount >= 1
+                        ? 'Reschedule Trip (Limit Reached - 1 Time Only)'
+                        : 'Reschedule Trip (Keep ₱1,000 Deposit)',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE5A93C),
-                    foregroundColor: Colors.black,
+                    backgroundColor: rescheduleCount >= 1 ? Colors.grey.shade700 : const Color(0xFFE5A93C),
+                    foregroundColor: rescheduleCount >= 1 ? Colors.white60 : Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),

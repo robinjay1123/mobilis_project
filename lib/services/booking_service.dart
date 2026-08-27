@@ -5006,6 +5006,9 @@ class BookingService {
 
       final vehicleId = booking['vehicle_id']?.toString() ?? '';
       final currentRescheduleCount = (booking['reschedule_count'] as num?)?.toInt() ?? 0;
+      if (currentRescheduleCount >= 1) {
+        throw Exception('This booking has already been rescheduled once. Rescheduling is allowed only one time per booking.');
+      }
       final originalStart = booking['original_start_at'] ?? booking['start_at'];
       final originalEnd = booking['original_end_at'] ?? booking['end_at'];
 
