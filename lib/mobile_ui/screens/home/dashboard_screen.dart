@@ -8566,22 +8566,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
             const SizedBox(height: 12),
-            TextField(
-              controller: destinationController,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              decoration: InputDecoration(
-                labelText: 'New Destination (Optional)',
-                labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                hintText: 'e.g. Baguio City or same as current',
-                hintStyle: const TextStyle(color: Colors.white24, fontSize: 12),
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.04),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Colors.white12),
-                ),
-              ),
+            StatefulBuilder(
+              builder: (ctx, setFieldState) {
+                return TextField(
+                  controller: destinationController,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: InputDecoration(
+                    labelText: 'New Destination *',
+                    labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                    hintText: 'e.g. Baguio City or same as current',
+                    hintStyle: const TextStyle(color: Colors.white24, fontSize: 12),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.04),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    prefixIcon: const Icon(
+                      Icons.location_on_rounded,
+                      color: Color(0xFF10B981),
+                      size: 20,
+                    ),
+                    suffixIcon: IconButton(
+                      tooltip: 'Pin destination on map',
+                      icon: const Icon(
+                        Icons.map_outlined,
+                        color: AppColors.primary,
+                        size: 22,
+                      ),
+                      onPressed: () async {
+                        final selection = await MobilisLocationPickerModal.show(
+                          context,
+                          title: 'Pin trip destination',
+                          subtitle: 'Search an address or place a pin for your extended trip destination.',
+                          confirmLabel: 'Use this destination',
+                          initialAddress: destinationController.text.trim(),
+                        );
+                        if (selection != null) {
+                          setFieldState(() {
+                            destinationController.text = selection.address;
+                          });
+                        }
+                      },
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Colors.white12),
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             Container(
@@ -8617,7 +8648,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               foregroundColor: Colors.black,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            onPressed: () => Navigator.pop(ctx, true),
+            onPressed: () {
+              if (destinationController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter or pin a new trip destination before proceeding.'),
+                    backgroundColor: AppColors.error,
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(ctx, true);
+            },
             child: const Text(
               'Proceed to Online Payment',
               style: TextStyle(
@@ -8644,6 +8686,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       newEndAt: selectedNewEndAt,
       additionalPrice: additionalPrice,
       extensionDays: extensionDays,
+      dailyRate: dailyRate,
       newDestination: requestedDestination.isNotEmpty ? requestedDestination : null,
     );
   }
@@ -8654,6 +8697,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required DateTime newEndAt,
     required double additionalPrice,
     required int extensionDays,
+    required double dailyRate,
     String? newDestination,
   }) async {
     final referenceController = TextEditingController();
@@ -8736,6 +8780,76 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 14),
+                  // EXTENSION PRICE BREAKDOWN BANNER (BEFORE QR CODE)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Extension Cost Breakdown',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Extension Duration:',
+                              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                            ),
+                            Text(
+                              '+$extensionDays day${extensionDays == 1 ? '' : 's'}',
+                              style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Daily Rate:',
+                              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                            ),
+                            Text(
+                              'PHP ${formatAmount(dailyRate, decimalDigits: 0)} / day',
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 14, color: Colors.white12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Total Amount Due:',
+                              style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            Text(
+                              'PHP ${formatAmount(additionalPrice, decimalDigits: 0)}',
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 14),
                   if (qrUrl.isNotEmpty) ...[
