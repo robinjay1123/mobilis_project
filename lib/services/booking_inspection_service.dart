@@ -187,10 +187,27 @@ class BookingInspectionService {
     }
   }
 
+  static bool isPreInspectionUnlocked(Map<String, dynamic> booking) {
+    final rawStart = booking['start_at'] ?? booking['start_date'] ?? booking['start_date_raw'] ?? booking['startDate'];
+    final startAt = rawStart != null ? DateTime.tryParse(rawStart.toString())?.toUtc() : null;
+    if (startAt == null) return true;
+
+    final windowOpens = startAt.subtract(const Duration(hours: 24));
+    final now = DateTime.now().toUtc();
+    return !now.isBefore(windowOpens);
+  }
+
+  static DateTime? getPreInspectionUnlockTime(Map<String, dynamic> booking) {
+    final rawStart = booking['start_at'] ?? booking['start_date'] ?? booking['start_date_raw'] ?? booking['startDate'];
+    final startAt = rawStart != null ? DateTime.tryParse(rawStart.toString())?.toLocal() : null;
+    if (startAt == null) return null;
+    return startAt.subtract(const Duration(hours: 24));
+  }
+
   /// Validates that the inspection type is allowed at the current time and
   /// booking state.
   ///
-  /// - **before**: allowed from 1 hour before the scheduled `start_at` up to
+  /// - **before**: allowed from 24 hours before the scheduled `start_at` up to
   ///   the moment the trip is marked as started.
   /// - **after**: allowed once the trip is in an active/ongoing/return state
   ///   (the booking status is past `approved`).
@@ -210,13 +227,13 @@ class BookingInspectionService {
       if (startAt == null) {
         throw Exception('Booking start time is not set yet');
       }
-      final windowOpens = startAt.subtract(const Duration(hours: 1));
+      final windowOpens = startAt.subtract(const Duration(hours: 24));
       final now = DateTime.now().toUtc();
       if (now.isBefore(windowOpens)) {
-        final minutesUntil = windowOpens.difference(now).inMinutes;
+        final hoursUntil = (windowOpens.difference(now).inMinutes / 60.0).toStringAsFixed(1);
         throw Exception(
-          'The pre-trip inspection window opens 1 hour before the trip starts '
-          '(in about $minutesUntil minutes)',
+          'The pre-trip inspection checklist is locked until 24 hours before the trip starts '
+          '(opens in about $hoursUntil hours).',
         );
       }
       // The trip must not have already started; reject duplicate befores.

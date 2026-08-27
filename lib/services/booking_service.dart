@@ -2843,6 +2843,11 @@ class BookingService {
 
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
+
+    if (!BookingInspectionService.isPreInspectionUnlocked(booking)) {
+      throw Exception('Pre-trip car inspection is locked until 24 hours before the actual booking start time.');
+    }
+
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
     if (status != 'approved' && status != 'confirmed') {
       if (status == 'active' || status == 'ongoing') return;

@@ -5104,6 +5104,39 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       );
     } catch (_) {
       if (allowCreate) {
+        if (inspectionType == 'before' && !BookingInspectionService.isPreInspectionUnlocked(booking)) {
+          final unlockTime = BookingInspectionService.getPreInspectionUnlockTime(booking);
+          final timeStr = unlockTime != null
+              ? DateFormat('MMM d, yyyy h:mm a').format(unlockTime)
+              : '24 hours before trip start';
+          if (!mounted) return;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.lock_clock_rounded, color: Color(0xFFE5A93C)),
+                  SizedBox(width: 10),
+                  Text('Pre-Checklist Locked', style: TextStyle(color: Colors.white, fontSize: 16)),
+                ],
+              ),
+              content: Text(
+                'The Pre-Trip Checklist & Car Inspection is locked until 24 hours before the actual booking start time.\n\nAvailable starting: $timeStr',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK', style: TextStyle(color: Color(0xFFE5A93C))),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+
         await _showPartnerInspectionDialog(
           booking,
           inspectionType: inspectionType,
