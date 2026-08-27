@@ -795,6 +795,138 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
         ),
       ),
+  Widget _buildSystemNoteCard({
+    required Map<String, dynamic> message,
+    required String displayContent,
+    required bool isChecklistAudit,
+    required String? attachmentUrl,
+    required String attachmentName,
+    required String attachmentType,
+    required bool isDark,
+  }) {
+    final noteBg = isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFBEB);
+    final borderColor = isDark ? AppColors.primary : const Color(0xFFD97706);
+    final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
+
+    final isInspectionNote = isChecklistAudit ||
+        displayContent.contains('Checklist Submitted') ||
+        displayContent.contains('Inspection');
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: noteBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border(
+          left: BorderSide(color: borderColor, width: 4),
+          top: BorderSide(
+            color: isDark ? AppColors.borderColor : const Color(0xFFFCD34D),
+            width: 0.5,
+          ),
+          right: BorderSide(
+            color: isDark ? AppColors.borderColor : const Color(0xFFFCD34D),
+            width: 0.5,
+          ),
+          bottom: BorderSide(
+            color: isDark ? AppColors.borderColor : const Color(0xFFFCD34D),
+            width: 0.5,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isInspectionNote
+                    ? Icons.assignment_turned_in_rounded
+                    : Icons.description_outlined,
+                size: 16,
+                color: borderColor,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isInspectionNote
+                      ? 'SYSTEM NOTE • VEHICLE INSPECTION RECORD'
+                      : 'SYSTEM NOTE • BOOKING DETAILS',
+                  style: TextStyle(
+                    color: borderColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: borderColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'NOTE',
+                  style: TextStyle(
+                    color: borderColor,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (attachmentUrl != null && attachmentUrl.isNotEmpty) ...[
+            _buildAttachmentPreview(
+              url: attachmentUrl,
+              type: attachmentType,
+              name: attachmentName,
+              isCurrentUser: false,
+              isDark: isDark,
+            ),
+            if (displayContent.isNotEmpty) const SizedBox(height: 8),
+          ],
+          if (displayContent.isNotEmpty)
+            if (isChecklistAudit)
+              _buildChecklistContent(displayContent, false)
+            else
+              Text(
+                displayContent,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.45,
+                  color: textColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              RelativeTimeText(
+                value: message['created_at'],
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isDark
+                      ? AppColors.textTertiary
+                      : const Color(0xFF78350F),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -1483,6 +1615,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                           content,
                                         )['should_flag'] ==
                                         true;
+
+                                final isSystemNoteCard =
+                                    !isDeleted &&
+                                    (isAutoGenerated ||
+                                        isChecklistAudit ||
+                                        message['is_system'] == true ||
+                                        content.trim().startsWith('[Audit:') ||
+                                        content.trim().startsWith('📋') ||
+                                        content.trim().startsWith('Booking Details') ||
+                                        content.trim().startsWith('Booking Confirmed') ||
+                                        content.contains('Checklist Submitted'));
+
+                                if (isSystemNoteCard) {
+                                  return _buildSystemNoteCard(
+                                    message: message,
+                                    displayContent: displayContent,
+                                    isChecklistAudit: isChecklistAudit,
+                                    attachmentUrl: attachmentUrl,
+                                    attachmentName: attachmentName,
+                                    attachmentType: attachmentType,
+                                    isDark: isDark,
+                                  );
+                                }
 
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
