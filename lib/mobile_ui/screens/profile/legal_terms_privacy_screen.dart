@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../services/terms_service.dart';
 import '../../theme/app_colors.dart';
 
@@ -25,6 +26,7 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
   bool _isLoading = true;
   String _termsContent = '';
   String _privacyContent = '';
+  String? _pdfUrl;
 
   @override
   void initState() {
@@ -49,10 +51,12 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
       final termsService = TermsService();
       final terms = await termsService.getTermsOfService();
       final privacy = await termsService.getPrivacyPolicy();
+      final pdfUrl = await termsService.getRentalTermsPdfUrl();
       if (!mounted) return;
       setState(() {
         _termsContent = terms;
         _privacyContent = privacy;
+        _pdfUrl = pdfUrl;
         _isLoading = false;
       });
     } catch (e) {
@@ -256,6 +260,28 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
               ],
             ),
           ),
+          if (_pdfUrl != null && title == 'Terms of Service') ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final uri = Uri.parse(_pdfUrl!);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 18, color: Color(0xFF10B981)),
+                label: const Text('View Official Rental Agreement (PDF Document)'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF10B981),
+                  side: const BorderSide(color: Color(0xFF10B981)),
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
           Container(
             width: double.infinity,

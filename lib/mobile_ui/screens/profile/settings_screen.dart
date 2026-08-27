@@ -123,6 +123,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoadingSupportFaqs = false;
   bool _isSavingSupportFaqs = false;
 
+  String? _rentalTermsPdfUrl;
+  bool _isUploadingPdf = false;
+  bool _isLoadingPdf = false;
+
   @override
   void initState() {
     super.initState();
@@ -174,6 +178,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _loadPrivacyPolicy(),
           _loadReservationPaymentSettings(),
           _loadSupportFaqSettings(),
+          _loadRentalTermsPdf(),
         ]);
       }
     } catch (_) {
@@ -276,6 +281,113 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('Error loading rental terms: $e');
     } finally {
       if (mounted) setState(() => _isLoadingTerms = false);
+    }
+  }
+
+  Future<void> _loadRentalTermsPdf() async {
+    setState(() => _isLoadingPdf = true);
+    try {
+      final url = await TermsService().getRentalTermsPdfUrl();
+      if (!mounted) return;
+      setState(() => _rentalTermsPdfUrl = url);
+    } catch (e) {
+      debugPrint('Error loading rental terms PDF URL: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingPdf = false);
+    }
+  }
+
+  Future<void> _pickAndUploadRentalTermsPdf() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not read PDF file data. Please select a valid PDF file.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+
+      setState(() => _isUploadingPdf = true);
+      final publicUrl = await TermsService().uploadRentalTermsPdf(bytes);
+      if (!mounted) return;
+      setState(() {
+        _rentalTermsPdfUrl = publicUrl;
+        _isUploadingPdf = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rental Terms & Agreement PDF uploaded successfully!'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isUploadingPdf = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to upload PDF: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteRentalTermsPdf() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surfaceColor(context),
+        title: Text('Delete Rental Terms PDF?', style: TextStyle(color: _primaryTextColor(context))),
+        content: Text('This will remove the uploaded PDF document.', style: TextStyle(color: _secondaryTextColor(context))),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: TextStyle(color: _secondaryTextColor(context))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    setState(() => _isUploadingPdf = true);
+    try {
+      await TermsService().deleteRentalTermsPdf();
+      if (!mounted) return;
+      setState(() {
+        _rentalTermsPdfUrl = null;
+        _isUploadingPdf = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rental Terms PDF deleted successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isUploadingPdf = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete PDF: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -2929,6 +3041,132 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextStyle(
                   color: _secondaryTextColor(context),
                   fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkBg : AppColors.lightBg,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _rentalTermsPdfUrl != null
+                        ? const Color(0xFF10B981).withValues(alpha: 0.5)
+                        : _borderColor(context),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: _rentalTermsPdfUrl != null
+                                ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                                : AppColors.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.picture_as_pdf_rounded,
+                            color: _rentalTermsPdfUrl != null
+                                ? const Color(0xFF10B981)
+                                : AppColors.primary,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Official Rental Agreement PDF Document',
+                                style: TextStyle(
+                                  color: _primaryTextColor(context),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _rentalTermsPdfUrl != null
+                                    ? 'An official PDF document is uploaded and active.'
+                                    : 'Upload an official PDF version of the rental agreement policy.',
+                                style: TextStyle(
+                                  color: _secondaryTextColor(context),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    if (_rentalTermsPdfUrl != null) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final uri = Uri.parse(_rentalTermsPdfUrl!);
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                }
+                              },
+                              icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                              label: const Text('View Current PDF Document'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF10B981),
+                                side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.5)),
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          OutlinedButton.icon(
+                            onPressed: _isUploadingPdf ? null : _deleteRentalTermsPdf,
+                            icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                            label: const Text('Delete PDF'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.redAccent,
+                              side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5)),
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _isUploadingPdf ? null : _pickAndUploadRentalTermsPdf,
+                        icon: _isUploadingPdf
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                              )
+                            : const Icon(Icons.upload_file_rounded, size: 18),
+                        label: Text(_isUploadingPdf
+                            ? 'Uploading PDF...'
+                            : (_rentalTermsPdfUrl != null
+                                ? 'Replace PDF Document'
+                                : 'Upload Rental Terms PDF')),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 20),
