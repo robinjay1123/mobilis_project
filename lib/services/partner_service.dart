@@ -996,4 +996,78 @@ class PartnerService {
     }
     return error.toString();
   }
+
+  // ================== DYNAMIC PRICING CONTROLS ==================
+
+  /// Get dynamic pricing configuration for a vehicle
+  Future<Map<String, dynamic>> getVehicleDynamicPricing(String vehicleId) async {
+    try {
+      // Check partner_vehicles table first
+      final partnerVehicle = await supabase
+          .from('partner_vehicles')
+          .select('pricing_settings')
+          .eq('id', vehicleId)
+          .maybeSingle();
+
+      if (partnerVehicle != null && partnerVehicle['pricing_settings'] != null) {
+        return Map<String, dynamic>.from(partnerVehicle['pricing_settings'] as Map);
+      }
+
+      // Check vehicles table fallback
+      final vehicle = await supabase
+          .from('vehicles')
+          .select('pricing_settings')
+          .eq('id', vehicleId)
+          .maybeSingle();
+
+      if (vehicle != null && vehicle['pricing_settings'] != null) {
+        return Map<String, dynamic>.from(vehicle['pricing_settings'] as Map);
+      }
+    } catch (e) {
+      debugPrint('Error getting dynamic pricing: $e');
+    }
+
+    // Default configuration: no surge
+    return {
+      'weekend_multiplier': 1.0,
+      'peak_surcharge_per_day': 0.0,
+      'peak_dates': <String>[],
+    };
+  }
+
+  /// Update dynamic pricing configuration for a partner vehicle
+  Future<void> updateVehicleDynamicPricing({
+    required String vehicleId,
+    required double weekendMultiplier,
+    required double peakSurchargePerDay,
+    List<String> peakDates = const [],
+  }) async {
+    final settings = {
+      'weekend_multiplier': weekendMultiplier,
+      'peak_surcharge_per_day': peakSurchargePerDay,
+      'peak_dates': peakDates,
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+
+    try {
+      // Update partner_vehicles if exists
+      await supabase
+          .from('partner_vehicles')
+          .update({'pricing_settings': settings})
+          .eq('id', vehicleId);
+    } catch (e) {
+      debugPrint('Error updating partner_vehicles pricing: $e');
+    }
+
+    try {
+      // Update vehicles table if exists
+      await supabase
+          .from('vehicles')
+          .update({'pricing_settings': settings})
+          .eq('id', vehicleId);
+    } catch (e) {
+      debugPrint('Error updating vehicles pricing: $e');
+    }
+  }
 }
+

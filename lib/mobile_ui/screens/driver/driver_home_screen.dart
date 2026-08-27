@@ -31,6 +31,8 @@ import '../tracking/trip_navigation_screen.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
+import '../../widgets/handover_pin_verifier_modal.dart';
+import '../../widgets/inspection_damage_comparison_dialog.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;

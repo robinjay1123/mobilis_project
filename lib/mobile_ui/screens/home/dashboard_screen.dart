@@ -38,6 +38,7 @@ import '../../widgets/booking_return_countdown.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
+import '../../widgets/digital_handover_pass_modal.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/unified_profile_screen.dart';
