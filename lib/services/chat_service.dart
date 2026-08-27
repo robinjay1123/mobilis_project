@@ -351,10 +351,12 @@ class ChatService {
   }
 
   bool _isVisibleConversation(Map<String, dynamic> conversation) {
-    // Hide only explicitly closed/archived conversations (operator/admin action).
+    // Archived conversations are hidden by manual operator/admin action.
+    // Completed or closed booking conversations stay visible in the messages list ("stay as is")
+    // and operate in View Mode (read-only) inside ChatDetailScreen.
     final conversationStatus =
         conversation['status']?.toString().trim().toLowerCase() ?? 'active';
-    if (conversationStatus == 'closed' || conversationStatus == 'archived') {
+    if (conversationStatus == 'archived') {
       return false;
     }
 
@@ -363,10 +365,10 @@ class ChatService {
     final booking = conversation['bookings'];
     if (booking is! Map) return true;
 
-    // Only hide conversations whose booking has been hard-cancelled/rejected.
+    // Only hide conversations whose booking has been hard-cancelled or rejected.
     // Every other status (pending, requested, reserved, approved, active,
     // confirmed, ongoing, completed, paid, returned, etc.) remains visible
-    // so that the renter can always access their chat thread.
+    // so that participants can view past chat history in view-only mode.
     const hiddenBookingStatuses = {
       'cancelled',
       'canceled',
