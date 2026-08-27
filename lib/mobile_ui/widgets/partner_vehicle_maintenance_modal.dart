@@ -322,7 +322,7 @@ class _PartnerVehicleMaintenanceModalState
               children: [
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('Current Odometer (km)',
                           style: TextStyle(
@@ -351,7 +351,7 @@ class _PartnerVehicleMaintenanceModalState
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('Next Service Target (km)',
                           style: TextStyle(
@@ -386,7 +386,7 @@ class _PartnerVehicleMaintenanceModalState
               children: [
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('Oil Change Due Date',
                           style: TextStyle(
@@ -418,7 +418,7 @@ class _PartnerVehicleMaintenanceModalState
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('LTO Registration Due',
                           style: TextStyle(
