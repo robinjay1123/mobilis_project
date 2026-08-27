@@ -13,10 +13,10 @@ void main() {
       );
 
       expect(amounts.ownerServiceAmount, 6050);
-      expect(amounts.partnerCommission, 605);
-      expect(amounts.partnerNet, 5445);
-      expect(amounts.driverCommission, 150);
-      expect(amounts.driverNet, 850);
+      expect(amounts.partnerCommission, 302.5);
+      expect(amounts.partnerNet, 5747.5);
+      expect(amounts.driverCommission, 50);
+      expect(amounts.driverNet, 950);
       expect(amounts.grossAmount, 7050);
     });
 

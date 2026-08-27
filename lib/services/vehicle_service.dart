@@ -68,7 +68,7 @@ class VehicleService {
   factory VehicleService() => _instance;
   VehicleService._internal();
 
-  final supabase = Supabase.instance.client;
+  SupabaseClient get supabase => Supabase.instance.client;
   Future<String>? _availabilityTableFuture;
 
   Future<String> _availabilityTable() {
