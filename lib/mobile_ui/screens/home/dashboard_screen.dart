@@ -9976,6 +9976,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         calendarBuilders: CalendarBuilders(
                           defaultBuilder: (context, day, focusedDay) {
+                            final date = _dateOnly(day);
+                            final endLimit = selectedDay != null ? _dateOnly(selectedDay!) : null;
+                            final prevEnd = _dateOnly(currentEnd);
+
+                            if (endLimit != null && date.isAfter(prevEnd) && !date.isAfter(endLimit)) {
+                              final isSelectedEnd = isSameDay(date, endLimit);
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: isSelectedEnd
+                                    ? const Color(0xFFE5A93C)
+                                    : const Color(0xFFE5A93C).withAlpha(90),
+                                borderColor: const Color(0xFFE5A93C),
+                                textColor: isSelectedEnd ? Colors.black : Colors.white,
+                              );
+                            }
+
                             return _buildRescheduleDayCell(
                               day,
                               unavailable,
@@ -9983,6 +9999,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             );
                           },
                           todayBuilder: (context, day, focusedDay) {
+                            final date = _dateOnly(day);
+                            final endLimit = selectedDay != null ? _dateOnly(selectedDay!) : null;
+                            final prevEnd = _dateOnly(currentEnd);
+
+                            if (endLimit != null && date.isAfter(prevEnd) && !date.isAfter(endLimit)) {
+                              final isSelectedEnd = isSameDay(date, endLimit);
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: isSelectedEnd
+                                    ? const Color(0xFFE5A93C)
+                                    : const Color(0xFFE5A93C).withAlpha(90),
+                                borderColor: const Color(0xFFE5A93C),
+                                textColor: isSelectedEnd ? Colors.black : Colors.white,
+                              );
+                            }
+
                             return _buildRescheduleDayCell(
                               day,
                               unavailable,
