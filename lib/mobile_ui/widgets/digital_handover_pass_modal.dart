@@ -38,7 +38,6 @@ class _DigitalHandoverPassModalState extends State<DigitalHandoverPassModal> {
 
   bool _isCopied = false;
   Map<String, dynamic>? _verificationStatus;
-  bool _isLoadingStatus = true;
 
   @override
   void initState() {
@@ -75,7 +74,6 @@ class _DigitalHandoverPassModalState extends State<DigitalHandoverPassModal> {
     if (mounted) {
       setState(() {
         _verificationStatus = status;
-        _isLoadingStatus = false;
       });
     }
   }
@@ -112,7 +110,7 @@ class _DigitalHandoverPassModalState extends State<DigitalHandoverPassModal> {
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Drag handle
           Container(
@@ -147,7 +145,7 @@ class _DigitalHandoverPassModalState extends State<DigitalHandoverPassModal> {
               ),
               const SizedBox(width: 12),
               Column(
-                crossAxisAlignment: CrossAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'Digital Handover Pass',

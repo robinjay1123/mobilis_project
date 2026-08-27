@@ -118,7 +118,7 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
@@ -137,7 +137,7 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
                         'Verify Handover Pass',

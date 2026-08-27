@@ -104,7 +104,7 @@ class _InspectionDamageComparisonDialogState
         constraints: const BoxConstraints(maxWidth: 650, maxHeight: 750),
         padding: const EdgeInsets.all(24.0),
         child: Column(
-          crossAxisAlignment: CrossAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Title Header
             Row(
@@ -124,7 +124,7 @@ class _InspectionDamageComparisonDialogState
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
                         'Inspection Damage Comparison',
@@ -180,7 +180,7 @@ class _InspectionDamageComparisonDialogState
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   child: Column(
-                    crossAxisAlignment: CrossAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Fuel & Mileage Variance Card
                       Container(
@@ -191,7 +191,7 @@ class _InspectionDamageComparisonDialogState
                           border: Border.all(color: const Color(0xFFE2E8F0)),
                         ),
                         child: Column(
-                          crossAxisAlignment: CrossAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
                               'TRIP METRICS & FUEL COMPARISON',
@@ -283,7 +283,7 @@ class _InspectionDamageComparisonDialogState
                       const SizedBox(height: 10),
 
                       Row(
-                        crossAxisAlignment: CrossAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
                             child: _buildPhotoColumn(
@@ -374,7 +374,7 @@ class _InspectionDamageComparisonDialogState
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -396,11 +396,11 @@ class _InspectionDamageComparisonDialogState
           ),
           const SizedBox(height: 8),
           Row(
-            crossAxisAlignment: CrossAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Pre-Trip:',
                         style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
@@ -412,7 +412,7 @@ class _InspectionDamageComparisonDialogState
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Post-Trip:',
                         style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
@@ -434,7 +434,7 @@ class _InspectionDamageComparisonDialogState
 
   Widget _buildPhotoColumn({required String title, required List<String> urls}) {
     return Column(
-      crossAxisAlignment: CrossAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,

@@ -131,7 +131,7 @@ class _PartnerDynamicPricingModalState
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Drag handle
           Center(
@@ -164,7 +164,7 @@ class _PartnerDynamicPricingModalState
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
                       'Seasonal & Dynamic Pricing',
