@@ -8377,33 +8377,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final formattedMaxDate =
         '${maxLastDate.month}/${maxLastDate.day}/${maxLastDate.year}';
 
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: initialFirstDate,
+    final unavailableDays = await _fetchUnavailableDatesForReschedule(
+      vehicleId: vehicleId,
+      bookingId: bookingId,
+    );
+
+    final pickedDate = await _showExtensionCalendarDialog(
       firstDate: initialFirstDate,
       lastDate: maxLastDate,
-      selectableDayPredicate: (day) {
-        if (day.isAfter(maxLastDate) || day.isBefore(initialFirstDate)) {
-          return false;
-        }
-        return true;
-      },
-      helpText: hasNextBooking
-          ? 'SELECT RETURN DATE (AVAILABLE UNTIL $formattedMaxDate)'
-          : 'SELECT NEW EXTENDED RETURN DATE',
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.dark().copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppColors.primary,
-              onPrimary: Colors.black,
-              surface: AppColors.darkCard,
-              onSurface: Colors.white,
-            ),
-          ),
-          child: child!,
-        );
-      },
+      initialDate: initialFirstDate,
+      currentStart: currentStartAt,
+      currentEnd: currentEndAt,
+      unavailableDays: unavailableDays,
+      carName: booking['carName']?.toString() ?? 'Selected Vehicle',
     );
 
     if (pickedDate == null || !mounted) return;
@@ -9841,6 +9827,233 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return unavailable;
   }
 
+  Future<DateTime?> _showExtensionCalendarDialog({
+    required DateTime firstDate,
+    required DateTime lastDate,
+    required DateTime initialDate,
+    required DateTime currentStart,
+    required DateTime currentEnd,
+    required Set<DateTime> unavailableDays,
+    required String carName,
+  }) {
+    var focusedDay = initialDate;
+    DateTime? selectedDay = initialDate;
+    final unavailable = unavailableDays.map(_dateOnly).toSet();
+    final currentBookingDays = <DateTime>{};
+    var cur = _dateOnly(currentStart);
+    final currentLast = _dateOnly(currentEnd);
+    while (!cur.isAfter(currentLast)) {
+      currentBookingDays.add(cur);
+      cur = cur.add(const Duration(days: 1));
+    }
+
+    return showDialog<DateTime>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: AppColors.borderColor),
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Select Extension Return Date',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  carName,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFFE5A93C),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 6,
+                        children: const [
+                          _CalendarLegendDot(
+                            color: Color(0xFFE5A93C),
+                            label: 'New Return Date',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: AppColors.error,
+                            label: 'Already Booked (Unavailable)',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: Color(0xFF3B82F6),
+                            label: 'Current Trip Dates',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: AppColors.success,
+                            label: 'Available Dates',
+                            textColor: AppColors.textPrimary,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TableCalendar(
+                        firstDay: firstDate,
+                        lastDay: lastDate,
+                        focusedDay: focusedDay,
+                        selectedDayPredicate: (day) =>
+                            selectedDay != null && isSameDay(selectedDay, day),
+                        enabledDayPredicate: (day) {
+                          final date = _dateOnly(day);
+                          return !unavailable.contains(date) &&
+                              !date.isBefore(_dateOnly(firstDate));
+                        },
+                        onDaySelected: (day, focused) {
+                          final date = _dateOnly(day);
+                          if (unavailable.contains(date)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('That date is already booked / unavailable for this car.'),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
+                          setDialogState(() {
+                            selectedDay = day;
+                            focusedDay = focused;
+                          });
+                        },
+                        headerStyle: const HeaderStyle(
+                          titleCentered: true,
+                          titleTextStyle: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          formatButtonVisible: false,
+                          leftChevronIcon: Icon(Icons.chevron_left, color: Color(0xFFE5A93C)),
+                          rightChevronIcon: Icon(Icons.chevron_right, color: Color(0xFFE5A93C)),
+                        ),
+                        daysOfWeekStyle: const DaysOfWeekStyle(
+                          weekdayStyle: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                          weekendStyle: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                        ),
+                        calendarStyle: const CalendarStyle(
+                          outsideDaysVisible: false,
+                          defaultTextStyle: TextStyle(color: AppColors.textPrimary),
+                          weekendTextStyle: TextStyle(color: AppColors.textPrimary),
+                        ),
+                        calendarBuilders: CalendarBuilders(
+                          defaultBuilder: (context, day, focusedDay) {
+                            return _buildRescheduleDayCell(
+                              day,
+                              unavailable,
+                              currentBookingDays,
+                            );
+                          },
+                          todayBuilder: (context, day, focusedDay) {
+                            return _buildRescheduleDayCell(
+                              day,
+                              unavailable,
+                              currentBookingDays,
+                              isToday: true,
+                            );
+                          },
+                          selectedBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: const Color(0xFFE5A93C),
+                              textColor: Colors.black,
+                            );
+                          },
+                          disabledBuilder: (context, day, focusedDay) {
+                            final date = _dateOnly(day);
+                            if (unavailable.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.error,
+                                textColor: Colors.white,
+                                strikethrough: true,
+                              );
+                            }
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: Colors.transparent,
+                              textColor: AppColors.textTertiary,
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.textSecondary,
+                                side: const BorderSide(color: AppColors.borderColor),
+                              ),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: selectedDay == null
+                                  ? null
+                                  : () => Navigator.pop(dialogContext, selectedDay),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFE5A93C),
+                                foregroundColor: Colors.black,
+                              ),
+                              child: const Text('Confirm Date', style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<DateTimeRange?> _showRescheduleCalendarDialog({
     required DateTime firstDate,
     required DateTime lastDate,
@@ -9935,12 +10148,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         children: const [
                           _CalendarLegendDot(
                             color: Color(0xFFE5A93C),
-                            label: 'Selected',
+                            label: 'Planning to Reschedule',
                             textColor: AppColors.textPrimary,
                           ),
                           _CalendarLegendDot(
                             color: AppColors.error,
-                            label: 'Booked / Unavailable',
+                            label: 'Already Booked (Unavailable)',
                             textColor: AppColors.textPrimary,
                           ),
                           _CalendarLegendDot(
@@ -9950,7 +10163,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           _CalendarLegendDot(
                             color: AppColors.success,
-                            label: 'Available',
+                            label: 'Available Dates',
                             textColor: AppColors.textPrimary,
                           ),
                         ],
@@ -10108,6 +10321,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               day: day,
                               backgroundColor: const Color(0xFFE5A93C),
                               textColor: Colors.black,
+                            );
+                          },
+                          withinRangeBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: const Color(0xFFE5A93C).withAlpha(90),
+                              textColor: Colors.black,
+                              borderColor: const Color(0xFFE5A93C),
                             );
                           },
                           disabledBuilder: (context, day, focusedDay) {

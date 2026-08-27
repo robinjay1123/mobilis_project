@@ -875,28 +875,9 @@ class VehicleService {
         var current = _dateOnly(start);
         final last = _dateOnly(end);
         while (!current.isAfter(last)) {
-          intervalsByDay.putIfAbsent(_dateKey(current), () => []).add((
-            start,
-            end,
-          ));
+          byDay[_dateKey(current)] = current;
           current = current.add(const Duration(days: 1));
         }
-      }
-
-      for (final entry in intervalsByDay.entries) {
-        if (byDay.containsKey(entry.key)) continue;
-        final day = DateTime.parse(entry.key);
-        final allSlotsBooked = List.generate(17, (index) => 6 + index).every((
-          hour,
-        ) {
-          final slotStart = DateTime(day.year, day.month, day.day, hour);
-          final slotEnd = slotStart.add(const Duration(hours: 1));
-          return entry.value.any(
-            (interval) =>
-                slotStart.isBefore(interval.$2) && slotEnd.isAfter(interval.$1),
-          );
-        });
-        if (allSlotsBooked) byDay[entry.key] = day;
       }
       return byDay.values.toList()..sort();
     } catch (e) {

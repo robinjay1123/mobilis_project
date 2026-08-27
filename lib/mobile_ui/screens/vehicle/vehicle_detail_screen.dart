@@ -569,22 +569,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         children: const [
                           _CalendarLegendDot(
                             color: AppColors.primary,
-                            label: 'Selected',
+                            label: 'Selected Dates',
                             textColor: AppColors.textPrimary,
                           ),
                           _CalendarLegendDot(
                             color: AppColors.error,
-                            label: 'Unavailable',
+                            label: 'Already Booked (Unavailable)',
                             textColor: AppColors.textPrimary,
                           ),
                           _CalendarLegendDot(
                             color: AppColors.warning,
-                            label: 'Your booking',
+                            label: 'Your Bookings',
                             textColor: AppColors.textPrimary,
                           ),
                           _CalendarLegendDot(
                             color: AppColors.success,
-                            label: 'Available',
+                            label: 'Available Dates',
                             textColor: AppColors.textPrimary,
                           ),
                         ],
@@ -830,6 +830,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               day: day,
                               backgroundColor: AppColors.primary,
                               textColor: Colors.black,
+                            );
+                          },
+                          withinRangeBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.primary.withAlpha(90),
+                              textColor: Colors.black,
+                              borderColor: AppColors.primary,
                             );
                           },
                           markerBuilder: (context, day, events) {
