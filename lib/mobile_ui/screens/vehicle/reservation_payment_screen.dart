@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -348,15 +349,14 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     if (senderPhone.isEmpty) {
       setState(() {
         _errorText =
-            'Please enter your mobile phone number for operator verification.';
+            'Please enter your 11-digit mobile phone number for operator verification.';
       });
       return;
     }
-    if (!RegExp(r'^\d{10,13}$').hasMatch(senderPhone) &&
-        !RegExp(r'^(09|\+639)\d{9}$').hasMatch(senderPhone)) {
+    if (senderPhone.length != 11 || !senderPhone.startsWith('09')) {
       setState(() {
         _errorText =
-            'Please enter a valid Philippine mobile number (e.g. 09171234567).';
+            'Verification phone number must be exactly 11 digits starting with 09 (e.g. 09171234567).';
       });
       return;
     }
@@ -2167,7 +2167,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             TextField(
               controller: _senderPhoneController,
               keyboardType: TextInputType.phone,
-              maxLength: 13,
+              maxLength: 11,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(11),
+              ],
               enabled: !_isUploading,
               onChanged: (_) => setState(() {}),
               style: TextStyle(color: isDark ? Colors.white : const Color(0xFF0F172A)),
