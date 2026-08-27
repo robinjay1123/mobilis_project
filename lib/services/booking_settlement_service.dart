@@ -28,8 +28,8 @@ class BookingSettlementAmounts {
     required bool isPartnerVehicle,
   }) {
     final ownerServiceAmount = rentalAmount + deliveryAmount + lateFeeAmount;
-    final partnerCommission = isPartnerVehicle ? ownerServiceAmount * .10 : 0.0;
-    final driverCommission = driverGross * .15;
+    final partnerCommission = isPartnerVehicle ? ownerServiceAmount * 0.05 : 0.0;
+    final driverCommission = driverGross * 0.05;
     return BookingSettlementAmounts(
       ownerServiceAmount: ownerServiceAmount,
       partnerCommission: partnerCommission,

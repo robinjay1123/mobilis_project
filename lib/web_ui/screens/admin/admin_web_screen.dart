@@ -8759,8 +8759,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         vehicle['is_partner_vehicle'] == true ||
         vehicle['owner_role']?.toString().toLowerCase() == 'partner';
 
-    // 10% platform commission on rental, 90% partner net
-    final partnerCommission = isPartner ? rentalSubtotal * 0.10 : 0.0;
+    // 5% platform commission on rental, 95% partner net
+    final partnerCommission = isPartner ? rentalSubtotal * 0.05 : 0.0;
     final partnerNet = isPartner
         ? (rentalSubtotal - partnerCommission).clamp(0.0, double.infinity)
         : 0.0;
@@ -8878,7 +8878,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           : '';
       return Tooltip(
         message:
-            'Partner Net: ₱${partnerNet.toStringAsFixed(0)} | Platform Commission (10%): ₱${commission.toStringAsFixed(0)}${dateStr.isNotEmpty ? '\nDisbursed: $dateStr' : ''}',
+            'Partner Net: ₱${partnerNet.toStringAsFixed(0)} | Platform Commission (5%): ₱${commission.toStringAsFixed(0)}${dateStr.isNotEmpty ? '\nDisbursed: $dateStr' : ''}',
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(

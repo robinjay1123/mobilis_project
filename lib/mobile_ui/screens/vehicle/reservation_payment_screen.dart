@@ -1203,7 +1203,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           ],
           if (isPartnerVehicle && partnerCommission > 0) ...[
             const SizedBox(height: 8),
-            _buildBreakdownRow('Partner commission (10%)', partnerCommission, isDark: isDark),
+            _buildBreakdownRow('Partner commission (5%)', partnerCommission, isDark: isDark),
           ],
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 10),
