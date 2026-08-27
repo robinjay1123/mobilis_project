@@ -271,13 +271,13 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
     Color borderColor,
   ) {
     final title = _isRenter
-        ? 'Security Deposit & Cancellation Refunds'
+        ? 'Security Deposit Refunds'
         : (_isPartner
             ? 'Partner Earnings & Revenue Payouts'
             : 'Driver Commission & Trip Disbursements');
 
     final description = _isRenter
-        ? 'Upload your recipient QR code (GCash, Maya, MariBank, or GoTyme) so the operator can swiftly return your refundable security deposit upon vehicle return inspection or processed cancellations.'
+        ? 'Upload your recipient QR code (GCash, Maya, MariBank, or GoTyme) so the operator can swiftly return your refundable security deposit upon vehicle return inspection.'
         : (_isPartner
             ? 'Link your verified payout QR and recipient details to receive rental earnings, completed trip payouts, and approved revenue disbursements directly.'
             : 'Link your payout QR code so PSDC operators can disburse your driver fees, trip commissions, and earned allowances directly to your e-wallet or bank.');
