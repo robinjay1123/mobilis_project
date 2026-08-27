@@ -8326,6 +8326,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
+    final startRaw = booking['start_at']?.toString() ??
+        booking['start_date_raw']?.toString() ??
+        booking['startDate']?.toString() ??
+        booking['start_date']?.toString();
+
     final currentEndAt = DateTime.tryParse(endRaw)?.toLocal();
     if (currentEndAt == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -8336,6 +8341,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
       return;
     }
+
+    final currentStartAt = (startRaw != null ? DateTime.tryParse(startRaw)?.toLocal() : null) ??
+        booking['startDateObj'] as DateTime? ??
+        currentEndAt.subtract(const Duration(days: 1));
 
     final availability = await BookingService().getTripExtensionAvailability(
       bookingId: bookingId,
