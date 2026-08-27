@@ -810,22 +810,46 @@ class BookingService {
         throw Exception('Please select a trip destination before booking');
       }
 
-      // Execute restriction check, vehicle state query, and overlapping bookings query concurrently
+      // Fetch vehicle record (checking both standard vehicles and partner_vehicles tables)
+      Map<String, dynamic>? vehicleState = await supabase
+          .from('vehicles')
+          .select('id,owner_role,plate_number,is_available,is_posted,status,partner_id')
+          .eq('id', vehicleId)
+          .maybeSingle();
+
+      bool isPartnerVehicle = false;
+      String? partnerId;
+
+      if (vehicleState != null) {
+        if (vehicleState['owner_role']?.toString().toLowerCase() == 'partner') {
+          isPartnerVehicle = true;
+          partnerId = vehicleState['partner_id']?.toString();
+        }
+      } else {
+        // Fall back to partner_vehicles table
+        final partnerState = await supabase
+            .from('partner_vehicles')
+            .select('id,plate_number,is_available,is_posted,status,application_status,partner_id')
+            .eq('id', vehicleId)
+            .maybeSingle();
+
+        if (partnerState != null) {
+          vehicleState = Map<String, dynamic>.from(partnerState);
+          vehicleState['owner_role'] = 'partner';
+          isPartnerVehicle = true;
+          partnerId = partnerState['partner_id']?.toString();
+        }
+      }
+
       final (
         restriction,
-        vehicleState,
         overlappingBookings,
       ) = await (
         UserRestrictionService().getUserRestriction(renterId),
         supabase
-            .from('vehicles')
-            .select('id,owner_role,plate_number,is_available,is_posted,status')
-            .eq('id', vehicleId)
-            .maybeSingle(),
-        supabase
             .from('bookings')
             .select('id,start_at,end_at,start_date,end_date,status')
-            .eq('vehicle_id', vehicleId)
+            .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
             .inFilter('status', _bookingBlockingStatuses),
       ).wait;
 
@@ -835,17 +859,21 @@ class BookingService {
         );
       }
 
+      if (vehicleState == null) {
+        throw Exception('This vehicle is currently unavailable for booking');
+      }
+
       final vehicleStatus =
-          vehicleState?['status']?.toString().trim().toLowerCase() ?? '';
+          vehicleState['status']?.toString().trim().toLowerCase() ?? '';
       final vehicleCanBeBooked =
-          vehicleState?['is_available'] == true &&
-          vehicleState?['is_posted'] == true &&
-          !{'inactive', 'archived', 'deleted'}.contains(vehicleStatus);
+          vehicleState['is_available'] != false &&
+          vehicleState['is_posted'] != false &&
+          !{'inactive', 'archived', 'deleted', 'rejected'}.contains(vehicleStatus);
       if (!vehicleCanBeBooked) {
         throw Exception('This vehicle is currently unavailable for booking');
       }
 
-      if (vehicleState?['owner_role']?.toString().toLowerCase() == 'partner') {
+      if (isPartnerVehicle) {
         final approvedAndListed = await VehicleService().isVehicleBookable(
           vehicleId,
         );
@@ -879,6 +907,8 @@ class BookingService {
       final bookingPayload = <String, dynamic>{
         'renter_id': renterId,
         'vehicle_id': vehicleId,
+        if (isPartnerVehicle) 'partner_vehicle_id': vehicleId,
+        if (partnerId != null && partnerId.isNotEmpty) 'partner_id': partnerId,
         'start_at': startAt.toIso8601String(),
         'end_at': endAt.toIso8601String(),
         // Keep legacy fields for existing screens/queries (date-only intent).
@@ -4032,7 +4062,7 @@ class BookingService {
         );
       }
 
-      final vehicleId = booking['vehicle_id']?.toString() ?? '';
+      final vehicleId = booking['vehicle_id']?.toString() ?? booking['partner_vehicle_id']?.toString() ?? '';
       final endRaw =
           booking['end_at']?.toString() ?? booking['end_date']?.toString();
       final currentEndAt = endRaw != null
@@ -4059,7 +4089,7 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select('id,start_at,end_at,start_date,end_date,status')
-          .eq('vehicle_id', vehicleId)
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
           .neq('id', bookingId);
 
       final futureIntervals = <(DateTime, DateTime)>[];
@@ -4184,11 +4214,11 @@ class BookingService {
         );
       }
 
-      final vehicleId = booking['vehicle_id']?.toString() ?? '';
+      final vehicleId = booking['vehicle_id']?.toString() ?? booking['partner_vehicle_id']?.toString() ?? '';
       final overlappingBookings = await supabase
           .from('bookings')
           .select('id,start_at,end_at,start_date,end_date,status')
-          .eq('vehicle_id', vehicleId)
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
           .neq('id', bookingId);
 
       final extensionStart = currentEndAt ?? DateTime.now();
@@ -4334,11 +4364,11 @@ class BookingService {
       );
     }
 
-    final vehicleId = booking['vehicle_id']?.toString() ?? '';
+    final vehicleId = booking['vehicle_id']?.toString() ?? booking['partner_vehicle_id']?.toString() ?? '';
     final overlappingBookings = await supabase
         .from('bookings')
         .select('id,start_at,end_at,start_date,end_date,status')
-        .eq('vehicle_id', vehicleId)
+        .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
         .neq('id', bookingId);
 
     final extensionStart = currentEndAt ?? DateTime.now();
@@ -5109,11 +5139,14 @@ class BookingService {
       final originalEnd = booking['original_end_at'] ?? booking['end_at'];
 
       // Check vehicle availability on requested dates
-      if (vehicleId.isNotEmpty) {
+      final resolvedVehicleId = vehicleId.isNotEmpty
+          ? vehicleId
+          : (booking['partner_vehicle_id']?.toString() ?? '');
+      if (resolvedVehicleId.isNotEmpty) {
         final conflicts = await supabase
             .from('bookings')
             .select('id, start_at, end_at, status')
-            .eq('vehicle_id', vehicleId)
+            .or('vehicle_id.eq.$resolvedVehicleId,partner_vehicle_id.eq.$resolvedVehicleId')
             .neq('id', bookingId)
             .inFilter('status', ['pending', 'approved', 'ongoing'])
             .lte('start_at', newEndAt.toIso8601String())

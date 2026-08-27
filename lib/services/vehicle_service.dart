@@ -648,9 +648,9 @@ class VehicleService {
         final status = (pv['status'] ?? '').toString().toLowerCase();
         final appStatus =
             (pv['application_status'] ?? '').toString().toLowerCase();
-        const visibleStatuses = {'available', 'approved', 'active'};
-        return visibleStatuses.contains(status) &&
-            (appStatus == 'approved' || appStatus.isEmpty) &&
+        const blockedStatuses = {'rejected', 'deleted', 'archived', 'disabled'};
+        return !blockedStatuses.contains(status) &&
+            !blockedStatuses.contains(appStatus) &&
             pv['is_available'] != false &&
             pv['is_posted'] != false;
       }
@@ -862,7 +862,7 @@ class VehicleService {
       final response = await supabase
           .from('bookings')
           .select('start_at,end_at,start_date,end_date,status')
-          .eq('vehicle_id', vehicleId)
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
           .inFilter('status', _bookingBlockingStatuses);
       final intervalsByDay = <String, List<(DateTime, DateTime)>>{};
       for (final row in List<Map<String, dynamic>>.from(response)) {
@@ -891,7 +891,7 @@ class VehicleService {
       final response = await supabase
           .from('bookings')
           .select('start_at,end_at,start_date,end_date,status')
-          .eq('vehicle_id', vehicleId)
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
           .inFilter('status', _bookingBlockingStatuses);
 
       final dates = <String, DateTime>{};
@@ -949,7 +949,7 @@ class VehicleService {
       final bookingRows = await supabase
           .from('bookings')
           .select('start_at,end_at,start_date,end_date,status')
-          .eq('vehicle_id', vehicleId)
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
           .inFilter('status', _bookingBlockingStatuses);
       final bookedIntervals = <(DateTime, DateTime)>[];
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
@@ -1023,7 +1023,7 @@ class VehicleService {
       final bookingRows = await supabase
           .from('bookings')
           .select('start_at,end_at,start_date,end_date,status')
-          .eq('vehicle_id', vehicleId)
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
           .inFilter('status', _bookingBlockingStatuses);
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
         final status = row['status']?.toString();
@@ -1205,7 +1205,7 @@ class VehicleService {
       final bookingRows = await supabase
           .from('bookings')
           .select('id,start_at,end_at,start_date,end_date')
-          .eq('vehicle_id', vehicleId)
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
           .inFilter('status', _bookingBlockingStatuses);
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
         final interval = _bookingInterval(row);
