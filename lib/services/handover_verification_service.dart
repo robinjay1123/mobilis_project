@@ -9,7 +9,7 @@ class HandoverVerificationService {
       HandoverVerificationService._internal();
   factory HandoverVerificationService() => _instance;
 
-  final SupabaseClient supabase = Supabase.instance.client;
+  SupabaseClient get supabase => Supabase.instance.client;
 
   /// Generates a deterministic 6-digit security PIN based on booking ID and renter ID
   String generateHandoverPin(String bookingId, String renterId) {
