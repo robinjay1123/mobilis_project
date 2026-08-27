@@ -20070,6 +20070,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }
     }
 
+  String _formatOperatorMessageTime(dynamic timestamp) {
+    if (timestamp == null) return '';
+    try {
+      final dt = DateTime.parse(timestamp.toString()).toLocal();
+      return DateFormat('hh:mm a').format(dt);
+    } catch (_) {
+      return '';
+    }
+  }
+
     final attachmentType =
         (message['attachment_type'] ?? message['type'])?.toString().trim() ??
         '';

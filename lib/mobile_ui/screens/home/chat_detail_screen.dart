@@ -795,6 +795,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
         ),
       ),
+    );
+  }
+
   Widget _buildSystemNoteCard({
     required Map<String, dynamic> message,
     required String displayContent,
