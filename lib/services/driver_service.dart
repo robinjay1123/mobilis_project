@@ -411,6 +411,7 @@ class DriverService {
   Future<List<Map<String, dynamic>>> getPendingOffers(String userId) async {
     try {
       debugPrint('Fetching pending offers for driver user: $userId');
+      await BookingService().checkAndExpireDriverAssignments();
 
       // Resolve possible driver profile id
       String? driverProfileId;

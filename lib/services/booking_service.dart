@@ -373,6 +373,9 @@ class BookingService {
   ) async {
     if (rawBookings.isEmpty) return rawBookings;
 
+    // First auto-decline any driver assignments that exceeded the 10-minute response window
+    await checkAndExpireDriverAssignments();
+
     final bookings =
         rawBookings.map((b) => Map<String, dynamic>.from(b)).toList();
     final missingVehicleIds = <String>{};
@@ -2052,6 +2055,94 @@ class BookingService {
     } catch (e) {
       debugPrint('Error rejecting booking: $e');
       rethrow;
+    }
+  }
+
+  /// Checks all active driver job offers (status = pending_offer or assigned)
+  /// and automatically declines any that have exceeded the 10-minute response window.
+  Future<void> checkAndExpireDriverAssignments() async {
+    try {
+      final response = await supabase
+          .from('driver_job_assignments')
+          .select('id, booking_id, driver_id, offered_at, created_at, status')
+          .inFilter('status', ['pending_offer', 'assigned']);
+
+      final now = DateTime.now();
+
+      for (final offer in response) {
+        final offerId = offer['id']?.toString() ?? '';
+        final bookingId = offer['booking_id']?.toString() ?? '';
+        final driverId = offer['driver_id']?.toString() ?? '';
+        final offeredAtStr = offer['offered_at']?.toString() ?? offer['created_at']?.toString();
+        final offeredAt = offeredAtStr != null ? DateTime.tryParse(offeredAtStr)?.toLocal() : null;
+
+        if (offeredAt != null && now.difference(offeredAt).inMinutes >= 10) {
+          debugPrint('Driver job offer $offerId for booking $bookingId expired after 10 minutes. Auto-declining.');
+          final nowIso = now.toIso8601String();
+
+          // 1. Mark assignment as rejected/expired
+          await supabase
+              .from('driver_job_assignments')
+              .update({
+                'status': 'rejected',
+                'rejection_reason': 'Auto-declined: 10-minute driver acceptance window expired',
+                'replied_at': nowIso,
+                'updated_at': nowIso,
+              })
+              .eq('id', offerId);
+
+          // 2. Reset booking driver allocation so operator/partner can reassign immediately
+          if (bookingId.isNotEmpty) {
+            await supabase
+                .from('bookings')
+                .update({
+                  'driver_id': null,
+                  'driver_assigned_at': null,
+                  'status': 'pending',
+                  'updated_at': nowIso,
+                })
+                .eq('id', bookingId);
+          }
+
+          // 3. Mark driver available
+          if (driverId.isNotEmpty) {
+            try {
+              await supabase
+                  .from('users')
+                  .update({'is_available': true})
+                  .eq('id', driverId);
+            } catch (_) {}
+          }
+
+          // 4. Send notifications
+          if (bookingId.isNotEmpty) {
+            try {
+              final shortBookingId = bookingId.length >= 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId;
+              await NotificationService().notifyOperatorDriverResponse(
+                bookingId: bookingId,
+                driverId: driverId,
+                driverName: 'Assigned Driver',
+                accepted: false,
+              );
+
+              if (driverId.isNotEmpty) {
+                await NotificationService().createNotification(
+                  userId: driverId,
+                  title: 'Job Offer Expired (10 min Limit)',
+                  message: 'The job offer for booking #$shortBookingId expired because it was not accepted within 10 minutes.',
+                  type: 'booking',
+                  data: {
+                    'booking_id': bookingId,
+                    'event': 'driver_offer_expired',
+                  },
+                );
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking expired driver assignments: $e');
     }
   }
 

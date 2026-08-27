@@ -13971,10 +13971,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final waitingForDriver =
                     assignmentStatus == 'pending_offer' ||
                     assignmentStatus == 'assigned';
+                final assignedAtRaw = booking['driver_assigned_at'] ?? latestAssignment?['offered_at'] ?? latestAssignment?['created_at'];
+                final assignedAt = assignedAtRaw != null ? DateTime.tryParse(assignedAtRaw.toString())?.toLocal() : null;
+                final offerRemainingSec = (waitingForDriver && assignedAt != null)
+                    ? (600 - DateTime.now().difference(assignedAt).inSeconds).clamp(0, 600)
+                    : 0;
+                final isOfferExpired = waitingForDriver && (assignedAt != null && offerRemainingSec <= 0);
+                final effectiveWaitingForDriver = waitingForDriver && !isOfferExpired;
                 final driverAccepted =
                     assignmentStatus == 'accepted' ||
                     assignmentStatus == 'confirmed';
-                final driverDeclined = assignmentStatus == 'rejected';
+                final driverDeclined = assignmentStatus == 'rejected' || isOfferExpired;
                 final status = booking['status'] as String? ?? 'pending';
                 final statusLower = status.toLowerCase();
                 final canTrack = _canTrackBooking(booking);
@@ -14396,46 +14403,60 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ),
                                   ),
                                 if (statusLower == 'pending' &&
-                                    withDriver &&
-                                    !driverAccepted &&
-                                    !waitingForDriver &&
-                                    !_isPartnerOwnedBooking(booking))
-                                  ElevatedButton.icon(
-                                    onPressed: () =>
-                                        _showApproveDialog(booking),
-                                    icon: const Icon(
-                                      Icons.person_search,
-                                      size: 16,
-                                    ),
-                                    label: Text(
-                                      driverDeclined
-                                          ? 'Select Another Driver'
-                                          : 'Select Driver',
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 8,
-                                      ),
-                                    ),
-                                  ),
-                                if (statusLower == 'pending' &&
-                                    withDriver &&
-                                    waitingForDriver &&
-                                    !_isPartnerOwnedBooking(booking))
-                                  OutlinedButton.icon(
-                                    onPressed: null,
-                                    icon: const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                    label: const Text('Waiting for Driver'),
-                                  ),
+                                     withDriver &&
+                                     !driverAccepted &&
+                                     (!effectiveWaitingForDriver || isOfferExpired) &&
+                                     !_isPartnerOwnedBooking(booking))
+                                   ElevatedButton.icon(
+                                     onPressed: () =>
+                                         _showApproveDialog(booking),
+                                     icon: const Icon(
+                                       Icons.person_search,
+                                       size: 16,
+                                     ),
+                                     label: Text(
+                                       driverDeclined
+                                           ? 'Select Another Driver'
+                                           : (isOfferExpired
+                                               ? 'Driver Expired • Reassign'
+                                               : 'Select Driver'),
+                                     ),
+                                     style: ElevatedButton.styleFrom(
+                                       backgroundColor: (driverDeclined || isOfferExpired)
+                                           ? Colors.amber[800]
+                                           : Colors.green,
+                                       foregroundColor: Colors.white,
+                                       padding: const EdgeInsets.symmetric(
+                                         horizontal: 16,
+                                         vertical: 8,
+                                       ),
+                                     ),
+                                   ),
+                                 if (statusLower == 'pending' &&
+                                     withDriver &&
+                                     effectiveWaitingForDriver &&
+                                     !_isPartnerOwnedBooking(booking))
+                                   OutlinedButton.icon(
+                                     onPressed: () => _showApproveDialog(booking),
+                                     icon: const SizedBox(
+                                       width: 14,
+                                       height: 14,
+                                       child: CircularProgressIndicator(
+                                         strokeWidth: 2,
+                                       ),
+                                     ),
+                                     label: Text(
+                                       'Awaiting Driver (${(offerRemainingSec ~/ 60).toString().padLeft(2, '0')}:${(offerRemainingSec % 60).toString().padLeft(2, '0')})',
+                                     ),
+                                     style: OutlinedButton.styleFrom(
+                                       foregroundColor: AppColors.primary,
+                                       side: const BorderSide(color: AppColors.primary),
+                                       padding: const EdgeInsets.symmetric(
+                                         horizontal: 14,
+                                         vertical: 8,
+                                       ),
+                                     ),
+                                   ),
                                 if (statusLower == 'pending' &&
                                     !_isPartnerOwnedBooking(booking))
                                   OutlinedButton.icon(

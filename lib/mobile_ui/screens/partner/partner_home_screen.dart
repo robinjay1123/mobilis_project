@@ -7788,7 +7788,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'A job offer has been sent to the driver. Waiting for their confirmation. Once accepted, you can approve and finalize the booking.',
+                        'A job offer has been sent to the driver (10-minute response window). Once accepted, you can approve and finalize the booking. If unanswered after 10 minutes, it will auto-decline so you can reassign immediately.',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: isDark ? Colors.grey.shade300 : Colors.black87,

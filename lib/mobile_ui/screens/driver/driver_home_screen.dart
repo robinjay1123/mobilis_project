@@ -3523,8 +3523,47 @@ class _DriverOfferCard extends StatefulWidget {
 
 class _DriverOfferCardState extends State<_DriverOfferCard> {
   bool _isResponding = false;
+  Timer? _offerCountdownTimer;
 
   Map<String, dynamic> get offer => widget.offer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  @override
+  void dispose() {
+    _offerCountdownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _offerCountdownTimer?.cancel();
+    _offerCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final remaining = _getRemainingSeconds();
+      if (remaining <= 0) {
+        _offerCountdownTimer?.cancel();
+        BookingService().checkAndExpireDriverAssignments().then((_) {
+          if (mounted) widget.onChanged();
+        });
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
+  int _getRemainingSeconds() {
+    final offeredAtRaw = offer['offered_at'] ?? offer['created_at'];
+    final offeredAt = offeredAtRaw != null
+        ? DateTime.tryParse(offeredAtRaw.toString())?.toLocal()
+        : null;
+    if (offeredAt == null) return 0;
+    final diff = 600 - DateTime.now().difference(offeredAt).inSeconds;
+    return diff > 0 ? diff : 0;
+  }
 
   Future<void> _respondToOffer(bool accept) async {
     final assignmentId = offer['id']?.toString() ?? '';
@@ -3646,6 +3685,36 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 10-Minute Acceptance Window Banner
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE5A93C).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: const Color(0xFFE5A93C).withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.timer_outlined, size: 16, color: Color(0xFFE5A93C)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _getRemainingSeconds() > 0
+                        ? 'Accept within 10 minutes (${(_getRemainingSeconds() ~/ 60).toString().padLeft(2, '0')}:${(_getRemainingSeconds() % 60).toString().padLeft(2, '0')} remaining)'
+                        : 'Offer expired (10-minute window exceeded)',
+                    style: const TextStyle(
+                      color: Color(0xFFE5A93C),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
