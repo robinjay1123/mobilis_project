@@ -207,6 +207,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return isAssignedToThisOperator || isUnassigned;
   }
 
+  Future<void> _openOperatorHandoverVerifier({
+    String? bookingId,
+    String? vehicleName,
+    String? renterName,
+    String mode = 'release',
+  }) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) return;
+
+    final result = await HandoverPinVerifierModal.show(
+      context,
+      bookingId: bookingId ?? '',
+      verifierId: currentUserId,
+      verifierRole: 'operator',
+      vehicleName: vehicleName,
+      renterName: renterName,
+      mode: mode,
+    );
+
+    if (result == true) {
+      if (mounted) {
+        setState(() {});
+      }
+    }
+  }
+
   Future<void> _loadPendingBookingsCount() async {
     final currentUserId = _supabase.auth.currentUser?.id;
     if (currentUserId == null || currentUserId.isEmpty) {
@@ -5124,6 +5150,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ? _operatorGold
                   : Colors.orangeAccent,
             ),
+          ),
+          IconButton(
+            tooltip: 'Scan QR / Verify Handover & Return Pass',
+            onPressed: () => _openOperatorHandoverVerifier(),
+            icon: Icon(Icons.qr_code_scanner_rounded, color: _operatorGold),
           ),
           const SizedBox(width: 4),
           IconButton(
