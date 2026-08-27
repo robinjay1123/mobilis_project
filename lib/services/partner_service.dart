@@ -15,7 +15,7 @@ class PartnerService {
 
   PartnerService._internal();
 
-  final supabase = Supabase.instance.client;
+  SupabaseClient get supabase => Supabase.instance.client;
 
   // Get partner profile by user ID
   Future<Map<String, dynamic>?> getPartnerProfile(String userId) async {
@@ -997,77 +997,117 @@ class PartnerService {
     return error.toString();
   }
 
-  // ================== DYNAMIC PRICING CONTROLS ==================
+  // ================== VEHICLE MAINTENANCE & SERVICE REMINDERS ==================
 
-  /// Get dynamic pricing configuration for a vehicle
-  Future<Map<String, dynamic>> getVehicleDynamicPricing(String vehicleId) async {
+  /// Get maintenance settings and service history for a partner vehicle
+  Future<Map<String, dynamic>> getVehicleMaintenanceSettings(String vehicleId) async {
     try {
-      // Check partner_vehicles table first
       final partnerVehicle = await supabase
           .from('partner_vehicles')
-          .select('pricing_settings')
+          .select('maintenance_settings')
           .eq('id', vehicleId)
           .maybeSingle();
 
-      if (partnerVehicle != null && partnerVehicle['pricing_settings'] != null) {
-        return Map<String, dynamic>.from(partnerVehicle['pricing_settings'] as Map);
+      if (partnerVehicle != null && partnerVehicle['maintenance_settings'] != null) {
+        return Map<String, dynamic>.from(partnerVehicle['maintenance_settings'] as Map);
       }
 
-      // Check vehicles table fallback
       final vehicle = await supabase
           .from('vehicles')
-          .select('pricing_settings')
+          .select('maintenance_settings')
           .eq('id', vehicleId)
           .maybeSingle();
 
-      if (vehicle != null && vehicle['pricing_settings'] != null) {
-        return Map<String, dynamic>.from(vehicle['pricing_settings'] as Map);
+      if (vehicle != null && vehicle['maintenance_settings'] != null) {
+        return Map<String, dynamic>.from(vehicle['maintenance_settings'] as Map);
       }
     } catch (e) {
-      debugPrint('Error getting dynamic pricing: $e');
+      debugPrint('Error getting vehicle maintenance settings: $e');
     }
 
-    // Default configuration: no surge
     return {
-      'weekend_multiplier': 1.0,
-      'peak_surcharge_per_day': 0.0,
-      'peak_dates': <String>[],
+      'current_odometer_km': 0.0,
+      'next_service_odometer_km': 5000.0,
+      'oil_change_due_date': null,
+      'lto_registration_due_date': null,
+      'tire_rotation_due_km': 10000.0,
+      'notes': '',
+      'updated_at': null,
     };
   }
 
-  /// Update dynamic pricing configuration for a partner vehicle
-  Future<void> updateVehicleDynamicPricing({
+  /// Update maintenance settings and reminder targets for a partner vehicle
+  Future<void> updateVehicleMaintenanceSettings({
     required String vehicleId,
-    required double weekendMultiplier,
-    required double peakSurchargePerDay,
-    List<String> peakDates = const [],
+    required double currentOdometerKm,
+    required double nextServiceOdometerKm,
+    String? oilChangeDueDate,
+    String? ltoRegistrationDueDate,
+    String? notes,
   }) async {
     final settings = {
-      'weekend_multiplier': weekendMultiplier,
-      'peak_surcharge_per_day': peakSurchargePerDay,
-      'peak_dates': peakDates,
+      'current_odometer_km': currentOdometerKm,
+      'next_service_odometer_km': nextServiceOdometerKm,
+      'oil_change_due_date': oilChangeDueDate,
+      'lto_registration_due_date': ltoRegistrationDueDate,
+      'notes': notes ?? '',
       'updated_at': DateTime.now().toIso8601String(),
     };
 
     try {
-      // Update partner_vehicles if exists
       await supabase
           .from('partner_vehicles')
-          .update({'pricing_settings': settings})
+          .update({'maintenance_settings': settings})
           .eq('id', vehicleId);
     } catch (e) {
-      debugPrint('Error updating partner_vehicles pricing: $e');
+      debugPrint('Error updating partner_vehicles maintenance settings: $e');
     }
 
     try {
-      // Update vehicles table if exists
       await supabase
           .from('vehicles')
-          .update({'pricing_settings': settings})
+          .update({'maintenance_settings': settings})
           .eq('id', vehicleId);
     } catch (e) {
-      debugPrint('Error updating vehicles pricing: $e');
+      debugPrint('Error updating vehicles maintenance settings: $e');
     }
+  }
+
+  /// Evaluates vehicle maintenance health status ('good', 'due_soon', 'overdue')
+  String evaluateMaintenanceHealth(Map<String, dynamic> settings) {
+    final currentOdometer = (settings['current_odometer_km'] as num?)?.toDouble() ?? 0.0;
+    final nextServiceOdometer = (settings['next_service_odometer_km'] as num?)?.toDouble() ?? 0.0;
+
+    final oilChangeRaw = settings['oil_change_due_date']?.toString();
+    final ltoDueDateRaw = settings['lto_registration_due_date']?.toString();
+
+    final now = DateTime.now();
+
+    // Check Odometer targets
+    if (nextServiceOdometer > 0) {
+      if (currentOdometer >= nextServiceOdometer) return 'overdue';
+      if ((nextServiceOdometer - currentOdometer) <= 500) return 'due_soon';
+    }
+
+    // Check Oil Change Due Date
+    if (oilChangeRaw != null && oilChangeRaw.isNotEmpty) {
+      final oilDate = DateTime.tryParse(oilChangeRaw);
+      if (oilDate != null) {
+        if (now.isAfter(oilDate)) return 'overdue';
+        if (oilDate.difference(now).inDays <= 14) return 'due_soon';
+      }
+    }
+
+    // Check LTO Registration Date
+    if (ltoDueDateRaw != null && ltoDueDateRaw.isNotEmpty) {
+      final ltoDate = DateTime.tryParse(ltoDueDateRaw);
+      if (ltoDate != null) {
+        if (now.isAfter(ltoDate)) return 'overdue';
+        if (ltoDate.difference(now).inDays <= 30) return 'due_soon';
+      }
+    }
+
+    return 'good';
   }
 }
 

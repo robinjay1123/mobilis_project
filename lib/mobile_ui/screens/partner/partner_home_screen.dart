@@ -28,7 +28,7 @@ import '../../widgets/relative_time_text.dart';
 import '../../widgets/booking_return_countdown.dart';
 import '../../widgets/vehicle_inspection_checklist_fields.dart';
 import '../../widgets/vehicle_inspection_record_view.dart';
-import '../../widgets/partner_dynamic_pricing_modal.dart';
+import '../../widgets/partner_vehicle_maintenance_modal.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/settings_screen.dart';

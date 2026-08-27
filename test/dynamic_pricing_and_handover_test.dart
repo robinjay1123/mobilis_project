@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobilis_by_psdc_app/services/handover_verification_service.dart';
+import 'package:mobilis_by_psdc_app/services/partner_service.dart';
 
 void main() {
   group('Feature 1: Renter Digital QR Handover Verification Service', () {
@@ -39,19 +40,31 @@ void main() {
     });
   });
 
-  group('Feature 2: Partner Dynamic Pricing Calculations', () {
-    test('Calculates weekend surge rate correctly', () {
-      const baseDailyRate = 2000.0;
-      const weekendMultiplier = 1.15; // +15%
-      const peakSurcharge = 500.0;
+  group('Feature 3: Partner Vehicle Maintenance & Service Reminders', () {
+    final partnerService = PartnerService();
 
-      final standardRate = baseDailyRate * 1.0;
-      final weekendRate = baseDailyRate * weekendMultiplier;
-      final peakWeekendRate = (baseDailyRate * weekendMultiplier) + peakSurcharge;
+    test('Evaluates maintenance health status correctly', () {
+      final goodSettings = {
+        'current_odometer_km': 40000.0,
+        'next_service_odometer_km': 45000.0,
+        'oil_change_due_date': '2028-12-31',
+        'lto_registration_due_date': '2028-12-31',
+      };
 
-      expect(standardRate, equals(2000.0));
-      expect(weekendRate, equals(2300.0));
-      expect(peakWeekendRate, equals(2800.0));
+      final dueSoonSettings = {
+        'current_odometer_km': 44600.0, // Within 500km
+        'next_service_odometer_km': 45000.0,
+        'oil_change_due_date': '2028-12-31',
+      };
+
+      final overdueSettings = {
+        'current_odometer_km': 46000.0, // Exceeds 45000km target
+        'next_service_odometer_km': 45000.0,
+      };
+
+      expect(partnerService.evaluateMaintenanceHealth(goodSettings), equals('good'));
+      expect(partnerService.evaluateMaintenanceHealth(dueSoonSettings), equals('due_soon'));
+      expect(partnerService.evaluateMaintenanceHealth(overdueSettings), equals('overdue'));
     });
   });
 }
