@@ -15266,8 +15266,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Future<void> _showSecurityDepositRefundDialog(
     Map<String, dynamic> booking,
