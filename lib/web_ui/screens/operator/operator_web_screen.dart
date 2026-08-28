@@ -18680,193 +18680,69 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '[Messages] Loading conversations for operator: $currentUserId',
       );
 
-      const activeStatuses = [
-        'pending',
-        'approved',
-        'confirmed',
-        'active',
-        'ongoing',
-        'return_pending_inspection',
-        'awaiting_completion',
-        'completed',
-        'frozen',
-        'safety_freeze',
-      ];
-      final participantConversationIds = <String>{};
+      // 1. Fetch conversations from ChatService (which handles operator/admin lookup)
+      List<Map<String, dynamic>> chatServiceRows = [];
       try {
-        final participations = await _supabase
-            .from('conversation_participants')
-            .select('conversation_id')
-            .eq('user_id', currentUserId);
-        participantConversationIds.addAll(
-          List<Map<String, dynamic>>.from(participations)
-              .map((row) => row['conversation_id']?.toString().trim())
-              .whereType<String>()
-              .where((id) => id.isNotEmpty),
-        );
-      } on PostgrestException catch (error) {
-        debugPrint('[Messages] Participant lookup skipped: ${error.message}');
+        chatServiceRows = await ChatService().getConversations(currentUserId);
+      } catch (csErr) {
+        debugPrint('[Messages] ChatService lookup note: $csErr');
       }
-      final participantBookingIds = <String>{};
-      if (participantConversationIds.isNotEmpty) {
-        final participantConversationRows = await _supabase
+
+      // 2. Query conversations table directly with full relationship embeds
+      List<Map<String, dynamic>> directConversations = [];
+      try {
+        final response = await _supabase
             .from('conversations')
-            .select('booking_id')
-            .inFilter('id', participantConversationIds.toList());
-        for (final row in List<Map<String, dynamic>>.from(
-          participantConversationRows,
-        )) {
-          final bookingId = row['booking_id']?.toString().trim() ?? '';
-          if (bookingId.isNotEmpty) participantBookingIds.add(bookingId);
-        }
-      }
-
-      final bookingRows = await _supabase
-          .from('bookings')
-          .select('id, status, operator_id, start_at, start_date, vehicles!bookings_vehicle_id_fkey(owner_id)')
-          .inFilter('status', activeStatuses)
-          .order('updated_at', ascending: false);
-      final eligibleBookings = List<Map<String, dynamic>>.from(bookingRows)
-          .where((booking) {
-            final bookingId = booking['id']?.toString().trim() ?? '';
-            final operatorId = booking['operator_id']?.toString().trim() ?? '';
-            final bookingStatus =
-                booking['status']?.toString().trim().toLowerCase() ?? '';
-            final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-            final isPartnerCar = vehicle?['owner_id'] != null &&
-                vehicle!['owner_id'].toString().trim().isNotEmpty;
-
-            // Pending bookings for partner cars are awaiting partner confirmation
-            // and should not have active group conversations created yet.
-            if (isPartnerCar && bookingStatus == 'pending') {
-              return false;
-            }
-
-            if (!BookingService().isEligibleForBookingChat(booking)) {
-              return false;
-            }
-
-            return operatorId.isEmpty ||
-                operatorId == currentUserId ||
-                participantBookingIds.contains(bookingId);
-          })
-          .toList();
-      final bookingIds = eligibleBookings
-          .map((booking) => booking['id']?.toString().trim())
-          .whereType<String>()
-          .where((id) => id.isNotEmpty)
-          .toList();
-
-      if (bookingIds.isEmpty) {
-        _conversations = await _loadOperatorConversationFallback(
-          currentUserId,
-          activeStatuses,
-        );
-        if (mounted) {
-          setState(() {
-            _isLoadingConversations = false;
-            _conversationLoadError = null;
-          });
-        }
-        return;
-      }
-
-      final existingRows = await _supabase
-          .from('conversations')
-          .select('id, booking_id, status')
-          .inFilter('booking_id', bookingIds);
-      final existingByBooking = <String, Map<String, dynamic>>{};
-      for (final conversation in List<Map<String, dynamic>>.from(
-        existingRows,
-      )) {
-        final bookingId = conversation['booking_id']?.toString();
-        if (bookingId != null && bookingId.isNotEmpty) {
-          existingByBooking[bookingId] = conversation;
-        }
-      }
-
-      for (final booking in eligibleBookings) {
-        final bookingId = booking['id']?.toString() ?? '';
-        final conversation = existingByBooking[bookingId];
-        final conversationId = conversation?['id']?.toString() ?? '';
-        final conversationStatus =
-            conversation?['status']?.toString().trim().toLowerCase() ?? '';
-        final needsRepair =
-            conversation == null ||
-            (conversationStatus != 'active' && conversationStatus != 'closed') ||
-            !participantConversationIds.contains(conversationId);
-        if (!needsRepair) continue;
-
-        try {
-          await BookingService().ensureBookingConversationForActiveBooking(
-            bookingId: bookingId,
-            operatorId: currentUserId,
-          );
-        } catch (error) {
-          debugPrint(
-            '[Messages] Could not repair conversation for $bookingId: $error',
-          );
-        }
-      }
-
-      final response = await _supabase
-          .from('conversations')
-          .select('''
-              id,
-              booking_id,
-              user_id,
-              other_user_id,
-              status,
-              created_at,
-              updated_at,
-              bookings!conversations_booking_id_fkey (
+            .select('''
                 id,
-                vehicle_id,
-                renter_id,
-                start_at,
-                end_at,
-                start_date,
-                end_date,
+                booking_id,
+                user_id,
+                other_user_id,
                 status,
-                cancellation_reason,
-                vehicles!bookings_vehicle_id_fkey (
-                  brand,
-                  model,
-                  year,
-                  vehicle_images(image_url, display_order)
+                created_at,
+                updated_at,
+                bookings!conversations_booking_id_fkey (
+                  id,
+                  vehicle_id,
+                  renter_id,
+                  operator_id,
+                  driver_id,
+                  start_at,
+                  end_at,
+                  start_date,
+                  end_date,
+                  status,
+                  cancellation_reason,
+                  vehicles!bookings_vehicle_id_fkey (
+                    brand,
+                    model,
+                    year,
+                    vehicle_images(image_url, display_order)
+                  ),
+                  renter:users!bookings_renter_id_fkey (id, full_name, email, phone, avatar_url, is_blocked, off_platform_flag_count)
                 ),
-                renter:users!bookings_renter_id_fkey (id, full_name, email, phone, avatar_url, is_blocked, off_platform_flag_count)
-              ),
-              users!conversations_user_id_fkey (id, full_name, email),
-              other_users:users!conversations_other_user_id_fkey (id, full_name, email)
-            ''')
-          .inFilter('booking_id', bookingIds)
-          .order('updated_at', ascending: false);
+                users!conversations_user_id_fkey (id, full_name, email),
+                other_users:users!conversations_other_user_id_fkey (id, full_name, email)
+              ''')
+            .order('updated_at', ascending: false)
+            .limit(100);
+        directConversations = List<Map<String, dynamic>>.from(response);
+      } catch (queryErr) {
+        debugPrint('[Messages] Direct conversations query note: $queryErr');
+      }
 
-      final conversationsByBooking = <String, Map<String, dynamic>>{};
-      for (final item in List<Map<String, dynamic>>.from(response)) {
-        final conversationStatus =
-            item['status']?.toString().trim().toLowerCase() ?? 'active';
-        final booking = item['bookings'];
-        final bookingStatus = booking is Map
-            ? booking['status']?.toString().trim().toLowerCase() ?? ''
-            : '';
-        if ((conversationStatus != 'active' && conversationStatus != 'closed') ||
-            (!activeStatuses.contains(bookingStatus) && bookingStatus != 'frozen')) {
-          continue;
-        }
-        final bookingId = item['booking_id']?.toString().trim() ?? '';
-        if (bookingId.isNotEmpty) {
-          conversationsByBooking.putIfAbsent(bookingId, () => item);
+      // Merge both sources and deduplicate by conversation or booking ID
+      final conversationsMap = <String, Map<String, dynamic>>{};
+      for (final item in [...chatServiceRows, ...directConversations]) {
+        final cId = item['id']?.toString().trim() ?? '';
+        final bId = item['booking_id']?.toString().trim() ?? '';
+        final key = cId.isNotEmpty ? cId : bId;
+        if (key.isNotEmpty) {
+          conversationsMap.putIfAbsent(key, () => item);
         }
       }
-      _conversations = conversationsByBooking.values.toList();
-      if (_conversations.isEmpty) {
-        _conversations = await _loadOperatorConversationFallback(
-          currentUserId,
-          activeStatuses,
-        );
-      }
+
+      _conversations = conversationsMap.values.toList();
 
       // Batch-fetch any missing renter profiles to ensure renter name is always visible
       final missingRenterIds = <String>{};
@@ -18905,74 +18781,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
       }
 
-      debugPrint('[Messages] Loaded ${_conversations.length} conversations');
+      debugPrint('[Messages] Loaded ${_conversations.length} conversations for operator');
 
       if (mounted) {
         setState(() {
           _isLoadingConversations = false;
-          _conversationLoadError = null;
+          _conversationLoadError = _conversations.isEmpty
+              ? 'No active booking conversations were found.'
+              : null;
         });
       }
     } catch (e) {
       debugPrint('[Messages] Error loading conversations: $e');
-      try {
-        _conversations = await _loadOperatorConversationFallback(
-          currentUserId,
-          const ['approved', 'confirmed', 'active', 'ongoing'],
-        );
-        if (mounted) {
-          setState(() {
-            _isLoadingConversations = false;
-            _conversationLoadError = _conversations.isEmpty
-                ? 'No active booking conversations were found.'
-                : null;
-          });
-        }
-      } catch (fallbackError) {
-        debugPrint(
-          '[Messages] Fallback conversation loading failed: $fallbackError',
-        );
-        if (mounted) {
-          setState(() {
-            _isLoadingConversations = false;
-            _conversationLoadError =
-                'Unable to load booking conversations. Please retry.';
-          });
-        }
+      if (mounted) {
+        setState(() {
+          _isLoadingConversations = false;
+          _conversationLoadError =
+              'Unable to load booking conversations. Please retry.';
+        });
       }
     }
-  }
-
-  Future<List<Map<String, dynamic>>> _loadOperatorConversationFallback(
-    String currentUserId,
-    List<String> activeStatuses,
-  ) async {
-    final rows = await ChatService().getConversations(currentUserId);
-    final conversationsByBooking = <String, Map<String, dynamic>>{};
-    for (final conversation in rows) {
-      final conversationStatus =
-          conversation['status']?.toString().trim().toLowerCase() ?? 'active';
-      final booking = conversation['bookings'];
-      final bookingStatus = booking is Map
-          ? booking['status']?.toString().trim().toLowerCase() ?? ''
-          : '';
-      final bookingId = conversation['booking_id']?.toString().trim() ?? '';
-
-      if (conversationStatus != 'active') continue;
-      if (bookingId.isNotEmpty &&
-          bookingStatus.isNotEmpty &&
-          !activeStatuses.contains(bookingStatus)) {
-        continue;
-      }
-
-      final key = bookingId.isNotEmpty
-          ? bookingId
-          : (conversation['id']?.toString().trim() ?? '');
-      if (key.isNotEmpty) {
-        conversationsByBooking.putIfAbsent(key, () => conversation);
-      }
-    }
-    return conversationsByBooking.values.toList();
   }
 
   Future<void> _loadConversationMessages(String conversationId) async {

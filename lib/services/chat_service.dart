@@ -109,6 +109,39 @@ class ChatService {
   Future<List<String>> _conversationIdsForUser(String userId) async {
     final conversationIds = <String>{};
 
+    // Check if user is an Operator/Admin/Staff who manages platform operations
+    bool isOperatorOrAdmin = false;
+    try {
+      final userRow = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+      final role = userRow?['role']?.toString().trim().toLowerCase() ?? '';
+      isOperatorOrAdmin = role == 'operator' ||
+          role == 'admin' ||
+          role == 'superadmin' ||
+          role == 'staff' ||
+          role == 'operations';
+    } catch (_) {}
+
+    // If operator/admin, fetch all active conversations in the system directly
+    if (isOperatorOrAdmin) {
+      try {
+        final allConversations = await supabase
+            .from('conversations')
+            .select('id')
+            .order('updated_at', ascending: false)
+            .limit(100);
+        for (final row in List<Map<String, dynamic>>.from(allConversations)) {
+          final id = row['id']?.toString().trim() ?? '';
+          if (id.isNotEmpty) conversationIds.add(id);
+        }
+      } catch (e) {
+        debugPrint('Operator all-conversation lookup note: $e');
+      }
+    }
+
     try {
       final participantRows = await supabase
           .from('conversation_participants')
@@ -201,43 +234,25 @@ class ChatService {
       }
     }
 
-    // Operators and Admins manage all company car bookings (where owner_id is null)
-    // and all bookings where operator_id is not yet explicitly set.
+    // Operators and Admins manage all company car bookings and all active bookings
     try {
       final userRow = await supabase
           .from('users')
           .select('role')
           .eq('id', userId)
           .maybeSingle();
-      final userRole = userRow?['role']?.toString().trim().toLowerCase();
-      if (userRole == 'operator' || userRole == 'admin') {
-        final companyVehicleRows = await supabase
-            .from('vehicles')
-            .select('id')
-            .isFilter('owner_id', null);
-        final companyVehicleIds = List<Map<String, dynamic>>.from(companyVehicleRows)
-            .map((row) => row['id']?.toString().trim())
-            .whereType<String>()
-            .where((id) => id.isNotEmpty)
-            .toList();
-
-        if (companyVehicleIds.isNotEmpty) {
-          final companyBookingRows = await supabase
-              .from('bookings')
-              .select('id')
-              .inFilter('vehicle_id', companyVehicleIds);
-          for (final row in List<Map<String, dynamic>>.from(companyBookingRows)) {
-            final id = row['id']?.toString().trim() ?? '';
-            if (id.isNotEmpty) bookingIds.add(id);
-          }
-        }
-
-        // Also fetch bookings where operator_id is null
-        final unassignedBookingRows = await supabase
+      final userRole = userRow?['role']?.toString().trim().toLowerCase() ?? '';
+      if (userRole == 'operator' ||
+          userRole == 'admin' ||
+          userRole == 'superadmin' ||
+          userRole == 'staff' ||
+          userRole == 'operations') {
+        final allBookings = await supabase
             .from('bookings')
             .select('id')
-            .isFilter('operator_id', null);
-        for (final row in List<Map<String, dynamic>>.from(unassignedBookingRows)) {
+            .order('updated_at', ascending: false)
+            .limit(100);
+        for (final row in List<Map<String, dynamic>>.from(allBookings)) {
           final id = row['id']?.toString().trim() ?? '';
           if (id.isNotEmpty) bookingIds.add(id);
         }
