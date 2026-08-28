@@ -15440,6 +15440,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (booking['security_deposit_refunded'] == true) ...[
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFF10B981)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 22),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'Security Deposit Refund Completed: PHP ${((booking["security_deposit_refund_amount"] ?? depositAmount) as num).toStringAsFixed(0)} was already refunded for this booking.',
+                                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: Color(0xFF10B981)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
                             // Renter Info & Linked Accounts / QR Card
                             Container(
                               padding: const EdgeInsets.all(16),
@@ -15903,7 +15928,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: isSubmitting
+                              onPressed: (isSubmitting || booking['security_deposit_refunded'] == true)
                                   ? null
                                   : () async {
                                       final ref = referenceController.text.trim();
@@ -15982,13 +16007,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 foregroundColor: Colors.white,
                                 minimumSize: const Size.fromHeight(46),
                               ),
-                              child: isSubmitting
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                    )
-                                  : const Text('Confirm & Submit Refund', style: TextStyle(fontWeight: FontWeight.w700)),
+                              child: booking['security_deposit_refunded'] == true
+                                  ? const Text('Deposit Already Refunded', style: TextStyle(fontWeight: FontWeight.w700))
+                                  : (isSubmitting
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                        )
+                                      : const Text('Confirm & Submit Refund', style: TextStyle(fontWeight: FontWeight.w700))),
                             ),
                           ),
                         ],
@@ -16146,6 +16173,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (booking['partner_payout_disbursed'] == true ||
+                                (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.purpleAccent),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.check_circle_rounded, color: Colors.purpleAccent, size: 22),
+                                    SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'Partner Commission Disburse Completed: Earnings for this booking have already been disbursed.',
+                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: Colors.purpleAccent),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
                             // Partner Info & Payout Method Card
                             Container(
                               padding: const EdgeInsets.all(16),
@@ -16402,7 +16455,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: isSubmitting
+                              onPressed: (isSubmitting ||
+                                      booking['partner_payout_disbursed'] == true ||
+                                      (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed'))
                                   ? null
                                   : () async {
                                       final ref = referenceController.text.trim();
@@ -16481,13 +16536,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 foregroundColor: Colors.white,
                                 minimumSize: const Size.fromHeight(46),
                               ),
-                              child: isSubmitting
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                    )
-                                  : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.w700)),
+                              child: (booking['partner_payout_disbursed'] == true ||
+                                      (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed'))
+                                  ? const Text('Partner Payout Already Disbursed', style: TextStyle(fontWeight: FontWeight.w700))
+                                  : (isSubmitting
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                        )
+                                      : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.w700))),
                             ),
                           ),
                         ],
@@ -16655,6 +16713,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (booking['driver_payout_disbursed'] == true ||
+                                (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFF38BDF8)),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.check_circle_rounded, color: Color(0xFF38BDF8), size: 22),
+                                    SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'Driver Trip Fee Disburse Completed: Driver fee for this booking has already been disbursed.',
+                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: Color(0xFF38BDF8)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
                             // Driver Info & Payout Method Card
                             Container(
                               padding: const EdgeInsets.all(16),
@@ -16911,7 +16995,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: isSubmitting
+                              onPressed: (isSubmitting ||
+                                      booking['driver_payout_disbursed'] == true ||
+                                      (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed'))
                                   ? null
                                   : () async {
                                       final ref = referenceController.text.trim();
@@ -16990,13 +17076,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 foregroundColor: Colors.white,
                                 minimumSize: const Size.fromHeight(46),
                               ),
-                              child: isSubmitting
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                    )
-                                  : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.w700)),
+                              child: (booking['driver_payout_disbursed'] == true ||
+                                      (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed'))
+                                  ? const Text('Driver Fee Already Disbursed', style: TextStyle(fontWeight: FontWeight.w700))
+                                  : (isSubmitting
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                        )
+                                      : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.w700))),
                             ),
                           ),
                         ],

@@ -2574,6 +2574,30 @@ class _BookingCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (booking['security_deposit_refunded'] == true) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFF10B981)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Security Deposit Refund Completed: PHP ${((booking["security_deposit_refund_amount"] ?? depositAmount) as num).toStringAsFixed(0)} was already refunded.',
+                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF10B981)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   Row(
                     children: [
                       Container(
@@ -2931,7 +2955,7 @@ class _BookingCard extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: isSubmitting
+                      onPressed: (isSubmitting || booking['security_deposit_refunded'] == true)
                           ? null
                           : () async {
                               final ref = referenceController.text.trim();
@@ -3006,13 +3030,15 @@ class _BookingCard extends StatelessWidget {
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
-                      child: isSubmitting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Text('Submit Deposit Refund', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: booking['security_deposit_refunded'] == true
+                          ? const Text('Deposit Already Refunded', style: TextStyle(fontWeight: FontWeight.bold))
+                          : (isSubmitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Text('Submit Deposit Refund', style: TextStyle(fontWeight: FontWeight.bold))),
                     ),
                   ),
                 ],
@@ -3099,6 +3125,31 @@ class _BookingCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (booking['partner_payout_disbursed'] == true ||
+                      (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.purpleAccent),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.check_circle_rounded, color: Colors.purpleAccent, size: 20),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Partner Commission Disburse Completed: Earnings for this booking have already been disbursed.',
+                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.purpleAccent),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   // Title
                   Row(
                     children: [
@@ -3321,7 +3372,9 @@ class _BookingCard extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: isSubmitting
+                      onPressed: (isSubmitting ||
+                              booking['partner_payout_disbursed'] == true ||
+                              (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed'))
                           ? null
                           : () async {
                               final ref = referenceController.text.trim();
@@ -3394,13 +3447,16 @@ class _BookingCard extends StatelessWidget {
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
-                      child: isSubmitting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: (booking['partner_payout_disbursed'] == true ||
+                              (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed'))
+                          ? const Text('Partner Payout Already Disbursed', style: TextStyle(fontWeight: FontWeight.bold))
+                          : (isSubmitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.bold))),
                     ),
                   ),
                 ],
@@ -3494,6 +3550,31 @@ class _BookingCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (booking['driver_payout_disbursed'] == true ||
+                      (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFF38BDF8)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.check_circle_rounded, color: Color(0xFF38BDF8), size: 20),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Driver Trip Fee Disburse Completed: Driver fee for this booking has already been disbursed.',
+                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF38BDF8)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   // Title
                   Row(
                     children: [
@@ -3716,7 +3797,9 @@ class _BookingCard extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: isSubmitting
+                      onPressed: (isSubmitting ||
+                              booking['driver_payout_disbursed'] == true ||
+                              (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed'))
                           ? null
                           : () async {
                               final ref = referenceController.text.trim();
@@ -3789,13 +3872,16 @@ class _BookingCard extends StatelessWidget {
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
-                      child: isSubmitting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: (booking['driver_payout_disbursed'] == true ||
+                              (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed'))
+                          ? const Text('Driver Fee Already Disbursed', style: TextStyle(fontWeight: FontWeight.bold))
+                          : (isSubmitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Text('Confirm & Disburse Payout', style: TextStyle(fontWeight: FontWeight.bold))),
                     ),
                   ),
                 ],
