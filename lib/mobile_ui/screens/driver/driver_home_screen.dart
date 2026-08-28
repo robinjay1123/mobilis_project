@@ -4158,9 +4158,6 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
   final vehicle = (booking['vehicles'] ?? booking['vehicle']) as Map<String, dynamic>?;
   final renter = booking['renter'] as Map<String, dynamic>?;
   final renterName = renter?['full_name']?.toString().trim();
-  final renterPhone = renter?['phone']?.toString().trim();
-  final renterEmail = renter?['email']?.toString().trim();
-  final renterId = booking['renter_id']?.toString() ?? renter?['id']?.toString() ?? 'N/A';
   final isPartner = _isPartnerVehicleForDriver(booking);
 
   final vehicleName = vehicle == null
@@ -4364,42 +4361,6 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                             isDark: isDark,
                             isEmphasized: true,
                           ),
-                          if (renterPhone != null && renterPhone.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildDriverDetailRow(
-                                    label: 'Phone Contact',
-                                    value: renterPhone,
-                                    isDark: isDark,
-                                  ),
-                                ),
-                                ElevatedButton.icon(
-                                  onPressed: () async {
-                                    final uri = Uri.parse('tel:$renterPhone');
-                                    if (await canLaunchUrl(uri)) {
-                                      await launchUrl(uri);
-                                    }
-                                  },
-                                  icon: const Icon(Icons.call_rounded, size: 14),
-                                  label: const Text('Call'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                    textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                          if (renterEmail != null && renterEmail.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            _buildDriverDetailRow(label: 'Email', value: renterEmail, isDark: isDark),
-                          ],
-                          const SizedBox(height: 8),
-                          _buildDriverDetailRow(label: 'Rentee ID', value: renterId, isDark: isDark),
                         ],
                       ),
                       const SizedBox(height: 16),
