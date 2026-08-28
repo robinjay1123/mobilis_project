@@ -1237,9 +1237,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     if (minutes <= 0) return 0;
     final hours = (minutes / 60).ceil();
     if (_bookingMode == BookingMode.hourly) {
-      return hours < PricingPolicy.minHourlyBookingHours
-          ? PricingPolicy.minHourlyBookingHours
-          : hours;
+      if (hours < PricingPolicy.minHourlyBookingHours) {
+        return PricingPolicy.minHourlyBookingHours;
+      }
+      if (hours > PricingPolicy.maxHourlyBookingHours) {
+        return PricingPolicy.maxHourlyBookingHours;
+      }
+      return hours;
     }
     return hours;
   }
@@ -1306,6 +1310,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       final rawHours = rawMinutes <= 0 ? 0 : (rawMinutes / 60).ceil();
       if (rawHours <= PricingPolicy.minHourlyBookingHours) {
         return '$rawHours hrs (Min. 12 hrs applied = 1/2 Day Price)';
+      }
+      if (rawHours > PricingPolicy.maxHourlyBookingHours) {
+        return '$rawHours hrs (Max 23 hrs for hourly rental)';
       }
       final excess = rawHours - PricingPolicy.minHourlyBookingHours;
       return '$rawHours hrs (12 hrs Half-Day + $excess hr${excess == 1 ? '' : 's'})';

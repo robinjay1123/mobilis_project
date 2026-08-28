@@ -8,6 +8,7 @@ class PricingPolicy {
   static const int longBookingReservationThresholdDays = 7;
   static const double driverDailyRate = 1500.0;
   static const int minHourlyBookingHours = 12;
+  static const int maxHourlyBookingHours = 23;
 
   static const double minDailyRentalPrice = 500;
   static const double maxDailyRentalPrice = 25000;
@@ -50,9 +51,10 @@ class PricingPolicy {
 
   /// Calculates the rental subtotal for hourly mode.
   /// Rule:
-  /// - Minimum hours for hourly rental is 12 hours.
+  /// - Minimum duration for hourly rental is 12 hours.
+  /// - Maximum duration for hourly rental is 23 hours.
   /// - 12 hours costs half of 1 day's price: (pricePerDay / 2).
-  /// - When hours exceed 12 hours (e.g. 13 hours):
+  /// - When hours exceed 12 hours (up to 23 hours):
   ///   Price = (pricePerDay / 2) + (excessHours * pricePerHour).
   static double calculateHourlyRentalSubtotal({
     required int hours,
@@ -60,8 +62,13 @@ class PricingPolicy {
     required double pricePerHour,
   }) {
     if (hours <= 0) return 0.0;
-    final billableHours =
-        hours < minHourlyBookingHours ? minHourlyBookingHours : hours;
+    int billableHours = hours;
+    if (billableHours < minHourlyBookingHours) {
+      billableHours = minHourlyBookingHours;
+    } else if (billableHours > maxHourlyBookingHours) {
+      billableHours = maxHourlyBookingHours;
+    }
+
     final halfDayPrice = pricePerDay > 0
         ? (pricePerDay / 2.0)
         : (pricePerHour * minHourlyBookingHours);

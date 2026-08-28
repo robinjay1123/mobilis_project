@@ -1045,7 +1045,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     final billableHours = isHourly
         ? (rawHours < PricingPolicy.minHourlyBookingHours
             ? PricingPolicy.minHourlyBookingHours
-            : rawHours)
+            : (rawHours > PricingPolicy.maxHourlyBookingHours
+                ? PricingPolicy.maxHourlyBookingHours
+                : rawHours))
         : rawHours;
     final excessHours =
         isHourly && billableHours > PricingPolicy.minHourlyBookingHours
@@ -1061,7 +1063,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     final durationText = isHourly
         ? (rawHours <= PricingPolicy.minHourlyBookingHours
             ? '$rawHours hrs (Min. 12 hrs applied)'
-            : '$rawHours hrs (12 hrs + $excessHours excess hrs)')
+            : (rawHours > PricingPolicy.maxHourlyBookingHours
+                ? '$rawHours hrs (Max 23 hrs for hourly mode)'
+                : '$rawHours hrs (12 hrs + $excessHours excess hrs)'))
         : '$durationDays ${durationDays == 1 ? 'Day' : 'Days'}';
 
     final rateLabel = isHourly
