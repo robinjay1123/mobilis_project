@@ -5168,7 +5168,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => _openBookingDetailModal(booking),
+                        onPressed: () =>
+                            _showBookingDetailModal(context, booking),
                         icon: const Icon(Icons.info_outline, size: 14),
                         label: const Text('Trip Details'),
                         style: OutlinedButton.styleFrom(
@@ -5190,10 +5191,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     if (renterPhone.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
-                        onPressed: () =>
-                            _openCustomerServiceConversationWith(renter),
-                        icon: const Icon(Icons.chat_bubble_outline, size: 14),
-                        label: const Text('Message'),
+                        onPressed: () => _launchPhone(renterPhone),
+                        icon: const Icon(Icons.phone_outlined, size: 14),
+                        label: const Text('Contact'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.primary,
                           side: const BorderSide(color: AppColors.primary),
@@ -5212,6 +5212,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _launchPhone(String phone) async {
+    try {
+      final cleanPhone = phone.replaceAll(RegExp(r'[^\d+]'), '');
+      final uri = Uri.parse('tel:$cleanPhone');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      }
+    } catch (_) {}
   }
 
   void _showProofImageModal(String url, String ref) {

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
+import 'driver_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
 import 'image_optimization_service.dart';

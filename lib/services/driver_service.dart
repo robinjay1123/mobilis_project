@@ -49,6 +49,25 @@ class DriverService {
     }
   }
 
+  /// Ensure driver profile exists in drivers table
+  Future<Map<String, dynamic>> ensureDriverProfile(String userId) async {
+    try {
+      final existing = await getDriverProfile(userId);
+      if (existing != null) return existing;
+      return await createDriverProfile(
+        userId: userId,
+        licenseNumber: placeholderLicenseNumber(userId),
+        licenseExpiry: DateTime.tryParse(placeholderLicenseExpiry) ??
+            DateTime.now().add(const Duration(days: 365)),
+        nbiClearanceNumber: 'PENDING',
+        nbiExpiry: DateTime.now().add(const Duration(days: 365)),
+      );
+    } catch (e) {
+      debugPrint('Note in ensureDriverProfile: $e');
+      rethrow;
+    }
+  }
+
   /// Create driver profile
   Future<Map<String, dynamic>> createDriverProfile({
     required String userId,
