@@ -1235,6 +1235,39 @@ class _BookingCard extends StatelessWidget {
     return name == null || name.isEmpty ? null : name;
   }
 
+  int get _offerRemainingSec {
+    final status = _latestAssignment?['status']?.toString().toLowerCase();
+    final waitingForDriver = status == 'pending_offer' || status == 'assigned';
+    final assignedAtRaw = booking['driver_assigned_at'] ??
+        _latestAssignment?['offered_at'] ??
+        _latestAssignment?['created_at'];
+    final assignedAt = assignedAtRaw != null
+        ? DateTime.tryParse(assignedAtRaw.toString())?.toLocal()
+        : null;
+    if (waitingForDriver && assignedAt != null) {
+      return (600 - DateTime.now().difference(assignedAt).inSeconds).clamp(0, 600);
+    }
+    return 0;
+  }
+
+  bool get _isOfferExpired {
+    final status = _latestAssignment?['status']?.toString().toLowerCase();
+    final waitingForDriver = status == 'pending_offer' || status == 'assigned';
+    final assignedAtRaw = booking['driver_assigned_at'] ??
+        _latestAssignment?['offered_at'] ??
+        _latestAssignment?['created_at'];
+    final assignedAt = assignedAtRaw != null
+        ? DateTime.tryParse(assignedAtRaw.toString())?.toLocal()
+        : null;
+    return waitingForDriver && (assignedAt == null || _offerRemainingSec <= 0);
+  }
+
+  bool get _effectiveWaitingForDriver {
+    final status = _latestAssignment?['status']?.toString().toLowerCase();
+    final waitingForDriver = status == 'pending_offer' || status == 'assigned';
+    return waitingForDriver && !_isOfferExpired;
+  }
+
   String get _driverStatus {
     if (!_needsDriver) return 'No driver requested';
     final status = _latestAssignment?['status']?.toString().toLowerCase();
@@ -1244,9 +1277,14 @@ class _BookingCard extends StatelessWidget {
           : '$_driverName • Accepted';
     }
     if (status == 'pending_offer' || status == 'assigned') {
+      if (_isOfferExpired) {
+        return 'Driver offer expired (10 mins) • Reassign';
+      }
+      final mm = (_offerRemainingSec ~/ 60).toString().padLeft(2, '0');
+      final ss = (_offerRemainingSec % 60).toString().padLeft(2, '0');
       return _driverName == null
-          ? 'Awaiting driver acceptance'
-          : '$_driverName • Awaiting acceptance';
+          ? 'Awaiting driver ($mm:$ss)'
+          : '$_driverName • Awaiting ($mm:$ss)';
     }
     if (status == 'rejected' || status == 'declined') {
       return 'Driver declined • Assign another';
@@ -2001,22 +2039,32 @@ class _BookingCard extends StatelessWidget {
                   Expanded(
                     child: ElevatedButton.icon(
                       icon: Icon(
-                        _needsDriver && !_driverAccepted
+                        _effectiveWaitingForDriver
                             ? Icons.hourglass_top
-                            : Icons.check,
+                            : (_needsDriver && !_driverAccepted
+                                ? Icons.person_search
+                                : Icons.check),
                         size: 16,
                       ),
                       label: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
-                          _needsDriver && !_driverAccepted
-                              ? 'Awaiting Driver'
-                              : 'Approve',
+                          _effectiveWaitingForDriver
+                              ? 'Awaiting (${(_offerRemainingSec ~/ 60).toString().padLeft(2, '0')}:${(_offerRemainingSec % 60).toString().padLeft(2, '0')})'
+                              : (_needsDriver && !_driverAccepted
+                                  ? (_isOfferExpired ? 'Assign Again' : 'Select Driver')
+                                  : 'Approve'),
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
+                        backgroundColor: _effectiveWaitingForDriver
+                            ? Colors.amber.shade700
+                            : (_needsDriver && !_driverAccepted
+                                ? Colors.amber.shade800
+                                : AppColors.primary),
+                        foregroundColor: (_effectiveWaitingForDriver || (_needsDriver && !_driverAccepted))
+                            ? Colors.white
+                            : Colors.black,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
@@ -2026,7 +2074,7 @@ class _BookingCard extends StatelessWidget {
                         ),
                         elevation: 0,
                       ),
-                      onPressed: _needsDriver && !_driverAccepted
+                      onPressed: _effectiveWaitingForDriver
                           ? null
                           : () => _showApproveDialog(
                               context,
@@ -2441,16 +2489,50 @@ class _BookingCard extends StatelessWidget {
         '';
     final vehicleName =
         '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
-    final depositAmount = (booking['reservation_fee_amount'] as num?)?.toDouble() ??
-        (booking['security_deposit'] as num?)?.toDouble() ??
-        1000.0;
+    final renterUserId = (booking['renter_id'] ?? renter['id'] ?? renter['user_id'])?.toString();
+    List<PayoutMethod> renterPayoutMethods = [];
+    if (renterUserId != null && renterUserId.isNotEmpty) {
+      try {
+        renterPayoutMethods = await PayoutMethodService().getPayoutMethods(renterUserId);
+      } catch (e) {
+        debugPrint('Could not load renter payout methods: $e');
+      }
+    }
+
+    final directQrUrl = renter['qr_code_url']?.toString() ??
+        renter['gcash_qr_url']?.toString() ??
+        renter['payout_qr_url']?.toString() ??
+        booking['renter_qr_url']?.toString();
+
+    // Fetch dynamic Admin Settings for Security Deposit
+    ReservationPaymentSettings adminSettings = const ReservationPaymentSettings();
+    try {
+      adminSettings = await ReservationPaymentService().getSettings();
+    } catch (e) {
+      debugPrint('Could not load admin deposit settings: $e');
+    }
+
+    // Determine seater capacity & deposit rule from Admin Settings
+    final vehicleSeatsRaw = vehicle['seats'] ?? booking['seats'];
+    int seats = 5;
+    if (vehicleSeatsRaw != null) {
+      if (vehicleSeatsRaw is num) {
+        seats = vehicleSeatsRaw.toInt();
+      } else {
+        seats = int.tryParse(vehicleSeatsRaw.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 5;
+      }
+    }
+    final double defaultSecurityDeposit = adminSettings.getDepositForSeats(seats);
+    final depositAmount = (booking['security_deposit'] as num?)?.toDouble() ?? defaultSecurityDeposit;
 
     final refundAmountController =
         TextEditingController(text: depositAmount.toStringAsFixed(0));
     final deductionAmountController = TextEditingController(text: '0');
     final deductionNotesController = TextEditingController();
     final referenceController = TextEditingController();
-    String selectedMethod = 'GCash';
+    String selectedMethod = renterPayoutMethods.isNotEmpty
+        ? renterPayoutMethods.first.provider
+        : 'GCash';
     PlatformFile? receiptFile;
     bool isSubmitting = false;
 
@@ -2462,6 +2544,24 @@ class _BookingCard extends StatelessWidget {
           final deposit = double.tryParse(refundAmountController.text) ?? depositAmount;
           final deduction = double.tryParse(deductionAmountController.text) ?? 0.0;
           final netRefund = (deposit - deduction).clamp(0.0, double.infinity);
+
+          final activeMethod = renterPayoutMethods.firstWhere(
+            (m) => m.provider.toLowerCase() == selectedMethod.toLowerCase(),
+            orElse: () => renterPayoutMethods.isNotEmpty
+                ? renterPayoutMethods.first
+                : PayoutMethod(
+                    id: '',
+                    provider: selectedMethod,
+                    accountName: renterName,
+                    accountNumber: renterPhone,
+                    qrCodeUrl: directQrUrl,
+                    createdAt: DateTime.now(),
+                  ),
+          );
+
+          final activeQrUrl = (activeMethod.qrCodeUrl != null && activeMethod.qrCodeUrl!.isNotEmpty)
+              ? activeMethod.qrCodeUrl!
+              : (directQrUrl != null && directQrUrl.isNotEmpty ? directQrUrl : '');
 
           return Dialog(
             backgroundColor: isDark ? const Color(0xFF172235) : Colors.white,
@@ -2500,7 +2600,7 @@ class _BookingCard extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              vehicleName,
+                              '$vehicleName ($seats Seater)',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: isDark ? Colors.white60 : Colors.black54,
@@ -2517,7 +2617,7 @@ class _BookingCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
 
-                  // Phone Card
+                  // Renter Info & QR / Linked Account Card
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -2574,6 +2674,53 @@ class _BookingCard extends StatelessWidget {
                               ),
                           ],
                         ),
+                        if (activeQrUrl.isNotEmpty || activeMethod.accountNumber.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          const Divider(height: 1),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              if (activeQrUrl.isNotEmpty) ...[
+                                Container(
+                                  width: 64,
+                                  height: 64,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFF10B981)),
+                                  ),
+                                  padding: const EdgeInsets.all(2),
+                                  child: Image.network(
+                                    activeQrUrl,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (c, e, s) => const Icon(Icons.qr_code_2, size: 36, color: Colors.grey),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                              ],
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${activeMethod.provider} Linked QR & Account',
+                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      activeMethod.accountName.isNotEmpty ? activeMethod.accountName : renterName,
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                    Text(
+                                      'Account: ${activeMethod.accountNumber.isNotEmpty ? activeMethod.accountNumber : renterPhone}',
+                                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),

@@ -31,6 +31,7 @@ import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
 import '../../../services/gps_service.dart';
 import '../../../models/gps_tracker_model.dart';
+import '../../../services/payout_method_service.dart';
 import '../../../services/message_filter_service.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/handover_pin_verifier_modal.dart';
@@ -454,6 +455,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Timer? _trackingRefreshTimer;
   Timer? _notificationsRefreshTimer;
   Timer? _bookingsSilentRefreshTimer;
+  Timer? _countdownTickerTimer;
   Timer? _bookingFlowRefreshDebounce;
   Timer? _conversationFlowRefreshDebounce;
   RealtimeChannel? _bookingFlowChannel;
@@ -1115,6 +1117,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadUnreadMessagesCount();
       }
     });
+    _countdownTickerTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) {
+        if (mounted && (_selectedIndex == 1 || _selectedIndex == 0)) {
+          setState(() {});
+        }
+      },
+    );
   }
 
   @override
@@ -1122,6 +1132,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _bookingsSilentRefreshTimer?.cancel();
     _trackingRefreshTimer?.cancel();
     _notificationsRefreshTimer?.cancel();
+    _countdownTickerTimer?.cancel();
     _bookingFlowRefreshDebounce?.cancel();
     _conversationFlowRefreshDebounce?.cancel();
     _bookingFlowChannel?.unsubscribe();
@@ -11190,13 +11201,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }) {
     final group = bookingStatusGroup(booking['status']);
     final needsDriver = _bookingNeedsDriver(booking['with_driver']);
-    final assignmentStatus = _latestDriverAssignment(
-      booking,
-    )?['status']?.toString().trim().toLowerCase();
+    final latestAssignment = _latestDriverAssignment(booking);
+    final assignmentStatus = latestAssignment?['status']
+        ?.toString()
+        .trim()
+        .toLowerCase();
     final waitingForDriver =
         assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned';
     final driverAccepted =
         assignmentStatus == 'accepted' || assignmentStatus == 'confirmed';
+    final assignedAtRaw = booking['driver_assigned_at'] ??
+        latestAssignment?['offered_at'] ??
+        latestAssignment?['created_at'];
+    final assignedAt = assignedAtRaw != null
+        ? DateTime.tryParse(assignedAtRaw.toString())?.toLocal()
+        : null;
+    final offerRemainingSec = (waitingForDriver && assignedAt != null)
+        ? (600 - DateTime.now().difference(assignedAt).inSeconds).clamp(0, 600)
+        : 0;
+    final isOfferExpired = waitingForDriver && (assignedAt == null || offerRemainingSec <= 0);
+    final effectiveWaitingForDriver = waitingForDriver && !isOfferExpired;
+    final driverDeclined = assignmentStatus == 'rejected' || isOfferExpired;
 
     final buttons = <Widget>[
       _buildOperatorBookingActionButton(
@@ -11210,23 +11235,56 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     ];
 
     if (group == BookingStatusGroup.pending && !_isPartnerOwnedBooking(booking)) {
+      final String actionLabel;
+      final IconData actionIcon;
+      final VoidCallback? actionOnPressed;
+      final Color actionBgColor;
+
+      if (effectiveWaitingForDriver) {
+        final mm = (offerRemainingSec ~/ 60).toString().padLeft(2, '0');
+        final ss = (offerRemainingSec % 60).toString().padLeft(2, '0');
+        actionLabel = 'Awaiting ($mm:$ss)';
+        actionIcon = Icons.hourglass_top_rounded;
+        actionOnPressed = null;
+        actionBgColor = Colors.amber.shade800;
+      } else if (waitingForDriver && isOfferExpired) {
+        actionLabel = compact ? 'Assign Again' : 'Driver Expired • Reassign';
+        actionIcon = Icons.person_search_rounded;
+        actionOnPressed = () => _handleQuickApproveBooking(
+          booking,
+          needsDriver: needsDriver,
+          driverAccepted: false,
+        );
+        actionBgColor = Colors.amber.shade900;
+      } else if (needsDriver && !driverAccepted) {
+        actionLabel = driverDeclined
+            ? (compact ? 'Assign Again' : 'Select Another Driver')
+            : (compact ? 'Select Driver' : 'Approve & Assign Driver');
+        actionIcon = Icons.person_search_rounded;
+        actionOnPressed = () => _handleQuickApproveBooking(
+          booking,
+          needsDriver: needsDriver,
+          driverAccepted: driverAccepted,
+        );
+        actionBgColor = Colors.green.shade600;
+      } else {
+        actionLabel = 'Approve';
+        actionIcon = Icons.check_circle_outline_rounded;
+        actionOnPressed = () => _handleQuickApproveBooking(
+          booking,
+          needsDriver: needsDriver,
+          driverAccepted: driverAccepted,
+        );
+        actionBgColor = Colors.green.shade600;
+      }
+
       buttons.add(
         _buildOperatorBookingActionButton(
-          onPressed: waitingForDriver
-              ? null
-              : () => _handleQuickApproveBooking(
-                  booking,
-                  needsDriver: needsDriver,
-                  driverAccepted: driverAccepted,
-                ),
-          icon: waitingForDriver
-              ? Icons.hourglass_top_rounded
-              : needsDriver && !driverAccepted
-              ? Icons.person_search_rounded
-              : Icons.check_circle_outline_rounded,
-          label: waitingForDriver ? 'Awaiting' : 'Approve',
+          onPressed: actionOnPressed,
+          icon: actionIcon,
+          label: actionLabel,
           foregroundColor: Colors.white,
-          backgroundColor: Colors.green.shade600,
+          backgroundColor: actionBgColor,
           compact: compact,
         ),
       );
@@ -11441,7 +11499,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final actionDescription = switch (label.toLowerCase()) {
       'details' || 'view details' => 'View full booking details and customer info',
       'approve' => 'Approve this reservation and confirm booking',
-      'awaiting' => 'Awaiting driver acceptance before approving',
+      _ when label.toLowerCase().startsWith('awaiting') =>
+        'Awaiting driver acceptance (10-minute offer countdown)',
+      _ when label.toLowerCase().contains('assign') || label.toLowerCase().contains('reassign') =>
+        'Driver did not accept within 10 minutes. Click to assign a driver again.',
       'extension' || 'review extension' => 'Review and re-approve trip extension request',
       'reject' => 'Decline or cancel this booking request',
       'message' => 'Chat directly with the renter or driver',
@@ -15115,6 +15176,97 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  Future<void> _showRenterQrModal(
+    BuildContext context, {
+    required String qrUrl,
+    required String renterName,
+    required String provider,
+    required String accountNumber,
+  }) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          maxWidth: 420,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF172235) : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: const [
+              BoxShadow(color: Colors.black38, blurRadius: 24, offset: Offset(0, 8)),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.qr_code_2_rounded, color: Color(0xFF10B981), size: 24),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$renterName\'s $provider QR Code',
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                        ),
+                        Text(
+                          'Account No: $accountNumber',
+                          style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(dialogCtx),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF10B981), width: 2),
+                ),
+                child: Image.network(
+                  qrUrl,
+                  width: 260,
+                  height: 260,
+                  fit: BoxFit.contain,
+                  errorBuilder: (ctx, err, stack) => Container(
+                    width: 240,
+                    height: 240,
+                    color: Colors.grey.shade200,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.qr_code_2_rounded, size: 60, color: Colors.grey),
+                        SizedBox(height: 8),
+                        Text('Unable to display QR image', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Scan this QR code using your $provider app to disburse the security deposit refund directly to $renterName.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showSecurityDepositRefundDialog(
     Map<String, dynamic> booking,
   ) async {
@@ -15129,16 +15281,52 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '';
     final vehicleName =
         '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
-    final depositAmount = (booking['reservation_fee_amount'] as num?)?.toDouble() ??
-        (booking['security_deposit'] as num?)?.toDouble() ??
-        1000.0;
+
+    // Renter Payout methods & QR fetching
+    final renterUserId = (booking['renter_id'] ?? renter['id'] ?? renter['user_id'])?.toString();
+    List<PayoutMethod> renterPayoutMethods = [];
+    if (renterUserId != null && renterUserId.isNotEmpty) {
+      try {
+        renterPayoutMethods = await PayoutMethodService().getPayoutMethods(renterUserId);
+      } catch (e) {
+        debugPrint('Could not load renter payout methods: $e');
+      }
+    }
+
+    final directQrUrl = renter['qr_code_url']?.toString() ??
+        renter['gcash_qr_url']?.toString() ??
+        renter['payout_qr_url']?.toString() ??
+        booking['renter_qr_url']?.toString();
+
+    // Fetch dynamic Admin Settings for Security Deposit
+    ReservationPaymentSettings adminSettings = const ReservationPaymentSettings();
+    try {
+      adminSettings = await ReservationPaymentService().getSettings();
+    } catch (e) {
+      debugPrint('Could not load admin deposit settings: $e');
+    }
+
+    // Determine seater capacity & deposit rule from Admin Settings
+    final vehicleSeatsRaw = vehicle['seats'] ?? booking['seats'];
+    int seats = 5;
+    if (vehicleSeatsRaw != null) {
+      if (vehicleSeatsRaw is num) {
+        seats = vehicleSeatsRaw.toInt();
+      } else {
+        seats = int.tryParse(vehicleSeatsRaw.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 5;
+      }
+    }
+    final double defaultSecurityDeposit = adminSettings.getDepositForSeats(seats);
+    final depositAmount = (booking['security_deposit'] as num?)?.toDouble() ?? defaultSecurityDeposit;
 
     final refundAmountController =
         TextEditingController(text: depositAmount.toStringAsFixed(0));
     final deductionAmountController = TextEditingController(text: '0');
     final deductionNotesController = TextEditingController();
     final referenceController = TextEditingController();
-    String selectedMethod = 'GCash';
+    String selectedMethod = renterPayoutMethods.isNotEmpty
+        ? renterPayoutMethods.first.provider
+        : 'GCash';
     PlatformFile? receiptFile;
     bool isSubmitting = false;
 
@@ -15151,11 +15339,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           final deduction = double.tryParse(deductionAmountController.text) ?? 0.0;
           final netRefund = (deposit - deduction).clamp(0.0, double.infinity);
 
+          // Find active renter method matching selectedMethod
+          final activeMethod = renterPayoutMethods.firstWhere(
+            (m) => m.provider.toLowerCase() == selectedMethod.toLowerCase(),
+            orElse: () => renterPayoutMethods.isNotEmpty
+                ? renterPayoutMethods.first
+                : PayoutMethod(
+                    id: '',
+                    provider: selectedMethod,
+                    accountName: renterName,
+                    accountNumber: renterPhone,
+                    qrCodeUrl: directQrUrl,
+                    createdAt: DateTime.now(),
+                  ),
+          );
+
+          final activeQrUrl = (activeMethod.qrCodeUrl != null && activeMethod.qrCodeUrl!.isNotEmpty)
+              ? activeMethod.qrCodeUrl!
+              : (directQrUrl != null && directQrUrl.isNotEmpty ? directQrUrl : '');
+
           return Dialog(
             backgroundColor: Colors.transparent,
             insetPadding: const EdgeInsets.all(24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 620),
+              constraints: const BoxConstraints(maxWidth: 640),
               child: Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
@@ -15207,7 +15414,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  '$vehicleName • Booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()}',
+                                  '$vehicleName ($seats Seater) • Booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()}',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: isDark ? Colors.white60 : Colors.black54,
@@ -15230,7 +15437,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Renter Info & Phone Copy Card
+                            // Renter Info & Linked Accounts / QR Card
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
@@ -15240,64 +15447,213 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   color: isDark ? const Color(0xFF2C3E5A) : const Color(0xFFE2E8F0),
                                 ),
                               ),
-                              child: Row(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  CircleAvatar(
-                                    radius: 22,
-                                    backgroundColor: AppColors.primary.withValues(alpha: 0.2),
-                                    child: Text(
-                                      renterName.isNotEmpty ? renterName[0].toUpperCase() : 'R',
-                                      style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          renterName,
-                                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                  Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 20,
+                                        backgroundColor: AppColors.primary.withValues(alpha: 0.2),
+                                        child: Text(
+                                          renterName.isNotEmpty ? renterName[0].toUpperCase() : 'R',
+                                          style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary),
                                         ),
-                                        const SizedBox(height: 3),
-                                        Row(
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            const Icon(Icons.phone_rounded, size: 14, color: AppColors.primary),
-                                            const SizedBox(width: 5),
                                             Text(
-                                              renterPhone.isNotEmpty ? renterPhone : 'No phone recorded',
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w700,
-                                                color: isDark ? Colors.white70 : const Color(0xFF334155),
-                                              ),
+                                              renterName,
+                                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.phone_rounded, size: 13, color: AppColors.primary),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  renterPhone.isNotEmpty ? renterPhone : 'No phone recorded',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: isDark ? Colors.white70 : const Color(0xFF334155),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (renterPhone.isNotEmpty)
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        Clipboard.setData(ClipboardData(text: renterPhone));
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Copied $renterPhone to clipboard for transfer.'),
-                                            backgroundColor: const Color(0xFF10B981),
-                                            duration: const Duration(seconds: 2),
-                                          ),
-                                        );
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.15),
-                                        foregroundColor: const Color(0xFF10B981),
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                       ),
-                                      icon: const Icon(Icons.copy_rounded, size: 14),
-                                      label: const Text('Copy Phone / GCash', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                                    ),
+                                      if (renterPhone.isNotEmpty)
+                                        ElevatedButton.icon(
+                                          onPressed: () {
+                                            Clipboard.setData(ClipboardData(text: renterPhone));
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Copied $renterPhone to clipboard for transfer.'),
+                                                backgroundColor: const Color(0xFF10B981),
+                                                duration: const Duration(seconds: 2),
+                                              ),
+                                            );
+                                          },
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                            foregroundColor: const Color(0xFF10B981),
+                                            elevation: 0,
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          ),
+                                          icon: const Icon(Icons.copy_rounded, size: 13),
+                                          label: const Text('Copy Phone / GCash', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 14),
+                                  const Divider(height: 1),
+                                  const SizedBox(height: 14),
+
+                                  // QR Code & Account Details Section
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      if (activeQrUrl.isNotEmpty) ...[
+                                        GestureDetector(
+                                          onTap: () => _showRenterQrModal(
+                                            dialogContext,
+                                            qrUrl: activeQrUrl,
+                                            renterName: renterName,
+                                            provider: activeMethod.provider,
+                                            accountNumber: activeMethod.accountNumber.isNotEmpty
+                                                ? activeMethod.accountNumber
+                                                : renterPhone,
+                                          ),
+                                          child: Stack(
+                                            children: [
+                                              Container(
+                                                width: 88,
+                                                height: 88,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white,
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+                                                ),
+                                                padding: const EdgeInsets.all(4),
+                                                child: Image.network(
+                                                  activeQrUrl,
+                                                  fit: BoxFit.contain,
+                                                  errorBuilder: (ctx, err, stack) => const Center(
+                                                    child: Icon(Icons.qr_code_2_rounded, size: 40, color: Colors.grey),
+                                                  ),
+                                                ),
+                                              ),
+                                              Positioned(
+                                                right: 2,
+                                                bottom: 2,
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(3),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFF10B981),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: const Icon(Icons.zoom_in_rounded, size: 12, color: Colors.white),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                      ] else ...[
+                                        Container(
+                                          width: 72,
+                                          height: 72,
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                                          ),
+                                          child: const Center(
+                                            child: Icon(Icons.qr_code_2_rounded, size: 38, color: Color(0xFF10B981)),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                      ],
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFF10B981).withValues(alpha: 0.18),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    '${activeMethod.provider.toUpperCase()} LINKED ACCOUNT',
+                                                    style: const TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.w900,
+                                                      color: Color(0xFF10B981),
+                                                      letterSpacing: 0.5,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              activeMethod.accountName.isNotEmpty
+                                                  ? activeMethod.accountName
+                                                  : renterName,
+                                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Account No: ${activeMethod.accountNumber.isNotEmpty ? activeMethod.accountNumber : (renterPhone.isNotEmpty ? renterPhone : "Not linked")}',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                                color: isDark ? Colors.white70 : const Color(0xFF475569),
+                                              ),
+                                            ),
+                                            if (activeQrUrl.isNotEmpty) ...[
+                                              const SizedBox(height: 6),
+                                              InkWell(
+                                                onTap: () => _showRenterQrModal(
+                                                  dialogContext,
+                                                  qrUrl: activeQrUrl,
+                                                  renterName: renterName,
+                                                  provider: activeMethod.provider,
+                                                  accountNumber: activeMethod.accountNumber.isNotEmpty
+                                                      ? activeMethod.accountNumber
+                                                      : renterPhone,
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: const [
+                                                    Icon(Icons.qr_code_2_rounded, size: 14, color: Color(0xFF10B981)),
+                                                    SizedBox(width: 4),
+                                                    Text(
+                                                      'Tap to view / scan full QR code',
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: Color(0xFF10B981),
+                                                        decoration: TextDecoration.underline,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -15322,6 +15678,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           filled: true,
                                           fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Admin Policy: ${seats} Seater → PHP ${defaultSecurityDeposit.toStringAsFixed(0)} (4-5 Seater: PHP ${adminSettings.deposit4to5Seater.toStringAsFixed(0)} | 6+ Seater: PHP ${adminSettings.deposit6PlusSeater.toStringAsFixed(0)})',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: isDark ? Colors.amber.shade300 : Colors.amber.shade900,
                                         ),
                                       ),
                                     ],
