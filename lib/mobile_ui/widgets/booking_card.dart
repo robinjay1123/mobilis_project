@@ -347,7 +347,7 @@ class BookingCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-            ] else if (showPayNowButton) ...[
+            ] else if (showPayNowButton && !isPaidInFull) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),

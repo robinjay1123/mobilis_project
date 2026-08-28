@@ -1563,30 +1563,70 @@ class BookingService {
 
   /// Checks if a booking is 100% fully paid (no remaining rental balance).
   bool isBookingFullyPaid(Map<String, dynamic> booking) {
-    final finalPaymentStatus = (booking['final_payment_status'] ?? '')
+    // 1. Check final_payment_status
+    final finalPaymentStatus = (booking['final_payment_status'] ??
+            booking['finalPaymentStatus'] ??
+            '')
         .toString()
         .trim()
         .toLowerCase();
-    if (finalPaymentStatus == 'paid' || finalPaymentStatus == 'completed') {
+    if (finalPaymentStatus == 'paid' ||
+        finalPaymentStatus == 'completed' ||
+        finalPaymentStatus == 'waived' ||
+        finalPaymentStatus == 'n/a' ||
+        finalPaymentStatus == 'none' ||
+        finalPaymentStatus == 'not_required' ||
+        finalPaymentStatus == 'not_applicable') {
       return true;
     }
 
-    final paymentStatus = (booking['payment_status'] ?? '')
+    // 2. Check overall payment_status
+    final paymentStatus = (booking['payment_status'] ??
+            booking['paymentStatus'] ??
+            '')
         .toString()
         .trim()
         .toLowerCase();
     if (paymentStatus == 'paid' ||
         paymentStatus == 'full_paid' ||
         paymentStatus == 'fully_paid' ||
-        paymentStatus == 'paid_in_full') {
+        paymentStatus == 'paid_in_full' ||
+        paymentStatus == 'completed') {
       return true;
     }
 
-    if (booking['reservation_payment_covers_total'] == true ||
+    // 3. Check reservation payment type / full upfront payment indicators
+    final resType = (booking['reservation_payment_type'] ??
+            booking['reservationPaymentType'] ??
+            booking['payment_type'] ??
+            booking['paymentType'] ??
+            booking['payment_option'] ??
+            booking['paymentOption'] ??
+            booking['payment_mode'] ??
+            booking['paymentMode'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final isFullType = resType == 'full' ||
+        resType == 'full_payment' ||
+        resType == 'full payment' ||
+        resType == 'full_upfront' ||
+        resType == 'upfront' ||
+        resType == '100%' ||
+        resType == '100';
+
+    final isCoversTotal = booking['reservation_payment_covers_total'] == true ||
         booking['reservationPaymentCoversTotal'] == true ||
-        booking['reservation_payment_type']?.toString().toLowerCase() == 'full_payment' ||
-        booking['reservationPaymentType']?.toString().toLowerCase() == 'full_payment' ||
-        booking['is_full_payment'] == true) {
+        booking['reservation_payment_covers_total']?.toString().toLowerCase() == 'true' ||
+        booking['reservationPaymentCoversTotal']?.toString().toLowerCase() == 'true' ||
+        booking['is_full_payment'] == true ||
+        booking['is_full_payment']?.toString().toLowerCase() == 'true' ||
+        booking['is_full_payment'] == 1 ||
+        booking['is_full_payment']?.toString() == '1';
+
+    if (isFullType || isCoversTotal) {
       final resStatus = (booking['reservation_payment_status'] ??
               booking['reservationPaymentStatus'] ??
               '')
@@ -1598,12 +1638,29 @@ class BookingService {
       }
     }
 
+    // 4. Check explicit remaining_balance field
+    final remainingBalance = (booking['remaining_balance'] as num?)?.toDouble() ??
+        (booking['remainingBalance'] as num?)?.toDouble() ??
+        (booking['balance'] as num?)?.toDouble();
+    if (remainingBalance != null && remainingBalance <= 0.01) {
+      return true;
+    }
+
+    // 5. Compare paid_amount / reservation_fee_amount vs total_price / total_cost
     final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
         (booking['totalCost'] as num?)?.toDouble() ??
         (booking['total_cost'] as num?)?.toDouble() ??
         0.0;
-    final paidAmount = (booking['paid_amount'] as num?)?.toDouble() ?? 0.0;
-    if (totalPrice > 0 && paidAmount >= totalPrice) return true;
+    final paidAmount = (booking['paid_amount'] as num?)?.toDouble() ??
+        (booking['paidAmount'] as num?)?.toDouble() ??
+        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+        (booking['reservationFeeAmount'] as num?)?.toDouble() ??
+        (booking['reservation_fee'] as num?)?.toDouble() ??
+        0.0;
+
+    if (totalPrice > 0 && paidAmount >= (totalPrice - 1.0)) {
+      return true;
+    }
 
     return false;
   }
@@ -1616,12 +1673,13 @@ class BookingService {
         (booking['total_cost'] as num?)?.toDouble() ??
         0.0;
     final paidAmount = (booking['paid_amount'] as num?)?.toDouble() ??
+        (booking['paidAmount'] as num?)?.toDouble() ??
         (booking['reservation_fee_amount'] as num?)?.toDouble() ??
         (booking['reservationFeeAmount'] as num?)?.toDouble() ??
         (booking['reservation_fee'] as num?)?.toDouble() ??
         0.0;
     final balance = totalPrice - paidAmount;
-    return balance > 0 ? balance : 0.0;
+    return balance > 0.01 ? balance : 0.0;
   }
 
   /// Settles remaining balance before releasing vehicle keys and begins the trip.

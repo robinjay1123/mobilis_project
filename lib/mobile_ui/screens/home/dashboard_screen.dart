@@ -5262,12 +5262,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 final isRated = _isRenterBookingFullyRated(booking);
 
                 final isPaidInFull = BookingService().isBookingFullyPaid(booking) ||
-                    booking['reservationPaymentCoversTotal'] == true ||
-                    booking['reservation_payment_covers_total'] == true ||
-                    booking['reservationPaymentType'] == 'full_payment' ||
-                    booking['reservation_payment_type'] == 'full_payment' ||
-                    booking['final_payment_status'] == 'paid' ||
-                    booking['is_full_payment'] == true;
+                    BookingService().getBookingRemainingBalance(booking) <= 0.01;
                 final isApprovedOrReady = booking['statusGroup'] == 'Approved' ||
                     rawStatus == 'approved' ||
                     rawStatus == 'confirmed' ||
@@ -6158,12 +6153,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     final isPaidInFull = BookingService().isBookingFullyPaid(booking) ||
-        booking['reservationPaymentCoversTotal'] == true ||
-        booking['reservation_payment_covers_total'] == true ||
-        booking['reservationPaymentType'] == 'full_payment' ||
-        booking['reservation_payment_type'] == 'full_payment' ||
-        booking['final_payment_status'] == 'paid' ||
-        booking['is_full_payment'] == true;
+        BookingService().getBookingRemainingBalance(booking) <= 0.01;
     final isApprovedOrReady = booking['statusGroup'] == 'Approved' ||
         rawStatus == 'approved' ||
         rawStatus == 'confirmed' ||
@@ -11051,7 +11041,10 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             children: [
               _buildVehicleSummary(status),
               const SizedBox(height: 14),
-              if (isPaidInFull && !isCompletedTrip) ...[
+              final effectiveIsPaidInFull = isPaidInFull ||
+                  BookingService().isBookingFullyPaid(booking) ||
+                  BookingService().getBookingRemainingBalance(booking) <= 0.01;
+              if (effectiveIsPaidInFull && !isCompletedTrip) ...[
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -11066,7 +11059,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'You have already paid for this trip and it is ready for release.',
+                          'You have already paid for this trip in full. Bayad na lahat (Fully Paid).',
                           style: TextStyle(
                             color: AppColors.success,
                             fontSize: 12.5,
@@ -11078,7 +11071,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 14),
-              ] else if (onPayRemainingBalance != null) ...[
+              ] else if (!effectiveIsPaidInFull && onPayRemainingBalance != null) ...[
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
