@@ -850,11 +850,16 @@ class BookingService {
       }
 
       // Fetch vehicle record (checking both standard vehicles and partner_vehicles tables)
-      Map<String, dynamic>? vehicleState = await supabase
-          .from('vehicles')
-          .select('id,owner_role,plate_number,is_available,is_posted,status,partner_id')
-          .eq('id', vehicleId)
-          .maybeSingle();
+      Map<String, dynamic>? vehicleState;
+      try {
+        vehicleState = await supabase
+            .from('vehicles')
+            .select('id,owner_role,plate_number,is_available,is_posted,status')
+            .eq('id', vehicleId)
+            .maybeSingle();
+      } catch (e) {
+        debugPrint('Could not query vehicles table: $e');
+      }
 
       bool isPartnerVehicle = false;
       String? partnerId;
@@ -862,21 +867,31 @@ class BookingService {
       if (vehicleState != null) {
         if (vehicleState['owner_role']?.toString().toLowerCase() == 'partner') {
           isPartnerVehicle = true;
-          partnerId = vehicleState['partner_id']?.toString();
         }
-      } else {
-        // Fall back to partner_vehicles table
-        final partnerState = await supabase
+      }
+
+      // Check partner_vehicles table
+      final partnerState = await supabase
+          .from('partner_vehicles')
+          .select(
+            'id,plate_number,is_available,is_posted,status,application_status,partner_id',
+          )
+          .eq('id', vehicleId)
+          .maybeSingle();
+
+      if (partnerState != null) {
+        vehicleState = Map<String, dynamic>.from(partnerState);
+        vehicleState['owner_role'] = 'partner';
+        isPartnerVehicle = true;
+        partnerId = partnerState['partner_id']?.toString();
+      } else if (isPartnerVehicle) {
+        final pvInfo = await supabase
             .from('partner_vehicles')
-            .select('id,plate_number,is_available,is_posted,status,application_status,partner_id')
+            .select('partner_id')
             .eq('id', vehicleId)
             .maybeSingle();
-
-        if (partnerState != null) {
-          vehicleState = Map<String, dynamic>.from(partnerState);
-          vehicleState['owner_role'] = 'partner';
-          isPartnerVehicle = true;
-          partnerId = partnerState['partner_id']?.toString();
+        if (pvInfo != null) {
+          partnerId = pvInfo['partner_id']?.toString();
         }
       }
 
