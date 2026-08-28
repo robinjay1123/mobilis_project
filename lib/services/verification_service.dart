@@ -140,6 +140,13 @@ class VerificationService {
           'verifications/$userId/id_back_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final idBackUrl = await _uploadFile(idBackPath, idBackFile);
 
+      try {
+        await supabase.from('users').update({
+          'verification_status': 'pending',
+          'application_status': 'pending',
+        }).eq('id', userId);
+      } catch (_) {}
+
       final response = await supabase
           .from('user_verifications')
           .upsert({
