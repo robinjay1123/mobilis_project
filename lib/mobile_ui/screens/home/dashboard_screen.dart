@@ -11018,6 +11018,10 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     const completionActionLabel = 'Rate Your Trip';
     const completionActionIcon = Icons.star_rate_rounded;
 
+    final effectiveIsPaidInFull = isPaidInFull ||
+        BookingService().isBookingFullyPaid(booking) ||
+        BookingService().getBookingRemainingBalance(booking) <= 0.01;
+
     return Scaffold(
       backgroundColor: AppColors.darkBg,
       appBar: AppBar(
@@ -11041,9 +11045,6 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             children: [
               _buildVehicleSummary(status),
               const SizedBox(height: 14),
-              final effectiveIsPaidInFull = isPaidInFull ||
-                  BookingService().isBookingFullyPaid(booking) ||
-                  BookingService().getBookingRemainingBalance(booking) <= 0.01;
               if (effectiveIsPaidInFull && !isCompletedTrip) ...[
                 Container(
                   width: double.infinity,
