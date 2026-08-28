@@ -4883,7 +4883,7 @@ class _NotificationsTabState extends State<_NotificationsTab> {
   void initState() {
     super.initState();
     _notificationsFuture = _loadNotifications();
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       if (mounted) _refresh();
     });
     _setupNotificationsListener();

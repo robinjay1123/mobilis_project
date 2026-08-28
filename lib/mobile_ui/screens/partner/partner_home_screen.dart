@@ -190,6 +190,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       .where((notification) => notification['is_read'] != true)
       .length;
 
+  bool _isFetchingPartnerData = false;
+
   @override
   void initState() {
     super.initState();
@@ -207,8 +209,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     });
     _loadPartnerData();
     _initializeConnectivity();
+    // Gentle 60s backup sync; live updates are pushed immediately via Supabase Realtime
     _notificationsAutoRefreshTimer = Timer.periodic(
-      const Duration(seconds: 4),
+      const Duration(seconds: 60),
       (_) {
         if (mounted) _loadPartnerData(silent: true);
       },
@@ -266,6 +269,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Future<void> _loadPartnerData({bool silent = false}) async {
+    if (_isFetchingPartnerData) return;
+    _isFetchingPartnerData = true;
+
     try {
       final authService = AuthService();
       final partnerService = PartnerService();
@@ -275,36 +281,35 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         // Partner-centric records use users.id as partner_id/owner_id.
         partnerId = user.id;
 
-        // Optional profile table support for legacy setups.
-        Map<String, dynamic>? profile;
-        try {
-          profile = await partnerService.getPartnerProfile(user.id);
-        } catch (_) {
-          profile = null;
-        }
+        // Fetch independent data sets concurrently
+        final results = await Future.wait([
+          partnerService.getPartnerProfile(user.id).catchError((_) => null),
+          partnerService.getApplicationCounts(partnerId!),
+          partnerService.getVehicleApplications(partnerId!),
+          BookingService().getPartnerBookings(partnerId!),
+          ChatService().getConversations(user.id),
+          NotificationService().getNotifications(user.id, limit: 30),
+          TrackingService().getActiveTrackingLocations(),
+          TripRatingService().getRatingSummary(user.id),
+          _loadPartnerAvatarUrl(user),
+          _restrictionService.getUserRestriction(user.id),
+        ]);
 
-        final appCounts = await partnerService.getApplicationCounts(partnerId!);
-        final apps = await partnerService.getVehicleApplications(partnerId!);
+        final profile = results[0] as Map<String, dynamic>?;
+        final appCounts = results[1] as Map<String, int>;
+        final apps = results[2] as List<Map<String, dynamic>>;
+        final bList = results[3] as List<Map<String, dynamic>>;
+        final convs = results[4] as List<Map<String, dynamic>>;
+        final notifs = results[5] as List<Map<String, dynamic>>;
+        final liveTracking = results[6] as List<Map<String, dynamic>>;
+        final ratingSummary = results[7] as Map<String, dynamic>;
+        final avatarUrl = results[8] as String?;
+        final restrictionState = results[9] as UserRestrictionState;
 
-        final bookingService = BookingService();
-        final bCounts = await bookingService.getPartnerBookingCounts(
+        // Compute booking counts from already-loaded bList without extra query
+        final bCounts = await BookingService().getPartnerBookingCounts(
           partnerId!,
-        );
-        final bList = await bookingService.getPartnerBookings(partnerId!);
-
-        final chatService = ChatService();
-        final convs = await chatService.getConversations(user.id);
-
-        final notificationService = NotificationService();
-        final notifs = await notificationService.getNotifications(user.id);
-        final liveTracking = await TrackingService()
-            .getActiveTrackingLocations();
-        final ratingSummary = await TripRatingService().getRatingSummary(
-            user.id,
-        );
-        final avatarUrl = await _loadPartnerAvatarUrl(user);
-        final restrictionState = await _restrictionService.getUserRestriction(
-          user.id,
+          existingBookings: bList,
         );
 
         if (_bookingsSubscription == null) {
@@ -346,11 +351,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       }
     } catch (e) {
       debugPrint('Error loading partner data: $e');
-      if (mounted && !silent) {
-        setState(() {
-          isLoading = false;
-        });
-      }
+    } finally {
+      _isFetchingPartnerData = false;
     }
   }
 

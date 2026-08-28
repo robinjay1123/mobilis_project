@@ -45,8 +45,8 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     _loadRouteHistory();
     _loadTrackingLocation();
     _setupRealtimeSubscription();
-    // Responsive 6s background poll while partner is viewing live screen
-    _refreshTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+    // Responsive 20s backup poll while partner is viewing live screen (Realtime channel pushes instant updates)
+    _refreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (mounted) {
         _loadTrackingLocation(showLoader: false);
       }

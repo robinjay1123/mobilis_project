@@ -218,7 +218,8 @@ class VehicleService {
     try {
       final response = await supabase
           .from('partner_vehicle_applications')
-          .select('*');
+          .select('partner_id, application_status, status, partner_vehicle_id, created_vehicle_id, plate_number')
+          .or('application_status.eq.approved,status.eq.approved');
 
       for (final raw in List<Map<String, dynamic>>.from(response)) {
         final partnerOwnerId = raw['partner_id']?.toString().trim();

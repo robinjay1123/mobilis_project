@@ -1096,22 +1096,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     });
     _setupBookingFlowListener();
     _bookingsSilentRefreshTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 60),
       (_) {
-        if (mounted) {
+        if (mounted && (_selectedIndex == 1 || _selectedIndex == 0)) {
           _loadRecentBookings();
         }
       },
     );
     _trackingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 11),
+      const Duration(seconds: 30),
       (_) {
         if (mounted && (_selectedIndex == 8 || _selectedIndex == 0)) {
           _refreshTrackingLocations();
         }
       },
     );
-    _notificationsRefreshTimer = Timer.periodic(const Duration(seconds: 30), (
+    _notificationsRefreshTimer = Timer.periodic(const Duration(seconds: 60), (
       _,
     ) {
       if (mounted) {

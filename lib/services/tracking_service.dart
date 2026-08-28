@@ -630,7 +630,8 @@ class TrackingService {
               )
             )
           ''')
-          .order('recorded_at', ascending: false);
+          .order('recorded_at', ascending: false)
+          .limit(60);
 
       const onTripStatuses = {
         'ongoing',

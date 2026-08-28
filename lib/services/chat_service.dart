@@ -62,12 +62,19 @@ class ChatService {
       final conversationIds = await _conversationIdsForUser(userId);
       if (conversationIds.isEmpty) return [];
 
-      // Get conversations with latest message
+      // Get conversations with latest messages
       final response = await supabase
           .from('conversations')
           .select('''
             *,
-            messages!messages_conversation_id_fkey(*),
+            messages!messages_conversation_id_fkey(
+              id,
+              content,
+              sender_id,
+              created_at,
+              is_read,
+              message_type
+            ),
             bookings!conversations_booking_id_fkey (
               id,
               status,
@@ -315,7 +322,7 @@ class ChatService {
 
     final messageRows = await supabase
         .from('messages')
-        .select()
+        .select('id, conversation_id, sender_id, content, created_at, is_read, message_type')
         .inFilter('conversation_id', conversationIds)
         .order('created_at', ascending: true);
     final messagesByConversation = <String, List<Map<String, dynamic>>>{};

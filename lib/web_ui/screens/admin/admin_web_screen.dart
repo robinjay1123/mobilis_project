@@ -543,50 +543,51 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _setupActionLogsRealtimeListener();
     _setupBookingsRealtimeListener();
     _setupVerificationsAndApplicationsRealtimeListener();
+    // Relax periodic polling intervals since Supabase Realtime listeners handle instant live updates
     _bookingsSilentRefreshTimer = Timer.periodic(
-      const Duration(seconds: 12),
+      const Duration(seconds: 60),
       (_) {
-        if (mounted) {
+        if (mounted && (_selectedIndex == 2 || _selectedIndex == 0)) {
           _loadAllBookings();
         }
       },
     );
     _verificationsAndApplicationsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 10),
+      const Duration(seconds: 60),
       (_) {
-        if (mounted) {
+        if (mounted && (_selectedIndex == 4 || _selectedIndex == 5 || _selectedIndex == 0)) {
           _refreshVerificationsAndApplicationsSilently();
         }
       },
     );
     _trackingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 11),
+      const Duration(seconds: 30),
       (_) {
-        if (_selectedIndex == 10 || _selectedIndex == 0) {
+        if (mounted && (_selectedIndex == 10 || _selectedIndex == 0)) {
           _refreshTrackingLocations();
         }
       },
     );
     _actionLogsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 20),
+      const Duration(seconds: 60),
       (_) {
-        if (_selectedIndex == 12) {
+        if (mounted && _selectedIndex == 12) {
           _loadActionLogs(showLoading: false);
         }
       },
     );
     _announcementRefreshTimer = Timer.periodic(
-      const Duration(seconds: 45),
+      const Duration(seconds: 90),
       (_) => _refreshAnnouncementsIfVisible(),
     );
     _notificationsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 60),
       (_) => _loadNotifications(showLoading: false),
     );
     _userReportsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 25),
+      const Duration(seconds: 60),
       (_) {
-        if (_selectedIndex == 13 || _selectedIndex == 0) {
+        if (mounted && (_selectedIndex == 13 || _selectedIndex == 0)) {
           _loadUserReports(showLoading: false);
         }
       },

@@ -170,7 +170,6 @@ class BookingService {
   // Get bookings for a partner (via standard vehicles, partner_vehicles, or partner_id)
   Future<List<Map<String, dynamic>>> getPartnerBookings(String userId) async {
     try {
-      await processExpiredPendingBookings();
       debugPrint('Fetching bookings for partner/owner: $userId');
 
       // 1. Get all partner profile IDs for this user
@@ -232,7 +231,7 @@ class BookingService {
         debugPrint('Error fetching partner_vehicle_applications: $e');
       }
 
-      // 4. Get standard vehicles owned by this user or with matching plate numbers
+      // 4. Get standard vehicles owned by this user
       final standardVehicleIds = <String>{};
       try {
         final ownerFilter = partnerIds.map((id) => 'owner_id.eq.$id').join(',');
@@ -256,20 +255,6 @@ class BookingService {
         debugPrint('Error fetching standard vehicles for partner: $e');
       }
 
-      // 5. Also query vehicles table by plate numbers to catch mirrored vehicles
-      if (vehiclePlates.isNotEmpty) {
-        try {
-          final vehiclesByPlate = await supabase
-              .from('vehicles')
-              .select('id')
-              .inFilter('plate_number', vehiclePlates.toList());
-          for (final v in List<Map<String, dynamic>>.from(vehiclesByPlate)) {
-            final id = v['id']?.toString();
-            if (id != null && id.isNotEmpty) standardVehicleIds.add(id);
-          }
-        } catch (_) {}
-      }
-
       final allVehicleIds = {...standardVehicleIds, ...partnerVehicleIds};
       final bookingList = <Map<String, dynamic>>[];
       final seenBookingIds = <String>{};
@@ -287,101 +272,57 @@ class BookingService {
         }
       }
 
-      // Query bookings by vehicle_id
+      // Query bookings efficiently using indexed filters in parallel
+      final queries = <Future<dynamic>>[];
       if (allVehicleIds.isNotEmpty) {
-        try {
-          final res = await supabase
+        final vehicleList = allVehicleIds.toList();
+        queries.add(
+          supabase
               .from('bookings')
               .select('*')
-              .inFilter('vehicle_id', allVehicleIds.toList())
-              .order('created_at', ascending: false);
-          addRows(res);
-        } catch (e) {
-          debugPrint('Error querying bookings by vehicle_id: $e');
-        }
-      }
-
-      // Query bookings by partner_vehicle_id
-      if (allVehicleIds.isNotEmpty) {
-        try {
-          final res = await supabase
-              .from('bookings')
-              .select('*')
-              .inFilter('partner_vehicle_id', allVehicleIds.toList())
-              .order('created_at', ascending: false);
-          addRows(res);
-        } catch (e) {
-          debugPrint('Error querying bookings by partner_vehicle_id: $e');
-        }
-      }
-
-      // Query bookings by partner_id
-      if (partnerIds.isNotEmpty) {
-        try {
-          final res = await supabase
-              .from('bookings')
-              .select('*')
-              .inFilter('partner_id', partnerIds.toList())
-              .order('created_at', ascending: false);
-          addRows(res);
-        } catch (e) {
-          debugPrint('Error querying bookings by partner_id: $e');
-        }
-
-        try {
-          final res = await supabase
-              .from('bookings')
-              .select('*')
-              .inFilter('owner_id', partnerIds.toList())
-              .order('created_at', ascending: false);
-          addRows(res);
-        } catch (_) {}
-      }
-
-      // Explicitly fetch any active trip extension requests for this partner's fleet
-      try {
-        final extBookings = await supabase
-            .from('bookings')
-            .select('*')
-            .neq('extension_status', 'none')
-            .order('created_at', ascending: false);
-        for (final b in List<Map<String, dynamic>>.from(extBookings)) {
-          final bVehicleId = b['vehicle_id']?.toString() ?? '';
-          final bPartnerVehicleId = b['partner_vehicle_id']?.toString() ?? '';
-          final bPartnerId = b['partner_id']?.toString() ?? '';
-          final bOwnerId = b['owner_id']?.toString() ?? '';
-          if (allVehicleIds.contains(bVehicleId) ||
-              allVehicleIds.contains(bPartnerVehicleId) ||
-              partnerIds.contains(bPartnerId) ||
-              partnerIds.contains(bOwnerId)) {
-            addRows([b]);
-          }
-        }
-      } catch (e) {
-        debugPrint('Note: direct extension query for partner bookings: $e');
-      }
-
-      // Fallback: Check recent pending bookings if any vehicle matches
-      if (bookingList.isEmpty && (allVehicleIds.isNotEmpty || vehiclePlates.isNotEmpty)) {
-        try {
-          final recentBookings = await supabase
-              .from('bookings')
-              .select('*')
+              .inFilter('vehicle_id', vehicleList)
               .order('created_at', ascending: false)
-              .limit(100);
-          for (final b in List<Map<String, dynamic>>.from(recentBookings)) {
-            final bVehicleId = b['vehicle_id']?.toString() ?? '';
-            final bPartnerVehicleId = b['partner_vehicle_id']?.toString() ?? '';
-            final bPartnerId = b['partner_id']?.toString() ?? '';
-            final bOwnerId = b['owner_id']?.toString() ?? '';
-            if (allVehicleIds.contains(bVehicleId) ||
-                allVehicleIds.contains(bPartnerVehicleId) ||
-                partnerIds.contains(bPartnerId) ||
-                partnerIds.contains(bOwnerId)) {
-              addRows([b]);
-            }
+              .limit(100),
+        );
+        queries.add(
+          supabase
+              .from('bookings')
+              .select('*')
+              .inFilter('partner_vehicle_id', vehicleList)
+              .order('created_at', ascending: false)
+              .limit(100),
+        );
+      }
+
+      if (partnerIds.isNotEmpty) {
+        final pList = partnerIds.toList();
+        queries.add(
+          supabase
+              .from('bookings')
+              .select('*')
+              .inFilter('partner_id', pList)
+              .order('created_at', ascending: false)
+              .limit(100),
+        );
+        queries.add(
+          supabase
+              .from('bookings')
+              .select('*')
+              .inFilter('owner_id', pList)
+              .order('created_at', ascending: false)
+              .limit(100),
+        );
+      }
+
+      if (queries.isNotEmpty) {
+        try {
+          final queryResults = await Future.wait(queries);
+          for (final res in queryResults) {
+            if (res is List) addRows(res);
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('Error querying partner bookings: $e');
+        }
       }
 
       // Sort all fetched bookings by created_at descending
@@ -502,9 +443,6 @@ class BookingService {
     List<Map<String, dynamic>> rawBookings,
   ) async {
     if (rawBookings.isEmpty) return rawBookings;
-
-    // First auto-decline any driver assignments that exceeded the 10-minute response window
-    await checkAndExpireDriverAssignments();
 
     final bookings =
         rawBookings.map((b) => Map<String, dynamic>.from(b)).toList();
@@ -807,7 +745,6 @@ class BookingService {
   // Note: bookings use renter_id which references users.id
   Future<List<Map<String, dynamic>>> getRenterBookings(String userId) async {
     try {
-      await processExpiredPendingBookings();
       debugPrint('Fetching bookings for renter: $userId');
 
       List<Map<String, dynamic>> rawBookings = [];
@@ -816,7 +753,8 @@ class BookingService {
             .from('bookings')
             .select('*')
             .eq('renter_id', userId)
-            .order('created_at', ascending: false);
+            .order('created_at', ascending: false)
+            .limit(100);
         rawBookings = List<Map<String, dynamic>>.from(response);
       } catch (e) {
         debugPrint('Database error fetching renter bookings: $e');
@@ -1962,11 +1900,14 @@ class BookingService {
   }
 
   // Get booking counts by status for partner
-  Future<Map<String, int>> getPartnerBookingCounts(String partnerId) async {
+  Future<Map<String, int>> getPartnerBookingCounts(
+    String partnerId, {
+    List<Map<String, dynamic>>? existingBookings,
+  }) async {
     try {
       debugPrint('Fetching booking counts for partner: $partnerId');
 
-      final bookings = await getPartnerBookings(partnerId);
+      final bookings = existingBookings ?? await getPartnerBookings(partnerId);
 
       final counts = {
         'pending': 0,

@@ -67,15 +67,19 @@ class NotificationService {
   }
 
   // Get all notifications for a user
-  Future<List<Map<String, dynamic>>> getNotifications(String userId) async {
+  Future<List<Map<String, dynamic>>> getNotifications(
+    String userId, {
+    int limit = 50,
+  }) async {
     try {
       debugPrint('Fetching notifications for user: $userId');
 
       final response = await supabase
           .from('notifications')
-          .select()
+          .select('id, user_id, title, message, type, is_read, data, created_at')
           .eq('user_id', userId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .limit(limit);
 
       final notifications = deduplicateNotifications(
         List<Map<String, dynamic>>.from(response),
@@ -93,17 +97,19 @@ class NotificationService {
 
   // Get unread notifications
   Future<List<Map<String, dynamic>>> getUnreadNotifications(
-    String userId,
-  ) async {
+    String userId, {
+    int limit = 50,
+  }) async {
     try {
       debugPrint('Fetching unread notifications for user: $userId');
 
       final response = await supabase
           .from('notifications')
-          .select()
+          .select('id, user_id, title, message, type, is_read, data, created_at')
           .eq('user_id', userId)
           .eq('is_read', false)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .limit(limit);
 
       final notifications = deduplicateNotifications(
         List<Map<String, dynamic>>.from(response),
@@ -128,7 +134,8 @@ class NotificationService {
           .from('notifications')
           .select('id, user_id, type, title, message, data, created_at')
           .eq('user_id', userId)
-          .eq('is_read', false);
+          .eq('is_read', false)
+          .limit(100);
 
       final count = deduplicateNotifications(
         List<Map<String, dynamic>>.from(response),

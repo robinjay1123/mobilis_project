@@ -160,7 +160,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     RenterMarketingNotificationService()
         .checkAndTriggerDailyRenterNotification();
     _notificationsAutoRefreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 60),
       (_) {
         if (mounted) _loadNotifications();
       },
@@ -524,16 +524,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final chatService = ChatService();
       final conversations = await chatService.getConversations(user.id);
+      
+      final otherUserFutures = conversations.map((c) {
+        final cId = c['id']?.toString() ?? '';
+        if (cId.isEmpty) return Future<Map<String, dynamic>?>.value(null);
+        return chatService.getOtherUser(cId, user.id);
+      }).toList();
+      final otherUsers = await Future.wait(otherUserFutures);
+
       final hydratedConversations = <Map<String, dynamic>>[];
-
-      for (final conversation in conversations) {
-        final conversationId = conversation['id']?.toString();
-        if (conversationId == null || conversationId.isEmpty) continue;
-
-        final otherUser = await chatService.getOtherUser(
-          conversationId,
-          user.id,
-        );
+      for (int i = 0; i < conversations.length; i++) {
+        final conversation = conversations[i];
+        final otherUser = otherUsers[i];
         final messages = List<Map<String, dynamic>>.from(
           conversation['messages'] as List? ?? const [],
         );

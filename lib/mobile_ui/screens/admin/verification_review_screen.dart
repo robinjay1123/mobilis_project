@@ -27,7 +27,7 @@ class _AdminVerificationHubScreenState
     super.initState();
     _loadVerifications();
     _refreshTimer = Timer.periodic(
-      const Duration(seconds: 10),
+      const Duration(seconds: 60),
       (_) {
         if (mounted) {
           setState(() {

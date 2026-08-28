@@ -861,65 +861,29 @@ class AdminService {
     try {
       debugPrint('Fetching dashboard stats');
 
-      // Count total users by role
-      final totalUsers = await supabase.from('users').select('id');
-
-      final drivers = await supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'driver');
-
-      final partners = await supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'partner');
-
-      final renters = await supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'renter');
-
-      // Pending verifications
-      final pendingVerifications = await supabase
-          .from('users')
-          .select('id')
-          .eq('id_verified', false);
-
-      // Pending applications
-      final pendingDriverApps = await supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'driver')
-          .eq('application_status', 'pending');
-
-      final pendingPartnerApps = await supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'partner')
-          .eq('application_status', 'pending');
-
-      // Active bookings
-      final activeBookings = await supabase
-          .from('bookings')
-          .select('id')
-          .eq('status', 'active');
-
-      // Total vehicles
-      final totalVehicles = await supabase
-          .from('partner_vehicle_applications')
-          .select('id')
-          .eq('application_status', 'approved');
+      // Count users, bookings, and applications in parallel
+      final results = await Future.wait([
+        supabase.from('users').select('id').then((r) => (r as List).length).catchError((_) => 0),
+        supabase.from('users').select('id').eq('role', 'driver').then((r) => (r as List).length).catchError((_) => 0),
+        supabase.from('users').select('id').eq('role', 'partner').then((r) => (r as List).length).catchError((_) => 0),
+        supabase.from('users').select('id').eq('role', 'renter').then((r) => (r as List).length).catchError((_) => 0),
+        supabase.from('users').select('id').eq('id_verified', false).then((r) => (r as List).length).catchError((_) => 0),
+        supabase.from('users').select('id').eq('role', 'driver').eq('application_status', 'pending').then((r) => (r as List).length).catchError((_) => 0),
+        supabase.from('users').select('id').eq('role', 'partner').eq('application_status', 'pending').then((r) => (r as List).length).catchError((_) => 0),
+        supabase.from('bookings').select('id').eq('status', 'active').then((r) => (r as List).length).catchError((_) => 0),
+        supabase.from('partner_vehicle_applications').select('id').eq('application_status', 'approved').then((r) => (r as List).length).catchError((_) => 0),
+      ]);
 
       return {
-        'total_users': totalUsers.length,
-        'total_drivers': drivers.length,
-        'total_partners': partners.length,
-        'total_renters': renters.length,
-        'pending_verifications': pendingVerifications.length,
-        'pending_driver_applications': pendingDriverApps.length,
-        'pending_partner_applications': pendingPartnerApps.length,
-        'active_bookings': activeBookings.length,
-        'approved_vehicles': totalVehicles.length,
+        'total_users': results[0],
+        'total_drivers': results[1],
+        'total_partners': results[2],
+        'total_renters': results[3],
+        'pending_verifications': results[4],
+        'pending_driver_applications': results[5],
+        'pending_partner_applications': results[6],
+        'active_bookings': results[7],
+        'approved_vehicles': results[8],
       };
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching dashboard stats: ${e.message}');
