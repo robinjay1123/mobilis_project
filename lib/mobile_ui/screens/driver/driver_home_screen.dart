@@ -1000,13 +1000,19 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   void _showVerificationPopup() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isPending =
+        hasPendingVerification ||
+        verificationStatus == 'pending' ||
+        verificationStatus == 'submitted';
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
         title: Row(
           children: [
             Container(
@@ -1015,8 +1021,8 @@ class __DashboardTabState extends State<_DashboardTab> {
                 color: AppColors.primary.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(
-                Icons.verified_user,
+              child: Icon(
+                isPending ? Icons.hourglass_top : Icons.verified_user,
                 color: AppColors.primary,
                 size: 24,
               ),
@@ -1024,7 +1030,9 @@ class __DashboardTabState extends State<_DashboardTab> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Verify Your Account',
+                isPending
+                    ? 'Verification Under Review'
+                    : 'Verify Your Account',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
@@ -1038,16 +1046,18 @@ class __DashboardTabState extends State<_DashboardTab> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const DialogStatusIndicator(
+            DialogStatusIndicator(
               isComplete: false,
               completeLabel: 'Verification complete',
-              incompleteLabel: 'Verification required',
-              incompleteDetail:
-                  'Complete your identity verification to unlock driver features.',
+              incompleteLabel:
+                  isPending ? 'Under Review' : 'Verification required',
+              incompleteDetail: isPending
+                  ? 'Your verification documents have been submitted and are under review by admin.'
+                  : 'Complete your identity verification to unlock driver features.',
             ),
             const SizedBox(height: 12),
             Text(
-              'Get verified to unlock:',
+              isPending ? 'Review Timeline:' : 'Get verified to unlock:',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -1058,20 +1068,18 @@ class __DashboardTabState extends State<_DashboardTab> {
             ),
             const SizedBox(height: 12),
             _buildVerificationBenefit(
-              icon: Icons.trending_up,
-              text: 'Higher visibility to customers',
-              isDark: isDark,
-            ),
-            const SizedBox(height: 8),
-            _buildVerificationBenefit(
               icon: Icons.shield,
-              text: 'Build trust and credibility',
+              text: isPending
+                  ? 'Admin is reviewing your license and NBI documents'
+                  : 'Higher visibility to customers',
               isDark: isDark,
             ),
             const SizedBox(height: 8),
             _buildVerificationBenefit(
-              icon: Icons.star,
-              text: 'Access premium features',
+              icon: Icons.schedule,
+              text: isPending
+                  ? 'Most reviews complete within 1-2 hours'
+                  : 'Build trust and credibility',
               isDark: isDark,
             ),
           ],
@@ -1083,7 +1091,7 @@ class __DashboardTabState extends State<_DashboardTab> {
               Navigator.pop(context);
             },
             child: Text(
-              'Skip for Now',
+              isPending ? 'Close' : 'Skip for Now',
               style: TextStyle(
                 color: isDark ? Colors.grey : Colors.grey.shade600,
                 fontWeight: FontWeight.w500,
@@ -1093,7 +1101,12 @@ class __DashboardTabState extends State<_DashboardTab> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              Navigator.pushNamed(context, '/driver-identity-verification');
+              Navigator.pushNamed(
+                context,
+                isPending
+                    ? '/account-verification'
+                    : '/driver-identity-verification',
+              );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -1102,9 +1115,9 @@ class __DashboardTabState extends State<_DashboardTab> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: const Text(
-              'Verify Now',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            child: Text(
+              isPending ? 'Check Status' : 'Verify Now',
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
         ],

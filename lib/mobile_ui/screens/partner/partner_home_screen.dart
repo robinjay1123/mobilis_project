@@ -1430,6 +1430,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Widget _buildVerificationBanner() {
+    final isPending =
+        verificationStatus == 'pending' || verificationStatus == 'submitted';
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.all(16),
@@ -1449,8 +1452,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   color: AppColors.warning.withAlpha(40),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(
-                  Icons.pending,
+                child: Icon(
+                  isPending ? Icons.hourglass_top : Icons.pending,
                   color: AppColors.warning,
                   size: 20,
                 ),
@@ -1460,17 +1463,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Complete Verification',
-                      style: TextStyle(
+                    Text(
+                      isPending
+                          ? 'Verification Under Review'
+                          : 'Complete Verification',
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: AppColors.warning,
                       ),
                     ),
                     Text(
-                      'Unlock full features and build trust with renters',
-                      style: TextStyle(
+                      isPending
+                          ? 'Your verification documents have been submitted and are under review.'
+                          : 'Unlock full features and build trust with renters',
+                      style: const TextStyle(
                         fontSize: 12,
                         color: AppColors.textSecondary,
                       ),
@@ -1495,22 +1502,32 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ),
                   child: const Text(
                     'Later',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () =>
-                      Navigator.pushNamed(context, '/owner-verification'),
+                  onPressed: () => Navigator.pushNamed(
+                    context,
+                    isPending
+                        ? '/account-verification'
+                        : '/owner-verification',
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.warning,
                     foregroundColor: Colors.black,
                   ),
-                  child: const Text(
-                    'Verify Now',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  child: Text(
+                    isPending ? 'Check Status' : 'Verify Now',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),

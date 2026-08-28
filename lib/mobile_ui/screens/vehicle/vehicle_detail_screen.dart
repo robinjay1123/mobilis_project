@@ -1635,8 +1635,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     try {
       final verificationState =
           await VerificationService.getUserVerificationState(user.id);
-      final userRole = verificationState['role']?.toString() ?? 'renter';
-      final isVerified = verificationState['is_verified'] as bool? ?? false;
+      final status =
+          verificationState['verification_status']?.toString().trim().toLowerCase();
+      final isPending = status == 'pending' || status == 'submitted';
 
       // ✅ Skip verification requirement for drivers
       if (userRole == 'driver') {
@@ -1653,13 +1654,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             context: context,
             builder: (context) => AlertDialog(
               backgroundColor: AppColors.darkBgSecondary,
-              title: const Text(
-                'Verification Required',
-                style: TextStyle(color: AppColors.textPrimary),
+              title: Text(
+                isPending
+                    ? 'Verification Under Review'
+                    : 'Verification Required',
+                style: const TextStyle(color: AppColors.textPrimary),
               ),
-              content: const Text(
-                'You need to verify your identity before you can book a vehicle. Would you like to complete verification now?',
-                style: TextStyle(color: AppColors.textSecondary),
+              content: Text(
+                isPending
+                    ? 'Your identity verification documents have been submitted and are under review by admin.'
+                    : 'You need to verify your identity before you can book a vehicle. Would you like to complete verification now?',
+                style: const TextStyle(color: AppColors.textSecondary),
               ),
               actions: [
                 TextButton(
@@ -1672,13 +1677,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context);
-                    Navigator.of(context).pushNamed('/id-verification');
+                    Navigator.of(context).pushNamed(
+                      isPending ? '/account-verification' : '/id-verification',
+                    );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
                   ),
-                  child: const Text('Verify Now'),
+                  child: Text(isPending ? 'Check Status' : 'Verify Now'),
                 ),
               ],
             ),
