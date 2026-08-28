@@ -9007,12 +9007,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: referenceController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
                     style: const TextStyle(color: Colors.white, fontSize: 14),
                     decoration: InputDecoration(
                       labelText: 'Payment Reference Number / Transaction ID *',
                       labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                      hintText: 'e.g. 10023458921',
+                      hintText: 'e.g. 10023458921 (digits only)',
                       hintStyle: const TextStyle(color: Colors.white24),
+                      helperText: '⚠️ Transaction ID must contain digits/numbers only',
+                      helperStyle: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
                       filled: true,
                       fillColor: AppColors.darkBg,
                       border: OutlineInputBorder(
@@ -9091,6 +9101,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   const SnackBar(
                                     content: Text('Please enter your online payment reference number.'),
                                     backgroundColor: AppColors.warning,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (!RegExp(r'^\d+$').hasMatch(ref)) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('⚠️ Transaction ID / Reference Number must contain digits only (e.g. 10023458921).'),
+                                    backgroundColor: AppColors.error,
                                   ),
                                 );
                                 return;
@@ -12408,12 +12427,22 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   const SizedBox(height: 12),
                   TextField(
                     controller: referenceController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
                     style: const TextStyle(color: Colors.white, fontSize: 14),
                     decoration: InputDecoration(
                       labelText: 'Payment Reference Number / Transaction ID',
                       labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                      hintText: 'e.g. 10023458921',
+                      hintText: 'e.g. 10023458921 (digits only)',
                       hintStyle: const TextStyle(color: Colors.white24),
+                      helperText: '⚠️ Transaction ID must contain digits/numbers only',
+                      helperStyle: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
                       filled: true,
                       fillColor: AppColors.darkBg,
                       border: OutlineInputBorder(
@@ -12490,6 +12519,15 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                                   const SnackBar(
                                     content: Text('Please enter a payment reference number.'),
                                     backgroundColor: AppColors.warning,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (!RegExp(r'^\d+$').hasMatch(ref)) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('⚠️ Transaction ID / Reference Number must contain digits only (e.g. 10023458921).'),
+                                    backgroundColor: AppColors.error,
                                   ),
                                 );
                                 return;

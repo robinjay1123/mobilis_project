@@ -2227,12 +2227,21 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             keyboardType: TextInputType.number,
             maxLength: 13,
             enabled: !_isUploading,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+            ],
             onChanged: (_) => setState(() {}),
             style: TextStyle(color: isDark ? Colors.white : const Color(0xFF0F172A)),
             decoration: InputDecoration(
               labelText: 'Transaction Reference Number (6 to 13 digits)',
               hintText: 'e.g. 1002345678',
               counterText: '',
+              helperText: '⚠️ Transaction ID must contain digits/numbers only',
+              helperStyle: const TextStyle(
+                color: AppColors.primary,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
               labelStyle: TextStyle(
                 color: isDark ? Colors.white60 : const Color(0xFF64748B),
                 fontSize: 12,
