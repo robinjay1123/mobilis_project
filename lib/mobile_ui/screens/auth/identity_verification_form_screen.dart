@@ -599,45 +599,52 @@ class _IdentityVerificationFormScreenState
   String? _validateIdNumber(String idType, String rawValue) {
     final value = rawValue.trim();
     final normalizedType = idType.toLowerCase();
+    if (value.isEmpty) {
+      return 'Please enter your ID number';
+    }
+
     if (normalizedType.contains('driver')) {
       if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(value)) {
-        return "Driver's License Number must be 6-13 letters/numbers and may include hyphens";
+        return "Driver's License Number must be 6-13 alphanumeric characters";
       }
       return null;
     }
 
     if (normalizedType.contains('national')) {
-      final digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
-      if (digitsOnly.length != 12) {
-        return 'National ID number must contain exactly 12 digits';
+      final clean = value.replaceAll('-', '');
+      if (clean.length < 10 || clean.length > 12) {
+        return 'National ID number must be 10-12 alphanumeric characters';
+      }
+      if (!RegExp(r'^[A-Za-z0-9-]{10,14}$').hasMatch(value)) {
+        return 'National ID number contains invalid characters';
       }
       return null;
     }
 
     if (normalizedType.contains('passport')) {
       if (!RegExp(r'^[A-Za-z0-9]{7,9}$').hasMatch(value)) {
-        return 'Passport number must be 7-9 letters/numbers';
+        return 'Passport number must be 7-9 alphanumeric characters';
       }
       return null;
     }
 
     if (normalizedType.contains('tin')) {
-      final digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
-      if (digitsOnly.length != 9 && digitsOnly.length != 12) {
-        return 'TIN must contain 9 or 12 digits';
+      final clean = value.replaceAll('-', '');
+      if (clean.length != 9 && clean.length != 12) {
+        return 'TIN must contain 9 or 12 characters';
       }
       return null;
     }
 
     if (normalizedType.contains('senior') || normalizedType.contains('pwd')) {
       if (!RegExp(r'^[A-Za-z0-9-]{6,20}$').hasMatch(value)) {
-        return 'ID number must be 6-20 letters/numbers and may include hyphens';
+        return 'ID number must be 6-20 alphanumeric characters';
       }
       return null;
     }
 
-    if (value.length < 5 || value.length > 40) {
-      return 'ID number must be between 5 and 40 characters';
+    if (value.length < 5 || value.length > 20) {
+      return 'ID number must be between 5 and 20 characters';
     }
     return null;
   }
@@ -1154,6 +1161,7 @@ class _IdentityVerificationFormScreenState
               hint: _idNumberHint,
               icon: Icons.badge,
               inputFormatters: _idNumberInputFormatters,
+              textCapitalization: TextCapitalization.characters,
             ),
             const SizedBox(height: 16),
 
@@ -1403,6 +1411,7 @@ class _IdentityVerificationFormScreenState
                   hint: _idNumberHint,
                   icon: Icons.credit_card_outlined,
                   inputFormatters: _idNumberInputFormatters,
+                  textCapitalization: TextCapitalization.characters,
                 ),
                 const SizedBox(height: 14),
                 _buildDriverLicenseExpiryField(
@@ -2934,19 +2943,19 @@ class _IdentityVerificationFormScreenState
     }
     if (type.contains('national')) {
       return [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')),
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
         LengthLimitingTextInputFormatter(14),
       ];
     }
     if (type.contains('passport')) {
       return [
-        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
         LengthLimitingTextInputFormatter(9),
       ];
     }
     if (type.contains('tin')) {
       return [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')),
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
         LengthLimitingTextInputFormatter(15),
       ];
     }
@@ -2956,7 +2965,10 @@ class _IdentityVerificationFormScreenState
         LengthLimitingTextInputFormatter(20),
       ];
     }
-    return [LengthLimitingTextInputFormatter(40)];
+    return [
+      FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
+      LengthLimitingTextInputFormatter(20),
+    ];
   }
 
   Widget _buildDriverSignatureButton() {

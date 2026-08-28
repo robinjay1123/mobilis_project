@@ -36,7 +36,7 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
         // Check user role and navigate accordingly
         final role = await authService.getUserRole();
         if (role == 'partner') {
-          Navigator.of(context).pushReplacementNamed('/owner-verification');
+          Navigator.of(context).pushReplacementNamed('/partner-home');
         } else if (role == 'driver') {
           Navigator.of(context).pushReplacementNamed('/driver-license-upload');
         } else {
@@ -349,6 +349,7 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
   Widget _buildPartnerVerificationOptions() {
     return Column(
       children: [
+        // Full Verification / Partner Application Option (Recommended)
         GestureDetector(
           onTap: _handlePartnerVerification,
           child: Container(
@@ -382,7 +383,7 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Partner Application',
+                            'Full Verification',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.w600,
@@ -391,7 +392,7 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            'Admin approval required',
+                            'Recommended • Admin approval required',
                             style: TextStyle(
                               fontSize: 12,
                               color: AppColors.success,
@@ -405,9 +406,82 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                _buildFeature('✓ Complete basic security verification'),
-                _buildFeature('✓ Submit business / vehicle documents'),
-                _buildFeature('✓ Wait for admin approval'),
+                _buildFeature('✓ Complete security & ID verification'),
+                _buildFeature('✓ List & manage your vehicles'),
+                _buildFeature('✓ Earn income from vehicle rentals'),
+                _buildFeature('✓ Full access to partner portal'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Basic Account Option (Skip for now)
+        GestureDetector(
+          onTap: _handleSkipVerification,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.darkBgSecondary,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.textTertiary.withOpacity(0.3),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: AppColors.warning.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.person,
+                        color: AppColors.warning,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Basic Account',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Skip for now',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.warning,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.arrow_forward,
+                      color: AppColors.textTertiary,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildFeature('• Browse the app'),
+                _buildFeature('• Cannot list vehicles yet'),
+                _buildFeature('• Limited features'),
+                _buildFeature('• Verify anytime from settings'),
               ],
             ),
           ),
