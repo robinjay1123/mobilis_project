@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import '../../../services/auth_service.dart';
@@ -283,8 +284,13 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
             CustomTextField(
               controller: licenseNumberController,
               label: "Driver's License Number *",
-              hintText: "Enter your driver's license number",
+              hintText: "e.g. N02-14-123456",
               prefixIcon: const Icon(Icons.badge),
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
+                LengthLimitingTextInputFormatter(13),
+              ],
             ),
             const SizedBox(height: 20),
 
