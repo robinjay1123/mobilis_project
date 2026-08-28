@@ -91,7 +91,7 @@ class PayoutMethodService {
     if (userId.isEmpty) return [];
 
     try {
-      // 1. Try reading from Supabase user_metadata or partners table
+      // 1. Try reading from Supabase auth user_metadata if current user matches
       final user = _supabase.auth.currentUser;
       if (user != null && user.id == userId) {
         final meta = user.userMetadata?['payout_methods'];
@@ -104,7 +104,7 @@ class PayoutMethodService {
         }
       }
 
-      // 2. Try reading from users table
+      // 2. Try reading from public.users table raw_user_meta_data
       final userRow = await _supabase
           .from('users')
           .select('raw_user_meta_data')
@@ -122,11 +122,120 @@ class PayoutMethodService {
         }
       }
     } catch (e) {
-      debugPrint('⚠️ Error fetching payout methods from cloud: $e');
+      debugPrint('⚠️ Error fetching payout methods from cloud users table: $e');
     }
 
-    // 3. Fallback to local cache
-    return _getFromLocalCache(userId);
+    // 3. Check storage bucket & table fallback for direct QR Code image
+    final cached = await _getFromLocalCache(userId);
+    if (cached.isNotEmpty) return cached;
+
+    final discoveredQrUrl = await getRenterQrCodeUrl(userId);
+    if (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty) {
+      return [
+        PayoutMethod(
+          id: 'payout_discovered_${userId.substring(0, 4)}',
+          provider: 'GCash',
+          accountName: 'Linked Account',
+          accountNumber: '',
+          qrCodeUrl: discoveredQrUrl,
+          isDefault: true,
+          createdAt: DateTime.now(),
+        ),
+      ];
+    }
+
+    return cached;
+  }
+
+  /// Get direct uploaded QR Code URL for a user from storage or metadata tables
+  Future<String?> getRenterQrCodeUrl(String userId, {String provider = 'GCash'}) async {
+    if (userId.isEmpty) return null;
+
+    // A. Check cloud storage buckets for uploaded QR code file
+    const buckets = [
+      'partner_documents',
+      'driver_documents',
+      'documents',
+      'avatars',
+      'vehicle_images',
+      'reservation_qr_codes',
+    ];
+
+    for (final bucket in buckets) {
+      try {
+        final files = await _supabase.storage.from(bucket).list(path: 'payout_qrs/$userId');
+        if (files.isNotEmpty) {
+          final qrFile = files.firstWhere(
+            (f) =>
+                f.name.toLowerCase().endsWith('.png') ||
+                f.name.toLowerCase().endsWith('.jpg') ||
+                f.name.toLowerCase().endsWith('.jpeg') ||
+                f.name.toLowerCase().endsWith('.webp'),
+            orElse: () => files.first,
+          );
+          final path = 'payout_qrs/$userId/${qrFile.name}';
+          final publicUrl = _supabase.storage.from(bucket).getPublicUrl(path);
+          if (publicUrl.isNotEmpty) return publicUrl;
+        }
+      } catch (_) {}
+    }
+
+    // B. Check public.users table raw_user_meta_data
+    try {
+      final userRow = await _supabase
+          .from('users')
+          .select('raw_user_meta_data')
+          .eq('id', userId)
+          .maybeSingle();
+
+      final meta = userRow?['raw_user_meta_data'];
+      if (meta is Map) {
+        final qr = meta['qr_code_url'] ??
+            meta['gcash_qr_url'] ??
+            meta['payout_qr_url'] ??
+            meta['qr_url'];
+        if (qr != null && qr.toString().trim().isNotEmpty) {
+          return qr.toString().trim();
+        }
+      }
+    } catch (_) {}
+
+    // C. Check renters & user_verifications tables
+    try {
+      final renterRow = await _supabase
+          .from('renters')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (renterRow != null) {
+        final qr = renterRow['qr_code_url'] ??
+            renterRow['gcash_qr_url'] ??
+            renterRow['payout_qr_url'] ??
+            renterRow['qr_url'];
+        if (qr != null && qr.toString().trim().isNotEmpty) {
+          return qr.toString().trim();
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final verRow = await _supabase
+          .from('user_verifications')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+      if (verRow != null) {
+        final qr = verRow['qr_code_url'] ??
+            verRow['gcash_qr_url'] ??
+            verRow['payment_qr_url'] ??
+            verRow['payout_qr_url'];
+        if (qr != null && qr.toString().trim().isNotEmpty) {
+          return qr.toString().trim();
+        }
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   /// Add or update a payout method
@@ -244,17 +353,75 @@ class PayoutMethodService {
     // 1. Save to local cache
     await _saveToLocalCache(userId, methods);
 
-    // 2. Save to user metadata
+    final jsonList = methods.map((m) => m.toJson()).toList();
+
+    // 2. Save to auth user metadata if updating self
     try {
-      final jsonList = methods.map((m) => m.toJson()).toList();
-      await _supabase.auth.updateUser(
-        UserAttributes(
-          data: {'payout_methods': jsonList},
-        ),
-      );
+      final user = _supabase.auth.currentUser;
+      if (user != null && user.id == userId) {
+        await _supabase.auth.updateUser(
+          UserAttributes(
+            data: {'payout_methods': jsonList},
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('⚠️ Error updating user metadata payout methods: $e');
     }
+
+    // 3. Sync to public.users raw_user_meta_data so operators/admins/drivers can query it
+    try {
+      final userRow = await _supabase
+          .from('users')
+          .select('raw_user_meta_data')
+          .eq('id', userId)
+          .maybeSingle();
+
+      Map<String, dynamic> currentMeta = {};
+      if (userRow != null && userRow['raw_user_meta_data'] is Map) {
+        currentMeta = Map<String, dynamic>.from(userRow['raw_user_meta_data'] as Map);
+      }
+      currentMeta['payout_methods'] = jsonList;
+
+      final defaultMethod = methods.firstWhere(
+        (m) => m.isDefault && m.qrCodeUrl != null && m.qrCodeUrl!.trim().isNotEmpty,
+        orElse: () => methods.firstWhere(
+          (m) => m.qrCodeUrl != null && m.qrCodeUrl!.trim().isNotEmpty,
+          orElse: () => methods.first,
+        ),
+      );
+      if (defaultMethod.qrCodeUrl != null && defaultMethod.qrCodeUrl!.trim().isNotEmpty) {
+        currentMeta['qr_code_url'] = defaultMethod.qrCodeUrl;
+        currentMeta['gcash_qr_url'] = defaultMethod.qrCodeUrl;
+      }
+
+      await _supabase
+          .from('users')
+          .update({'raw_user_meta_data': currentMeta})
+          .eq('id', userId);
+    } catch (e) {
+      debugPrint('⚠️ Error updating public.users raw_user_meta_data: $e');
+    }
+
+    // 4. Sync to public.renters table
+    try {
+      final defaultMethod = methods.firstWhere(
+        (m) => m.isDefault && m.qrCodeUrl != null && m.qrCodeUrl!.trim().isNotEmpty,
+        orElse: () => methods.firstWhere(
+          (m) => m.qrCodeUrl != null && m.qrCodeUrl!.trim().isNotEmpty,
+          orElse: () => methods.first,
+        ),
+      );
+      if (defaultMethod.qrCodeUrl != null && defaultMethod.qrCodeUrl!.trim().isNotEmpty) {
+        await _supabase
+            .from('renters')
+            .update({
+              'qr_code_url': defaultMethod.qrCodeUrl,
+              'gcash_qr_url': defaultMethod.qrCodeUrl,
+            })
+            .eq('user_id', userId);
+      }
+    } catch (_) {}
   }
 
   Future<void> _saveToLocalCache(String userId, List<PayoutMethod> methods) async {

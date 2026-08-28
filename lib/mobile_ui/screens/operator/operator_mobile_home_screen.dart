@@ -2503,18 +2503,28 @@ class _BookingCard extends StatelessWidget {
         '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
     final renterUserId = (booking['renter_id'] ?? renter['id'] ?? renter['user_id'])?.toString();
     List<PayoutMethod> renterPayoutMethods = [];
+    String? discoveredQrUrl;
+
     if (renterUserId != null && renterUserId.isNotEmpty) {
       try {
         renterPayoutMethods = await PayoutMethodService().getPayoutMethods(renterUserId);
       } catch (e) {
         debugPrint('Could not load renter payout methods: $e');
       }
+
+      try {
+        discoveredQrUrl = await PayoutMethodService().getRenterQrCodeUrl(renterUserId);
+      } catch (e) {
+        debugPrint('Could not discover renter QR code URL: $e');
+      }
     }
 
-    final directQrUrl = renter['qr_code_url']?.toString() ??
-        renter['gcash_qr_url']?.toString() ??
-        renter['payout_qr_url']?.toString() ??
-        booking['renter_qr_url']?.toString();
+    final directQrUrl = (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty)
+        ? discoveredQrUrl
+        : (renter['qr_code_url']?.toString() ??
+            renter['gcash_qr_url']?.toString() ??
+            renter['payout_qr_url']?.toString() ??
+            booking['renter_qr_url']?.toString());
 
     // Fetch dynamic Admin Settings for Security Deposit
     ReservationPaymentSettings adminSettings = const ReservationPaymentSettings();
@@ -2571,9 +2581,9 @@ class _BookingCard extends StatelessWidget {
                   ),
           );
 
-          final activeQrUrl = (activeMethod.qrCodeUrl != null && activeMethod.qrCodeUrl!.isNotEmpty)
-              ? activeMethod.qrCodeUrl!
-              : (directQrUrl != null && directQrUrl.isNotEmpty ? directQrUrl : '');
+          final activeQrUrl = (activeMethod.qrCodeUrl != null && activeMethod.qrCodeUrl!.trim().isNotEmpty)
+              ? activeMethod.qrCodeUrl!.trim()
+              : (directQrUrl != null && directQrUrl.trim().isNotEmpty ? directQrUrl.trim() : '');
 
           return Dialog(
             backgroundColor: isDark ? const Color(0xFF172235) : Colors.white,
