@@ -7314,6 +7314,16 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
     final pickupLocation = booking['pickup_location']?.toString().trim();
     final dropoffLocation = booking['dropoff_location']?.toString().trim();
 
+    final vehicleMap = booking['vehicles'] is Map
+        ? Map<String, dynamic>.from(booking['vehicles'])
+        : <String, dynamic>{};
+    final vehicleTitle = vehicleMap['brand'] != null
+        ? '${vehicleMap['brand']} ${vehicleMap['model'] ?? ''}'.trim()
+        : (booking['vehicle_name']?.toString() ?? booking['vehicleTitle']?.toString() ?? 'Vehicle');
+    final plateNumber = vehicleMap['plate_number']?.toString() ??
+        booking['plate_number']?.toString() ??
+        booking['plateNumber']?.toString();
+
     final badgeColor = _statusColor(status, assignmentStatus: assignmentStatus);
     final badgeText = _statusLabel(status, assignmentStatus: assignmentStatus);
 

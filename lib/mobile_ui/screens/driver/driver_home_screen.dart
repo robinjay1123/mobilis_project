@@ -4379,7 +4379,7 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                                   context: context,
                                   bookingId: bId,
                                   vehicleName: vehicleName,
-                                  plateNumber: vehiclePlate,
+                                  plateNumber: plateNumber,
                                 );
                               }
                             },
@@ -4452,7 +4452,7 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                                   context: context,
                                   bookingId: bId,
                                   vehicleName: vehicleName,
-                                  plateNumber: vehiclePlate,
+                                  plateNumber: plateNumber,
                                 );
                               }
                             },
