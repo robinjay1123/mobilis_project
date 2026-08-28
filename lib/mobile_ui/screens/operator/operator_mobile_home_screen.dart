@@ -78,37 +78,90 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
 
     return Scaffold(
       backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-        elevation: 0,
-        title: Row(
-          children: [
-            Image.asset('assets/icon/logo1.png', height: 28),
-            const SizedBox(width: 8),
-            Text(
-              'Operator Dashboard',
-              style: TextStyle(
-                color: isDark ? Colors.white : Colors.black87,
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(64),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: isDark
+                ? const LinearGradient(
+                    colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : const LinearGradient(
+                    colors: [Colors.white, Color(0xFFF8FAFC)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+            boxShadow: [
+              BoxShadow(
+                color: isDark
+                    ? Colors.black.withValues(alpha: 0.3)
+                    : Colors.black.withValues(alpha: 0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.all(4),
+                    child: Image.asset('assets/icon/logo1.png', fit: BoxFit.contain),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Operator Dashboard',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : AppColors.lightTextPrimary,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        Text(
+                          'Mobilis by PSDC',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _AppBarIconButton(
+                    icon: isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                    color: isDark ? Colors.white70 : AppColors.lightTextSecondary,
+                    isDark: isDark,
+                    onPressed: () => widget.onThemeToggle?.call(!widget.isDarkMode),
+                  ),
+                  const SizedBox(width: 6),
+                  _AppBarIconButton(
+                    icon: Icons.logout_rounded,
+                    color: Colors.redAccent,
+                    isDark: isDark,
+                    onPressed: _handleLogout,
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-              color: isDark ? Colors.white70 : Colors.black54,
-            ),
-            onPressed: () => widget.onThemeToggle?.call(!widget.isDarkMode),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.redAccent),
-            tooltip: 'Logout',
-            onPressed: _handleLogout,
-          ),
-        ],
       ),
       body: IndexedStack(
         index: _selectedTab,
@@ -135,33 +188,58 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-        indicatorColor: AppColors.primary.withValues(alpha: 0.2),
-        selectedIndex: _selectedTab,
-        onDestinationSelected: _selectTab,
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard),
-            label: 'Dashboard',
-          ),
-          NavigationDestination(
-            icon: _buildPendingTabIcon(Icons.pending_actions_outlined),
-            selectedIcon: _buildPendingTabIcon(Icons.pending_actions),
-            label: 'Pending',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.directions_car_outlined),
-            selectedIcon: Icon(Icons.directions_car),
-            label: 'Active',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: 'History',
-          ),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkCard : Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.3)
+                  : Colors.black.withValues(alpha: 0.08),
+              blurRadius: 16,
+              offset: const Offset(0, -3),
+            ),
+          ],
+        ),
+        child: NavigationBar(
+          backgroundColor: Colors.transparent,
+          indicatorColor: AppColors.primary.withValues(alpha: 0.18),
+          selectedIndex: _selectedTab,
+          onDestinationSelected: _selectTab,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          height: 68,
+          destinations: [
+            NavigationDestination(
+              icon: Icon(
+                Icons.dashboard_outlined,
+                color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
+              ),
+              selectedIcon: Icon(Icons.dashboard_rounded, color: AppColors.primary),
+              label: 'Dashboard',
+            ),
+            NavigationDestination(
+              icon: _buildPendingTabIcon(Icons.pending_actions_outlined),
+              selectedIcon: _buildPendingTabIcon(Icons.pending_actions),
+              label: 'Pending',
+            ),
+            NavigationDestination(
+              icon: Icon(
+                Icons.directions_car_outlined,
+                color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
+              ),
+              selectedIcon: Icon(Icons.directions_car_rounded, color: AppColors.primary),
+              label: 'Active',
+            ),
+            NavigationDestination(
+              icon: Icon(
+                Icons.history_outlined,
+                color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
+              ),
+              selectedIcon: Icon(Icons.history_rounded, color: AppColors.primary),
+              label: 'History',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -422,7 +500,6 @@ class _DashboardTabState extends State<_DashboardTab> {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    final cardColor = isDark ? AppColors.darkCard : Colors.white;
     final textPrimary = isDark ? Colors.white : AppColors.lightTextPrimary;
     final textSecondary = isDark
         ? AppColors.textSecondary
@@ -444,79 +521,206 @@ class _DashboardTabState extends State<_DashboardTab> {
           color: AppColors.primary,
           onRefresh: () async => _load(),
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
             children: [
+              // ── Stat Cards Row ──
               Row(
                 children: [
                   _StatCard(
                     label: 'Pending',
                     value: '$pendingCount',
-                    icon: Icons.pending_actions,
+                    icon: Icons.pending_actions_rounded,
                     color: AppColors.warning,
                     isDark: isDark,
                     onTap: () => widget.onNavigate(1),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   _StatCard(
                     label: 'Active',
                     value: '$activeCount',
-                    icon: Icons.directions_car,
+                    icon: Icons.directions_car_rounded,
                     color: AppColors.success,
                     isDark: isDark,
                     onTap: () => widget.onNavigate(2),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   _StatCard(
-                    label: 'Done',
+                    label: 'Completed',
                     value: '$completedCount',
-                    icon: Icons.check_circle_outline,
+                    icon: Icons.check_circle_rounded,
                     color: AppColors.primary,
                     isDark: isDark,
                     onTap: () => widget.onNavigate(3),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
+
+              // ── Revenue Banner ──
               Container(
-                padding: const EdgeInsets.all(16),
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: cardColor,
-                  borderRadius: BorderRadius.circular(14),
+                  gradient: isDark
+                      ? const LinearGradient(
+                          colors: [Color(0xFF1E3A5F), Color(0xFF0F172A)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : const LinearGradient(
+                          colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Total Revenue',
-                      style: TextStyle(color: textSecondary, fontSize: 12),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.trending_up_rounded,
+                            color: AppColors.primary,
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Text(
+                          'Total Revenue',
+                          style: TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'PHP ${_formatCurrency(revenue)}',
-                      style: TextStyle(
-                        color: textPrimary,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text(
+                          'PHP',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _formatCurrency(revenue),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -1,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      'From ${_formatNumber(completedCount)} completed bookings',
-                      style: TextStyle(color: textSecondary, fontSize: 12),
+                    const SizedBox(height: 8),
+                    Container(
+                      height: 1,
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.receipt_long_outlined,
+                          size: 14,
+                          color: Color(0xFF94A3B8),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${_formatNumber(completedCount)} completed trip${completedCount != 1 ? 's' : ''}',
+                          style: const TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
-              if (activeBookings.isNotEmpty) ...[
-                Text(
-                  'Active Bookings',
-                  style: TextStyle(
-                    color: textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
+
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  activeBookings.isEmpty) ...[
+                const SizedBox(height: 32),
+                const Center(
+                  child: CircularProgressIndicator(color: AppColors.primary),
                 ),
-                const SizedBox(height: 10),
+              ],
+
+              // ── Active Bookings Section ──
+              if (activeBookings.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: AppColors.success,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Active Bookings',
+                          style: TextStyle(
+                            color: textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (activeBookings.length > 5)
+                      GestureDetector(
+                        onTap: () => widget.onNavigate(2),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'View All',
+                            style: TextStyle(
+                              color: AppColors.success,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
                 ...activeBookings
                     .take(5)
                     .map(
@@ -526,19 +730,13 @@ class _DashboardTabState extends State<_DashboardTab> {
                       ),
                     ),
               ],
-              if (snapshot.connectionState == ConnectionState.waiting)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32),
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  ),
-                ),
             ],
           ),
         );
       },
     );
   }
+
 
   String _formatCurrency(num value, {int decimals = 2}) {
     final parts = value.toStringAsFixed(decimals).split('.');
@@ -1061,84 +1259,114 @@ class _BookingsTabState extends State<_BookingsTab> {
 
         return Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-              child: TextField(
-                controller: _searchController,
-                onChanged: (v) => setState(() => _searchQuery = v),
-                style: TextStyle(color: textPrimary),
-                decoration: InputDecoration(
-                  hintText: 'Search by renter or vehicle...',
-                  hintStyle: TextStyle(color: textSecondary),
-                  filled: true,
-                  fillColor: inputFill,
-                  prefixIcon: Icon(Icons.search, color: textSecondary),
-                  suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(Icons.clear, color: textSecondary),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() => _searchQuery = '');
-                          },
-                        )
-                      : null,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+            // ── Search + Filter Header ──
+            Container(
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkBg : AppColors.lightBg,
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark
+                        ? Colors.black.withValues(alpha: 0.15)
+                        : Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                ),
+                ],
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+              child: Column(
                 children: [
-                  FilterChip(
-                    selected: !_onlyExtensionRequests,
-                    label: const Text('All'),
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() => _onlyExtensionRequests = false);
-                      }
-                    },
-                    selectedColor: AppColors.primary.withValues(alpha: 0.2),
-                    checkmarkColor: AppColors.primary,
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight:
-                          !_onlyExtensionRequests ? FontWeight.w700 : FontWeight.w500,
-                      color:
-                          !_onlyExtensionRequests ? AppColors.primary : textSecondary,
+                  // Search field
+                  Container(
+                    decoration: BoxDecoration(
+                      color: inputFill,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isDark
+                              ? Colors.black.withValues(alpha: 0.2)
+                              : Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                      style: TextStyle(color: textPrimary, fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'Search by renter or vehicle…',
+                        hintStyle: TextStyle(
+                          color: textSecondary.withValues(alpha: 0.7),
+                          fontSize: 14,
+                        ),
+                        filled: false,
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: textSecondary,
+                          size: 20,
+                        ),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: Icon(
+                                  Icons.cancel_rounded,
+                                  color: textSecondary,
+                                  size: 18,
+                                ),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: AppColors.primary.withValues(alpha: 0.5),
+                            width: 1.5,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  FilterChip(
-                    selected: _onlyExtensionRequests,
-                    label: Text(
-                      totalExtensions > 0
-                          ? 'Extension Requests ($totalExtensions)'
-                          : 'Extension Requests',
-                    ),
-                    onSelected: (selected) {
-                      setState(() => _onlyExtensionRequests = selected);
-                    },
-                    selectedColor: const Color(0xFFFFD740).withValues(alpha: 0.2),
-                    checkmarkColor: const Color(0xFFFFD740),
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight:
-                          _onlyExtensionRequests ? FontWeight.w700 : FontWeight.w500,
-                      color: _onlyExtensionRequests
-                          ? (isDark
-                              ? const Color(0xFFFFD740)
-                              : Colors.orange.shade800)
-                          : textSecondary,
-                    ),
+                  const SizedBox(height: 10),
+                  // Filter chips
+                  Row(
+                    children: [
+                      _FilterPill(
+                        label: 'All',
+                        count: rawList.length,
+                        selected: !_onlyExtensionRequests,
+                        color: AppColors.primary,
+                        isDark: isDark,
+                        onTap: () => setState(() => _onlyExtensionRequests = false),
+                      ),
+                      const SizedBox(width: 8),
+                      _FilterPill(
+                        label: 'Extensions',
+                        count: totalExtensions,
+                        selected: _onlyExtensionRequests,
+                        color: const Color(0xFFFFD740),
+                        isDark: isDark,
+                        onTap: () => setState(() => _onlyExtensionRequests = !_onlyExtensionRequests),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
+
+            // ── Bookings List ──
             Expanded(
               child: isLoading && bookings.isEmpty
                   ? const Center(
@@ -1152,7 +1380,7 @@ class _BookingsTabState extends State<_BookingsTab> {
                       color: AppColors.primary,
                       onRefresh: () async => _load(),
                       child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
                         itemCount: bookings.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
@@ -1187,6 +1415,7 @@ class _BookingsTabState extends State<_BookingsTab> {
     );
   }
 }
+
 
 // ─────────────────────────────────────────────
 // Shared booking card
@@ -1494,995 +1723,932 @@ class _BookingCard extends StatelessWidget {
     final needsPartnerConfirmation =
         isPartnerVehicle && !partnerConfirmed && _status == 'pending';
 
-    return Card(
-      color: cardColor,
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.25)
+                : Colors.black.withValues(alpha: 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                if (_vehicleImageUrl.isNotEmpty) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: SizedBox(
-                      width: 44,
-                      height: 34,
-                      child: OptimizedNetworkImage(
-                        imageUrl: _vehicleImageUrl,
-                        fit: BoxFit.cover,
-                        errorWidget: Icon(
-                          Icons.directions_car_outlined,
-                          size: 20,
-                          color: textSecondary,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                Expanded(
-                  child: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          _vehicleName,
-                          style: TextStyle(
-                            color: textPrimary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      if (isPartnerVehicle) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.purple.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: Colors.purple.withValues(alpha: 0.5),
+            // Colored status stripe
+            Container(width: 4, color: _statusColor),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Header: image + name + status dot ──
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_vehicleImageUrl.isNotEmpty) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: SizedBox(
+                              width: 58,
+                              height: 44,
+                              child: OptimizedNetworkImage(
+                                imageUrl: _vehicleImageUrl,
+                                fit: BoxFit.cover,
+                                errorWidget: Container(
+                                  color: _statusColor.withValues(alpha: 0.1),
+                                  child: Icon(
+                                    Icons.directions_car_rounded,
+                                    size: 24,
+                                    color: _statusColor.withValues(alpha: 0.6),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                          const SizedBox(width: 10),
+                        ] else ...[
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: _statusColor.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              Icons.directions_car_rounded,
+                              size: 22,
+                              color: _statusColor.withValues(alpha: 0.7),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(
-                                Icons.handshake_outlined,
-                                size: 12,
-                                color: Colors.purpleAccent,
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      _vehicleName,
+                                      style: TextStyle(
+                                        color: textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.2,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (isPartnerVehicle) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.purple.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                      child: const Icon(
+                                        Icons.handshake_outlined,
+                                        size: 11,
+                                        color: Colors.purpleAccent,
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Partner',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: isDark
-                                      ? Colors.purple[200]
-                                      : Colors.purple[800],
-                                ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      color: _statusColor,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    _statusLabel,
+                                    style: TextStyle(
+                                      color: _statusColor,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
                       ],
+                    ),
+
+                    const SizedBox(height: 10),
+                    Container(
+                      height: 1,
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : Colors.black.withValues(alpha: 0.05),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // ── Info Row ──
+                    Row(
+                      children: [
+                        Icon(Icons.person_outline_rounded, size: 13, color: textSecondary),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            _renterName,
+                            style: TextStyle(
+                              color: textSecondary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Icon(Icons.calendar_today_rounded, size: 13, color: textSecondary),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            _dateRange,
+                            style: TextStyle(
+                              color: textSecondary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // ── Partner vehicle banner ──
+                    if (isPartnerVehicle) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.purple.withValues(alpha: 0.35)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.handshake_outlined, size: 14, color: Colors.purpleAccent),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                _status == 'pending'
+                                    ? 'Partner Unit • View Only (Awaiting Partner Approval)'
+                                    : 'Partner Unit • View Only (Managed by Partner)',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.purple[200] : Colors.purple[800],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _statusColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _statusColor.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Text(
-                    _statusLabel,
-                    style: TextStyle(
-                      color: _statusColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (isPartnerVehicle) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.purple.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.purple.withValues(alpha: 0.35)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.handshake_outlined, size: 14, color: Colors.purpleAccent),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _status == 'pending'
-                            ? 'Partner Unit • View Only (Awaiting Partner Approval)'
-                            : 'Partner Unit • View Only (Managed by Partner)',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: isDark ? Colors.purple[200] : Colors.purple[800],
+
+                    // ── Safety freeze banner ──
+                    if (booking['safety_freeze'] == true) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if (booking['safety_freeze'] == true) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.error.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: AppColors.error.withValues(alpha: 0.4),
-                  ),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      size: 16,
-                      color: AppColors.error,
-                    ),
-                    SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'SAFETY FREEZE • Renter Under Review (Tracking Active)',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.error,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if (_needsDriver) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color:
-                      (_driverAccepted ? AppColors.success : AppColors.warning)
-                          .withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color:
-                        (_driverAccepted
-                                ? AppColors.success
-                                : AppColors.warning)
-                            .withValues(alpha: 0.35),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _driverAccepted
-                          ? Icons.check_circle_outline
-                          : Icons.directions_car_outlined,
-                      size: 16,
-                      color: _driverAccepted
-                          ? AppColors.success
-                          : AppColors.warning,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _driverStatus,
-                        style: TextStyle(
-                          color: _driverAccepted
-                              ? AppColors.success
-                              : AppColors.warning,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
-              const SizedBox(height: 6),
-              UpcomingReleaseCountdownBadge(booking: booking, isDark: isDark),
-            ],
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(Icons.person_outline, size: 14, color: textSecondary),
-                const SizedBox(width: 4),
-                Text(
-                  _renterName,
-                  style: TextStyle(color: textSecondary, fontSize: 12),
-                ),
-                const SizedBox(width: 12),
-                Icon(
-                  Icons.calendar_today_outlined,
-                  size: 14,
-                  color: textSecondary,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _dateRange,
-                  style: TextStyle(color: textSecondary, fontSize: 12),
-                ),
-              ],
-            ),
-            if (needsPartnerConfirmation) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.warning.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.hourglass_top,
-                      size: 14,
-                      color: AppColors.warning,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Awaiting partner vehicle confirmation',
-                        style: TextStyle(
-                          color: AppColors.warning,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if (booking['extension_status'] == 'pending_operator' &&
-                !isPartnerVehicle) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.4),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(
-                          Icons.more_time,
-                          color: AppColors.primary,
-                          size: 16,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Trip Extension Requested',
-                          style: TextStyle(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Requested End: ${booking['extension_requested_end_at'] != null ? DateTime.tryParse(booking['extension_requested_end_at'].toString())?.toLocal().toString().split('.').first : "N/A"}',
-                      style: TextStyle(color: textPrimary, fontSize: 11),
-                    ),
-                    Text(
-                      'Additional Price: +PHP ${(booking['extension_additional_price'] as num?)?.toStringAsFixed(2) ?? "0.00"}',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.error,
-                              side: const BorderSide(color: AppColors.error),
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 8,
-                                horizontal: 4,
-                              ),
-                            ),
-                            onPressed: () async {
-                              final bId = booking['id']?.toString();
-                              final oId = AuthService().currentUser?.id;
-                              if (bId != null && oId != null) {
-                                await BookingService().rejectTripExtension(
-                                  bookingId: bId,
-                                  operatorId: oId,
-                                );
-                                onRefresh?.call();
-                              }
-                            },
-                            child: const FittedBox(
-                              fit: BoxFit.scaleDown,
+                        child: const Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, size: 16, color: AppColors.error),
+                            SizedBox(width: 6),
+                            Expanded(
                               child: Text(
-                                'Reject Ext.',
+                                'SAFETY FREEZE • Renter Under Review (Tracking Active)',
                                 style: TextStyle(
                                   fontSize: 11,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.error,
                                 ),
                               ),
                             ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    // ── Driver status banner ──
+                    if (_needsDriver) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: (_driverAccepted ? AppColors.success : AppColors.warning)
+                              .withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: (_driverAccepted ? AppColors.success : AppColors.warning)
+                                .withValues(alpha: 0.35),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 8,
-                                horizontal: 4,
-                              ),
-                              elevation: 0,
+                        child: Row(
+                          children: [
+                            Icon(
+                              _driverAccepted
+                                  ? Icons.check_circle_outline
+                                  : Icons.directions_car_outlined,
+                              size: 16,
+                              color: _driverAccepted ? AppColors.success : AppColors.warning,
                             ),
-                            onPressed: () async {
-                              final bId = booking['id']?.toString();
-                              final oId = AuthService().currentUser?.id;
-                              if (bId != null && oId != null) {
-                                await BookingService().approveTripExtension(
-                                  bookingId: bId,
-                                  operatorId: oId,
-                                );
-                                onRefresh?.call();
-                              }
-                            },
-                            child: const FittedBox(
-                              fit: BoxFit.scaleDown,
+                            const SizedBox(width: 6),
+                            Expanded(
                               child: Text(
-                                'Approve Ext.',
+                                _driverStatus,
                                 style: TextStyle(
+                                  color: _driverAccepted ? AppColors.success : AppColors.warning,
                                   fontSize: 11,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if ((_status == 'return_pending_inspection' ||
-                    _status == 'active' ||
-                    _status == 'ongoing') &&
-                !isPartnerVehicle) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  icon: const Icon(
-                    Icons.check_circle_outline,
-                    size: 16,
-                    color: Colors.black,
-                  ),
-                  label: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _status == 'return_pending_inspection'
-                          ? 'Confirm Return Inspection'
-                          : 'Confirm Return',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 0,
-                  ),
-                  onPressed: () async {
-                    final bId = booking['id']?.toString();
-                    final uId = AuthService().currentUser?.id;
-                    if (bId != null && uId != null) {
-                      await BookingService().confirmVehicleReturn(
-                        bookingId: bId,
-                        reviewerId: uId,
-                        reviewerRole: 'operator',
-                      );
-                      onRefresh?.call();
-                    }
-                  },
-                ),
-              ),
-            ],
-            if (_status != 'pending' &&
-                _needsDriver &&
-                onAssignDriver != null &&
-                !isPartnerVehicle &&
-                !{
-                  'cancelled',
-                  'rejected',
-                  'completed',
-                  'expired',
-                }.contains(_status)) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.person_add_alt_1, size: 16),
-                  label: Text(
-                    _driverStatus == 'Driver needed' ||
-                            _driverStatus.startsWith('Driver declined')
-                        ? 'Assign Driver'
-                        : 'Change Assigned Driver',
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.warning,
-                    side: BorderSide(
-                      color: AppColors.warning.withValues(alpha: 0.7),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                  onPressed: onAssignDriver,
-                ),
-              ),
-            ],
-            if (showActions && _status == 'pending' && !isPartnerVehicle) ...[
-              const SizedBox(height: 10),
-              const Divider(height: 1),
-              const SizedBox(height: 10),
-              if (onAssignDriver != null) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.person_add_alt_1, size: 16),
-                    label: Text(
-                      _driverStatus == 'Driver needed' ||
-                              _driverStatus.startsWith('Driver declined')
-                          ? 'Assign Driver'
-                          : 'Change Driver',
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.warning,
-                      side: BorderSide(
-                        color: AppColors.warning.withValues(alpha: 0.7),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                    ),
-                    onPressed: onAssignDriver,
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.close, size: 16),
-                      label: const FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text('Reject'),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.error,
-                        side: BorderSide(
-                          color: AppColors.error.withValues(alpha: 0.5),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 10,
-                          horizontal: 8,
+                          ],
                         ),
                       ),
-                      onPressed: () =>
-                          _showRejectDialog(context, booking['id']?.toString()),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      icon: Icon(
-                        _effectiveWaitingForDriver
-                            ? Icons.hourglass_top
-                            : (_needsDriver && !_driverAccepted
-                                ? Icons.person_search
-                                : Icons.check),
-                        size: 16,
-                      ),
-                      label: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          _effectiveWaitingForDriver
-                              ? 'Awaiting (${(_offerRemainingSec ~/ 60).toString().padLeft(2, '0')}:${(_offerRemainingSec % 60).toString().padLeft(2, '0')})'
-                              : (_needsDriver && !_driverAccepted
-                                  ? (_isOfferExpired ? 'Assign Again' : 'Select Driver')
-                                  : 'Approve'),
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _effectiveWaitingForDriver
-                            ? Colors.amber.shade700
-                            : (_needsDriver && !_driverAccepted
-                                ? Colors.amber.shade800
-                                : AppColors.primary),
-                        foregroundColor: (_effectiveWaitingForDriver || (_needsDriver && !_driverAccepted))
-                            ? Colors.white
-                            : Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 10,
-                          horizontal: 8,
-                        ),
-                        elevation: 0,
-                      ),
-                      onPressed: _effectiveWaitingForDriver
-                          ? null
-                          : () => _showApproveDialog(
-                              context,
-                              booking['id']?.toString(),
-                            ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            if (_refundStatus == 'refund_needed' ||
-                (_status == 'cancelled' &&
-                    _reservationPaymentRef.isNotEmpty &&
-                    _refundStatus != 'refunded')) ...[
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.warning.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: AppColors.warning.withValues(alpha: 0.4),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.currency_exchange,
-                          size: 16,
-                          color: AppColors.warning,
-                        ),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'Refund Needed',
-                          style: TextStyle(
-                            color: AppColors.warning,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (_refundAmount > 0)
-                          Text(
-                            'PHP ${_refundAmount.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              color: AppColors.warning,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 13,
-                            ),
-                          ),
-                      ],
-                    ),
+                    ],
+
                     if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
                       const SizedBox(height: 6),
                       UpcomingReleaseCountdownBadge(booking: booking, isDark: isDark),
                     ],
-                    const SizedBox(height: 6),
-                    Text(
-                      'Renter: $_renterName',
-                      style: TextStyle(
-                        color: textPrimary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (_renterPhone.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.phone_android,
-                            size: 13,
-                            color: textSecondary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'GCash: $_renterPhone',
-                            style: TextStyle(
-                              color: textSecondary,
-                              fontSize: 11,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          InkWell(
-                            onTap: () {
-                              Clipboard.setData(
-                                ClipboardData(text: _renterPhone),
-                              );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Copied GCash number: $_renterPhone',
-                                  ),
-                                  duration: const Duration(seconds: 2),
+
+                    // ── Partner confirmation warning ──
+                    if (needsPartnerConfirmation) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.warning.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.hourglass_top, size: 14, color: AppColors.warning),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Awaiting partner vehicle confirmation',
+                                style: TextStyle(
+                                  color: AppColors.warning,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              );
-                            },
-                            child: const Icon(
-                              Icons.copy,
-                              size: 13,
-                              color: AppColors.primary,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    if (_reservationPaymentRef.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        'Original Payment Ref: $_reservationPaymentRef',
-                        style: TextStyle(
-                          color: textSecondary,
-                          fontSize: 11,
+                          ],
                         ),
                       ),
                     ],
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.red.withValues(alpha: 0.35),
+
+                    // ── Extension request panel ──
+                    if (booking['extension_status'] == 'pending_operator' &&
+                        !isPartnerVehicle) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
                         ),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(
-                            Icons.cancel_outlined,
-                            size: 14,
-                            color: Colors.redAccent,
-                          ),
-                          SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              'Cancelled by Renter • ₱1,000 Deposit Forfeited (Non-Refundable)',
-                              style: TextStyle(
-                                fontSize: 11,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.more_time, color: AppColors.primary, size: 16),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Trip Extension Requested',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Requested End: ${booking['extension_requested_end_at'] != null ? DateTime.tryParse(booking['extension_requested_end_at'].toString())?.toLocal().toString().split('.').first : "N/A"}',
+                              style: TextStyle(color: textPrimary, fontSize: 11),
+                            ),
+                            Text(
+                              'Additional Price: +PHP ${(booking['extension_additional_price'] as num?)?.toStringAsFixed(2) ?? "0.00"}',
+                              style: const TextStyle(
+                                color: AppColors.primary,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.redAccent,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppColors.error,
+                                      side: const BorderSide(color: AppColors.error),
+                                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                                    ),
+                                    onPressed: () async {
+                                      final bId = booking['id']?.toString();
+                                      final oId = AuthService().currentUser?.id;
+                                      if (bId != null && oId != null) {
+                                        await BookingService().rejectTripExtension(
+                                          bookingId: bId,
+                                          operatorId: oId,
+                                        );
+                                        onRefresh?.call();
+                                      }
+                                    },
+                                    child: const FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        'Reject Ext.',
+                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                                      elevation: 0,
+                                    ),
+                                    onPressed: () async {
+                                      final bId = booking['id']?.toString();
+                                      final oId = AuthService().currentUser?.id;
+                                      if (bId != null && oId != null) {
+                                        await BookingService().approveTripExtension(
+                                          bookingId: bId,
+                                          operatorId: oId,
+                                        );
+                                        onRefresh?.call();
+                                      }
+                                    },
+                                    child: const FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        'Approve Ext.',
+                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    // ── Confirm Return button ──
+                    if ((_status == 'return_pending_inspection' ||
+                            _status == 'active' ||
+                            _status == 'ongoing') &&
+                        !isPartnerVehicle) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.check_circle_outline, size: 16, color: Colors.black),
+                          label: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              _status == 'return_pending_inspection'
+                                  ? 'Confirm Return Inspection'
+                                  : 'Confirm Return',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: Colors.black,
                               ),
                             ),
                           ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            elevation: 0,
+                          ),
+                          onPressed: () async {
+                            final bId = booking['id']?.toString();
+                            final uId = AuthService().currentUser?.id;
+                            if (bId != null && uId != null) {
+                              await BookingService().confirmVehicleReturn(
+                                bookingId: bId,
+                                reviewerId: uId,
+                                reviewerRole: 'operator',
+                              );
+                              onRefresh?.call();
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+
+                    // ── Assign driver (non-pending) ──
+                    if (_status != 'pending' &&
+                        _needsDriver &&
+                        onAssignDriver != null &&
+                        !isPartnerVehicle &&
+                        !{'cancelled', 'rejected', 'completed', 'expired'}.contains(_status)) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.person_add_alt_1, size: 16),
+                          label: Text(
+                            _driverStatus == 'Driver needed' ||
+                                    _driverStatus.startsWith('Driver declined')
+                                ? 'Assign Driver'
+                                : 'Change Assigned Driver',
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.warning,
+                            side: BorderSide(color: AppColors.warning.withValues(alpha: 0.7)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          onPressed: onAssignDriver,
+                        ),
+                      ),
+                    ],
+
+                    // ── Approve/Reject (pending) ──
+                    if (showActions && _status == 'pending' && !isPartnerVehicle) ...[
+                      const SizedBox(height: 10),
+                      const Divider(height: 1),
+                      const SizedBox(height: 10),
+                      if (onAssignDriver != null) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.person_add_alt_1, size: 16),
+                            label: Text(
+                              _driverStatus == 'Driver needed' ||
+                                      _driverStatus.startsWith('Driver declined')
+                                  ? 'Assign Driver'
+                                  : 'Change Driver',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.warning,
+                              side: BorderSide(color: AppColors.warning.withValues(alpha: 0.7)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            onPressed: onAssignDriver,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.close, size: 16),
+                              label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Reject')),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.error,
+                                side: BorderSide(color: AppColors.error.withValues(alpha: 0.5)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                              ),
+                              onPressed: () =>
+                                  _showRejectDialog(context, booking['id']?.toString()),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              icon: Icon(
+                                _effectiveWaitingForDriver
+                                    ? Icons.hourglass_top
+                                    : (_needsDriver && !_driverAccepted
+                                        ? Icons.person_search
+                                        : Icons.check),
+                                size: 16,
+                              ),
+                              label: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  _effectiveWaitingForDriver
+                                      ? 'Awaiting (${(_offerRemainingSec ~/ 60).toString().padLeft(2, '0')}:${(_offerRemainingSec % 60).toString().padLeft(2, '0')})'
+                                      : (_needsDriver && !_driverAccepted
+                                          ? (_isOfferExpired ? 'Assign Again' : 'Select Driver')
+                                          : 'Approve'),
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _effectiveWaitingForDriver
+                                    ? Colors.amber.shade700
+                                    : (_needsDriver && !_driverAccepted
+                                        ? Colors.amber.shade800
+                                        : AppColors.primary),
+                                foregroundColor: (_effectiveWaitingForDriver ||
+                                        (_needsDriver && !_driverAccepted))
+                                    ? Colors.white
+                                    : Colors.black,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                elevation: 0,
+                              ),
+                              onPressed: _effectiveWaitingForDriver
+                                  ? null
+                                  : () => _showApproveDialog(context, booking['id']?.toString()),
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if (_refundStatus == 'refunded') ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: AppColors.success.withValues(alpha: 0.35),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.check_circle,
-                      size: 14,
-                      color: AppColors.success,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Refund Disbursed ${booking['refund_reference'] != null ? '• Ref: ${booking['refund_reference']}' : ''}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.success,
+                    ],
+
+                    // ── Refund needed ──
+                    if (_refundStatus == 'refund_needed' ||
+                        (_status == 'cancelled' &&
+                            _reservationPaymentRef.isNotEmpty &&
+                            _refundStatus != 'refunded')) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.warning.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if ((_status == 'completed' ||
-                    _status == 'awaiting_completion' ||
-                    _status == 'return_pending_inspection' ||
-                    booking['security_deposit_return_eligible'] == true) &&
-                booking['security_deposit_refunded'] != true) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  icon: const Icon(
-                    Icons.assignment_return_rounded,
-                    size: 16,
-                    color: Colors.white,
-                  ),
-                  label: const Text(
-                    'Return Security Deposit',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                      color: Colors.white,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 0,
-                  ),
-                  onPressed: () => _showMobileSecurityDepositRefundDialog(
-                    context,
-                    booking,
-                    isDark,
-                    onRefresh,
-                  ),
-                ),
-              ),
-            ],
-            if (booking['security_deposit_refunded'] == true) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.check_circle, size: 14, color: Color(0xFF10B981)),
-                    SizedBox(width: 6),
-                    Text(
-                      'Security Deposit Refunded',
-                      style: TextStyle(
-                        color: Color(0xFF10B981),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if (isPartnerVehicle) ...[
-              if (booking['partner_payout_disbursed'] == true ||
-                  (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.check_circle, size: 14, color: Colors.purpleAccent),
-                      SizedBox(width: 6),
-                      Text(
-                        'Partner Payout Disbursed',
-                        style: TextStyle(
-                          color: Colors.purpleAccent,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.currency_exchange, size: 16, color: AppColors.warning),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'Refund Needed',
+                                  style: TextStyle(
+                                    color: AppColors.warning,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const Spacer(),
+                                if (_refundAmount > 0)
+                                  Text(
+                                    'PHP ${_refundAmount.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      color: AppColors.warning,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
+                              const SizedBox(height: 6),
+                              UpcomingReleaseCountdownBadge(booking: booking, isDark: isDark),
+                            ],
+                            const SizedBox(height: 6),
+                            Text(
+                              'Renter: $_renterName',
+                              style: TextStyle(
+                                color: textPrimary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (_renterPhone.isNotEmpty) ...[
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  Icon(Icons.phone_android, size: 13, color: textSecondary),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'GCash: $_renterPhone',
+                                    style: TextStyle(color: textSecondary, fontSize: 11),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  InkWell(
+                                    onTap: () {
+                                      Clipboard.setData(ClipboardData(text: _renterPhone));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Copied GCash number: $_renterPhone'),
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                                    child: const Icon(Icons.copy, size: 13, color: AppColors.primary),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            if (_reservationPaymentRef.isNotEmpty) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                'Original Payment Ref: $_reservationPaymentRef',
+                                style: TextStyle(color: textSecondary, fontSize: 11),
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.red.withValues(alpha: 0.35)),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.cancel_outlined, size: 14, color: Colors.redAccent),
+                                  SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Cancelled by Renter • ₱1,000 Deposit Forfeited (Non-Refundable)',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.redAccent,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
-                  ),
-                ),
-              ] else if (_status == 'completed' || _status == 'awaiting_completion') ...[
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(
-                      Icons.payments_outlined,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                    label: const Text(
-                      'Disburse Partner Payout',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple.shade600,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 10,
-                        horizontal: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      elevation: 0,
-                    ),
-                    onPressed: () => _showMobileDisbursePartnerPayoutDialog(
-                      context,
-                      booking,
-                      isDark,
-                      onRefresh,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-            if (_needsDriver) ...[
-              if (booking['driver_payout_disbursed'] == true ||
-                  (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0284C7).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.check_circle, size: 14, color: Color(0xFF0284C7)),
-                      SizedBox(width: 6),
-                      Text(
-                        'Driver Payout Disbursed',
-                        style: TextStyle(
-                          color: Color(0xFF38BDF8),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11,
+
+                    // ── Refunded badge ──
+                    if (_refundStatus == 'refunded') ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle, size: 14, color: AppColors.success),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Refund Disbursed ${booking['refund_reference'] != null ? '• Ref: ${booking['refund_reference']}' : ''}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.success,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
-                  ),
+
+                    // ── Security deposit return ──
+                    if ((_status == 'completed' ||
+                            _status == 'awaiting_completion' ||
+                            _status == 'return_pending_inspection' ||
+                            booking['security_deposit_return_eligible'] == true) &&
+                        booking['security_deposit_refunded'] != true) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(
+                            Icons.assignment_return_rounded,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                          label: const Text(
+                            'Return Security Deposit',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: Colors.white,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            elevation: 0,
+                          ),
+                          onPressed: () => _showMobileSecurityDepositRefundDialog(
+                            context,
+                            booking,
+                            isDark,
+                            onRefresh,
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    // ── Security deposit refunded badge ──
+                    if (booking['security_deposit_refunded'] == true) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.check_circle, size: 14, color: Color(0xFF10B981)),
+                            SizedBox(width: 6),
+                            Text(
+                              'Security Deposit Refunded',
+                              style: TextStyle(
+                                color: Color(0xFF10B981),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    // ── Partner payout ──
+                    if (isPartnerVehicle) ...[
+                      if (booking['partner_payout_disbursed'] == true ||
+                          booking['partner_payout_status']?.toString().toLowerCase() ==
+                              'disbursed') ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.check_circle, size: 14, color: Colors.purpleAccent),
+                              SizedBox(width: 6),
+                              Text(
+                                'Partner Payout Disbursed',
+                                style: TextStyle(
+                                  color: Colors.purpleAccent,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else if (_status == 'completed' || _status == 'awaiting_completion') ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.payments_outlined, size: 16, color: Colors.white),
+                            label: const Text(
+                              'Disburse Partner Payout',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: Colors.white,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.purple.shade600,
+                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: 0,
+                            ),
+                            onPressed: () => _showMobileDisbursePartnerPayoutDialog(
+                              context,
+                              booking,
+                              isDark,
+                              onRefresh,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+
+                    // ── Driver payout ──
+                    if (_needsDriver) ...[
+                      if (booking['driver_payout_disbursed'] == true ||
+                          booking['driver_payout_status']?.toString().toLowerCase() ==
+                              'disbursed') ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.check_circle, size: 14, color: Color(0xFF0284C7)),
+                              SizedBox(width: 6),
+                              Text(
+                                'Driver Payout Disbursed',
+                                style: TextStyle(
+                                  color: Color(0xFF38BDF8),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else if (_status == 'completed' || _status == 'awaiting_completion') ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.paid_outlined, size: 16, color: Colors.white),
+                            label: const Text(
+                              'Disburse Driver Fee',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: Colors.white,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0284C7),
+                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: 0,
+                            ),
+                            onPressed: () => _showMobileDisburseDriverPayoutDialog(
+                              context,
+                              booking,
+                              isDark,
+                              onRefresh,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ],
                 ),
-              ] else if (_status == 'completed' || _status == 'awaiting_completion') ...[
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(
-                      Icons.paid_outlined,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                    label: const Text(
-                      'Disburse Driver Fee',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0284C7),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 10,
-                        horizontal: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      elevation: 0,
-                    ),
-                    onPressed: () => _showMobileDisburseDriverPayoutDialog(
-                      context,
-                      booking,
-                      isDark,
-                      onRefresh,
-                    ),
-                  ),
-                ),
-              ],
-            ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+
+
 
   Future<void> _showMobileSecurityDepositRefundDialog(
     BuildContext context,
@@ -4068,39 +4234,69 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cardColor = isDark ? AppColors.darkCard : Colors.white;
+    final textPrimary = isDark ? Colors.white : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
     return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 22),
-              const SizedBox(height: 6),
-              Text(
-                value,
-                style: TextStyle(
-                  color: isDark ? Colors.white : AppColors.lightTextPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
+      child: Material(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          splashColor: color.withValues(alpha: 0.1),
+          highlightColor: color.withValues(alpha: 0.05),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(color: color, width: 3),
               ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(
+              boxShadow: [
+                BoxShadow(
                   color: isDark
-                      ? AppColors.textSecondary
-                      : AppColors.lightTextSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+                      ? Colors.black.withValues(alpha: 0.2)
+                      : Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
                 ),
-              ),
-            ],
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: color, size: 18),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -4120,33 +4316,191 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textPrimary = isDark ? Colors.white : AppColors.lightTextPrimary;
     final textSecondary = isDark
         ? AppColors.textSecondary
         : AppColors.lightTextSecondary;
-    final label = filter == 'pending'
-        ? 'No pending bookings'
-        : filter == 'active'
-        ? 'No active bookings'
-        : 'No past bookings yet';
+
+    final (IconData icon, Color iconColor, String title, String subtitle) = switch (filter) {
+      'pending' => (
+        Icons.pending_actions_rounded,
+        AppColors.warning,
+        'No Pending Bookings',
+        'All caught up! New booking requests\nwill appear here.',
+      ),
+      'active' => (
+        Icons.directions_car_rounded,
+        AppColors.success,
+        'No Active Bookings',
+        'Approved bookings and ongoing\ntrips will show up here.',
+      ),
+      _ => (
+        Icons.history_rounded,
+        AppColors.primary,
+        'No Booking History',
+        'Completed and past bookings\nwill appear here over time.',
+      ),
+    };
+
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.inbox_outlined,
-            size: 56,
-            color: textSecondary.withValues(alpha: 0.5),
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: isDark ? 0.12 : 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 40,
+              color: iconColor.withValues(alpha: 0.7),
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           Text(
-            label,
+            title,
+            style: TextStyle(
+              color: textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
             style: TextStyle(
               color: textSecondary,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              height: 1.5,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// AppBar icon button helper
+// ─────────────────────────────────────────────
+
+class _AppBarIconButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final bool isDark;
+  final VoidCallback? onPressed;
+
+  const _AppBarIconButton({
+    required this.icon,
+    required this.color,
+    required this.isDark,
+    this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: isDark
+          ? Colors.white.withValues(alpha: 0.07)
+          : Colors.black.withValues(alpha: 0.04),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.all(7),
+          child: Icon(icon, color: color, size: 20),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Filter pill button
+// ─────────────────────────────────────────────
+
+class _FilterPill extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool selected;
+  final Color color;
+  final bool isDark;
+  final VoidCallback? onTap;
+
+  const _FilterPill({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.color,
+    required this.isDark,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected
+              ? color.withValues(alpha: 0.18)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.black.withValues(alpha: 0.04)),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected
+                ? color.withValues(alpha: 0.55)
+                : Colors.transparent,
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: selected
+                    ? color
+                    : (isDark ? Colors.white60 : Colors.black54),
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: selected
+                    ? color.withValues(alpha: 0.25)
+                    : (isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.black.withValues(alpha: 0.07)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  color: selected
+                      ? color
+                      : (isDark ? Colors.white54 : Colors.black45),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
