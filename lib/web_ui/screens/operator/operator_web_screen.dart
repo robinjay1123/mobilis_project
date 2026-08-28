@@ -17755,34 +17755,47 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     file.bytes != null &&
                                     file.size <= 25 * 1024 * 1024,
                               )
-                              .take(8)
                               .toList();
                           setDialogState(() {
-                            selectedEvidence
-                              ..clear()
-                              ..addAll(usableFiles);
+                            final existingNames =
+                                selectedEvidence.map((f) => f.name).toSet();
+                            for (final file in usableFiles) {
+                              if (!existingNames.contains(file.name) &&
+                                  selectedEvidence.length < 10) {
+                                selectedEvidence.add(file);
+                                existingNames.add(file.name);
+                              }
+                            }
                           });
                         },
                         icon: const Icon(Icons.add_photo_alternate_outlined),
-                        label: const Text('Add photos or videos'),
+                        label: Text(
+                          selectedEvidence.isEmpty
+                              ? 'Add photos or videos (4 to 5 images recommended)'
+                              : 'Add more photos/videos (${selectedEvidence.length} selected)',
+                        ),
                       ),
                     ),
                     if (selectedEvidence.isNotEmpty)
                       Align(
                         alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: selectedEvidence
-                              .map(
-                                (file) => InputChip(
-                                  label: Text(file.name),
-                                  onDeleted: () => setDialogState(
-                                    () => selectedEvidence.remove(file),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: selectedEvidence
+                                .map(
+                                  (file) => InputChip(
+                                    avatar: const Icon(Icons.image_outlined, size: 16),
+                                    label: Text(file.name),
+                                    onDeleted: () => setDialogState(
+                                      () => selectedEvidence.remove(file),
+                                    ),
                                   ),
-                                ),
-                              )
-                              .toList(),
+                                )
+                                .toList(),
+                          ),
                         ),
                       ),
                     if (inspectionType == 'after') ...[
