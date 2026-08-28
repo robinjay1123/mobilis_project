@@ -450,9 +450,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
       });
       return;
     }
-    if (!RegExp(r'^\d{6,13}$').hasMatch(reference)) {
+    if (!RegExp(r'^[a-zA-Z0-9\-]{6,13}$').hasMatch(reference)) {
       setState(() {
-        _errorText = 'Enter a 6 to 13-digit transaction reference number.';
+        _errorText = 'Enter a 6 to 13-character transaction reference number.';
       });
       return;
     }
@@ -2193,7 +2193,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   }
 
   Widget _buildReferenceAndProofCard(bool isDark) {
-    final hasValidRef = RegExp(r'^[a-zA-Z0-9\-]{6,25}$').hasMatch(_referenceController.text.trim());
+    final hasValidRef = RegExp(r'^[a-zA-Z0-9\-]{6,13}$').hasMatch(_referenceController.text.trim());
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -2225,7 +2225,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           TextField(
             controller: _referenceController,
             textCapitalization: TextCapitalization.characters,
-            maxLength: 25,
+            maxLength: 13,
             enabled: !_isUploading,
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9\-]')),
@@ -2233,7 +2233,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             onChanged: (_) => setState(() {}),
             style: TextStyle(color: isDark ? Colors.white : const Color(0xFF0F172A)),
             decoration: InputDecoration(
-              labelText: 'Transaction Reference Number (6 to 25 characters)',
+              labelText: 'Transaction Reference Number (6 to 13 characters)',
               hintText: 'e.g. 1002345678, MAYA84920, GT94021',
               counterText: '',
               helperText: '⚠️ Enter Alphanumeric Ref No. (GCash: numbers, Maya/GoTyme/MariBank/Bank: letters & numbers)',
