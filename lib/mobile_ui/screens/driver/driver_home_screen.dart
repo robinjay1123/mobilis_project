@@ -2755,7 +2755,6 @@ class _TripCardState extends State<_TripCard> {
             'status': 'driver_accepted',
             'driver_id': currentUserId,
             'with_driver': true,
-            'driver_accepted_at': now,
             'updated_at': now,
           }).eq('id', bookingId);
         } else {
