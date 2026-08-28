@@ -15,6 +15,7 @@ import 'package:mobilis_by_psdc_app/services/payout_method_service.dart';
 import 'package:mobilis_by_psdc_app/services/reservation_payment_service.dart';
 import 'package:mobilis_by_psdc_app/utils/action_guard.dart';
 import 'package:mobilis_by_psdc_app/utils/pricing_policy.dart';
+import 'package:mobilis_by_psdc_app/widgets/upcoming_release_countdown_badge.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -1716,6 +1717,10 @@ class _BookingCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
+              const SizedBox(height: 6),
+              UpcomingReleaseCountdownBadge(booking: booking, isDark: isDark),
+            ],
             const SizedBox(height: 6),
             Row(
               children: [
@@ -2133,6 +2138,10 @@ class _BookingCard extends StatelessWidget {
                           ),
                       ],
                     ),
+                    if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
+                      const SizedBox(height: 6),
+                      UpcomingReleaseCountdownBadge(booking: booking, isDark: isDark),
+                    ],
                     const SizedBox(height: 6),
                     Text(
                       'Renter: $_renterName',

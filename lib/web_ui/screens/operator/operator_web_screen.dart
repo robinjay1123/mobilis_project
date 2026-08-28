@@ -30,6 +30,7 @@ import '../../../utils/philippine_geocoding.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/action_guard.dart';
 import '../../../utils/notification_visual.dart';
+import '../../../widgets/upcoming_release_countdown_badge.dart';
 import '../../../services/gps_service.dart';
 import '../../../models/gps_tracker_model.dart';
 import '../../../services/payout_method_service.dart';
@@ -10972,6 +10973,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
+                  UpcomingReleaseCountdownBadge(
+                    booking: booking,
+                    compact: true,
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 2),
+                ],
                 Text(
                   _formatBookingDateTime(start),
                   textAlign: TextAlign.center,
@@ -11182,6 +11191,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             avatarUrl: _operatorUserAvatarUrl(renter),
           ),
           const SizedBox(height: 5),
+          if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
+            UpcomingReleaseCountdownBadge(booking: booking, isDark: isDark),
+            const SizedBox(height: 2),
+          ],
           Text(
             _formatBookingDateTime(start),
             style: TextStyle(
@@ -12714,6 +12727,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ],
           ),
+          if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
+            const SizedBox(height: 14),
+            UpcomingReleaseCountdownBadge(booking: booking, isDark: isDark),
+          ],
           if (_canTrackBooking(booking)) ...[
             const SizedBox(height: 14),
             BookingReturnCountdown(booking: booking, lightBackground: !isDark),
