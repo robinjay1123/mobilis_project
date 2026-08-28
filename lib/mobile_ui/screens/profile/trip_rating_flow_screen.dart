@@ -874,7 +874,10 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
               final vehicleImages = (rawImages is List)
                   ? rawImages.whereType<Map<String, dynamic>>().toList()
                   : <Map<String, dynamic>>[];
-              final avatarUrlForFallback = avatarUrl;
+              var avatarUrlForFallback = avatarUrl;
+              if (avatarUrlForFallback.isEmpty && target['imageUrl'] != null) {
+                avatarUrlForFallback = target['imageUrl'].toString().trim();
+              }
 
               // Build a minimal vehicle-like map for VehicleImageCarousel
               final vehicleMap = <String, dynamic>{

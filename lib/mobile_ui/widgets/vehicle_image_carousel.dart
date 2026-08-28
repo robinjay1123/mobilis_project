@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'optimized_network_image.dart';
 
@@ -21,9 +22,18 @@ List<String> vehicleImageUrls(Map<String, dynamic> vehicle) {
 
   final urls = <String>[];
   void addUrl(dynamic value) {
-    final url = value?.toString().trim();
-    if (url != null && url.isNotEmpty && !urls.contains(url)) {
-      urls.add(url);
+    final raw = value?.toString().trim();
+    if (raw != null && raw.isNotEmpty) {
+      var url = raw;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        final path = url.startsWith('/') ? url.substring(1) : url;
+        url = Supabase.instance.client.storage
+            .from('vehicle_images')
+            .getPublicUrl(path);
+      }
+      if (url.isNotEmpty && !urls.contains(url)) {
+        urls.add(url);
+      }
     }
   }
 

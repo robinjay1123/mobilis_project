@@ -45,6 +45,16 @@ class TripRatingService {
 
   static const String _bucketName = 'trip_review_images';
 
+  String _normalizeVehicleImageUrl(dynamic value) {
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty) return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    final path = raw.startsWith('/') ? raw.substring(1) : raw;
+    return path.isEmpty
+        ? ''
+        : supabase.storage.from('vehicle_images').getPublicUrl(path);
+  }
+
   Future<Map<String, dynamic>?> getBookingContext(String bookingId) async {
     try {
       final booking = await supabase
@@ -628,48 +638,80 @@ class TripRatingService {
     }
 
     // ── Vehicle image enrichment pass ──────────────────────────────────────
-    // If a vehicle target has no carousel images, fetch them from vehicle_images.
     for (final target in uniqueTargets) {
       if (target['role']?.toString() != 'vehicle') continue;
-      final vehicleImages = target['vehicleImages'];
-      final hasImages = vehicleImages is List && vehicleImages.isNotEmpty;
-      final hasMainImage = (target['avatarUrl']?.toString().trim().isNotEmpty == true);
-      if (hasImages || hasMainImage) continue;
-
       final vid = target['userId']?.toString().trim() ?? '';
-      if (vid.isEmpty) continue;
-      try {
-        // Fetch primary image_url from vehicles table
-        final vehicleRow = await supabase
-            .from('vehicles')
-            .select('image_url')
-            .eq('id', vid)
-            .maybeSingle();
-        final mainUrl = vehicleRow?['image_url']?.toString().trim() ?? '';
-        if (mainUrl.isNotEmpty) {
-          target['avatarUrl'] = mainUrl;
-          target['imageUrl'] = mainUrl;
-        }
-        // Fetch additional images from vehicle_images table
-        final imgRows = await supabase
-            .from('vehicle_images')
-            .select('image_url, display_order')
-            .eq('vehicle_id', vid)
-            .order('display_order', ascending: true);
-        if (imgRows is List && imgRows.isNotEmpty) {
-          target['vehicleImages'] = List<Map<String, dynamic>>.from(
-            imgRows.map((r) => Map<String, dynamic>.from(r as Map)),
-          );
-          if (mainUrl.isEmpty) {
-            final firstUrl =
-                imgRows.first['image_url']?.toString().trim() ?? '';
-            if (firstUrl.isNotEmpty) {
-              target['avatarUrl'] = firstUrl;
-              target['imageUrl'] = firstUrl;
+
+      // Normalize any existing main avatar URL
+      var mainUrl = _normalizeVehicleImageUrl(target['avatarUrl'] ?? target['imageUrl']);
+      if (mainUrl.isNotEmpty) {
+        target['avatarUrl'] = mainUrl;
+        target['imageUrl'] = mainUrl;
+      }
+
+      // Check carousel images
+      var rawImages = target['vehicleImages'];
+      var vehicleImages = (rawImages is List)
+          ? rawImages.whereType<Map<String, dynamic>>().toList()
+          : <Map<String, dynamic>>[];
+
+      if (mainUrl.isEmpty || vehicleImages.isEmpty) {
+        if (vid.isNotEmpty) {
+          try {
+            // 1. Fetch from vehicles table
+            final vehicleRow = await supabase
+                .from('vehicles')
+                .select('image_url')
+                .eq('id', vid)
+                .maybeSingle();
+            var fetchedUrl = _normalizeVehicleImageUrl(vehicleRow?['image_url']);
+
+            // 2. If empty, fetch from partner_vehicles table
+            if (fetchedUrl.isEmpty) {
+              try {
+                final pvRow = await supabase
+                    .from('partner_vehicles')
+                    .select('image_url, vehicle_image')
+                    .eq('id', vid)
+                    .maybeSingle();
+                fetchedUrl = _normalizeVehicleImageUrl(pvRow?['image_url'] ?? pvRow?['vehicle_image']);
+              } catch (_) {}
             }
+
+            if (fetchedUrl.isNotEmpty && mainUrl.isEmpty) {
+              mainUrl = fetchedUrl;
+              target['avatarUrl'] = mainUrl;
+              target['imageUrl'] = mainUrl;
+            }
+
+            // 3. Fetch additional images from vehicle_images table
+            final imgRows = await supabase
+                .from('vehicle_images')
+                .select('image_url, display_order')
+                .eq('vehicle_id', vid)
+                .order('display_order', ascending: true);
+            if (imgRows.isNotEmpty) {
+              vehicleImages = List<Map<String, dynamic>>.from(
+                imgRows.map((r) {
+                  final map = Map<String, dynamic>.from(r as Map);
+                  map['image_url'] = _normalizeVehicleImageUrl(map['image_url']);
+                  return map;
+                }),
+              );
+              target['vehicleImages'] = vehicleImages;
+              if (mainUrl.isEmpty) {
+                final firstUrl = _normalizeVehicleImageUrl(imgRows.first['image_url']);
+                if (firstUrl.isNotEmpty) {
+                  target['avatarUrl'] = firstUrl;
+                  target['imageUrl'] = firstUrl;
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('Vehicle image enrichment error for $vid: $e');
           }
         }
-      } catch (_) {} // non-fatal
+      }
     }
     // ───────────────────────────────────────────────────────────────────────
 
