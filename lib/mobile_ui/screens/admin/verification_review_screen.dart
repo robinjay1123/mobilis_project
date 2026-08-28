@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/auth_service.dart';
@@ -19,11 +20,28 @@ class AdminVerificationHubScreen extends StatefulWidget {
 class _AdminVerificationHubScreenState
     extends State<AdminVerificationHubScreen> {
   late Future<List<Map<String, dynamic>>> _verificationsFuture;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadVerifications();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) {
+        if (mounted) {
+          setState(() {
+            _loadVerifications();
+          });
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   void _loadVerifications() {

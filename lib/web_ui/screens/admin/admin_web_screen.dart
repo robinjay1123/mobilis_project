@@ -458,6 +458,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _verificationSearchQuery = '';
   String _applicationTypeFilter = 'all'; // 'all', 'vehicle', 'driver'
   String _applicationSearchQuery = '';
+  Timer? _verificationsAndApplicationsRefreshTimer;
+  RealtimeChannel? _verificationsSubscription;
+  RealtimeChannel? _applicationsSubscription;
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -539,11 +542,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _setupSupportMessagesListener();
     _setupActionLogsRealtimeListener();
     _setupBookingsRealtimeListener();
+    _setupVerificationsAndApplicationsRealtimeListener();
     _bookingsSilentRefreshTimer = Timer.periodic(
       const Duration(seconds: 12),
       (_) {
         if (mounted) {
           _loadAllBookings();
+        }
+      },
+    );
+    _verificationsAndApplicationsRefreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) {
+        if (mounted) {
+          _refreshVerificationsAndApplicationsSilently();
         }
       },
     );
@@ -598,7 +610,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   void dispose() {
     _userReportsRefreshTimer?.cancel();
     _bookingsSilentRefreshTimer?.cancel();
+    _verificationsAndApplicationsRefreshTimer?.cancel();
     _bookingsSubscription?.unsubscribe();
+    _verificationsSubscription?.unsubscribe();
+    _applicationsSubscription?.unsubscribe();
     _trackingRefreshTimer?.cancel();
     _notificationsRefreshTimer?.cancel();
     _actionLogsRefreshTimer?.cancel();
@@ -641,6 +656,62 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           },
         )
         .subscribe();
+  }
+
+  void _setupVerificationsAndApplicationsRealtimeListener() {
+    _verificationsSubscription = _supabase
+        .channel('admin-verifications-realtime')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'user_verifications',
+          callback: (payload) {
+            if (mounted) {
+              _refreshVerificationsAndApplicationsSilently();
+            }
+          },
+        )
+        .subscribe();
+
+    _applicationsSubscription = _supabase
+        .channel('admin-applications-realtime')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'partner_vehicle_applications',
+          callback: (payload) {
+            if (mounted) {
+              _refreshVerificationsAndApplicationsSilently();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _refreshVerificationsAndApplicationsSilently() async {
+    if (!mounted) return;
+    try {
+      await Future.wait([
+        _loadPendingVerifications(),
+        _loadPendingPartnerVehicleApplications(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _pendingVerifications = _verificationRecords
+              .where((v) =>
+                  (v['verification_status'] ?? '').toString().toLowerCase() ==
+                  'pending')
+              .length;
+          _pendingApplicationsCount = _pendingPartnerVehicleApplications
+              .where((a) =>
+                  (a['application_status'] ?? '').toString().toLowerCase() ==
+                  'pending')
+              .length;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error silently refreshing verifications & applications: $e');
+    }
   }
 
   void _setupSupportMessagesListener() {
@@ -2677,16 +2748,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .order('created_at', ascending: false);
 
       final records = List<Map<String, dynamic>>.from(response);
-      for (final record in records) {
-        final user = record['users'] as Map<String, dynamic>?;
-        final userId = record['user_id']?.toString() ?? user?['id']?.toString();
-        if (userId != null && userId.isNotEmpty) {
-          record['driver_signature_url'] = await _loadDriverSignatureUrl(
-            userId,
-          );
-          record['driver_nbi_url'] = await _loadDriverNbiUrl(userId);
-        }
-      }
+      await Future.wait(
+        records.map((record) async {
+          final user = record['users'] as Map<String, dynamic>?;
+          final userId =
+              record['user_id']?.toString() ?? user?['id']?.toString();
+          if (userId != null && userId.isNotEmpty) {
+            final docs = await Future.wait([
+              _loadDriverSignatureUrl(userId),
+              _loadDriverNbiUrl(userId),
+            ]);
+            record['driver_signature_url'] = docs[0];
+            record['driver_nbi_url'] = docs[1];
+          }
+        }),
+      );
 
       _verificationRecords = records;
     } catch (e) {
@@ -2762,11 +2838,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .order('created_at', ascending: false);
 
       final applications = List<Map<String, dynamic>>.from(response);
-      for (final application in applications) {
-        application['photo_urls'] = await _loadVehicleApplicationPhotoUrls(
-          application,
-        );
-      }
+      await Future.wait(
+        applications.map((application) async {
+          application['photo_urls'] =
+              await _loadVehicleApplicationPhotoUrls(application);
+        }),
+      );
       _pendingPartnerVehicleApplications = applications;
     } catch (e) {
       debugPrint('Error loading partner vehicle applications: $e');
@@ -4238,13 +4315,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 _loadAllVehicles();
               }
             } else if (index == 4) {
-              if (_verificationRecords.isEmpty) {
-                _loadPendingVerifications();
-              }
+              _refreshVerificationsAndApplicationsSilently();
             } else if (index == 5) {
-              if (_pendingPartnerVehicleApplications.isEmpty) {
-                _loadPendingPartnerVehicleApplications();
-              }
+              _refreshVerificationsAndApplicationsSilently();
             }
           });
           _persistSelectedTab(index);
