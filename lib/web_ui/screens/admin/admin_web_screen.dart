@@ -3397,16 +3397,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final shouldApprove = await _showVehicleApprovalConfirmation(application);
     if (!shouldApprove) return;
 
-    try {
-      final appId = application['id']?.toString();
-      final partnerId = application['partner_id']?.toString();
-      if (appId == null ||
-          appId.isEmpty ||
-          partnerId == null ||
-          partnerId.isEmpty) {
-        throw Exception('Invalid application payload');
-      }
+    final appId = application['id']?.toString();
+    final partnerId = application['partner_id']?.toString();
+    if (appId == null ||
+        appId.isEmpty ||
+        partnerId == null ||
+        partnerId.isEmpty) {
+      throw Exception('Invalid application payload');
+    }
 
+    // Immediate action: optimistically update UI state
+    if (mounted) {
+      setState(() {
+        _pendingPartnerVehicleApplications.removeWhere(
+          (app) => app['id']?.toString() == appId,
+        );
+        _pendingApplicationsCount = _pendingPartnerVehicleApplications.length;
+      });
+    }
+
+    try {
       var partnerProfile = await _supabase
           .from('partners')
           .select('id, business_name, users:user_id(full_name)')
@@ -3604,10 +3614,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vehicle application approved')),
+        const SnackBar(
+          content: Text('Vehicle application approved'),
+          backgroundColor: Colors.green,
+        ),
       );
-      _loadDashboardData();
+      _refreshVerificationsAndApplicationsSilently();
+      _loadAllVehicles();
+      _loadAllUsers();
     } catch (e) {
+      // Revert optimistic removal on failure
+      _refreshVerificationsAndApplicationsSilently();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -3624,12 +3641,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final rejectionReason = await _showVehicleRejectionDialog();
     if (rejectionReason == null || rejectionReason.trim().isEmpty) return;
 
-    try {
-      final appId = application['id']?.toString();
-      if (appId == null || appId.isEmpty) {
-        throw Exception('Invalid application payload');
-      }
+    final appId = application['id']?.toString();
+    if (appId == null || appId.isEmpty) {
+      throw Exception('Invalid application payload');
+    }
 
+    // Immediate action: optimistically update UI state
+    if (mounted) {
+      setState(() {
+        _pendingPartnerVehicleApplications.removeWhere(
+          (app) => app['id']?.toString() == appId,
+        );
+        _pendingApplicationsCount = _pendingPartnerVehicleApplications.length;
+      });
+    }
+
+    try {
       final currentApplication = await _supabase
           .from('partner_vehicle_applications')
           .select('partner_vehicle_id,created_vehicle_id,plate_number')
@@ -3692,8 +3719,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vehicle application rejected')),
       );
-      _loadDashboardData();
+      _refreshVerificationsAndApplicationsSilently();
     } catch (e) {
+      _refreshVerificationsAndApplicationsSilently();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -12663,6 +12691,35 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       );
                       if (confirmed != true) return;
 
+                      final recId = record['id']?.toString() ?? '';
+                      final userId = record['user_id']?.toString() ??
+                          (record['users'] as Map<String, dynamic>?)?['id']
+                              ?.toString() ??
+                          '';
+
+                      // Immediate action: optimistically update UI state
+                      if (mounted) {
+                        setState(() {
+                          record['verification_status'] = 'approved';
+                          record['id_verified'] = true;
+                          _pendingVerifications = _verificationRecords
+                              .where((v) =>
+                                  (v['verification_status'] ?? '')
+                                      .toString()
+                                      .toLowerCase() ==
+                                  'pending')
+                              .length;
+
+                          for (final u in _allUsers) {
+                            if (u['id']?.toString() == userId) {
+                              u['id_verified'] = true;
+                              u['verification_status'] = 'approved';
+                              u['display_verification_status'] = 'Approved';
+                            }
+                          }
+                        });
+                      }
+
                       final adminId = _supabase.auth.currentUser?.id ?? '';
                       final result =
                           await VerificationService.approveVerification(
@@ -12674,10 +12731,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('$displayName verified successfully'),
+                            backgroundColor: Colors.green,
                           ),
                         );
-                        _loadDashboardData();
+                        _refreshVerificationsAndApplicationsSilently();
+                        _loadAllUsers();
                       } else {
+                        _refreshVerificationsAndApplicationsSilently();
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
@@ -12712,6 +12772,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       );
                       if (reason == null || reason.trim().isEmpty) return;
 
+                      // Immediate action: optimistically update UI state
+                      if (mounted) {
+                        setState(() {
+                          record['verification_status'] = 'rejected';
+                          record['rejection_reason'] = reason;
+                          _pendingVerifications = _verificationRecords
+                              .where((v) =>
+                                  (v['verification_status'] ?? '')
+                                      .toString()
+                                      .toLowerCase() ==
+                                  'pending')
+                              .length;
+                        });
+                      }
+
                       final adminId = _supabase.auth.currentUser?.id ?? '';
                       final result =
                           await VerificationService.rejectVerification(
@@ -12728,8 +12803,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             ),
                           ),
                         );
-                        _loadDashboardData();
+                        _refreshVerificationsAndApplicationsSilently();
                       } else {
+                        _refreshVerificationsAndApplicationsSilently();
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
