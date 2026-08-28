@@ -29,6 +29,8 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
     super.dispose();
   }
 
+  bool emailSent = false;
+
   void _handleResetPassword() async {
     final connectivityService = ConnectivityService();
     if (!connectivityService.isOnline) {
@@ -38,9 +40,20 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
       return;
     }
 
-    if (emailController.text.trim().isEmpty) {
+    final rawInput = emailController.text.trim();
+    if (rawInput.isEmpty) {
       _showErrorSnackBar('Please enter your email or mobile number');
       return;
+    }
+
+    if (rawInput.contains('@')) {
+      final isValidEmail = RegExp(
+        r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+      ).hasMatch(rawInput);
+      if (!isValidEmail) {
+        _showErrorSnackBar('Please enter a valid email address');
+        return;
+      }
     }
 
     setState(() {
@@ -50,41 +63,31 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
     try {
       final authService = AuthService();
       debugPrint(
-        '🔐 [ForgotPasswordWebScreen] Sending reset email to: ${emailController.text.trim()}',
+        '🔐 [ForgotPasswordWebScreen] Requesting reset for: $rawInput',
       );
 
-      final resetEmail = await authService.resolvePasswordResetEmail(
-        emailController.text,
-      );
+      final resetEmail = await authService.resolvePasswordResetEmail(rawInput);
       await authService.resetPassword(
         email: resetEmail,
         redirectTo: '${Uri.base.origin}/#/reset-password',
       );
 
-      debugPrint('✅ [ForgotPasswordWebScreen] Reset email sent successfully!');
-
-      if (mounted) {
-        _showSuccessSnackBar(
-          'Password reset email sent! Check your inbox for instructions.',
-        );
-
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) {
-            Navigator.of(context).pop();
-          }
-        });
-      }
+      debugPrint('✅ [ForgotPasswordWebScreen] Reset request completed');
     } catch (e) {
-      debugPrint('❌ [ForgotPasswordWebScreen] Error sending reset email: $e');
-      if (mounted) {
+      debugPrint('❌ [ForgotPasswordWebScreen] Error during reset request: $e');
+      if (mounted && e.toString().contains('rate limit')) {
         final authService = AuthService();
-        final errorMessage = authService.getErrorMessage(e);
-        _showErrorSnackBar(errorMessage);
+        _showErrorSnackBar(authService.getErrorMessage(e));
+        setState(() {
+          isLoading = false;
+        });
+        return;
       }
     } finally {
       if (mounted) {
         setState(() {
           isLoading = false;
+          emailSent = true;
         });
       }
     }
@@ -95,16 +98,6 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: AppColors.error,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
         duration: const Duration(seconds: 3),
       ),
     );
@@ -177,68 +170,116 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
 
                   // Right side - Form
                   Expanded(
-                    child: Column(
-                      children: [
-                        CustomTextField(
-                          label: 'Email or Mobile Number',
-                          hintText: 'name@gmail.com or 09XXXXXXXXX',
-                          controller: emailController,
-                          keyboardType: TextInputType.text,
-                          prefixIcon: const Icon(
-                            Icons.contact_mail_outlined,
-                            color: AppColors.textTertiary,
-                          ),
-                        ),
-                        const SizedBox(height: 40),
-                        CustomButton(
-                          label: isLoading ? 'Sending...' : 'Send Reset Link',
-                          onPressed: isLoading ? null : _handleResetPassword,
-                          isLoading: isLoading,
-                        ),
-                        const SizedBox(height: 20),
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text(
-                            'Back to Login',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 30),
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.1),
-                            border: Border.all(
-                              color: AppColors.primary.withOpacity(0.3),
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Row(
+                    child: emailSent
+                        ? Column(
                             children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: AppColors.primary,
-                              ),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'The reset link is sent to the registered email, even when a mobile number is used.',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.textSecondary,
-                                    height: 1.4,
+                              Container(
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: AppColors.success.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: AppColors.success.withOpacity(0.4),
                                   ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    const Icon(
+                                      Icons.mark_email_read_outlined,
+                                      size: 56,
+                                      color: AppColors.success,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    const Text(
+                                      'Password Reset Link Sent',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    const Text(
+                                      'If an account exists with this email, a password reset link has been sent. Check your inbox for instructions.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.textSecondary,
+                                        height: 1.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 32),
+                              CustomButton(
+                                label: 'Back to Login',
+                                onPressed: () => Navigator.of(context).pop(),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            children: [
+                              CustomTextField(
+                                label: 'Email or Mobile Number',
+                                hintText: 'name@gmail.com or 09XXXXXXXXX',
+                                controller: emailController,
+                                keyboardType: TextInputType.emailAddress,
+                                prefixIcon: const Icon(
+                                  Icons.contact_mail_outlined,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
+                              const SizedBox(height: 40),
+                              CustomButton(
+                                label: isLoading ? 'Sending...' : 'Send Reset Link',
+                                onPressed: isLoading ? null : _handleResetPassword,
+                                isLoading: isLoading,
+                              ),
+                              const SizedBox(height: 20),
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: const Text(
+                                  'Back to Login',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 30),
+                              Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.1),
+                                  border: Border.all(
+                                    color: AppColors.primary.withOpacity(0.3),
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline,
+                                      color: AppColors.primary,
+                                    ),
+                                    SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'The reset link is sent to the registered email, even when a mobile number is used.',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: AppColors.textSecondary,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
                   ),
                 ],
               ),

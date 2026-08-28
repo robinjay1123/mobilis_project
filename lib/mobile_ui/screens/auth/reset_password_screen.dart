@@ -33,6 +33,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     super.dispose();
   }
 
+  bool get _hasActiveRecoverySession {
+    final authService = AuthService();
+    return authService.isAuthenticated || authService.currentSession != null;
+  }
+
   void _handleResetPassword() async {
     // Check internet connection first
     final connectivityService = ConnectivityService();
@@ -46,17 +51,17 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
     // Validate inputs
     if (!_passwordMeetsRequirements(newPasswordController.text)) {
-      setState(() {});
+      _showErrorSnackBar('Please fulfill all password requirements');
       return;
     }
 
     if (confirmPasswordController.text.isEmpty) {
-      _showErrorSnackBar('Please confirm your password');
+      _showErrorSnackBar('Please confirm your new password');
       return;
     }
 
     if (newPasswordController.text != confirmPasswordController.text) {
-      setState(() {});
+      _showErrorSnackBar('Passwords do not match');
       return;
     }
 
@@ -68,14 +73,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       final authService = AuthService();
       debugPrint('🔐 [ResetPasswordScreen] Updating password');
 
-      await authService.updatePassword(newPassword: newPasswordController.text);
+      await authService.updatePassword(
+        newPassword: newPasswordController.text,
+      );
+      await authService.signOut();
 
       debugPrint('✅ [ResetPasswordScreen] Password updated successfully!');
 
       if (mounted) {
-        _showSuccessSnackBar('Password updated successfully!');
+        _showSuccessSnackBar(
+          'Password updated successfully! Please log in with your new password.',
+        );
 
-        // Navigate back to login after 2 seconds
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) {
             Navigator.of(
@@ -127,6 +136,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final validSession = _hasActiveRecoverySession;
+    final isFormValid =
+        _passwordMeetsRequirements(newPasswordController.text) &&
+        confirmPasswordController.text.isNotEmpty &&
+        newPasswordController.text == confirmPasswordController.text;
+
     return Scaffold(
       backgroundColor: AppColors.darkBg,
       appBar: AppBar(
@@ -171,112 +186,161 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               ),
               const SizedBox(height: 40),
 
-              // Title
-              const Text(
-                'Create New Password',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // Description
-              const Text(
-                'Enter your new password below. Make sure it\'s strong and unique.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textSecondary,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // New password field
-              CustomTextField(
-                label: 'New Password *',
-                hintText: '••••••••',
-                controller: newPasswordController,
-                obscureText: obscureNewPassword,
-                prefixIcon: const Icon(
-                  Icons.lock_outline,
-                  color: AppColors.textTertiary,
-                ),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    obscureNewPassword
-                        ? Icons.visibility_off
-                        : Icons.visibility,
-                    color: AppColors.textTertiary,
+              if (!validSession) ...[
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppColors.warning.withOpacity(0.4),
+                    ),
                   ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        size: 48,
+                        color: AppColors.warning,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Recovery Link Expired or Invalid',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'No active password recovery session detected. Your link may have expired or is invalid. Please request a new password reset link.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textSecondary,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+                CustomButton(
+                  label: 'Request Password Reset',
                   onPressed: () {
-                    setState(() {
-                      obscureNewPassword = !obscureNewPassword;
-                    });
+                    Navigator.of(context).pushReplacementNamed('/forgot-password');
                   },
                 ),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 10),
-
-              _buildRequirement(
-                'At least 8 characters',
-                newPasswordController.text.length >= 8,
-              ),
-              const SizedBox(height: 6),
-              _buildRequirement(
-                'At least 1 special character',
-                RegExp(r'[^A-Za-z0-9]').hasMatch(newPasswordController.text),
-              ),
-              const SizedBox(height: 6),
-              _buildRequirement(
-                'At least 1 uppercase letter',
-                RegExp(r'[A-Z]').hasMatch(newPasswordController.text),
-              ),
-              const SizedBox(height: 20),
-
-              // Confirm password field
-              CustomTextField(
-                label: 'Confirm Password *',
-                hintText: '••••••••',
-                controller: confirmPasswordController,
-                obscureText: obscureConfirmPassword,
-                prefixIcon: const Icon(
-                  Icons.lock_outline,
-                  color: AppColors.textTertiary,
-                ),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    obscureConfirmPassword
-                        ? Icons.visibility_off
-                        : Icons.visibility,
-                    color: AppColors.textTertiary,
+              ] else ...[
+                // Title
+                const Text(
+                  'Create New Password',
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
                   ),
-                  onPressed: () {
-                    setState(() {
-                      obscureConfirmPassword = !obscureConfirmPassword;
-                    });
-                  },
                 ),
-                onChanged: (_) => setState(() {}),
-              ),
-              if (confirmPasswordController.text.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                _buildRequirement(
-                  'Passwords match',
-                  newPasswordController.text == confirmPasswordController.text,
-                ),
-              ],
-              const SizedBox(height: 32),
 
-              // Update password button
-              CustomButton(
-                label: isLoading ? 'Updating...' : 'Update Password',
-                onPressed: isLoading ? null : _handleResetPassword,
-                isLoading: isLoading,
-              ),
-              const SizedBox(height: 20),
+                // Description
+                const Text(
+                  'Enter your new password below. Make sure it\'s strong and unique.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // New password field
+                CustomTextField(
+                  label: 'New Password *',
+                  hintText: '••••••••',
+                  controller: newPasswordController,
+                  obscureText: obscureNewPassword,
+                  prefixIcon: const Icon(
+                    Icons.lock_outline,
+                    color: AppColors.textTertiary,
+                  ),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscureNewPassword
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                      color: AppColors.textTertiary,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        obscureNewPassword = !obscureNewPassword;
+                      });
+                    },
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 10),
+
+                _buildRequirement(
+                  'At least 8 characters',
+                  newPasswordController.text.length >= 8,
+                ),
+                const SizedBox(height: 6),
+                _buildRequirement(
+                  'At least 1 special character',
+                  RegExp(r'[^A-Za-z0-9]').hasMatch(newPasswordController.text),
+                ),
+                const SizedBox(height: 6),
+                _buildRequirement(
+                  'At least 1 uppercase letter',
+                  RegExp(r'[A-Z]').hasMatch(newPasswordController.text),
+                ),
+                const SizedBox(height: 20),
+
+                // Confirm password field
+                CustomTextField(
+                  label: 'Confirm Password *',
+                  hintText: '••••••••',
+                  controller: confirmPasswordController,
+                  obscureText: obscureConfirmPassword,
+                  prefixIcon: const Icon(
+                    Icons.lock_outline,
+                    color: AppColors.textTertiary,
+                  ),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscureConfirmPassword
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                      color: AppColors.textTertiary,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        obscureConfirmPassword = !obscureConfirmPassword;
+                      });
+                    },
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                if (confirmPasswordController.text.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _buildRequirement(
+                    'Passwords match',
+                    newPasswordController.text == confirmPasswordController.text,
+                  ),
+                ],
+                const SizedBox(height: 32),
+
+                // Update password button
+                CustomButton(
+                  label: isLoading ? 'Updating...' : 'Update Password',
+                  onPressed:
+                      (isLoading || !isFormValid) ? null : _handleResetPassword,
+                  isLoading: isLoading,
+                ),
+                const SizedBox(height: 20),
+              ],
             ],
           ),
         ),

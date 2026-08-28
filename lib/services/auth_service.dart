@@ -1024,8 +1024,20 @@ class AuthService {
       return 'This email is already registered';
     } else if (errorMessage.contains('Email not confirmed')) {
       return 'Email not confirmed';
-    } else if (errorMessage.contains('Password should be')) {
-      return 'Password must be at least 6 characters';
+    } else if (errorMessage.contains('Password should be') ||
+        errorMessage.contains('at least')) {
+      return 'Password must be at least 8 characters';
+    } else if (errorMessage.contains('same_password') ||
+        errorMessage.contains('should be different')) {
+      return 'New password must be different from your current password';
+    } else if (errorMessage.contains('rate limit') ||
+        errorMessage.contains('rate_limit') ||
+        errorMessage.contains('over_email_send_rate_limit')) {
+      return 'Too many password reset attempts. Please wait a few minutes before trying again.';
+    } else if (errorMessage.contains('expired') ||
+        errorMessage.contains('invalid token') ||
+        errorMessage.contains('otp_expired')) {
+      return 'The password reset link is invalid or has expired. Please request a new link.';
     } else if (errorMessage.contains('Unable to validate')) {
       return 'Please enter a valid email address';
     } else if (errorMessage.contains('Network') ||
