@@ -1635,6 +1635,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     try {
       final verificationState =
           await VerificationService.getUserVerificationState(user.id);
+      final userRole = verificationState['role']?.toString() ?? 'renter';
+      final isVerified = verificationState['is_verified'] as bool? ?? false;
       final status =
           verificationState['verification_status']?.toString().trim().toLowerCase();
       final isPending = status == 'pending' || status == 'submitted';
