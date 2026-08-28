@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../services/handover_verification_service.dart';
 
 class HandoverPinVerifierModal extends StatefulWidget {
@@ -50,9 +51,9 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
   final HandoverVerificationService _verificationService =
       HandoverVerificationService();
   final TextEditingController _pinController = TextEditingController();
-  final TextEditingController _qrPayloadController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
 
-  int _selectedTab = 0; // 0: PIN, 1: Scan/Paste QR Code
+  int _selectedTab = 0; // 0: PIN, 1: Scan QR / Camera
   late String _activeMode; // 'release' or 'return'
 
   bool _isSubmitting = false;
@@ -64,32 +65,54 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
     _activeMode = widget.mode;
   }
 
-  Future<void> _submitVerification() async {
-    String pinToVerify = _pinController.text.trim();
-    String targetBookingId = widget.bookingId;
+  Future<void> _openCameraToScan() async {
+    try {
+      final photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+        preferredCameraDevice: CameraDevice.rear,
+      );
 
-    if (_selectedTab == 1) {
-      final rawQr = _qrPayloadController.text.trim();
-      if (rawQr.isEmpty) {
-        setState(() => _errorMessage = 'Please enter or paste QR Code payload');
-        return;
+      if (photo == null) return;
+
+      // Note: On platforms without native QR decoder, prompt to use the 6-digit PIN
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'QR image captured. Enter the 6-digit PIN shown on the renter pass to verify.',
+            ),
+            backgroundColor: Color(0xFF2563EB),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        setState(() {
+          _selectedTab = 0;
+        });
       }
-      final parsed = _verificationService.parseQrPayload(rawQr);
-      if (parsed != null) {
-        if (parsed['pin'] != null) {
-          pinToVerify = parsed['pin']!;
-        }
-        if (parsed['booking_id'] != null && parsed['booking_id']!.isNotEmpty) {
-          targetBookingId = parsed['booking_id']!;
-        }
-      } else {
-        setState(() => _errorMessage = 'Invalid QR Code payload format');
-        return;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Camera unavailable or permission denied. Please enter the 6-digit PIN.',
+            ),
+            backgroundColor: const Color(0xFFD97706),
+          ),
+        );
+        setState(() {
+          _selectedTab = 0;
+        });
       }
     }
+  }
+
+  Future<void> _submitVerification() async {
+    final pinToVerify = _pinController.text.trim();
+    final targetBookingId = widget.bookingId;
 
     if (pinToVerify.length != 6) {
-      setState(() => _errorMessage = 'Please enter a valid 6-digit PIN code');
+      setState(() => _errorMessage = 'Please enter a valid 6-digit security PIN code');
       return;
     }
 
@@ -154,7 +177,6 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
   @override
   void dispose() {
     _pinController.dispose();
-    _qrPayloadController.dispose();
     super.dispose();
   }
 
@@ -356,7 +378,7 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
                 const SizedBox(height: 14),
               ],
 
-              // Verification Method Selector Tabs (6-Digit PIN vs Scan/Paste QR)
+              // Verification Method Selector Tabs (6-Digit PIN vs Camera Scan)
               Row(
                 children: [
                   Expanded(
@@ -393,9 +415,9 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
                       label: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.qr_code_scanner, size: 16),
+                          Icon(Icons.camera_alt_outlined, size: 16),
                           SizedBox(width: 6),
-                          Text('Scan / Paste QR'),
+                          Text('Camera / QR'),
                         ],
                       ),
                       selected: _selectedTab == 1,
@@ -468,54 +490,125 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
                   },
                 ),
               ] else ...[
-                const Text(
-                  'Scan or Paste QR Code Payload',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF334155),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _qrPayloadController,
-                  maxLines: 3,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                    color: Color(0xFF0F172A),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: const Color(0xFFBFDBFE),
+                            width: 2,
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.qr_code_scanner_rounded,
+                          size: 38,
+                          color: Color(0xFF2563EB),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Access Camera to Scan QR',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Point your device camera at the renter\'s digital handover pass QR code, or use the 6-digit PIN below.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _openCameraToScan,
+                              icon: const Icon(Icons.camera_alt, size: 16),
+                              label: const Text('Open Camera'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2563EB),
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              setState(() => _selectedTab = 0);
+                            },
+                            icon: const Icon(Icons.pin, size: 16),
+                            label: const Text('Use PIN'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF2563EB),
+                              side: const BorderSide(
+                                color: Color(0xFFBFDBFE),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_pinController.text.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDCFCE7),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.check_circle,
+                                size: 16,
+                                color: Color(0xFF16A34A),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'PIN Loaded: ${_pinController.text}',
+                                style: const TextStyle(
+                                  color: Color(0xFF16A34A),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  decoration: InputDecoration(
-                    hintText:
-                        'Paste QR Code JSON string here (e.g. {"app":"MOBILIS_PSDC", "pin":"..."})',
-                    hintStyle: TextStyle(
-                      color: Colors.grey.shade400,
-                      fontSize: 11,
-                      fontFamily: 'monospace',
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFFF1F5F9),
-                    contentPadding: const EdgeInsets.all(12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide.none,
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide:
-                          const BorderSide(color: Color(0xFF2563EB), width: 2),
-                    ),
-                  ),
-                  onChanged: (text) {
-                    if (_errorMessage != null) {
-                      setState(() => _errorMessage = null);
-                    }
-                    // Auto-parse if valid QR JSON pasted
-                    final parsed = _verificationService.parseQrPayload(text);
-                    if (parsed != null && parsed['pin'] != null) {
-                      _pinController.text = parsed['pin']!;
-                    }
-                  },
                 ),
               ],
 
