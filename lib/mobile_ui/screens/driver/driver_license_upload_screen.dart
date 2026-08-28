@@ -31,10 +31,69 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
     licenseNumberController = TextEditingController();
   }
 
-  Future<void> _pickLicenseImage(bool isFront) async {
-    final file = await VerificationService.pickImage(
-      source: ImageSource.gallery,
+  Future<File?> _showPhotoSourceBottomSheet() async {
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Select License Photo Source',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+                title: const Text(
+                  'Take Real-Time Photo (Camera)',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Capture live photo of your physical license',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
+                title: const Text(
+                  'Choose from Gallery',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
+
+    if (source == null) return null;
+    return await VerificationService.pickImage(source: source);
+  }
+
+  Future<void> _pickLicenseImage(bool isFront) async {
+    final file = await _showPhotoSourceBottomSheet();
     if (file == null) return;
     setState(() {
       if (isFront) {
@@ -88,7 +147,7 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
       context: context,
       initialDate: DateTime.now().add(const Duration(days: 365)),
       firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 3650)),
+      lastDate: DateTime(2050),
     );
 
     if (future != null) {
@@ -99,16 +158,17 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
   }
 
   bool _validateInputs() {
-    if (licenseNumberController.text.trim().isEmpty) {
+    final cleanLicense = licenseNumberController.text.trim();
+    if (cleanLicense.isEmpty) {
       _showErrorSnackBar("Please enter your driver's license number");
       return false;
     }
 
     if (!RegExp(
-      r'^[A-Za-z0-9-]{6,32}$',
-    ).hasMatch(licenseNumberController.text.trim())) {
+      r'^[A-Za-z0-9-]{6,13}$',
+    ).hasMatch(cleanLicense)) {
       _showErrorSnackBar(
-        "Driver's License Number must be 6-32 letters/numbers and may include hyphens",
+        "Driver's License Number must be 6-13 alphanumeric characters (e.g. N02-14-123456)",
       );
       return false;
     }
@@ -119,12 +179,12 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
     }
 
     if (licenseImageFront == null) {
-      _showErrorSnackBar('Please upload license front photo');
+      _showErrorSnackBar('Please capture license front photo');
       return false;
     }
 
     if (licenseImageBack == null) {
-      _showErrorSnackBar('Please upload license back photo');
+      _showErrorSnackBar('Please capture license back photo');
       return false;
     }
 

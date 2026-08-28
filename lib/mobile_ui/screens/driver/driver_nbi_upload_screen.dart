@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import '../../../services/auth_service.dart';
@@ -28,8 +29,69 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
     nbiNumberController = TextEditingController();
   }
 
+  Future<File?> _showPhotoSourceBottomSheet() async {
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Select NBI Document Photo Source',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+                title: const Text(
+                  'Take Real-Time Photo (Camera)',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Capture live photo of your physical NBI clearance',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
+                title: const Text(
+                  'Choose from Gallery',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source == null) return null;
+    return await VerificationService.pickImage(source: source);
+  }
+
   Future<void> _pickNBIDocument() async {
-    final file = await VerificationService.pickImage(source: ImageSource.gallery);
+    final file = await _showPhotoSourceBottomSheet();
     if (file == null) return;
     setState(() {
       nbiDocumentFile = file;
@@ -79,7 +141,7 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
       context: context,
       initialDate: DateTime.now().add(const Duration(days: 365)),
       firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 3650)),
+      lastDate: DateTime(2050),
     );
 
     if (future != null) {
@@ -90,8 +152,14 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
   }
 
   bool _validateInputs() {
-    if (nbiNumberController.text.trim().isEmpty) {
+    final cleanNbi = nbiNumberController.text.trim();
+    if (cleanNbi.isEmpty) {
       _showErrorSnackBar('Please enter your NBI clearance number');
+      return false;
+    }
+
+    if (!RegExp(r'^[A-Za-z0-9-]{6,18}$').hasMatch(cleanNbi)) {
+      _showErrorSnackBar('NBI Clearance Number must be 6-18 alphanumeric characters');
       return false;
     }
 
@@ -101,7 +169,7 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
     }
 
     if (nbiDocumentFile == null) {
-      _showErrorSnackBar('Please upload NBI clearance document');
+      _showErrorSnackBar('Please capture NBI clearance document photo');
       return false;
     }
 
@@ -245,8 +313,13 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
             CustomTextField(
               controller: nbiNumberController,
               label: 'NBI Clearance Number',
-              hintText: 'Enter your NBI clearance number',
+              hintText: 'e.g. NBI-2026-12345678',
               prefixIcon: const Icon(Icons.badge),
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
+                LengthLimitingTextInputFormatter(18),
+              ],
             ),
             const SizedBox(height: 20),
 
