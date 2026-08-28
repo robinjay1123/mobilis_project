@@ -687,6 +687,35 @@ class VerificationService {
         };
       }
 
+      final isDriver = driverDetailsPayload.isNotEmpty ||
+          idType.toLowerCase().contains('driver') ||
+          idType.toLowerCase().contains('license');
+
+      final userUpdate = <String, dynamic>{
+        'verification_status': 'pending',
+        'application_status': 'pending',
+        'full_name': normalizedFullName,
+        if (normalizedPhone.isNotEmpty) 'phone': normalizedPhone,
+        if (isDriver) 'role': 'driver',
+      };
+      try {
+        await supabase.from('users').update(userUpdate).eq('id', userId);
+      } catch (userUpdateErr) {
+        debugPrint('Unable to sync user record on verification submission: $userUpdateErr');
+      }
+
+      if (isDriver) {
+        try {
+          await DriverService().ensureDriverProfile(userId);
+          await supabase.from('drivers').update({
+            'verification_status': 'pending',
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('user_id', userId);
+        } catch (driverUpdateErr) {
+          debugPrint('Unable to sync driver record on verification submission: $driverUpdateErr');
+        }
+      }
+
       final response = await _upsertVerificationRecord({
         'user_id': userId,
         'full_name': normalizedFullName,
@@ -700,10 +729,11 @@ class VerificationService {
         'face_selfie_url': faceSelfieUrl,
         'selfie_with_id_url': selfieWithIdUrl,
         'verification_status': 'pending',
+        if (isDriver) 'role': 'driver',
         'created_at': DateTime.now().toIso8601String(),
       }, driverDetailsPayload);
 
-      if (driverDetailsPayload.isNotEmpty) {
+      if (isDriver || driverDetailsPayload.isNotEmpty) {
         try {
           await NotificationService().notifyDriverApplicationSubmitted(
             driverId: userId,

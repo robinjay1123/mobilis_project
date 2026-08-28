@@ -2748,11 +2748,67 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .order('created_at', ascending: false);
 
       final records = List<Map<String, dynamic>>.from(response);
+
+      // Collect existing user IDs
+      final existingUserIds = records
+          .map((r) => r['user_id']?.toString() ?? (r['users'] as Map?)?['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
+      // Query any drivers or users with pending status directly as fallback
+      try {
+        final pendingUsers = await _supabase
+            .from('users')
+            .select('id, full_name, email, phone, role, verification_status, application_status, created_at')
+            .or('role.eq.driver,application_status.eq.pending,verification_status.eq.pending');
+
+        for (final u in List<Map<String, dynamic>>.from(pendingUsers)) {
+          final uid = u['id']?.toString() ?? '';
+          final role = u['role']?.toString().toLowerCase().trim() ?? '';
+          final vStatus = u['verification_status']?.toString().toLowerCase().trim() ?? '';
+          final aStatus = u['application_status']?.toString().toLowerCase().trim() ?? '';
+          
+          if (uid.isNotEmpty &&
+              !existingUserIds.contains(uid) &&
+              (role == 'driver' || vStatus == 'pending' || aStatus == 'pending')) {
+            records.add({
+              'id': 'fallback_$uid',
+              'user_id': uid,
+              'full_name': u['full_name'] ?? 'Driver Applicant',
+              'email': u['email'],
+              'phone': u['phone'],
+              'role': role.isNotEmpty ? role : 'driver',
+              'verification_status': vStatus.isNotEmpty ? vStatus : 'pending',
+              'created_at': u['created_at'] ?? DateTime.now().toIso8601String(),
+              'id_type': 'Driver License / Identity Document',
+              'users': u,
+            });
+            existingUserIds.add(uid);
+          }
+        }
+      } catch (fallbackError) {
+        debugPrint('Fallback loading pending users error: $fallbackError');
+      }
+
       await Future.wait(
         records.map((record) async {
           final user = record['users'] as Map<String, dynamic>?;
           final userId =
               record['user_id']?.toString() ?? user?['id']?.toString();
+
+          // Ensure driver role is set if record contains driver details or is driver record
+          final currentRole = (user?['role']?.toString() ?? record['role']?.toString() ?? '').toLowerCase().trim();
+          final isDriverRecord = currentRole == 'driver' ||
+              record['driver_years_experience'] != null ||
+              record['driver_license_expiry'] != null ||
+              record['driver_previous_companies'] != null ||
+              (record['id_type']?.toString().toLowerCase().contains('license') ?? false);
+
+          if (isDriverRecord) {
+            if (user != null) user['role'] = 'driver';
+            record['role'] = 'driver';
+          }
+
           if (userId != null && userId.isNotEmpty) {
             final docs = await Future.wait([
               _loadDriverSignatureUrl(userId),
