@@ -338,6 +338,29 @@ class BookingService {
         } catch (_) {}
       }
 
+      // Explicitly fetch any active trip extension requests for this partner's fleet
+      try {
+        final extBookings = await supabase
+            .from('bookings')
+            .select('*')
+            .neq('extension_status', 'none')
+            .order('created_at', ascending: false);
+        for (final b in List<Map<String, dynamic>>.from(extBookings)) {
+          final bVehicleId = b['vehicle_id']?.toString() ?? '';
+          final bPartnerVehicleId = b['partner_vehicle_id']?.toString() ?? '';
+          final bPartnerId = b['partner_id']?.toString() ?? '';
+          final bOwnerId = b['owner_id']?.toString() ?? '';
+          if (allVehicleIds.contains(bVehicleId) ||
+              allVehicleIds.contains(bPartnerVehicleId) ||
+              partnerIds.contains(bPartnerId) ||
+              partnerIds.contains(bOwnerId)) {
+            addRows([b]);
+          }
+        }
+      } catch (e) {
+        debugPrint('Note: direct extension query for partner bookings: $e');
+      }
+
       // Fallback: Check recent pending bookings if any vehicle matches
       if (bookingList.isEmpty && (allVehicleIds.isNotEmpty || vehiclePlates.isNotEmpty)) {
         try {
@@ -345,7 +368,7 @@ class BookingService {
               .from('bookings')
               .select('*')
               .order('created_at', ascending: false)
-              .limit(50);
+              .limit(100);
           for (final b in List<Map<String, dynamic>>.from(recentBookings)) {
             final bVehicleId = b['vehicle_id']?.toString() ?? '';
             final bPartnerVehicleId = b['partner_vehicle_id']?.toString() ?? '';
