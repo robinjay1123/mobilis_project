@@ -9026,6 +9026,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ? TextCapitalization.none
                         : TextCapitalization.characters,
                     inputFormatters: [
+                      LengthLimitingTextInputFormatter(13),
                       if (selectedMethod == 'GCash')
                         FilteringTextInputFormatter.digitsOnly
                       else
@@ -9038,12 +9039,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       labelText: 'Payment Reference Number / Transaction ID *',
                       labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                       hintText: selectedMethod == 'GCash'
-                          ? 'e.g. 10023458921 (10-13 digits)'
+                          ? 'e.g. 10023458921 (6-13 digits)'
                           : 'e.g. MAYA1002345, GT94021, SB84920',
                       hintStyle: const TextStyle(color: Colors.white24),
                       helperText: selectedMethod == 'GCash'
-                          ? '⚠️ GCash Ref No. must contain numbers/digits only'
-                          : '⚠️ Enter Alphanumeric Transaction ID (letters & digits allowed)',
+                          ? '⚠️ GCash Ref No. must be 6 to 13 digits only'
+                          : '⚠️ Enter Alphanumeric Transaction ID (6 to 13 characters)',
                       helperStyle: const TextStyle(
                         color: AppColors.primary,
                         fontSize: 11,
@@ -9126,6 +9127,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text('Please enter your online payment reference number.'),
+                                    backgroundColor: AppColors.warning,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (ref.length < 6 || ref.length > 13) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('⚠️ Payment Reference Number must be between 6 and 13 characters long.'),
                                     backgroundColor: AppColors.warning,
                                   ),
                                 );
@@ -12475,6 +12485,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                         ? TextCapitalization.none
                         : TextCapitalization.characters,
                     inputFormatters: [
+                      LengthLimitingTextInputFormatter(13),
                       if (selectedMethod == 'GCash')
                         FilteringTextInputFormatter.digitsOnly
                       else
@@ -12484,15 +12495,15 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                     ],
                     style: const TextStyle(color: Colors.white, fontSize: 14),
                     decoration: InputDecoration(
-                      labelText: 'Payment Reference Number / Transaction ID',
+                      labelText: 'Payment Reference Number / Transaction ID *',
                       labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                       hintText: selectedMethod == 'GCash'
-                          ? 'e.g. 10023458921 (GCash Ref #)'
+                          ? 'e.g. 10023458921 (6-13 digits)'
                           : 'e.g. MAYA1002345, GT94021, SB84920',
                       hintStyle: const TextStyle(color: Colors.white24),
                       helperText: selectedMethod == 'GCash'
-                          ? '⚠️ GCash Ref No. must contain numbers/digits only'
-                          : '⚠️ Enter Alphanumeric Transaction ID (letters & digits allowed)',
+                          ? '⚠️ GCash Ref No. must be 6 to 13 digits only'
+                          : '⚠️ Enter Alphanumeric Transaction ID (6 to 13 characters)',
                       helperStyle: const TextStyle(
                         color: AppColors.primary,
                         fontSize: 11,
@@ -12573,6 +12584,15 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text('Please enter a payment reference number.'),
+                                    backgroundColor: AppColors.warning,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (ref.length < 6 || ref.length > 13) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('⚠️ Payment Reference Number must be between 6 and 13 characters long.'),
                                     backgroundColor: AppColors.warning,
                                   ),
                                 );

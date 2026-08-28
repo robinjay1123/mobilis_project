@@ -4520,29 +4520,38 @@ class BookingService {
       );
     }
 
-    final vehicleId = booking['vehicle_id']?.toString() ?? booking['partner_vehicle_id']?.toString() ?? '';
-    final overlappingBookings = await supabase
-        .from('bookings')
-        .select('id,start_at,end_at,start_date,end_date,status')
-        .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
-        .neq('id', bookingId);
+    final vehicleId = (booking['vehicle_id'] ?? booking['partner_vehicle_id'])?.toString().trim() ?? '';
+    if (vehicleId.isNotEmpty) {
+      try {
+        final List<dynamic> overlappingBookings = await supabase
+            .from('bookings')
+            .select('id,start_at,end_at,start_date,end_date,status')
+            .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
+            .neq('id', bookingId);
 
-    final extensionStart = currentEndAt ?? DateTime.now();
-    for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
-      final status = b['status']?.toString();
-      if (!_isBlockingStatus(status)) continue;
-      final interval = _bookingInterval(b);
-      if (interval == null) continue;
-      final (existingStart, existingEnd) = interval;
-      if (extensionStart.isBefore(existingEnd) &&
-          newEndAt.isAfter(existingStart)) {
-        final startFormatted =
-            '${existingStart.month}/${existingStart.day}/${existingStart.year}';
-        final endFormatted =
-            '${existingEnd.month}/${existingEnd.day}/${existingEnd.year}';
-        throw Exception(
-          'This vehicle has already been reserved by another customer for $startFormatted - $endFormatted. Extension is not available for these dates.',
-        );
+        final extensionStart = currentEndAt ?? DateTime.now();
+        for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
+          final status = b['status']?.toString();
+          if (!_isBlockingStatus(status)) continue;
+          final interval = _bookingInterval(b);
+          if (interval == null) continue;
+          final (existingStart, existingEnd) = interval;
+          if (extensionStart.isBefore(existingEnd) &&
+              newEndAt.isAfter(existingStart)) {
+            final startFormatted =
+                '${existingStart.month}/${existingStart.day}/${existingStart.year}';
+            final endFormatted =
+                '${existingEnd.month}/${existingEnd.day}/${existingEnd.year}';
+            throw Exception(
+              'This vehicle has already been reserved by another customer for $startFormatted - $endFormatted. Extension is not available for these dates.',
+            );
+          }
+        }
+      } catch (e) {
+        if (e.toString().contains('reserved by another customer')) {
+          rethrow;
+        }
+        debugPrint('Non-critical exception during extension overlap check: $e');
       }
     }
 
