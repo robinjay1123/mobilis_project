@@ -8,7 +8,12 @@ class TermsService {
   static const String termsOfServiceKey = 'terms_of_service';
   static const String privacyPolicyKey = 'privacy_policy';
   static const String rentalTermsPdfUrlKey = 'rental_terms_pdf_url';
-  static const String _pdfBucket = 'app_documents';
+  static const List<String> _pdfBucketCandidates = [
+    'partner_documents',
+    'driver_documents',
+    'app_documents',
+    'vehicle_images',
+  ];
   static const String _pdfPath = 'rental_terms/rental_terms_agreement.pdf';
 
 
@@ -238,17 +243,51 @@ Profile and booking information is protected and must not be shared outside Mobi
 
   /// Uploads [bytes] as the rental terms PDF and saves its public URL.
   Future<String> uploadRentalTermsPdf(Uint8List bytes) async {
-    await _supabase.storage.from(_pdfBucket).uploadBinary(
-      _pdfPath,
-      bytes,
-      fileOptions: const FileOptions(
-        contentType: 'application/pdf',
-        upsert: true,
-      ),
-    );
+    StorageException? lastStorageException;
+    Object? lastError;
+    String? successfulBucket;
+
+    for (final bucket in _pdfBucketCandidates) {
+      try {
+        await _supabase.storage.from(bucket).uploadBinary(
+          _pdfPath,
+          bytes,
+          fileOptions: const FileOptions(
+            contentType: 'application/pdf',
+            upsert: true,
+          ),
+        );
+        successfulBucket = bucket;
+        debugPrint('Successfully uploaded rental terms PDF to bucket: $bucket');
+        break;
+      } on StorageException catch (e) {
+        lastStorageException = e;
+        if (e.statusCode == '404' ||
+            e.message.contains('Bucket not found') ||
+            e.message.contains('not found')) {
+          debugPrint('Bucket $bucket not found (404), trying next bucket...');
+          continue;
+        }
+        rethrow;
+      } catch (e) {
+        lastError = e;
+        debugPrint('Error uploading PDF to bucket $bucket: $e, trying next...');
+        continue;
+      }
+    }
+
+    if (successfulBucket == null) {
+      if (lastStorageException != null) {
+        throw lastStorageException;
+      }
+      throw lastError ??
+          const StorageException(
+            'No accessible storage bucket found for PDF upload.',
+          );
+    }
 
     final publicUrl =
-        _supabase.storage.from(_pdfBucket).getPublicUrl(_pdfPath);
+        _supabase.storage.from(successfulBucket).getPublicUrl(_pdfPath);
 
     final userId = _supabase.auth.currentUser?.id;
     await _supabase.from('app_settings').upsert({
@@ -264,10 +303,12 @@ Profile and booking information is protected and must not be shared outside Mobi
 
   /// Removes the uploaded PDF from storage and clears its URL from settings.
   Future<void> deleteRentalTermsPdf() async {
-    try {
-      await _supabase.storage.from(_pdfBucket).remove([_pdfPath]);
-    } catch (e) {
-      debugPrint('Could not remove PDF from storage (may already be gone): $e');
+    for (final bucket in _pdfBucketCandidates) {
+      try {
+        await _supabase.storage.from(bucket).remove([_pdfPath]);
+      } catch (e) {
+        debugPrint('Could not remove PDF from bucket $bucket: $e');
+      }
     }
 
     await _supabase
