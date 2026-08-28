@@ -564,15 +564,21 @@ class VehicleService {
   // ---------------------------------------------------------------------------
   Future<Map<String, dynamic>?> getVehicleById(String vehicleId) async {
     try {
-      final response = await supabase
-          .from('vehicles')
-          .select(_vehicleSelect)
+      // 1. First check partner_vehicles table to get full partner info if it's a partner vehicle
+      final partnerResponse = await supabase
+          .from('partner_vehicles')
+          .select(
+            '*, partners:partner_id(id,user_id,business_name,users:user_id(full_name,email))',
+          )
           .eq('id', vehicleId)
           .maybeSingle();
 
-      if (response != null) {
-        final vehicle = Map<String, dynamic>.from(response);
-        final normalized = _normalizeVehicleRecord(vehicle);
+      if (partnerResponse != null) {
+        final partnerVehicle = Map<String, dynamic>.from(partnerResponse);
+        final images = await _fetchAndGroupPartnerImages([vehicleId]);
+        partnerVehicle['vehicle_images'] =
+            images[vehicleId] ?? <Map<String, dynamic>>[];
+        final normalized = _normalizePartnerVehicleRecord(partnerVehicle);
         try {
           final summary =
               await TripRatingService().getVehicleRatingSummary(vehicleId);
@@ -585,19 +591,20 @@ class VehicleService {
         return normalized;
       }
 
-      // Check partner_vehicles
-      final partnerResponse = await supabase
-          .from('partner_vehicles')
-          .select('*, partners:partner_id(id,user_id,business_name,users:user_id(full_name,email))')
+      // 2. Fall back to vehicles table
+      final response = await supabase
+          .from('vehicles')
+          .select(_vehicleSelect)
           .eq('id', vehicleId)
           .maybeSingle();
 
-      if (partnerResponse != null) {
-        final partnerVehicle = Map<String, dynamic>.from(partnerResponse);
-        final images = await _fetchAndGroupPartnerImages([vehicleId]);
-        partnerVehicle['vehicle_images'] =
-            images[vehicleId] ?? <Map<String, dynamic>>[];
-        final normalized = _normalizePartnerVehicleRecord(partnerVehicle);
+      if (response != null) {
+        final vehicle = Map<String, dynamic>.from(response);
+        final normalized = _normalizeVehicleRecord(vehicle);
+        if (vehicle['owner_role']?.toString().toLowerCase() == 'partner') {
+          normalized['is_partner_vehicle'] = true;
+          normalized['source'] = 'partner';
+        }
         try {
           final summary =
               await TripRatingService().getVehicleRatingSummary(vehicleId);
@@ -623,18 +630,7 @@ class VehicleService {
     if (vehicleId.trim().isEmpty) return false;
 
     try {
-      final response = await supabase
-          .from('vehicles')
-          .select('id,plate_number,owner_role,is_available,is_posted,status')
-          .eq('id', vehicleId)
-          .maybeSingle();
-
-      if (response != null) {
-        final vehicle = Map<String, dynamic>.from(response);
-        return _isVisibleForRent(vehicle);
-      }
-
-      // Check partner_vehicles
+      // 1. Check partner_vehicles table first
       final partnerResponse = await supabase
           .from('partner_vehicles')
           .select(
@@ -648,11 +644,62 @@ class VehicleService {
         final status = (pv['status'] ?? '').toString().toLowerCase();
         final appStatus =
             (pv['application_status'] ?? '').toString().toLowerCase();
-        const blockedStatuses = {'rejected', 'deleted', 'archived', 'disabled'};
-        return !blockedStatuses.contains(status) &&
-            !blockedStatuses.contains(appStatus) &&
-            pv['is_available'] != false &&
-            pv['is_posted'] != false;
+        const blockedStatuses = {
+          'rejected',
+          'deleted',
+          'archived',
+          'disabled',
+          'sold',
+          'inactive',
+        };
+
+        if (blockedStatuses.contains(status) ||
+            blockedStatuses.contains(appStatus)) {
+          return false;
+        }
+
+        if (pv['is_available'] == false) {
+          return false;
+        }
+
+        final isApprovedOrActive =
+            status == 'available' ||
+            status == 'approved' ||
+            status == 'active' ||
+            appStatus == 'approved';
+        return pv['is_posted'] == true || isApprovedOrActive;
+      }
+
+      // 2. Check vehicles table
+      final response = await supabase
+          .from('vehicles')
+          .select('id,plate_number,owner_role,is_available,is_posted,status')
+          .eq('id', vehicleId)
+          .maybeSingle();
+
+      if (response != null) {
+        final vehicle = Map<String, dynamic>.from(response);
+        final ownerRole = vehicle['owner_role']?.toString().toLowerCase();
+        final status = (vehicle['status'] ?? '').toString().toLowerCase();
+
+        if (ownerRole == 'partner') {
+          const blockedStatuses = {
+            'rejected',
+            'deleted',
+            'archived',
+            'disabled',
+            'sold',
+            'inactive',
+          };
+          if (blockedStatuses.contains(status)) return false;
+          if (vehicle['is_available'] == false) return false;
+          return vehicle['is_posted'] == true ||
+              status == 'available' ||
+              status == 'approved' ||
+              status == 'active';
+        }
+
+        return _isVisibleForRent(vehicle);
       }
 
       return false;

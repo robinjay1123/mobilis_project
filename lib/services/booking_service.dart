@@ -919,10 +919,36 @@ class BookingService {
 
       final vehicleStatus =
           vehicleState['status']?.toString().trim().toLowerCase() ?? '';
-      final vehicleCanBeBooked =
-          vehicleState['is_available'] != false &&
-          vehicleState['is_posted'] != false &&
-          !{'inactive', 'archived', 'deleted', 'rejected'}.contains(vehicleStatus);
+      final appStatus =
+          vehicleState['application_status']?.toString().trim().toLowerCase() ?? '';
+
+      final bool vehicleCanBeBooked;
+      if (isPartnerVehicle) {
+        const blockedStatuses = {
+          'inactive',
+          'archived',
+          'deleted',
+          'rejected',
+          'disabled',
+          'sold',
+        };
+        final isBlocked = blockedStatuses.contains(vehicleStatus) ||
+            blockedStatuses.contains(appStatus);
+        final isAvailableNotFalse = vehicleState['is_available'] != false;
+        final isApprovedOrPosted = vehicleState['is_posted'] == true ||
+            vehicleStatus == 'available' ||
+            vehicleStatus == 'approved' ||
+            vehicleStatus == 'active' ||
+            appStatus == 'approved';
+        vehicleCanBeBooked =
+            !isBlocked && isAvailableNotFalse && isApprovedOrPosted;
+      } else {
+        vehicleCanBeBooked = vehicleState['is_available'] != false &&
+            vehicleState['is_posted'] != false &&
+            !{'inactive', 'archived', 'deleted', 'rejected'}
+                .contains(vehicleStatus);
+      }
+
       if (!vehicleCanBeBooked) {
         throw Exception('This vehicle is currently unavailable for booking');
       }
@@ -1115,9 +1141,30 @@ class BookingService {
               .single();
           break;
         } on PostgrestException catch (e) {
+          final msg = e.message.toLowerCase();
+          final details = (e.details ?? '').toLowerCase();
+          final isFkError = e.code == '23503' ||
+              msg.contains('foreign key') ||
+              details.contains('foreign key') ||
+              msg.contains('fk_') ||
+              (msg.contains('vehicle_id') && msg.contains('violates'));
+
+          if (isFkError &&
+              isPartnerVehicle &&
+              currentPayload.containsKey('vehicle_id') &&
+              currentPayload.containsKey('partner_vehicle_id')) {
+            retryCount++;
+            if (retryCount > 8) rethrow;
+            debugPrint(
+              'Foreign key constraint on vehicle_id for partner vehicle ($e). Removing vehicle_id and retrying with partner_vehicle_id...',
+            );
+            currentPayload.remove('vehicle_id');
+            continue;
+          }
+
           if (e.code == 'PGRST204' ||
-              e.message.toLowerCase().contains('column') ||
-              e.message.toLowerCase().contains('schema cache')) {
+              msg.contains('column') ||
+              msg.contains('schema cache')) {
             retryCount++;
             if (retryCount > 8) {
               rethrow;
