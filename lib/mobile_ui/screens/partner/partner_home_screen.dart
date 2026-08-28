@@ -111,6 +111,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   List<Map<String, dynamic>> trackingLocations = [];
 
   String _partnerBookingStatus = 'pending';
+  String _partnerBookingSubSection = 'bookings'; // 'bookings' or 'extensions'
+  String _partnerExtensionFilter = 'all';
+  String _partnerExtensionSearchQuery = '';
+  final TextEditingController _partnerExtensionSearchController =
+      TextEditingController();
+
+  int get _partnerPendingExtensionRequestsCount {
+    return bookings.where((b) {
+      final ext = b['extension_status']?.toString().toLowerCase().trim();
+      return ext == 'pending' ||
+          ext == 'pending_partner' ||
+          ext == 'payment_completed' ||
+          ext == 'pending_final_confirmation';
+    }).length;
+  }
 
   // 🔔 Real-time bookings listener
   RealtimeChannel? _bookingsSubscription;
@@ -2394,6 +2409,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   children: [
                     _buildBookingTabButton('Pending', 0),
                     const SizedBox(width: 8),
+                    _buildBookingTabButton(
+                      'Extensions',
+                      5,
+                      badgeCount: _partnerPendingExtensionRequestsCount,
+                    ),
+                    const SizedBox(width: 8),
                     _buildBookingTabButton('Approved', 1),
                     const SizedBox(width: 8),
                     _buildBookingTabButton('Ongoing', 2),
@@ -2445,27 +2466,50 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
   }
 
-  Widget _buildBookingTabButton(String label, int index) {
+  Widget _buildBookingTabButton(String label, int index, {int badgeCount = 0}) {
     final isSelected = selectedBookingTab == index;
     return SizedBox(
-      width: label.length > 7 ? 92 : 82,
+      width: label.length > 8 ? 104 : (label.length > 6 ? 94 : 84),
       child: GestureDetector(
         onTap: () => setState(() => selectedBookingTab = index),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(vertical: 11),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: isSelected ? AppColors.primary : AppColors.darkBg,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: isSelected ? Colors.black : AppColors.textSecondary,
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isSelected ? Colors.black : AppColors.textSecondary,
+                ),
+              ),
+              if (badgeCount > 0) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isSelected ? Colors.black : AppColors.error,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$badgeCount',
+                    style: TextStyle(
+                      color: isSelected ? AppColors.primary : Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -2939,6 +2983,105 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
             ],
           ),
+          if (booking['extension_status'] != null &&
+              booking['extension_status'].toString().isNotEmpty &&
+              booking['extension_status'].toString() != 'none') ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5A93C).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFFE5A93C).withValues(alpha: 0.4),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.update_rounded,
+                        color: Color(0xFFE5A93C),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Trip Extension Request',
+                          style: TextStyle(
+                            color: Color(0xFFE5A93C),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE5A93C).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          booking['extension_status'].toString().toUpperCase(),
+                          style: const TextStyle(
+                            color: Color(0xFFE5A93C),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '+${booking['extension_days'] ?? 1} Extra Days (Fee: PHP ${_formatMoney((booking['extension_additional_price'] as num?)?.toDouble() ?? 0)})',
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (booking['extension_requested_end_at'] != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Requested Return: ${_formatDateShort(booking['extension_requested_end_at']?.toString())}',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          selectedNavIndex = 1;
+                          _partnerBookingSubSection = 'extensions';
+                        });
+                      },
+                      icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                      label: const Text('Review Extension in Bookings'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE5A93C),
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (status == 'pending') ...[
             const SizedBox(height: 16),
             Row(
@@ -3042,6 +3185,30 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   List<Map<String, dynamic>> _filteredBookingsForDashboard() {
+    if (selectedBookingTab == 5) {
+      final extList = bookings.where((booking) {
+        final ext =
+            booking['extension_status']?.toString().toLowerCase().trim();
+        return ext != null && ext.isNotEmpty && ext != 'none';
+      }).toList();
+      extList.sort((a, b) {
+        final aDate = DateTime.tryParse(
+              a['extension_requested_at']?.toString() ??
+                  a['created_at']?.toString() ??
+                  '',
+            ) ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = DateTime.tryParse(
+              b['extension_requested_at']?.toString() ??
+                  b['created_at']?.toString() ??
+                  '',
+            ) ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+      return extList;
+    }
+
     final statuses = switch (selectedBookingTab) {
       0 => {'pending'},
       1 => {'approved', 'confirmed'},
@@ -3078,6 +3245,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         return 'Ongoing';
       case 3:
         return 'Completed';
+      case 5:
+        return 'Extension';
       default:
         return 'Cancelled';
     }
@@ -3926,6 +4095,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   // ===================== BOOKINGS TAB =====================
   // ===================== BOOKINGS TAB =====================
   Widget _buildBookingsTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     const statusList = [
       'pending',
       'extensions',
@@ -3953,53 +4123,1268 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     return Column(
       children: [
         _buildCenteredTabHeader('My Bookings'),
+        // Top Segment Switch: [ 🚗 Rental Bookings ] | [ ⏱️ Extend Trip Requests ]
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () =>
+                      setState(() => _partnerBookingSubSection = 'bookings'),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _partnerBookingSubSection == 'bookings'
+                          ? AppColors.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.book_online_rounded,
+                          size: 16,
+                          color: _partnerBookingSubSection == 'bookings'
+                              ? Colors.black
+                              : (isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade700),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Bookings',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: _partnerBookingSubSection == 'bookings'
+                                ? Colors.black
+                                : (isDark
+                                    ? Colors.grey[300]
+                                    : Colors.grey.shade800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: InkWell(
+                  onTap: () =>
+                      setState(() => _partnerBookingSubSection = 'extensions'),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _partnerBookingSubSection == 'extensions'
+                          ? AppColors.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.update_rounded,
+                          size: 16,
+                          color: _partnerBookingSubSection == 'extensions'
+                              ? Colors.black
+                              : (isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade700),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Extend Trips',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: _partnerBookingSubSection == 'extensions'
+                                ? Colors.black
+                                : (isDark
+                                    ? Colors.grey[300]
+                                    : Colors.grey.shade800),
+                          ),
+                        ),
+                        if (_partnerPendingExtensionRequestsCount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _partnerBookingSubSection == 'extensions'
+                                  ? Colors.black
+                                  : AppColors.error,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$_partnerPendingExtensionRequestsCount',
+                              style: TextStyle(
+                                color:
+                                    _partnerBookingSubSection == 'extensions'
+                                        ? AppColors.primary
+                                        : Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _loadPartnerData,
             color: AppColors.primary,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-              children: [
-                RoleTabHeader(
-                  title: 'Rental Bookings',
-                  subtitle:
-                      'Requests, active rentals, completed trips, and tracking',
-                  icon: Icons.calendar_month_outlined,
-                  badge: '${bookings.length} total',
-                ),
-                const SizedBox(height: 12),
-                _buildPartnerStatusPillTabs(statusList),
-                const SizedBox(height: 14),
-                if (_partnerBookingStatus == 'ongoing' &&
-                    filteredBookings.isNotEmpty) ...[
-                  _buildActiveBookingsHero(filteredBookings),
-                  const SizedBox(height: 14),
-                ],
-                if (filteredBookings.isEmpty)
-                  RoleEmptyStateCard(
-                    icon: Icons.calendar_today_outlined,
-                    title:
-                        'No ${_bookingTabLabel(_partnerBookingStatus).toLowerCase()} bookings',
-                    message:
-                        'Booking requests and rental updates will appear here once available.',
-                  )
-                else
-                  ...filteredBookings.map(
-                    (booking) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _buildPartnerBookingCard(
-                        booking,
-                        emphasizeLive: _partnerBookingStatus == 'ongoing',
+            child: _partnerBookingSubSection == 'extensions'
+                ? _buildPartnerExtendTripRequestsSection(isDark)
+                : ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+                    children: [
+                      RoleTabHeader(
+                        title: 'Rental Bookings',
+                        subtitle:
+                            'Requests, active rentals, completed trips, and tracking',
+                        icon: Icons.calendar_month_outlined,
+                        badge: '${bookings.length} total',
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      _buildPartnerStatusPillTabs(statusList),
+                      const SizedBox(height: 14),
+                      if (_partnerBookingStatus == 'ongoing' &&
+                          filteredBookings.isNotEmpty) ...[
+                        _buildActiveBookingsHero(filteredBookings),
+                        const SizedBox(height: 14),
+                      ],
+                      if (filteredBookings.isEmpty)
+                        RoleEmptyStateCard(
+                          icon: Icons.calendar_today_outlined,
+                          title:
+                              'No ${_bookingTabLabel(_partnerBookingStatus).toLowerCase()} bookings',
+                          message:
+                              'Booking requests and rental updates will appear here once available.',
+                        )
+                      else
+                        ...filteredBookings.map(
+                          (booking) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _buildPartnerBookingCard(
+                              booking,
+                              emphasizeLive: _partnerBookingStatus == 'ongoing',
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-              ],
-            ),
           ),
         ),
       ],
     );
+  }
+
+  Widget _buildPartnerExtendTripRequestsSection(bool isDark) {
+    final allExtensionBookings = bookings.where((b) {
+      final ext = b['extension_status']?.toString().toLowerCase().trim();
+      return ext != null && ext.isNotEmpty && ext != 'none';
+    }).toList();
+
+    final filteredExtensions = allExtensionBookings.where((booking) {
+      final status =
+          booking['extension_status']?.toString().toLowerCase().trim() ?? '';
+      final matchesFilter = switch (_partnerExtensionFilter) {
+        'all' => true,
+        'pending' =>
+          status == 'pending' ||
+              status == 'pending_partner' ||
+              status == 'pending_operator',
+        'payment_pending' =>
+          status == 'accepted' || status == 'payment_pending',
+        'payment_completed' => status == 'payment_completed',
+        'pending_final_confirmation' => status == 'pending_final_confirmation',
+        'finalized' => status == 'finalized' || status == 'approved',
+        'rejected' => status == 'rejected' || status == 'cancelled',
+        _ => true,
+      };
+      if (!matchesFilter) return false;
+
+      if (_partnerExtensionSearchQuery.isNotEmpty) {
+        final query = _partnerExtensionSearchQuery.toLowerCase();
+        final vehicle = booking['vehicles'] is Map
+            ? booking['vehicles'] as Map<String, dynamic>
+            : <String, dynamic>{};
+        final renter = booking['users'] is Map
+            ? booking['users'] as Map<String, dynamic>
+            : <String, dynamic>{};
+        final bId = booking['id']?.toString() ?? '';
+        final shortBId = bId.length >= 8 ? bId.substring(0, 8) : bId;
+        final haystack = [
+          bId,
+          'EXT-$shortBId',
+          renter['full_name'],
+          renter['email'],
+          renter['phone'],
+          vehicle['vehicle_name'],
+          vehicle['brand'],
+          vehicle['model'],
+          vehicle['plate_number'],
+          booking['dropoff_location'],
+          booking['extension_requested_destination'],
+        ].whereType<Object>().join(' ').toLowerCase();
+        if (!haystack.contains(query)) return false;
+      }
+
+      return true;
+    }).toList();
+
+    filteredExtensions.sort((a, b) {
+      final aDate = DateTime.tryParse(
+            a['extension_requested_at']?.toString() ??
+                a['created_at']?.toString() ??
+                '',
+          ) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = DateTime.tryParse(
+            b['extension_requested_at']?.toString() ??
+                b['created_at']?.toString() ??
+                '',
+          ) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bDate.compareTo(aDate);
+    });
+
+    final pendingCount = allExtensionBookings
+        .where(
+          (b) =>
+              b['extension_status'] == 'pending' ||
+              b['extension_status'] == 'pending_partner',
+        )
+        .length;
+    final payPendingCount = allExtensionBookings
+        .where(
+          (b) =>
+              b['extension_status'] == 'accepted' ||
+              b['extension_status'] == 'payment_pending',
+        )
+        .length;
+    final payReviewCount = allExtensionBookings
+        .where((b) => b['extension_status'] == 'payment_completed')
+        .length;
+    final pendingConfCount = allExtensionBookings
+        .where((b) => b['extension_status'] == 'pending_final_confirmation')
+        .length;
+    final finalizedCount = allExtensionBookings
+        .where((b) => b['extension_status'] == 'finalized')
+        .length;
+    final rejectedCount = allExtensionBookings
+        .where(
+          (b) =>
+              b['extension_status'] == 'rejected' ||
+              b['extension_status'] == 'cancelled',
+        )
+        .length;
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+      children: [
+        RoleTabHeader(
+          title: 'Extend Trip Requests',
+          subtitle:
+              'Review renter extension requests, verify payments, and finalize trips',
+          icon: Icons.update_rounded,
+          badge: '${allExtensionBookings.length} total',
+        ),
+        const SizedBox(height: 12),
+        // Filter pills
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildPartnerExtensionFilterTab(
+                'all',
+                'All (${allExtensionBookings.length})',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'pending',
+                'Pending ($pendingCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'payment_pending',
+                'Payment Pending ($payPendingCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'payment_completed',
+                'Payment Review ($payReviewCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'pending_final_confirmation',
+                'To Finalize ($pendingConfCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'finalized',
+                'Finalized ($finalizedCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'rejected',
+                'Declined ($rejectedCount)',
+                isDark,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        // Search bar
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.search_rounded,
+                size: 20,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _partnerExtensionSearchController,
+                  onChanged: (value) => setState(() {
+                    _partnerExtensionSearchQuery = value.trim();
+                  }),
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontSize: 13,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'Search request ID, renter, vehicle, destination',
+                    hintStyle: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 12,
+                    ),
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+              if (_partnerExtensionSearchQuery.isNotEmpty)
+                IconButton(
+                  icon: const Icon(
+                    Icons.clear_rounded,
+                    size: 18,
+                    color: AppColors.textSecondary,
+                  ),
+                  onPressed: () {
+                    _partnerExtensionSearchController.clear();
+                    setState(() => _partnerExtensionSearchQuery = '');
+                  },
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (filteredExtensions.isEmpty)
+          RoleEmptyStateCard(
+            icon: Icons.update_disabled_rounded,
+            title: 'No trip extension requests',
+            message:
+                'When renters request to extend their active trips on your vehicles, they will appear here for review.',
+          )
+        else
+          ...filteredExtensions.map(
+            (booking) => Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: _buildPartnerExtendTripRequestCard(booking, isDark),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPartnerExtensionFilterTab(
+    String key,
+    String label,
+    bool isDark,
+  ) {
+    final isSelected = _partnerExtensionFilter == key;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => setState(() => _partnerExtensionFilter = key),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.primary
+                : (isDark ? AppColors.darkBg : Colors.white),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.primary
+                  : (isDark
+                      ? AppColors.borderColor
+                      : AppColors.lightBorderColor),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected
+                  ? Colors.black
+                  : (isDark
+                      ? AppColors.textSecondary
+                      : AppColors.lightTextSecondary),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPartnerExtendTripRequestCard(
+    Map<String, dynamic> booking,
+    bool isDark,
+  ) {
+    final bookingId = booking['id']?.toString() ?? '';
+    final shortBId = bookingId.length >= 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+    final requestId = 'EXT-$shortBId';
+
+    final vehicle = booking['vehicles'] is Map
+        ? booking['vehicles'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final renter = booking['users'] is Map
+        ? booking['users'] as Map<String, dynamic>
+        : <String, dynamic>{};
+
+    final extStatus =
+        booking['extension_status']?.toString().toLowerCase().trim() ??
+        'pending';
+    final requestedAt = DateTime.tryParse(
+      booking['extension_requested_at']?.toString() ?? '',
+    );
+    final requestedEndAt = DateTime.tryParse(
+      booking['extension_requested_end_at']?.toString() ?? '',
+    );
+    final currentEndAt = DateTime.tryParse(
+      (booking['end_at'] ?? booking['end_date'])?.toString() ?? '',
+    );
+
+    final extensionDays =
+        int.tryParse(booking['extension_days']?.toString() ?? '') ??
+        (booking['extension_days'] is num
+            ? (booking['extension_days'] as num).toInt()
+            : 1);
+    final additionalPrice =
+        double.tryParse(
+          booking['extension_additional_price']?.toString() ?? '',
+        ) ??
+        (booking['extension_additional_price'] is num
+            ? (booking['extension_additional_price'] as num).toDouble()
+            : 0.0);
+    final currentTotal =
+        (booking['total_price'] as num?)?.toDouble() ??
+        double.tryParse(booking['total_price']?.toString() ?? '') ??
+        0.0;
+    final updatedTotalPrice = extStatus == 'finalized'
+        ? currentTotal
+        : (currentTotal + additionalPrice);
+
+    final requestedDestination =
+        booking['extension_requested_destination']?.toString().trim();
+    final proofUrl =
+        booking['extension_payment_proof_url']?.toString().trim() ?? '';
+    final paymentMethod =
+        booking['extension_payment_method']?.toString().trim() ?? 'E-Wallet';
+    final paymentRef =
+        booking['extension_payment_reference']?.toString().trim() ?? 'N/A';
+
+    final vehicleTitle =
+        '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+    final vehiclePlate = vehicle['plate_number']?.toString().trim() ?? '';
+    final imageUrl = _bookingVehicleImageUrl(vehicle);
+
+    final renterName = renter['full_name']?.toString().trim().isNotEmpty == true
+        ? renter['full_name'].toString().trim()
+        : 'Renter';
+    final renterPhone = renter['phone']?.toString().trim() ?? '';
+
+    final (statusColor, statusLabel) = switch (extStatus) {
+      'pending' || 'pending_partner' || 'pending_operator' => (
+        const Color(0xFFE5A93C),
+        'PENDING REVIEW',
+      ),
+      'accepted' || 'payment_pending' => (
+        Colors.blueAccent,
+        'PAYMENT PENDING',
+      ),
+      'payment_completed' => (
+        Colors.purpleAccent,
+        'PAYMENT REVIEW',
+      ),
+      'pending_final_confirmation' => (
+        Colors.tealAccent,
+        'PENDING CONFIRMATION',
+      ),
+      'finalized' || 'approved' => (AppColors.success, 'FINALIZED'),
+      'rejected' || 'cancelled' => (AppColors.error, 'DECLINED'),
+      _ => (AppColors.warning, extStatus.toUpperCase()),
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBg : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? AppColors.darkBgSecondary
+                  : const Color(0xFFF8FAFC),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(18),
+              ),
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.update_rounded, color: statusColor, size: 16),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$requestId • Booking #$shortBId',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : AppColors.textPrimary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (requestedAt != null)
+                        Text(
+                          'Requested ${_formatDateShort(requestedAt.toIso8601String())}',
+                          style: const TextStyle(
+                            color: AppColors.textTertiary,
+                            fontSize: 10,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    statusLabel,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Vehicle & Renter row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        color: AppColors.darkBgSecondary,
+                        child: imageUrl != null
+                            ? OptimizedNetworkImage(
+                                imageUrl: imageUrl,
+                                fit: BoxFit.cover,
+                                errorWidget: _buildBookingImageFallback(),
+                              )
+                            : _buildBookingImageFallback(),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vehicleTitle.isEmpty ? 'Vehicle' : vehicleTitle,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          if (vehiclePlate.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Plate: $vehiclePlate',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.person_outline,
+                                size: 13,
+                                color: AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  renterName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                // Extension info grid
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.darkBgSecondary
+                        : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Original End Date',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          Text(
+                            currentEndAt != null
+                                ? _formatDateShort(currentEndAt.toIso8601String())
+                                : 'N/A',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Requested New End Date',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            requestedEndAt != null
+                                ? _formatDateShort(requestedEndAt.toIso8601String())
+                                : 'N/A',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '+$extensionDays Extra Day${extensionDays == 1 ? '' : 's'} Fee',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          Text(
+                            'PHP ${_formatMoney(additionalPrice)}',
+                            style: const TextStyle(
+                              color: AppColors.success,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Updated Total Booking Cost',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          Text(
+                            'PHP ${_formatMoney(updatedTotalPrice)}',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (requestedDestination != null &&
+                          requestedDestination.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Requested Destination: ',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                requestedDestination,
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (proofUrl.isNotEmpty ||
+                    (paymentRef.isNotEmpty && paymentRef != 'N/A')) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Colors.purple.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.receipt_long_rounded,
+                          color: Colors.purpleAccent,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$paymentMethod • Ref: $paymentRef',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.purpleAccent,
+                            ),
+                          ),
+                        ),
+                        if (proofUrl.isNotEmpty)
+                          TextButton(
+                            onPressed: () =>
+                                _showProofImageModal(proofUrl, paymentRef),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'View Receipt',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.purpleAccent,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                // Action buttons based on status
+                if (extStatus == 'pending' ||
+                    extStatus == 'pending_partner' ||
+                    extStatus == 'pending_operator') ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _handleAcceptTripExtension(booking),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Accept Request',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _handleRejectTripExtension(booking),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: const BorderSide(color: AppColors.error),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Decline',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (extStatus == 'payment_completed') ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () =>
+                              _handleVerifyExtensionPayment(booking),
+                          icon: const Icon(Icons.check_circle_outline, size: 16),
+                          label: const Text('Verify Payment'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.purpleAccent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _handleRejectTripExtension(booking),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: const BorderSide(color: AppColors.error),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('Decline'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (extStatus == 'pending_final_confirmation') ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _handleFinalizeTripExtension(booking),
+                      icon: const Icon(Icons.verified, size: 16),
+                      label: const Text('Finalize Extension & Update Dates'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ] else if (extStatus == 'finalized' ||
+                    extStatus == 'approved') ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          color: AppColors.success,
+                          size: 16,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Extension Active & Finalized',
+                          style: TextStyle(
+                            color: AppColors.success,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (extStatus == 'rejected' ||
+                    extStatus == 'cancelled') ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Request Declined${booking['extension_rejection_reason'] != null ? ': ${booking['extension_rejection_reason']}' : ''}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.error,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openBookingDetailModal(booking),
+                        icon: const Icon(Icons.info_outline, size: 14),
+                        label: const Text('Trip Details'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: isDark
+                              ? Colors.white70
+                              : AppColors.textPrimary,
+                          side: BorderSide(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade300,
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (renterPhone.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _openCustomerServiceConversationWith(renter),
+                        icon: const Icon(Icons.chat_bubble_outline, size: 14),
+                        label: const Text('Message'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showProofImageModal(String url, String ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black87,
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              title: Text(
+                'Receipt • $ref',
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+              leading: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+            Flexible(
+              child: InteractiveViewer(
+                child: Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Text(
+                      'Failed to load proof image',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleAcceptTripExtension(Map<String, dynamic> booking) async {
+    try {
+      final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+      final bookingId = booking['id']?.toString() ?? '';
+      await BookingService().acceptTripExtension(
+        bookingId: bookingId,
+        reviewerId: currentPartnerId,
+        reviewerRole: 'partner',
+      );
+      _showSuccessSnackBar(
+        'Extension request accepted! Renter notified to complete payment.',
+      );
+      await _loadPartnerData(silent: true);
+    } catch (e) {
+      _showErrorSnackBar('Failed to accept extension: $e');
+    }
+  }
+
+  Future<void> _handleRejectTripExtension(Map<String, dynamic> booking) async {
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: const Text(
+          'Decline Extension Request',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Please provide a reason for declining this extension request.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: InputDecoration(
+                hintText: 'e.g., Vehicle scheduled for maintenance',
+                hintStyle: const TextStyle(color: AppColors.textTertiary),
+                filled: true,
+                fillColor: AppColors.darkBg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Decline Extension'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+        final bookingId = booking['id']?.toString() ?? '';
+        await BookingService().rejectTripExtension(
+          bookingId: bookingId,
+          reviewerId: currentPartnerId,
+          reviewerRole: 'partner',
+          reason: reasonController.text.trim().isNotEmpty
+              ? reasonController.text.trim()
+              : 'Declined by vehicle owner',
+        );
+        _showSuccessSnackBar('Trip extension request declined');
+        await _loadPartnerData(silent: true);
+      } catch (e) {
+        _showErrorSnackBar('Failed to decline extension: $e');
+      }
+    }
+  }
+
+  Future<void> _handleVerifyExtensionPayment(
+    Map<String, dynamic> booking,
+  ) async {
+    try {
+      final currentPartnerId =
+          partnerId ?? AuthService().currentUser?.id ?? '';
+      final bookingId = booking['id']?.toString() ?? '';
+      await BookingService().verifyExtensionPayment(
+        bookingId: bookingId,
+        verifierId: currentPartnerId,
+        verifierRole: 'partner',
+      );
+      _showSuccessSnackBar(
+        'Extension payment verified! You can now finalize the extension.',
+      );
+      await _loadPartnerData(silent: true);
+    } catch (e) {
+      _showErrorSnackBar('Failed to verify payment: $e');
+    }
+  }
+
+  Future<void> _handleFinalizeTripExtension(
+    Map<String, dynamic> booking,
+  ) async {
+    try {
+      final currentPartnerId =
+          partnerId ?? AuthService().currentUser?.id ?? '';
+      final bookingId = booking['id']?.toString() ?? '';
+      await BookingService().finalizeTripExtension(
+        bookingId: bookingId,
+        finalizerId: currentPartnerId,
+        finalizerRole: 'partner',
+      );
+      _showSuccessSnackBar(
+        'Trip extension finalized! Booking end date and total price updated.',
+      );
+      await _loadPartnerData(silent: true);
+    } catch (e) {
+      _showErrorSnackBar('Failed to finalize extension: $e');
+    }
   }
 
   Widget _buildPartnerStatusPillTabs(List<String> statuses) {
