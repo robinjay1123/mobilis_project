@@ -12,6 +12,7 @@ import 'package:mobilis_by_psdc_app/services/booking_inspection_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_viewed_service.dart';
 import 'package:mobilis_by_psdc_app/services/payout_method_service.dart';
+import 'package:mobilis_by_psdc_app/services/reservation_payment_service.dart';
 import 'package:mobilis_by_psdc_app/utils/pricing_policy.dart';
 
 bool _bookingNeedsDriver(dynamic value) {

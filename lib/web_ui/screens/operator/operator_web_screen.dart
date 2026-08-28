@@ -32,6 +32,7 @@ import '../../../utils/notification_visual.dart';
 import '../../../services/gps_service.dart';
 import '../../../models/gps_tracker_model.dart';
 import '../../../services/payout_method_service.dart';
+import '../../../services/reservation_payment_service.dart';
 import '../../../services/message_filter_service.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/handover_pin_verifier_modal.dart';
@@ -15188,9 +15189,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       context: context,
       builder: (dialogCtx) => Dialog(
         backgroundColor: Colors.transparent,
-        child: Container(
-          maxWidth: 420,
-          padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Container(
+            padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF172235) : Colors.white,
             borderRadius: BorderRadius.circular(20),
