@@ -9007,17 +9007,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: referenceController,
-                    keyboardType: TextInputType.number,
+                    keyboardType: selectedMethod == 'GCash'
+                        ? TextInputType.number
+                        : TextInputType.text,
+                    textCapitalization: selectedMethod == 'GCash'
+                        ? TextCapitalization.none
+                        : TextCapitalization.characters,
                     inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
+                      if (selectedMethod == 'GCash')
+                        FilteringTextInputFormatter.digitsOnly
+                      else
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'[a-zA-Z0-9\-]'),
+                        ),
                     ],
                     style: const TextStyle(color: Colors.white, fontSize: 14),
                     decoration: InputDecoration(
                       labelText: 'Payment Reference Number / Transaction ID *',
                       labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                      hintText: 'e.g. 10023458921 (digits only)',
+                      hintText: selectedMethod == 'GCash'
+                          ? 'e.g. 10023458921 (10-13 digits)'
+                          : 'e.g. MAYA1002345, GT94021, SB84920',
                       hintStyle: const TextStyle(color: Colors.white24),
-                      helperText: '⚠️ Transaction ID must contain digits/numbers only',
+                      helperText: selectedMethod == 'GCash'
+                          ? '⚠️ GCash Ref No. must contain numbers/digits only'
+                          : '⚠️ Enter Alphanumeric Transaction ID (letters & digits allowed)',
                       helperStyle: const TextStyle(
                         color: AppColors.primary,
                         fontSize: 11,
@@ -9095,7 +9109,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onPressed: isSubmitting
                           ? null
                           : () async {
-                              final ref = referenceController.text.trim();
+                              final ref = referenceController.text.trim().toUpperCase();
                               if (ref.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -9105,10 +9119,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 );
                                 return;
                               }
-                              if (!RegExp(r'^\d+$').hasMatch(ref)) {
+                              if (selectedMethod == 'GCash' &&
+                                  !RegExp(r'^\d+$').hasMatch(ref)) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('⚠️ Transaction ID / Reference Number must contain digits only (e.g. 10023458921).'),
+                                    content: Text('⚠️ GCash Reference Number must contain digits only (e.g. 10023458921).'),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (selectedMethod != 'GCash' &&
+                                  !RegExp(r'^[A-Z0-9\-]+$').hasMatch(ref)) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('⚠️ Transaction ID must contain valid letters & numbers only.'),
                                     backgroundColor: AppColors.error,
                                   ),
                                 );
@@ -12427,17 +12452,31 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   const SizedBox(height: 12),
                   TextField(
                     controller: referenceController,
-                    keyboardType: TextInputType.number,
+                    keyboardType: selectedMethod == 'GCash'
+                        ? TextInputType.number
+                        : TextInputType.text,
+                    textCapitalization: selectedMethod == 'GCash'
+                        ? TextCapitalization.none
+                        : TextCapitalization.characters,
                     inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
+                      if (selectedMethod == 'GCash')
+                        FilteringTextInputFormatter.digitsOnly
+                      else
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'[a-zA-Z0-9\-]'),
+                        ),
                     ],
                     style: const TextStyle(color: Colors.white, fontSize: 14),
                     decoration: InputDecoration(
                       labelText: 'Payment Reference Number / Transaction ID',
                       labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                      hintText: 'e.g. 10023458921 (digits only)',
+                      hintText: selectedMethod == 'GCash'
+                          ? 'e.g. 10023458921 (GCash Ref #)'
+                          : 'e.g. MAYA1002345, GT94021, SB84920',
                       hintStyle: const TextStyle(color: Colors.white24),
-                      helperText: '⚠️ Transaction ID must contain digits/numbers only',
+                      helperText: selectedMethod == 'GCash'
+                          ? '⚠️ GCash Ref No. must contain numbers/digits only'
+                          : '⚠️ Enter Alphanumeric Transaction ID (letters & digits allowed)',
                       helperStyle: const TextStyle(
                         color: AppColors.primary,
                         fontSize: 11,
@@ -12513,7 +12552,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                       onPressed: isSubmitting
                           ? null
                           : () async {
-                              final ref = referenceController.text.trim();
+                              final ref = referenceController.text.trim().toUpperCase();
                               if (ref.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -12523,10 +12562,21 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                                 );
                                 return;
                               }
-                              if (!RegExp(r'^\d+$').hasMatch(ref)) {
+                              if (selectedMethod == 'GCash' &&
+                                  !RegExp(r'^\d+$').hasMatch(ref)) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('⚠️ Transaction ID / Reference Number must contain digits only (e.g. 10023458921).'),
+                                    content: Text('⚠️ GCash Reference Number must contain digits only (e.g. 10023458921).'),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (selectedMethod != 'GCash' &&
+                                  !RegExp(r'^[A-Z0-9\-]+$').hasMatch(ref)) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('⚠️ Transaction ID must contain valid letters & numbers only.'),
                                     backgroundColor: AppColors.error,
                                   ),
                                 );
