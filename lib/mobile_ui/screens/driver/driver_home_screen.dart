@@ -2175,6 +2175,7 @@ class _DriverConversationCard extends StatelessWidget {
   final VoidCallback onTap;
   final String imageUrl;
   final bool isCustomerService;
+  final String? statusBadge;
 
   const _DriverConversationCard({
     required this.title,
@@ -2184,7 +2185,50 @@ class _DriverConversationCard extends StatelessWidget {
     required this.onTap,
     this.imageUrl = '',
     this.isCustomerService = false,
+    this.statusBadge,
   });
+
+  Widget _buildStatusChip(String label) {
+    final bool isReadOnly = label.contains('Completed') ||
+        label.contains('Read-Only') ||
+        label.contains('Cancelled');
+    final bool isSupport = label.contains('Support');
+    final Color chipColor = isSupport
+        ? Colors.amber.shade700
+        : (isReadOnly ? Colors.purple.shade300 : Colors.blue.shade400);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: chipColor.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: chipColor.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isReadOnly
+                ? Icons.lock_outline_rounded
+                : (isSupport
+                    ? Icons.support_agent
+                    : Icons.check_circle_outline_rounded),
+            size: 11,
+            color: chipColor,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: chipColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2252,7 +2296,12 @@ class _DriverConversationCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (timestamp.isNotEmpty)
+                        if (statusBadge != null && statusBadge!.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          _buildStatusChip(statusBadge!),
+                        ],
+                        if (timestamp.isNotEmpty) ...[
+                          const SizedBox(width: 6),
                           Text(
                             timestamp,
                             style: const TextStyle(
@@ -2261,6 +2310,7 @@ class _DriverConversationCard extends StatelessWidget {
                               fontWeight: FontWeight.w700,
                             ),
                           ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 6),
@@ -4730,6 +4780,19 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
                   final last = conversation['last_message'] as Map?;
                   final unreadCount =
                       (conversation['unread_count'] as int?) ?? 0;
+                  final isCustomerService = _isCustomerServiceConversation(
+                    conversation,
+                  );
+                  final booking = conversation['bookings'] as Map?;
+                  final statusRaw = (booking?['status'] ?? '').toString().toLowerCase().trim();
+                  final String statusBadge = isCustomerService
+                      ? 'Support'
+                      : (statusRaw == 'completed'
+                          ? 'Completed • Read-Only'
+                          : (statusRaw == 'cancelled' || statusRaw == 'rejected' || statusRaw == 'expired'
+                              ? 'Cancelled • Read-Only'
+                              : (statusRaw.isNotEmpty ? 'Active Booking' : 'Active')));
+
                   return _DriverConversationCard(
                     title: _conversationTitle(conversation),
                     message: _lastMessage(conversation),
@@ -4737,9 +4800,8 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
                     unreadCount: unreadCount,
                     imageUrl:
                         conversation['vehicle_image_url']?.toString() ?? '',
-                    isCustomerService: _isCustomerServiceConversation(
-                      conversation,
-                    ),
+                    isCustomerService: isCustomerService,
+                    statusBadge: statusBadge,
                     onTap: () => _openConversation(conversation),
                   );
                 }),

@@ -3859,12 +3859,22 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                               ? messages.last['content'] ?? ''
                               : 'No messages';
 
+                          final statusRaw = (booking?['status'] ?? '').toString().toLowerCase().trim();
+                          final String statusBadge = isCustomerService
+                              ? 'Support'
+                              : (statusRaw == 'completed'
+                                  ? 'Completed • Read-Only'
+                                  : (statusRaw == 'cancelled' || statusRaw == 'rejected' || statusRaw == 'expired'
+                                      ? 'Cancelled • Read-Only'
+                                      : (statusRaw.isNotEmpty ? 'Active Booking' : 'Active')));
+
                           return ConversationTile(
                             senderName: topicTitle,
                             lastMessage: lastMessage,
                             timestamp: _formatTime(conv['updated_at']),
                             unreadCount: 0,
                             imageUrl: imageUrl,
+                            statusBadge: statusBadge,
                             fallbackIcon: isCustomerService
                                 ? Icons.support_agent
                                 : Icons.directions_car_outlined,

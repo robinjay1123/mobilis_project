@@ -10,6 +10,8 @@ class ConversationTile extends StatelessWidget {
   final VoidCallback onTap;
   final String imageUrl;
   final IconData fallbackIcon;
+  final String? statusBadge;
+  final Color? statusColor;
 
   const ConversationTile({
     super.key,
@@ -20,7 +22,56 @@ class ConversationTile extends StatelessWidget {
     required this.onTap,
     this.imageUrl = '',
     this.fallbackIcon = Icons.directions_car_outlined,
+    this.statusBadge,
+    this.statusColor,
   });
+
+  Widget _buildStatusChip(String label, bool isDark) {
+    final bool isReadOnly = label.contains('Completed') ||
+        label.contains('Read-Only') ||
+        label.contains('Cancelled');
+    final bool isSupport = label.contains('Support');
+    final Color chipColor = statusColor ??
+        (isSupport
+            ? Colors.amber.shade700
+            : (isReadOnly
+                ? Colors.purple.shade400
+                : Colors.blue.shade500));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: chipColor.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: chipColor.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isReadOnly
+                ? Icons.lock_outline_rounded
+                : (isSupport
+                    ? Icons.support_agent
+                    : Icons.check_circle_outline_rounded),
+            size: 11,
+            color: chipColor,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: chipColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,13 +127,25 @@ class ConversationTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    senderName,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: primaryText,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          senderName,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: primaryText,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (statusBadge != null && statusBadge!.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        _buildStatusChip(statusBadge!, isDark),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(

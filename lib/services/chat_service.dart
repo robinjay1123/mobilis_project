@@ -730,6 +730,30 @@ class ChatService {
         throw Exception('This booking conversation is closed');
       }
 
+      final bookingId = conversation?['booking_id']?.toString();
+      if (bookingId != null && bookingId.isNotEmpty) {
+        final bookingRow = await supabase
+            .from('bookings')
+            .select('status')
+            .eq('id', bookingId)
+            .maybeSingle();
+        final bStatus = bookingRow?['status']?.toString().toLowerCase().trim();
+        const readOnlyStatuses = {
+          'completed',
+          'returned',
+          'cancelled',
+          'canceled',
+          'rejected',
+          'declined',
+          'expired',
+        };
+        if (bStatus != null && readOnlyStatuses.contains(bStatus)) {
+          throw Exception(
+            'This conversation is read-only because the booking is $bStatus.',
+          );
+        }
+      }
+
       final response = await supabase
           .from('messages')
           .insert({
