@@ -74,6 +74,44 @@ class BookingService {
     return !_nonBlockingStatuses.contains(normalized);
   }
 
+  /// Safely updates a booking row in Supabase.
+  /// If Supabase returns PGRST204 (column missing in schema cache), it automatically
+  /// strips the unrecognized column(s) and retries the update so database calls never crash.
+  static Future<void> safeUpdateBooking(
+    String bookingId,
+    Map<String, dynamic> updateData,
+  ) async {
+    final payload = Map<String, dynamic>.from(updateData);
+    final supabase = Supabase.instance.client;
+
+    for (int attempt = 0; attempt < 10; attempt++) {
+      if (payload.isEmpty) return;
+      try {
+        await supabase.from('bookings').update(payload).eq('id', bookingId);
+        return; // Success!
+      } on PostgrestException catch (e) {
+        if (e.code == 'PGRST204' ||
+            e.message.contains('Could not find the') ||
+            e.message.contains('column of \'bookings\' in the schema cache')) {
+          final match =
+              RegExp(r"Could not find the '([^']+)' column").firstMatch(e.message);
+          if (match != null && match.groupCount >= 1) {
+            final missingCol = match.group(1)!;
+            debugPrint(
+              '⚠️ Column "$missingCol" does not exist in bookings schema cache. Stripping and retrying...',
+            );
+            payload.remove(missingCol);
+            continue; // Retry without the missing column
+          }
+        }
+        rethrow;
+      } catch (e) {
+        debugPrint('Unexpected error in safeUpdateBooking: $e');
+        rethrow;
+      }
+    }
+  }
+
   static (DateTime, DateTime)? _bookingInterval(Map<String, dynamic> row) {
     final startAt = row['start_at']?.toString().trim() ?? '';
     final endAt = row['end_at']?.toString().trim() ?? '';
@@ -1200,15 +1238,12 @@ class BookingService {
         }
       }
 
-      await supabase
-          .from('bookings')
-          .update({
-            'status': normalizedStatus,
-            if (normalizedStatus == 'cancelled')
-              'refund_status': 'refund_needed',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'status': normalizedStatus,
+        if (normalizedStatus == 'cancelled')
+          'refund_status': 'refund_needed',
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       debugPrint('Booking status updated');
 
@@ -5218,13 +5253,29 @@ class BookingService {
       final depositAmount = (booking?['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0;
 
       await updateBookingStatus(bookingId, 'cancelled');
-      await supabase.from('bookings').update({
+      await safeUpdateBooking(bookingId, {
         'cancellation_reason': cancellationReason,
+        'notes': cancellationReason.isNotEmpty ? 'Cancellation Reason: $cancellationReason' : null,
         'cancelled_at': DateTime.now().toIso8601String(),
         'deposit_forfeited': true,
         'cancellation_fee_retained': depositAmount,
         'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', bookingId);
+      });
+
+      try {
+        await TransactionLogger().logTransaction(
+          bookingId: bookingId,
+          type: 'booking_cancellation',
+          amount: depositAmount,
+          status: 'completed',
+          metadata: {
+            'cancellation_reason': cancellationReason,
+            'deposit_forfeited': true,
+          },
+        );
+      } catch (e) {
+        debugPrint('Transaction log for cancellation note: $e');
+      }
     } catch (e) {
       debugPrint('Error cancelling booking with deposit forfeit: $e');
       rethrow;

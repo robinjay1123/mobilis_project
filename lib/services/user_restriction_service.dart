@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'notification_service.dart';
+import 'booking_service.dart';
 
 class UserRestrictionState {
   final int violationCount;
@@ -649,16 +650,13 @@ class UserRestrictionService {
         final bookingId = booking['id']?.toString();
         if (bookingId == null || bookingId.isEmpty) continue;
 
-        await supabase
-            .from('bookings')
-            .update({
-              'status': 'cancelled',
-              'refund_status': 'refund_needed',
-              'cancellation_reason':
-                  'Booking cancelled due to a safety restriction on the owner account.',
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', bookingId);
+        await BookingService.safeUpdateBooking(bookingId, {
+          'status': 'cancelled',
+          'refund_status': 'refund_needed',
+          'cancellation_reason':
+              'Booking cancelled due to a safety restriction on the owner account.',
+          'updated_at': DateTime.now().toIso8601String(),
+        });
 
         await supabase
             .from('conversations')
@@ -761,12 +759,12 @@ class UserRestrictionService {
         if (isActiveTrip) {
           // 1. ACTIVE TRIP: Apply Safety Freeze (Do NOT cancel or terminate tracking!)
           debugPrint('Applying Safety Freeze to active trip booking #$bookingId');
-          await supabase.from('bookings').update({
+          await BookingService.safeUpdateBooking(bookingId, {
             'safety_freeze': true,
             'cancellation_reason':
                 'Active trip under Safety Freeze: Renter account is under safety review. Extensions and new bookings blocked; live recovery & return inspection remain active.',
             'updated_at': DateTime.now().toIso8601String(),
-          }).eq('id', bookingId);
+          });
 
           // Alert Renter
           await NotificationService().createNotification(
@@ -817,13 +815,13 @@ class UserRestrictionService {
         } else {
           // 2. UPCOMING / PENDING: Auto-Cancel & Initiate Refund & Free Vehicle
           debugPrint('Auto-cancelling upcoming booking #$bookingId due to renter violation');
-          await supabase.from('bookings').update({
+          await BookingService.safeUpdateBooking(bookingId, {
             'status': 'cancelled',
             'refund_status': 'refund_needed',
             'cancellation_reason':
                 'Booking cancelled automatically due to a safety policy violation on the renter account.',
             'updated_at': DateTime.now().toIso8601String(),
-          }).eq('id', bookingId);
+          });
 
           // Free vehicle
           if (vehicleId != null && vehicleId.isNotEmpty) {
