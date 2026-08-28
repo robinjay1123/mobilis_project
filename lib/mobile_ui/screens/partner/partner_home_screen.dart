@@ -29,6 +29,7 @@ import '../../widgets/booking_return_countdown.dart';
 import '../../widgets/vehicle_inspection_checklist_fields.dart';
 import '../../widgets/vehicle_inspection_record_view.dart';
 import '../../widgets/partner_vehicle_maintenance_modal.dart';
+import '../../widgets/trip_route_history_dialog.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/settings_screen.dart';
@@ -7643,27 +7644,66 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 2),
-                        child: Icon(Icons.trip_origin_rounded, size: 14, color: Colors.green),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          (pickupLocation != null && pickupLocation.isNotEmpty)
-                              ? pickupLocation
-                              : 'PSDC Hub / Designated Pickup Point',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                  InkWell(
+                    onTap: () {
+                      final bId = booking['id']?.toString() ?? '';
+                      if (bId.isNotEmpty) {
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: bId,
+                          vehicleName: vehicleTitle,
+                          plateNumber: plateNumber,
+                        );
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(Icons.trip_origin_rounded, size: 14, color: Colors.green),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Text(
+                                      'Pickup Point',
+                                      style: TextStyle(fontSize: 10, color: AppColors.textTertiary, fontWeight: FontWeight.bold),
+                                    ),
+                                    SizedBox(width: 4),
+                                    Icon(Icons.map_rounded, size: 11, color: AppColors.primary),
+                                    SizedBox(width: 2),
+                                    Text(
+                                      '(Tap for Map)',
+                                      style: TextStyle(color: AppColors.primary, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  (pickupLocation != null && pickupLocation.isNotEmpty)
+                                      ? pickupLocation
+                                      : 'PSDC Hub / Designated Pickup Point',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                   Padding(
                     padding: const EdgeInsets.only(left: 6, top: 2, bottom: 2),
@@ -7673,27 +7713,66 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                       color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
                     ),
                   ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 2),
-                        child: Icon(Icons.location_on_rounded, size: 16, color: Colors.redAccent),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          (dropoffLocation != null && dropoffLocation.isNotEmpty)
-                              ? dropoffLocation
-                              : 'Declared Destination Area',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: isDark ? Colors.white : Colors.black87,
+                  InkWell(
+                    onTap: () {
+                      final bId = booking['id']?.toString() ?? '';
+                      if (bId.isNotEmpty) {
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: bId,
+                          vehicleName: vehicleTitle,
+                          plateNumber: plateNumber,
+                        );
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(Icons.location_on_rounded, size: 16, color: Colors.redAccent),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Text(
+                                      'Destination / Drop-off Point',
+                                      style: TextStyle(fontSize: 10, color: AppColors.textTertiary, fontWeight: FontWeight.bold),
+                                    ),
+                                    SizedBox(width: 4),
+                                    Icon(Icons.map_rounded, size: 11, color: AppColors.primary),
+                                    SizedBox(width: 2),
+                                    Text(
+                                      '(Tap for Map)',
+                                      style: TextStyle(color: AppColors.primary, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  (dropoffLocation != null && dropoffLocation.isNotEmpty)
+                                      ? dropoffLocation
+                                      : 'Declared Destination Area',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.primary,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ],
               ),

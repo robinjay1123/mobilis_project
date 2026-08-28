@@ -11165,11 +11165,33 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                     Icons.trip_origin_rounded,
                     'Pickup Location',
                     booking['pickupLocation']?.toString() ?? 'Not specified',
+                    onTap: () {
+                      final bId = booking['id']?.toString() ?? '';
+                      if (bId.isNotEmpty) {
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: bId,
+                          vehicleName: booking['vehicleName']?.toString(),
+                          plateNumber: booking['plateNumber']?.toString(),
+                        );
+                      }
+                    },
                   ),
                   _detailRow(
                     Icons.location_on_rounded,
                     'Drop-off Location',
                     booking['dropoffLocation']?.toString() ?? 'Not specified',
+                    onTap: () {
+                      final bId = booking['id']?.toString() ?? '';
+                      if (bId.isNotEmpty) {
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: bId,
+                          vehicleName: booking['vehicleName']?.toString(),
+                          plateNumber: booking['plateNumber']?.toString(),
+                        );
+                      }
+                    },
                   ),
                 ],
               ),
@@ -11736,39 +11758,65 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     );
   }
 
-  Widget _detailRow(IconData icon, String label, String value) {
+  Widget _detailRow(IconData icon, String label, String value, {VoidCallback? onTap}) {
+    final isClickable = onTap != null;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: AppColors.primary, size: 19),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: AppColors.primary, size: 19),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          label,
+                          style: const TextStyle(
+                            color: AppColors.textTertiary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (isClickable) ...[
+                          const SizedBox(width: 6),
+                          const Icon(Icons.map_rounded, size: 13, color: AppColors.primary),
+                          const SizedBox(width: 3),
+                          const Text(
+                            '(Tap to View Map Route)',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        color: isClickable ? AppColors.primary : AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        decoration: isClickable ? TextDecoration.underline : TextDecoration.none,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -33,6 +33,7 @@ import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
 import '../../widgets/handover_pin_verifier_modal.dart';
 import '../../widgets/inspection_damage_comparison_dialog.dart';
+import '../../widgets/trip_route_history_dialog.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -4370,38 +4371,71 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                         icon: Icons.alt_route_rounded,
                         title: 'Trip Route & Destination',
                         children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.trip_origin_rounded, color: Colors.green, size: 18),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Pickup Location',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                                      ),
+                          InkWell(
+                            onTap: () {
+                              final bId = booking['id']?.toString() ?? '';
+                              if (bId.isNotEmpty) {
+                                TripRouteHistoryDialog.show(
+                                  context: context,
+                                  bookingId: bId,
+                                  vehicleName: vehicleName,
+                                  plateNumber: vehiclePlate,
+                                );
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(Icons.trip_origin_rounded, color: Colors.green, size: 18),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Text(
+                                              'Pickup Location',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            const Icon(Icons.map_rounded, size: 12, color: AppColors.primary),
+                                            const SizedBox(width: 2),
+                                            const Text(
+                                              '(Tap to View Map Route)',
+                                              style: TextStyle(
+                                                color: AppColors.primary,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          booking['pickup_location']?.toString().trim().isNotEmpty == true
+                                              ? booking['pickup_location'].toString()
+                                              : 'Declared Pickup Point',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.primary,
+                                            decoration: TextDecoration.underline,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      booking['pickup_location']?.toString().trim().isNotEmpty == true
-                                          ? booking['pickup_location'].toString()
-                                          : 'Declared Pickup Point',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: isDark ? Colors.white : Colors.black87,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                           const Padding(
                             padding: EdgeInsets.only(left: 8, top: 4, bottom: 4),
@@ -4410,38 +4444,71 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                               child: VerticalDivider(thickness: 2, color: Colors.grey),
                             ),
                           ),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.location_on_rounded, color: Colors.redAccent, size: 18),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Destination (Drop-off)',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                                      ),
+                          InkWell(
+                            onTap: () {
+                              final bId = booking['id']?.toString() ?? '';
+                              if (bId.isNotEmpty) {
+                                TripRouteHistoryDialog.show(
+                                  context: context,
+                                  bookingId: bId,
+                                  vehicleName: vehicleName,
+                                  plateNumber: vehiclePlate,
+                                );
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(Icons.location_on_rounded, color: Colors.redAccent, size: 18),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Text(
+                                              'Destination (Drop-off)',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            const Icon(Icons.map_rounded, size: 12, color: AppColors.primary),
+                                            const SizedBox(width: 2),
+                                            const Text(
+                                              '(Tap to View Map Route)',
+                                              style: TextStyle(
+                                                color: AppColors.primary,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          booking['dropoff_location']?.toString().trim().isNotEmpty == true
+                                              ? booking['dropoff_location'].toString()
+                                              : 'Declared Destination Point',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.primary,
+                                            decoration: TextDecoration.underline,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      booking['dropoff_location']?.toString().trim().isNotEmpty == true
-                                          ? booking['dropoff_location'].toString()
-                                          : 'Declared Destination Point',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w800,
-                                        color: isDark ? AppColors.primary : Colors.black,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ],
                       ),
