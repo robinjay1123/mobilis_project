@@ -13,6 +13,7 @@ import 'package:mobilis_by_psdc_app/services/booking_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_viewed_service.dart';
 import 'package:mobilis_by_psdc_app/services/payout_method_service.dart';
 import 'package:mobilis_by_psdc_app/services/reservation_payment_service.dart';
+import 'package:mobilis_by_psdc_app/utils/action_guard.dart';
 import 'package:mobilis_by_psdc_app/utils/pricing_policy.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
@@ -2481,7 +2482,8 @@ class _BookingCard extends StatelessWidget {
     VoidCallback? onRefresh,
   ) async {
     final bookingId = booking['id']?.toString() ?? '';
-    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    return ActionGuard.runGuarded('mobile_deposit_refund_dialog_$bookingId', () async {
+      final renter = booking['renter'] as Map<String, dynamic>? ?? {};
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final renterName = renter['full_name']?.toString() ?? 'Renter';
     final renterPhone = renter['phone_number']?.toString() ??
@@ -3053,6 +3055,7 @@ class _BookingCard extends StatelessWidget {
     deductionAmountController.dispose();
     deductionNotesController.dispose();
     referenceController.dispose();
+    });
   }
 
   Future<void> _showMobileDisbursePartnerPayoutDialog(
@@ -3062,7 +3065,8 @@ class _BookingCard extends StatelessWidget {
     VoidCallback? onRefresh,
   ) async {
     final bookingId = booking['id']?.toString() ?? '';
-    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    return ActionGuard.runGuarded('mobile_disburse_partner_dialog_$bookingId', () async {
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final partnerVehicle = booking['partner_vehicles'] as Map<String, dynamic>? ?? {};
     final partnerData = (partnerVehicle['partners'] ?? vehicle['partners'] ?? vehicle['owner']) as Map<String, dynamic>? ?? {};
     final partnerUserData = (partnerData['users'] ?? partnerData['user']) as Map<String, dynamic>? ?? {};
@@ -3469,6 +3473,7 @@ class _BookingCard extends StatelessWidget {
 
     payoutAmountController.dispose();
     referenceController.dispose();
+    });
   }
 
   Future<void> _showMobileDisburseDriverPayoutDialog(
@@ -3478,7 +3483,8 @@ class _BookingCard extends StatelessWidget {
     VoidCallback? onRefresh,
   ) async {
     final bookingId = booking['id']?.toString() ?? '';
-    final driverData = booking['driver'] as Map<String, dynamic>? ?? {};
+    return ActionGuard.runGuarded('mobile_disburse_driver_dialog_$bookingId', () async {
+      final driverData = booking['driver'] as Map<String, dynamic>? ?? {};
     final driverUserData = (driverData['users'] ?? driverData['user']) as Map<String, dynamic>? ?? {};
     final driverUserJoined = (booking['driver_user'] ?? booking['driver_profile']) as Map<String, dynamic>? ?? {};
 
@@ -3894,6 +3900,7 @@ class _BookingCard extends StatelessWidget {
 
     payoutAmountController.dispose();
     referenceController.dispose();
+    });
   }
 
   Future<void> _showApproveDialog(

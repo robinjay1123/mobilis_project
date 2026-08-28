@@ -24,6 +24,7 @@ import '../../../mobile_ui/widgets/leaflet_map.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../services/reservation_payment_service.dart';
+import '../../../utils/action_guard.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
@@ -2858,8 +2859,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Future<void> _showNotificationsDialog(bool isDark) async {
-    final currentUserId = _supabase.auth.currentUser?.id;
-    if (currentUserId == null) return;
+    return ActionGuard.runGuarded('admin_notifications_dialog', () async {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
 
     await showDialog<void>(
       context: context,
@@ -3097,6 +3099,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         );
       },
     );
+    });
   }
 
   Future<bool> _showVehicleApprovalConfirmation(

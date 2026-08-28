@@ -28,6 +28,7 @@ import '../../../utils/csv_export.dart';
 import '../../../utils/locations.dart';
 import '../../../utils/philippine_geocoding.dart';
 import '../../../utils/notification_target.dart';
+import '../../../utils/action_guard.dart';
 import '../../../utils/notification_visual.dart';
 import '../../../services/gps_service.dart';
 import '../../../models/gps_tracker_model.dart';
@@ -11595,7 +11596,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Future<void> _showOperatorBookingDetailsDialog(
     Map<String, dynamic> booking,
   ) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bookingId = booking['id']?.toString() ?? '';
+    return ActionGuard.runGuarded('booking_details_dialog_$bookingId', () async {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
     final driver = booking['driver'] as Map<String, dynamic>?;
@@ -12172,6 +12175,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       ),
     );
+    });
   }
 
   Future<void> _showExtensionApprovalDialog(Map<String, dynamic> booking) async {
@@ -15273,8 +15277,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Future<void> _showSecurityDepositRefundDialog(
     Map<String, dynamic> booking,
   ) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final bookingId = booking['id']?.toString() ?? '';
+    return ActionGuard.runGuarded('deposit_refund_dialog_$bookingId', () async {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final renterName = renter['full_name']?.toString() ?? 'Renter';
@@ -16034,13 +16039,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     deductionAmountController.dispose();
     deductionNotesController.dispose();
     referenceController.dispose();
+    });
   }
 
   Future<void> _showDisbursePartnerPayoutDialog(
     Map<String, dynamic> booking,
   ) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final bookingId = booking['id']?.toString() ?? '';
+    return ActionGuard.runGuarded('disburse_partner_dialog_$bookingId', () async {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final partnerVehicle = booking['partner_vehicles'] as Map<String, dynamic>? ?? {};
     final partnerData = (partnerVehicle['partners'] ?? vehicle['partners'] ?? vehicle['owner']) as Map<String, dynamic>? ?? {};
@@ -16562,13 +16569,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     payoutAmountController.dispose();
     referenceController.dispose();
+    });
   }
 
   Future<void> _showDisburseDriverPayoutDialog(
     Map<String, dynamic> booking,
   ) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final bookingId = booking['id']?.toString() ?? '';
+    return ActionGuard.runGuarded('disburse_driver_dialog_$bookingId', () async {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
     final driverData = booking['driver'] as Map<String, dynamic>? ?? {};
     final driverUserData = (driverData['users'] ?? driverData['user']) as Map<String, dynamic>? ?? {};
     final driverUserJoined = (booking['driver_user'] ?? booking['driver_profile']) as Map<String, dynamic>? ?? {};
@@ -17102,6 +17111,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     payoutAmountController.dispose();
     referenceController.dispose();
+    });
   }
 
   Future<void> _showBookingSafetyReviewDialog(
