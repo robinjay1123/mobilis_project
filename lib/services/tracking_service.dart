@@ -1369,37 +1369,24 @@ class TrackingService {
       final rawPoints = await getTripRouteHistory(bookingId);
       final List<Map<String, dynamic>> points = [];
 
-      // ✅ Ensure the audit log trail starts at the pickup location
-      if (pickupLat != null && pickupLng != null && pickupLat != 0.0 && pickupLng != 0.0) {
+      // ✅ Use actual recorded vehicle GPS points from tracking_location_logs
+      if (rawPoints.isNotEmpty) {
+        points.addAll(rawPoints);
+      } else if (pickupLat != null && pickupLng != null && pickupLat != 0.0 && pickupLng != 0.0) {
+        // Fallback to single pickup origin point only if no GPS logs have been recorded yet
         final tripStartIso = booking['start_at']?.toString() ??
             booking['start_date']?.toString() ??
             DateTime.now().toUtc().toIso8601String();
-
-        bool hasCloseStart = false;
-        if (rawPoints.isNotEmpty) {
-          final firstLat = _asDouble(rawPoints.first['latitude']) ?? 0.0;
-          final firstLng = _asDouble(rawPoints.first['longitude']) ?? 0.0;
-          if (firstLat != 0.0 && firstLng != 0.0) {
-            final distM = _distanceBetweenMeters(pickupLat, pickupLng, firstLat, firstLng);
-            if (distM < 250) {
-              hasCloseStart = true;
-            }
-          }
-        }
-
-        if (!hasCloseStart) {
-          points.add({
-            'booking_id': bookingId,
-            'latitude': pickupLat,
-            'longitude': pickupLng,
-            'speed_mps': 0.0,
-            'heading_degrees': 0.0,
-            'source': 'pickup_origin',
-            'recorded_at': tripStartIso,
-          });
-        }
+        points.add({
+          'booking_id': bookingId,
+          'latitude': pickupLat,
+          'longitude': pickupLng,
+          'speed_mps': 0.0,
+          'heading_degrees': 0.0,
+          'source': 'pickup_origin',
+          'recorded_at': tripStartIso,
+        });
       }
-      points.addAll(rawPoints);
 
       // 2. Fetch the planned / recommended road route from pickup to destination for destination reference
       List<Map<String, double>> recommendedRoute = [];
