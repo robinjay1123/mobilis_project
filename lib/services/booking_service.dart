@@ -1142,7 +1142,7 @@ class BookingService {
           break;
         } on PostgrestException catch (e) {
           final msg = e.message.toLowerCase();
-          final details = (e.details ?? '').toLowerCase();
+          final details = (e.details?.toString() ?? '').toLowerCase();
           final isFkError = e.code == '23503' ||
               msg.contains('foreign key') ||
               details.contains('foreign key') ||
