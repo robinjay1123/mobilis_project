@@ -11,6 +11,7 @@ import 'booking_inspection_service.dart';
 import 'trip_rating_service.dart';
 import 'loyalty_service.dart';
 import 'vehicle_turnaround_service.dart';
+import 'transaction_logger.dart';
 import '../utils/pricing_policy.dart';
 import '../utils/philippine_geocoding.dart';
 import '../utils/booking_status.dart';
@@ -5263,15 +5264,9 @@ class BookingService {
       });
 
       try {
-        await TransactionLogger().logTransaction(
+        await TransactionLogger.logBookingCancelled(
           bookingId: bookingId,
-          type: 'booking_cancellation',
-          amount: depositAmount,
-          status: 'completed',
-          metadata: {
-            'cancellation_reason': cancellationReason,
-            'deposit_forfeited': true,
-          },
+          reason: cancellationReason,
         );
       } catch (e) {
         debugPrint('Transaction log for cancellation note: $e');
