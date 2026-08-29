@@ -5,6 +5,7 @@ import 'notification_service.dart';
 import 'user_restriction_service.dart';
 import 'admin_service.dart';
 import 'image_optimization_service.dart';
+import 'booking_service.dart';
 
 class PartnerService {
   static final PartnerService _instance = PartnerService._internal();

@@ -3106,42 +3106,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<String> _uploadTripExtensionReceipt({
-    required String bookingId,
-    required XFile file,
-    String prefix = 'ext_payment',
-  }) async {
-    final bytes = await file.readAsBytes();
-    final fileExt = file.name.contains('.') ? file.name.split('.').last : 'jpg';
-    final fileName =
-        '${prefix}_${bookingId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
-    final supabase = Supabase.instance.client;
-
-    final candidateBuckets = [
-      'reservation_receipts',
-      'booking_evidence',
-      'chat_attachments',
-      'driver_documents',
-      'partner_documents',
-      'vehicle_images',
-      'public',
-    ];
-
-    for (final bucket in candidateBuckets) {
-      try {
-        await supabase.storage.from(bucket).uploadBinary(
-              fileName,
-              bytes,
-              fileOptions: const FileOptions(upsert: true),
-            );
-        return supabase.storage.from(bucket).getPublicUrl(fileName);
-      } catch (e) {
-        debugPrint('Bucket $bucket upload failed: $e. Trying next bucket...');
-      }
-    }
-    throw Exception('Storage bucket not available to store receipt image.');
-  }
-
   // ---------------------------------------------------------------------------
   // Formatters
   // ---------------------------------------------------------------------------
@@ -10986,6 +10950,42 @@ class _AgreementNote extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<String> _uploadTripExtensionReceipt({
+  required String bookingId,
+  required XFile file,
+  String prefix = 'ext_payment',
+}) async {
+  final bytes = await file.readAsBytes();
+  final fileExt = file.name.contains('.') ? file.name.split('.').last : 'jpg';
+  final fileName =
+      '${prefix}_${bookingId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+  final supabase = Supabase.instance.client;
+
+  final candidateBuckets = [
+    'reservation_receipts',
+    'booking_evidence',
+    'chat_attachments',
+    'driver_documents',
+    'partner_documents',
+    'vehicle_images',
+    'public',
+  ];
+
+  for (final bucket in candidateBuckets) {
+    try {
+      await supabase.storage.from(bucket).uploadBinary(
+            fileName,
+            bytes,
+            fileOptions: const FileOptions(upsert: true),
+          );
+      return supabase.storage.from(bucket).getPublicUrl(fileName);
+    } catch (e) {
+      debugPrint('Bucket $bucket upload failed: $e. Trying next bucket...');
+    }
+  }
+  throw Exception('Storage bucket not available to store receipt image.');
 }
 
 class _RenterBookingDetailsPage extends StatelessWidget {
