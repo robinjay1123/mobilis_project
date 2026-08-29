@@ -464,6 +464,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   RealtimeChannel? _bookingFlowChannel;
   RealtimeChannel? _conversationMessagesChannel;
   Map<String, List<Map<String, dynamic>>> _messages = {};
+  final Map<String, List<Map<String, dynamic>>> _conversationFlags = {};
   bool _isSendingMessage = false;
   final Map<String, List<Map<String, dynamic>>> _conversationParticipants = {};
   final Map<String, MobilisMapPoint?> _addressCoordinateCache = {};
@@ -18913,7 +18914,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         try {
           final usersRows = await _supabase
               .from('users')
-              .select('id, full_name, email, phone, avatar_url, is_blocked, off_platform_flag_count')
+              .select('id, full_name, email, phone, avatar_url, is_blocked, off_platform_flag_count, restriction_reason, restriction_level')
               .inFilter('id', missingRenterIds.toList());
           final usersMap = {
             for (final u in List<Map<String, dynamic>>.from(usersRows))
@@ -19005,6 +19006,81 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             msg['sender'] = {'id': sId, 'full_name': pName.trim()};
           }
         }
+      }
+
+      // Fetch flagged messages for this conversation and participants
+      try {
+        final flagRows = await _supabase
+            .from('message_flags')
+            .select()
+            .eq('conversation_id', conversationId)
+            .order('created_at', ascending: true);
+        final flags = List<Map<String, dynamic>>.from(flagRows);
+
+        final conv = _conversations.firstWhere(
+          (c) => c['id']?.toString() == conversationId,
+          orElse: () => <String, dynamic>{},
+        );
+        final booking = conv['bookings'] as Map<String, dynamic>? ?? {};
+        final renterId = (booking['renter_id'] ??
+                (booking['renter'] as Map?)?['id'])
+            ?.toString() ??
+            '';
+
+        if (renterId.isNotEmpty) {
+          try {
+            final renterFlags = await _supabase
+                .from('message_flags')
+                .select()
+                .eq('sender_id', renterId)
+                .order('created_at', ascending: false)
+                .limit(10);
+            for (final rf in List<Map<String, dynamic>>.from(renterFlags)) {
+              if (!flags.any((f) =>
+                  f['id'] == rf['id'] ||
+                  f['message_content'] == rf['message_content'])) {
+                flags.add({...rf, 'is_account_history_flag': true});
+              }
+            }
+          } catch (_) {}
+        }
+
+        _conversationFlags[conversationId] = flags;
+
+        // Merge flagged messages that were blocked before reaching messages table into the message list
+        for (final flag in flags) {
+          final content = flag['message_content']?.toString().trim() ?? '';
+          if (content.isEmpty) continue;
+          final alreadyPresent = loadedMessages.any(
+            (m) =>
+                m['id']?.toString() == flag['message_id']?.toString() ||
+                (m['content'] ?? m['message'])?.toString().trim() == content,
+          );
+          if (!alreadyPresent) {
+            loadedMessages.add({
+              'id': flag['message_id']?.toString() ??
+                  flag['id']?.toString() ??
+                  'flag_${DateTime.now().millisecondsSinceEpoch}',
+              'conversation_id': conversationId,
+              'sender_id': flag['sender_id'],
+              'content': content,
+              'message': content,
+              'created_at':
+                  flag['created_at'] ?? DateTime.now().toIso8601String(),
+              'is_flagged': true,
+              'is_blocked_flag': true,
+              'flag_reason':
+                  flag['flag_reason'] ?? 'Off-platform contact attempt',
+              'risk_level': flag['risk_level'] ?? 'high',
+              'sender': {
+                'full_name': (booking['renter'] as Map?)?['full_name'] ??
+                    'Renter (Flagged Content)',
+              },
+            });
+          }
+        }
+      } catch (flagErr) {
+        debugPrint('[Messages] Error fetching flags: $flagErr');
       }
 
       loadedMessages.sort((first, second) {
@@ -19149,9 +19225,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         'has_violation': false,
         'is_frozen': false,
         'violated_reasons': <String>[],
+        'flagged_messages': <Map<String, dynamic>>[],
       };
     }
 
+    final convId = conversation['id']?.toString() ?? '';
     final booking = conversation['bookings'] as Map<String, dynamic>? ?? {};
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
     final renterName = renter['full_name']?.toString() ?? 'Renter';
@@ -19165,10 +19243,41 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         conversation['status']?.toString().trim().toLowerCase() ?? 'active';
 
     final violatedReasons = <String>[];
+    final flaggedMessages = <Map<String, dynamic>>[];
     final currentUserId = _supabase.auth.currentUser?.id;
 
+    // 1. Scan flags recorded in database (message_flags)
+    final dbFlags = _conversationFlags[convId] ?? const [];
+    for (final flag in dbFlags) {
+      final content = flag['message_content']?.toString().trim() ?? '';
+      final reason = flag['flag_reason']?.toString().trim() ??
+          'Off-platform contact attempt';
+      final risk = flag['risk_level']?.toString().toUpperCase() ?? 'HIGH';
+      final isHistory = flag['is_account_history_flag'] == true;
+
+      flaggedMessages.add({
+        'content': content,
+        'reason': reason,
+        'risk_level': risk,
+        'created_at': flag['created_at'],
+        'is_account_history': isHistory,
+        'sender_name': renterName,
+      });
+
+      final excerpt =
+          content.length > 70 ? '${content.substring(0, 67)}...' : content;
+      final sourceTag =
+          isHistory ? '[Renter Profile History]' : '[Flagged Message]';
+      final detail = content.isNotEmpty
+          ? '$sourceTag "$excerpt" — $reason ($risk risk)'
+          : '$sourceTag Policy Violation: $reason';
+      if (!violatedReasons.contains(detail)) {
+        violatedReasons.add(detail);
+      }
+    }
+
+    // 2. Scan loaded messages in memory
     for (final msg in messages) {
-      // Skip auto-generated system messages, checklists, audit logs, etc.
       final isAutoGenerated = msg['is_auto_generated'] == true ||
           msg['is_system'] == true ||
           msg['sender_id'] == null;
@@ -19181,7 +19290,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final cleanContent = content.trim();
       if (cleanContent.isEmpty) continue;
 
-      // Skip system messages and checklist headers if they leaked through
       if (MessageFilterService.isSystemOrAuditMessage(cleanContent) ||
           cleanContent.startsWith('[System]') ||
           cleanContent.startsWith('Booking Details') ||
@@ -19191,39 +19299,70 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }
 
       final analysis = MessageFilterService.analyzeMessage(cleanContent);
-      if (analysis['is_suspicious'] == true || msg['is_flagged'] == true) {
+      if (analysis['is_suspicious'] == true ||
+          msg['is_flagged'] == true ||
+          msg['is_blocked_flag'] == true) {
         final keywords = List<String>.from(
           analysis['found_keywords'] as List? ?? [],
         );
         final label = keywords.isNotEmpty
             ? keywords.join(', ')
-            : 'Off-platform contact attempt';
-        final excerpt = cleanContent.length > 50
-            ? '${cleanContent.substring(0, 47)}...'
+            : (msg['flag_reason']?.toString() ??
+                'Off-platform contact attempt');
+        final excerpt = cleanContent.length > 70
+            ? '${cleanContent.substring(0, 67)}...'
             : cleanContent;
-        final detail = 'Off-platform contact attempt ("$excerpt" - $label)';
-        if (!violatedReasons.contains(detail)) {
+
+        final alreadyInFlagged =
+            flaggedMessages.any((f) => f['content'] == cleanContent);
+        if (!alreadyInFlagged) {
+          flaggedMessages.add({
+            'content': cleanContent,
+            'reason': label,
+            'risk_level':
+                analysis['risk_level']?.toString().toUpperCase() ?? 'HIGH',
+            'created_at': msg['created_at'],
+            'is_account_history': false,
+            'sender_name': (msg['sender'] as Map?)?['full_name']?.toString() ??
+                renterName,
+          });
+        }
+
+        final detail =
+            'Off-platform contact attempt: "$excerpt" (Detected: $label)';
+        if (!violatedReasons.contains(detail) &&
+            !violatedReasons.any((r) => r.contains(excerpt))) {
           violatedReasons.add(detail);
         }
       }
     }
 
-    if (flagCount > 0) {
+    // 3. User account restriction annotations
+    if (flagCount > 0 && !violatedReasons.any((r) => r.contains('registered policy violation'))) {
       violatedReasons.add(
-        'Renter has $flagCount registered policy violation flag${flagCount == 1 ? '' : 's'}',
+        'Renter has $flagCount registered policy violation flag${flagCount == 1 ? '' : 's'} on account profile',
       );
     }
+
+    final restrReason = renter['restriction_reason']?.toString().trim();
+    if (restrReason != null && restrReason.isNotEmpty) {
+      violatedReasons.add('Restriction Reason: $restrReason');
+    }
+
     if (isBlocked) {
       violatedReasons.add('Renter account is currently blocked/suspended');
     }
     if (isSafetyFreeze) {
-      violatedReasons.add('Booking is currently frozen under Safety Freeze policy');
+      violatedReasons.add(
+        'Booking is currently frozen under Safety Freeze policy',
+      );
     }
     if (convStatus == 'closed' && violatedReasons.isEmpty) {
       violatedReasons.add('Conversation is closed due to policy restriction');
     }
 
     final hasViolation = violatedReasons.isNotEmpty ||
+        flaggedMessages.isNotEmpty ||
         isSafetyFreeze ||
         isBlocked ||
         flagCount > 0 ||
@@ -19237,6 +19376,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       'flag_count': flagCount,
       'is_blocked': isBlocked,
       'violated_reasons': violatedReasons,
+      'flagged_messages': flaggedMessages,
     };
   }
 
@@ -19249,15 +19389,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final reasons = List<String>.from(
       violation['violated_reasons'] as List? ?? [],
     );
+    final flaggedMessages = List<Map<String, dynamic>>.from(
+      violation['flagged_messages'] as List? ?? [],
+    );
 
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.red.shade900.withValues(alpha: isDark ? 0.25 : 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.shade600, width: 1.2),
+        color: Colors.red.shade900.withValues(alpha: isDark ? 0.28 : 0.14),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.red.shade600, width: 1.4),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -19266,15 +19409,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           Row(
             children: [
               Container(
-                width: 28,
-                height: 28,
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                   color: Colors.red.shade700,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(9),
                 ),
                 child: const Icon(
                   Icons.gavel_rounded,
-                  size: 16,
+                  size: 18,
                   color: Colors.white,
                 ),
               ),
@@ -19320,7 +19463,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
                       '$renterName violated PSDC messaging guidelines (Off-platform contact or payment attempt detected).',
                       style: TextStyle(
@@ -19334,10 +19477,109 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ],
           ),
-          if (reasons.isNotEmpty) ...[
+          if (flaggedMessages.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.black.withOpacity(0.4)
+                    : Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.shade400.withOpacity(0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.report_problem_rounded,
+                        size: 14,
+                        color: Colors.red.shade400,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'OFFENDING MESSAGE AUDIT EVIDENCE:',
+                        style: TextStyle(
+                          color: Colors.red.shade400,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  for (final fm in flaggedMessages)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade900.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.red.shade300.withOpacity(0.3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if ((fm['content']?.toString() ?? '').isNotEmpty)
+                            Text(
+                              '"${fm['content']}"',
+                              style: TextStyle(
+                                color: isDark ? Colors.yellow.shade100 : Colors.red.shade900,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade700,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  fm['risk_level']?.toString() ?? 'FLAGGED',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Reason: ${fm['reason'] ?? 'Off-platform contact attempt'} ${fm['is_account_history'] == true ? '• From user profile history' : ''}',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.grey[300] : Colors.black87,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ] else if (reasons.isNotEmpty) ...[
             const SizedBox(height: 8),
             Container(
-              constraints: const BoxConstraints(maxHeight: 110),
+              constraints: const BoxConstraints(maxHeight: 120),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: isDark ? Colors.black38 : Colors.white,
@@ -20614,13 +20856,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic>? violationAnalysis;
     if (!isAutoGenerated && !isOwn && content.trim().isNotEmpty && !isDeleted) {
       final analysis = MessageFilterService.analyzeMessage(content);
-      if (analysis['is_suspicious'] == true || message['is_flagged'] == true) {
+      if (analysis['is_suspicious'] == true ||
+          message['is_flagged'] == true ||
+          message['is_blocked_flag'] == true) {
         violationAnalysis = analysis;
       }
     }
-    final isViolatingMessage = violationAnalysis != null;
+    final isViolatingMessage = violationAnalysis != null ||
+        message['is_flagged'] == true ||
+        message['is_blocked_flag'] == true;
     final violationKeywords = isViolatingMessage
-        ? List<String>.from(violationAnalysis['found_keywords'] as List? ?? [])
+        ? ((violationAnalysis != null &&
+                (violationAnalysis['found_keywords'] as List?)
+                        ?.isNotEmpty ==
+                    true)
+            ? List<String>.from(violationAnalysis['found_keywords'] as List)
+            : [
+                message['flag_reason']?.toString() ??
+                    'Off-platform contact attempt'
+              ])
         : <String>[];
 
     final showContentText =
@@ -20825,7 +21079,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             const SizedBox(width: 5),
                             Flexible(
                               child: Text(
-                                'Policy Violation: ${violationKeywords.isNotEmpty ? violationKeywords.join(', ') : 'Off-platform contact attempt'}',
+                                message['is_blocked_flag'] == true
+                                    ? '🚨 BLOCKED VIOLATION: ${violationKeywords.isNotEmpty ? violationKeywords.join(', ') : 'Off-platform contact'}'
+                                    : '🚨 FLAGGED VIOLATION: ${violationKeywords.isNotEmpty ? violationKeywords.join(', ') : 'Off-platform contact'}',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,
