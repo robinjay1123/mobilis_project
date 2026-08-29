@@ -34,6 +34,7 @@ import '../../../utils/notification_visual.dart';
 import '../../widgets/handover_pin_verifier_modal.dart';
 import '../../widgets/inspection_damage_comparison_dialog.dart';
 import '../../widgets/trip_route_history_dialog.dart';
+import '../../widgets/trip_location_map_dialog.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -4371,15 +4372,12 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                         children: [
                           InkWell(
                             onTap: () {
-                              final bId = booking['id']?.toString() ?? '';
-                              if (bId.isNotEmpty) {
-                                TripRouteHistoryDialog.show(
-                                  context: context,
-                                  bookingId: bId,
-                                  vehicleName: vehicleName,
-                                  plateNumber: plateNumber,
-                                );
-                              }
+                              TripLocationMapDialog.show(
+                                context: context,
+                                booking: booking,
+                                vehicleName: vehicleName,
+                                plateNumber: plateNumber,
+                              );
                             },
                             borderRadius: BorderRadius.circular(8),
                             child: Padding(
@@ -4407,7 +4405,7 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                                             const Icon(Icons.map_rounded, size: 12, color: AppColors.primary),
                                             const SizedBox(width: 2),
                                             const Text(
-                                              '(Tap to View Map Route)',
+                                              '(Tap to View Map)',
                                               style: TextStyle(
                                                 color: AppColors.primary,
                                                 fontSize: 10,
@@ -4444,15 +4442,12 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                           ),
                           InkWell(
                             onTap: () {
-                              final bId = booking['id']?.toString() ?? '';
-                              if (bId.isNotEmpty) {
-                                TripRouteHistoryDialog.show(
-                                  context: context,
-                                  bookingId: bId,
-                                  vehicleName: vehicleName,
-                                  plateNumber: plateNumber,
-                                );
-                              }
+                              TripLocationMapDialog.show(
+                                context: context,
+                                booking: booking,
+                                vehicleName: vehicleName,
+                                plateNumber: plateNumber,
+                              );
                             },
                             borderRadius: BorderRadius.circular(8),
                             child: Padding(
@@ -4480,7 +4475,7 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                                             const Icon(Icons.map_rounded, size: 12, color: AppColors.primary),
                                             const SizedBox(width: 2),
                                             const Text(
-                                              '(Tap to View Map Route)',
+                                              '(Tap to View Map)',
                                               style: TextStyle(
                                                 color: AppColors.primary,
                                                 fontSize: 10,

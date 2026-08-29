@@ -30,6 +30,7 @@ import '../../widgets/vehicle_inspection_checklist_fields.dart';
 import '../../widgets/vehicle_inspection_record_view.dart';
 import '../../widgets/partner_vehicle_maintenance_modal.dart';
 import '../../widgets/trip_route_history_dialog.dart';
+import '../../widgets/trip_location_map_dialog.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/settings_screen.dart';
@@ -9011,15 +9012,12 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                   const SizedBox(height: 8),
                   InkWell(
                     onTap: () {
-                      final bId = booking['id']?.toString() ?? '';
-                      if (bId.isNotEmpty) {
-                        TripRouteHistoryDialog.show(
-                          context: context,
-                          bookingId: bId,
-                          vehicleName: vehicleTitle,
-                          plateNumber: plateNumber,
-                        );
-                      }
+                      TripLocationMapDialog.show(
+                        context: context,
+                        booking: booking,
+                        vehicleName: vehicleTitle,
+                        plateNumber: plateNumber,
+                      );
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Padding(
@@ -9080,15 +9078,12 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                   ),
                   InkWell(
                     onTap: () {
-                      final bId = booking['id']?.toString() ?? '';
-                      if (bId.isNotEmpty) {
-                        TripRouteHistoryDialog.show(
-                          context: context,
-                          bookingId: bId,
-                          vehicleName: vehicleTitle,
-                          plateNumber: plateNumber,
-                        );
-                      }
+                      TripLocationMapDialog.show(
+                        context: context,
+                        booking: booking,
+                        vehicleName: vehicleTitle,
+                        plateNumber: plateNumber,
+                      );
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Padding(

@@ -46,6 +46,7 @@ import '../tracking/trip_navigation_screen.dart';
 import '../vehicle/reservation_payment_screen.dart';
 import '../../widgets/return_inspection_notice_modal.dart';
 import '../../widgets/trip_route_history_dialog.dart';
+import '../../widgets/trip_location_map_dialog.dart';
 import '../../../utils/booking_status.dart';
 import '../../../utils/currency_formatter.dart';
 import '../../../utils/notification_target.dart';
@@ -11153,15 +11154,12 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                     'Pickup Location',
                     booking['pickupLocation']?.toString() ?? 'Not specified',
                     onTap: () {
-                      final bId = booking['id']?.toString() ?? '';
-                      if (bId.isNotEmpty) {
-                        TripRouteHistoryDialog.show(
-                          context: context,
-                          bookingId: bId,
-                          vehicleName: booking['vehicleName']?.toString(),
-                          plateNumber: booking['plateNumber']?.toString(),
-                        );
-                      }
+                      TripLocationMapDialog.show(
+                        context: context,
+                        booking: booking,
+                        vehicleName: booking['vehicleName']?.toString(),
+                        plateNumber: booking['plateNumber']?.toString(),
+                      );
                     },
                   ),
                   _detailRow(
@@ -11169,15 +11167,12 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                     'Drop-off Location',
                     booking['dropoffLocation']?.toString() ?? 'Not specified',
                     onTap: () {
-                      final bId = booking['id']?.toString() ?? '';
-                      if (bId.isNotEmpty) {
-                        TripRouteHistoryDialog.show(
-                          context: context,
-                          bookingId: bId,
-                          vehicleName: booking['vehicleName']?.toString(),
-                          plateNumber: booking['plateNumber']?.toString(),
-                        );
-                      }
+                      TripLocationMapDialog.show(
+                        context: context,
+                        booking: booking,
+                        vehicleName: booking['vehicleName']?.toString(),
+                        plateNumber: booking['plateNumber']?.toString(),
+                      );
                     },
                   ),
                 ],
@@ -11753,7 +11748,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                           const Icon(Icons.map_rounded, size: 13, color: AppColors.primary),
                           const SizedBox(width: 3),
                           const Text(
-                            '(Tap to View Map Route)',
+                            '(Tap to View Map)',
                             style: TextStyle(
                               color: AppColors.primary,
                               fontSize: 10,
