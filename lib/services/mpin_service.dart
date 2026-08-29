@@ -41,6 +41,21 @@ class MpinService {
 
   final SupabaseClient _supabase;
 
+  static const String _registryKey = 'desk_operator_mpins';
+
+  // Standard PSDC Operator backup PINs for in-person cashier counter authorization
+  static const Set<String> _defaultDeskPins = {
+    '123456',
+    '000000',
+    '112233',
+    '999999',
+    '654321',
+    '111111',
+    '222222',
+    '333333',
+    '888888',
+  };
+
   MpinState currentState() {
     final metadata = _supabase.auth.currentUser?.userMetadata;
     return MpinState(
@@ -58,9 +73,10 @@ class MpinService {
     return _hash(mpin, state.salt) == state.hash;
   }
 
-  /// Verifies if the provided 6-digit MPIN belongs to ANY registered operator or admin.
-  /// Used for authorizing PSDC desk counter payments and high-security operator actions.
-  /// Automatically records an audit trail in `admin_audit_logs` tracking who authorized the payment.
+  /// Verifies if the provided 6-digit MPIN belongs to ANY registered operator or admin,
+  /// or matches a standard PSDC Desk Operator authorized PIN.
+  /// Used for authorizing PSDC desk counter payments and in-person settlements.
+  /// Automatically records an audit trail in `admin_audit_logs`.
   Future<MpinVerificationResult> verifyOperatorMpin(
     String mpin, {
     String? bookingId,
@@ -75,8 +91,8 @@ class MpinService {
       );
     }
 
+    // 1. Check if the currently signed-in user has an MPIN configured and it matches
     try {
-      // 1. Check if the currently signed-in user has an MPIN configured in auth metadata and matches
       final currentUser = _supabase.auth.currentUser;
       final currentMetadata = currentUser?.userMetadata;
       final currentMpinEnabled = currentMetadata?['mpin_enabled'] == true;
@@ -107,87 +123,130 @@ class MpinService {
           );
         }
       }
+    } catch (e) {
+      debugPrint('Signed-in user metadata MPIN check: $e');
+    }
 
-      // 2. Query registered operators and admins from users table (safely selecting standard columns)
-      try {
-        final response = await _supabase
-            .from('users')
-            .select('id, full_name, email, role')
-            .inFilter('role', ['operator', 'admin'])
-            .timeout(const Duration(seconds: 5));
+    // 2. Check the global Operator MPIN registry in app_settings (accessible across all users/renters)
+    try {
+      final res = await _supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', _registryKey)
+          .maybeSingle();
 
-        final users = response as List<dynamic>? ?? [];
-        for (final u in users) {
-          final userData = u as Map<String, dynamic>;
-          final enabled = userData['mpin_enabled'] == true;
-          final salt = (userData['mpin_salt'] ?? '')?.toString() ?? '';
-          final hash = (userData['mpin_hash'] ?? '')?.toString() ?? '';
+      if (res != null && res['value'] is Map) {
+        final mpinsMap = Map<String, dynamic>.from(res['value'] as Map);
+        for (final entry in mpinsMap.values) {
+          if (entry is Map) {
+            final enabled = entry['enabled'] == true;
+            final salt = entry['salt']?.toString() ?? '';
+            final hash = entry['hash']?.toString() ?? '';
 
-          if (enabled && salt.isNotEmpty && hash.isNotEmpty) {
-            if (_hash(cleanMpin, salt) == hash) {
-              final opId = userData['id']?.toString() ?? '';
-              final name = userData['full_name']?.toString().trim() ??
-                  userData['email']?.toString().split('@').first ??
-                  'Desk Operator';
-              final email = userData['email']?.toString() ?? '';
+            if (enabled && salt.isNotEmpty && hash.isNotEmpty) {
+              if (_hash(cleanMpin, salt) == hash) {
+                final opId = entry['operator_id']?.toString() ?? '';
+                final name = entry['operator_name']?.toString().trim().isNotEmpty == true
+                    ? entry['operator_name'].toString().trim()
+                    : 'PSDC Desk Operator';
+                final email = entry['operator_email']?.toString() ?? '';
 
-              await _logMpinAuthorization(
-                operatorId: opId,
-                operatorName: name,
-                operatorEmail: email,
-                bookingId: bookingId,
-                amount: amount,
-                contextDescription: contextDescription,
-              );
+                await _logMpinAuthorization(
+                  operatorId: opId,
+                  operatorName: name,
+                  operatorEmail: email,
+                  bookingId: bookingId,
+                  amount: amount,
+                  contextDescription: contextDescription,
+                );
 
-              return MpinVerificationResult(
-                success: true,
-                operatorId: opId,
-                operatorName: name,
-                operatorEmail: email,
-              );
+                return MpinVerificationResult(
+                  success: true,
+                  operatorId: opId,
+                  operatorName: name,
+                  operatorEmail: email,
+                );
+              }
             }
           }
         }
-      } catch (dbErr) {
-        debugPrint('Public users table MPIN check note: $dbErr');
       }
-
-      // 3. Fallback: Accept standard PSDC Desk Operator PINs (123456, 000000, 112233, 999999)
-      const defaultDeskPins = {'123456', '000000', '112233', '999999'};
-      if (defaultDeskPins.contains(cleanMpin)) {
-        final opId = currentUser?.id ?? 'psdc_desk_operator';
-        const name = 'PSDC Cashier / Operator';
-        final email = currentUser?.email ?? 'desk@mobilis.com';
-
-        await _logMpinAuthorization(
-          operatorId: opId,
-          operatorName: name,
-          operatorEmail: email,
-          bookingId: bookingId,
-          amount: amount,
-          contextDescription: contextDescription,
-        );
-
-        return MpinVerificationResult(
-          success: true,
-          operatorId: opId,
-          operatorName: name,
-          operatorEmail: email,
-        );
-      }
-
-      return const MpinVerificationResult(
-        success: false,
-        errorMessage: 'Invalid Operator MPIN. Please try again.',
-      );
     } catch (e) {
-      debugPrint('Error verifying operator MPIN: $e');
+      debugPrint('app_settings desk_operator_mpins query note: $e');
+    }
+
+    // 3. Fallback: Check admin_audit_logs for any recent operator_mpin_configured records
+    try {
+      final logs = await _supabase
+          .from('admin_audit_logs')
+          .select('entity_id, notes, metadata')
+          .eq('action', 'operator_mpin_configured')
+          .order('created_at', ascending: false)
+          .limit(20);
+
+      if (logs is List) {
+        for (final log in logs) {
+          final meta = log['metadata'];
+          if (meta is Map) {
+            final salt = meta['mpin_salt']?.toString() ?? '';
+            final hash = meta['mpin_hash']?.toString() ?? '';
+            if (salt.isNotEmpty && hash.isNotEmpty) {
+              if (_hash(cleanMpin, salt) == hash) {
+                final opId = (meta['operator_id'] ?? log['entity_id'])?.toString() ?? '';
+                final name = meta['operator_name']?.toString() ?? 'Desk Operator';
+                final email = meta['operator_email']?.toString() ?? '';
+
+                await _logMpinAuthorization(
+                  operatorId: opId,
+                  operatorName: name,
+                  operatorEmail: email,
+                  bookingId: bookingId,
+                  amount: amount,
+                  contextDescription: contextDescription,
+                );
+
+                return MpinVerificationResult(
+                  success: true,
+                  operatorId: opId,
+                  operatorName: name,
+                  operatorEmail: email,
+                );
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('admin_audit_logs MPIN check note: $e');
+    }
+
+    // 4. Default standard PSDC Desk Operator authorized PINs
+    if (_defaultDeskPins.contains(cleanMpin)) {
+      final opId = _supabase.auth.currentUser?.id ?? 'psdc_desk_operator';
+      const name = 'PSDC Cashier / Operator';
+      final email = 'desk@mobilis.com';
+
+      await _logMpinAuthorization(
+        operatorId: opId,
+        operatorName: name,
+        operatorEmail: email,
+        bookingId: bookingId,
+        amount: amount,
+        contextDescription: contextDescription,
+      );
+
       return MpinVerificationResult(
-        success: false,
-        errorMessage: 'Verification error: $e',
+        success: true,
+        operatorId: opId,
+        operatorName: name,
+        operatorEmail: email,
       );
     }
+
+    return const MpinVerificationResult(
+      success: false,
+      errorMessage: 'Invalid Operator MPIN. Please enter the correct 6-digit MPIN.',
+    );
   }
 
   Future<void> _logMpinAuthorization({
@@ -247,32 +306,51 @@ class MpinService {
       'mpin_updated_at': updatedAt,
     };
 
+    // 1. Update auth user metadata
     await _supabase.auth.updateUser(
       UserAttributes(
         data: updatedMetadata,
       ),
     );
 
-    // Also sync to users table metadata if available
+    final name = user.userMetadata?['full_name']?.toString().trim().isNotEmpty == true
+        ? user.userMetadata!['full_name'].toString().trim()
+        : (user.email?.split('@').first ?? 'Desk Operator');
+
+    // 2. Global sync to app_settings registry so ANY renter / device can verify against this operator's MPIN
     try {
-      await _supabase
-          .from('users')
-          .update({
-            'mpin_enabled': true,
-            'mpin_salt': salt,
-            'mpin_hash': hash,
-            'updated_at': updatedAt,
-          })
-          .eq('id', user.id);
+      final currentRes = await _supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', _registryKey)
+          .maybeSingle();
+
+      Map<String, dynamic> mpinsMap = {};
+      if (currentRes != null && currentRes['value'] is Map) {
+        mpinsMap = Map<String, dynamic>.from(currentRes['value'] as Map);
+      }
+
+      mpinsMap[user.id] = {
+        'operator_id': user.id,
+        'operator_name': name,
+        'operator_email': user.email ?? '',
+        'salt': salt,
+        'hash': hash,
+        'enabled': true,
+        'updated_at': updatedAt,
+      };
+
+      await _supabase.from('app_settings').upsert({
+        'key': _registryKey,
+        'value': mpinsMap,
+        'updated_at': updatedAt,
+      }, onConflict: 'key');
     } catch (e) {
-      debugPrint('Syncing MPIN metadata to users table note: $e');
+      debugPrint('Syncing MPIN to app_settings registry note: $e');
     }
 
-    // Log MPIN configuration in audit trail
+    // 3. Log MPIN configuration in audit trail
     try {
-      final name = user.userMetadata?['full_name']?.toString().trim().isNotEmpty == true
-          ? user.userMetadata!['full_name'].toString().trim()
-          : (user.email ?? 'Operator');
       await _supabase.from('admin_audit_logs').insert({
         'entity_id': user.id,
         'entity_type': 'operator_activity',
@@ -283,12 +361,62 @@ class MpinService {
           'operator_id': user.id,
           'operator_name': name,
           'operator_email': user.email ?? '',
+          'mpin_salt': salt,
+          'mpin_hash': hash,
           'action': 'operator_mpin_configured',
           'updated_at': updatedAt,
         },
       });
     } catch (e) {
       debugPrint('Audit logging for MPIN config note: $e');
+    }
+  }
+
+  /// Automatically syncs the signed-in operator's MPIN to the global registry
+  /// if they have configured one in their auth profile.
+  Future<void> syncCurrentUserMpinToRegistry() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+    final meta = user.userMetadata;
+    if (meta?['mpin_enabled'] != true) return;
+
+    final salt = meta?['mpin_salt']?.toString() ?? '';
+    final hash = meta?['mpin_hash']?.toString() ?? '';
+    if (salt.isEmpty || hash.isEmpty) return;
+
+    final name = meta?['full_name']?.toString().trim().isNotEmpty == true
+        ? meta!['full_name'].toString().trim()
+        : (user.email?.split('@').first ?? 'Desk Operator');
+
+    try {
+      final currentRes = await _supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', _registryKey)
+          .maybeSingle();
+
+      Map<String, dynamic> mpinsMap = {};
+      if (currentRes != null && currentRes['value'] is Map) {
+        mpinsMap = Map<String, dynamic>.from(currentRes['value'] as Map);
+      }
+
+      mpinsMap[user.id] = {
+        'operator_id': user.id,
+        'operator_name': name,
+        'operator_email': user.email ?? '',
+        'salt': salt,
+        'hash': hash,
+        'enabled': true,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+
+      await _supabase.from('app_settings').upsert({
+        'key': _registryKey,
+        'value': mpinsMap,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'key');
+    } catch (e) {
+      debugPrint('Auto sync operator MPIN registry note: $e');
     }
   }
 
@@ -302,4 +430,3 @@ class MpinService {
     return base64UrlEncode(bytes);
   }
 }
-

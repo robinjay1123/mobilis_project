@@ -1091,6 +1091,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _restoreSavedTab();
     _loadUnreadMessagesCount();
     _loadDashboardData();
+    MpinService().syncCurrentUserMpinToRegistry();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadConversations();
     });
