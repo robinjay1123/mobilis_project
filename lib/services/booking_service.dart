@@ -972,8 +972,7 @@ class BookingService {
         supabase
             .from('bookings')
             .select('id,start_at,end_at,start_date,end_date,status')
-            .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
-            .inFilter('status', _bookingBlockingStatuses),
+            .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId'),
       ).wait;
 
       if (restriction.isBlocked || restriction.isAccountRestricted) {

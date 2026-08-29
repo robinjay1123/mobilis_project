@@ -374,6 +374,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   Future<void> _selectDates() async {
     if (!await _ensureVehicleBookable()) return;
 
+    try {
+      final latestUnavailable = await VehicleService().getUnavailableDates(
+        widget.vehicleId,
+      );
+      if (mounted) {
+        setState(() {
+          _unavailableDates = latestUnavailable;
+        });
+      }
+      await _loadMyBookings();
+    } catch (e) {
+      debugPrint('Error refreshing availability for date picker: $e');
+    }
+
     final isHourly = _bookingMode == BookingMode.hourly;
     final now = DateTime.now();
     final firstDate = DateTime(now.year, now.month, now.day);
