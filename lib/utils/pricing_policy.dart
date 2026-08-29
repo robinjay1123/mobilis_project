@@ -4,11 +4,26 @@ class PricingPolicy {
   static const double lateReturnRate6PlusSeater = 350.0;
   static const int lateReturnDayCapHours = 6;
   static const double lateReturnRatePerHour = 200.0;
+  static const double standardReservationFee = 1000.0;
   static const double longBookingReservationRate = 0.20;
   static const int longBookingReservationThresholdDays = 7;
   static const double driverDailyRate = 1500.0;
   static const int minHourlyBookingHours = 12;
   static const int maxHourlyBookingHours = 23;
+
+  /// Calculates the reservation fee:
+  /// - 1 to 7 days: ₱1,000 flat fee
+  /// - 8+ days (i.e. > 7 days): 20% of the principal rental total
+  static double calculateReservationFee({
+    required int days,
+    required double principalRentalTotal,
+    double defaultStandardFee = standardReservationFee,
+  }) {
+    if (days > longBookingReservationThresholdDays) {
+      return principalRentalTotal * longBookingReservationRate;
+    }
+    return defaultStandardFee;
+  }
 
   static const double minDailyRentalPrice = 500;
   static const double maxDailyRentalPrice = 25000;

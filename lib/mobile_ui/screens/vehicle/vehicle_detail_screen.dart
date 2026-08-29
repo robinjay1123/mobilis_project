@@ -1417,9 +1417,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   bool get _requiresLongBookingReservation =>
       _billableDays > PricingPolicy.longBookingReservationThresholdDays;
 
-  double get _reservationFeeAmount => _requiresLongBookingReservation
-      ? _totalPrice * PricingPolicy.longBookingReservationRate
-      : 0;
+  double get _reservationFeeAmount {
+    if (_rentalDuration == Duration.zero || _totalPrice <= 0) return 0.0;
+    return PricingPolicy.calculateReservationFee(
+      days: _billableDays,
+      principalRentalTotal: _totalPrice,
+    );
+  }
 
   double get _remainingBalance {
     final balance = _totalPrice - _reservationFeeAmount;
@@ -3755,10 +3759,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             color: AppColors.borderColor,
                             height: 24,
                           ),
-                          if (_requiresLongBookingReservation) ...[
+                          if (_reservationFeeAmount > 0) ...[
                             _buildSummaryRow(
                               'Reservation fee',
-                              '20% = PHP ${formatAmount(_reservationFeeAmount)}',
+                              _requiresLongBookingReservation
+                                  ? '20% = PHP ${formatAmount(_reservationFeeAmount)}'
+                                  : 'PHP ${formatAmount(_reservationFeeAmount)}',
                             ),
                             const SizedBox(height: 8),
                             _buildSummaryRow(

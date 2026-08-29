@@ -222,9 +222,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         .clamp(0.0, double.infinity);
     final seats = (widget.vehicleData['seats'] as num?)?.toInt() ?? 5;
     final securityDeposit = _settings.getDepositForSeats(seats);
-    final reservationFee = widget.requiresLongBookingReservation
+    final reservationFee = widget.reservationFeeAmount > 0
         ? widget.reservationFeeAmount
-        : _settings.amount;
+        : (widget.requiresLongBookingReservation
+            ? widget.rentalTotal * PricingPolicy.longBookingReservationRate
+            : _settings.amount);
     final grandTotal = principalRentalSubtotal + securityDeposit;
     final payableAmount = _payFullAmount ? grandTotal : reservationFee;
 
@@ -315,9 +317,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         .clamp(0.0, double.infinity);
     final seats = (widget.vehicleData['seats'] as num?)?.toInt() ?? 5;
     final securityDeposit = _settings.getDepositForSeats(seats);
-    final reservationFee = widget.requiresLongBookingReservation
+    final reservationFee = widget.reservationFeeAmount > 0
         ? widget.reservationFeeAmount
-        : _settings.amount; // default ₱1,000
+        : (widget.requiresLongBookingReservation
+            ? widget.rentalTotal * PricingPolicy.longBookingReservationRate
+            : _settings.amount); // default ₱1,000
     final grandTotal = principalRentalSubtotal + securityDeposit;
     final resFeePaid = widget.paidReservationFee ?? reservationFee;
 
@@ -529,9 +533,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
 
     final seats = (vehicle['seats'] as num?)?.toInt() ?? 5;
     final securityDeposit = _settings.getDepositForSeats(seats);
-    final reservationFee = widget.requiresLongBookingReservation
+    final reservationFee = widget.reservationFeeAmount > 0
         ? widget.reservationFeeAmount
-        : _settings.amount; // default ₱1,000
+        : (widget.requiresLongBookingReservation
+            ? widget.rentalTotal * PricingPolicy.longBookingReservationRate
+            : _settings.amount); // default ₱1,000
 
     final dailyRate = (vehicle['price_per_day'] as num?)?.toDouble() ??
         (vehicle['daily_rate'] as num?)?.toDouble() ??
@@ -1306,8 +1312,8 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                           const SizedBox(width: 6),
                           Text(
                             widget.requiresLongBookingReservation
-                                ? 'Reservation Fee (20% to hold booking)'
-                                : 'Reservation Fee (To hold booking)',
+                                ? 'Reservation Fee (20% of principal rent)'
+                                : 'Reservation Fee (PHP 1,000 to hold booking)',
                             style: TextStyle(
                               color: isDark ? Colors.white : const Color(0xFF0F172A),
                               fontWeight: FontWeight.w700,
@@ -1388,7 +1394,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                             ? 'Payable Now (Full Rent + Deposit)'
                             : widget.requiresLongBookingReservation
                                 ? 'Payable Now (20% Reservation Fee)'
-                                : 'Payable Now (Reservation Fee Only)',
+                                : 'Payable Now (Reservation Fee: PHP 1,000)',
                         style: const TextStyle(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w800,
