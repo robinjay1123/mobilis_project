@@ -3043,20 +3043,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
       var conversationId = existingConversation['id']?.toString();
 
       if (conversationId == null || conversationId.isEmpty) {
-        final supabase = Supabase.instance.client;
-        final conversation = await supabase
-            .from('conversations')
-            .select('id')
-            .eq('booking_id', bookingId)
-            .maybeSingle();
+        final conversation =
+            await ChatService().getConversationByBookingId(bookingId);
         conversationId = conversation?['id']?.toString();
+      }
+
+      if (conversationId == null || conversationId.isEmpty) {
+        final currentUser = AuthService().currentUser;
+        final conversation =
+            await ChatService().getOrCreateBookingConversation(
+          bookingId,
+          initialParticipantIds: [
+            if (currentUser != null) currentUser.id,
+            if (booking['renter_id'] != null) booking['renter_id'].toString(),
+            if (booking['driver_id'] != null) booking['driver_id'].toString(),
+            if (booking['operator_id'] != null)
+              booking['operator_id'].toString(),
+          ],
+        );
+        conversationId = conversation['id']?.toString();
       }
 
       if (conversationId == null || conversationId.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Group chat is initializing. Please refresh in a moment.'),
+              content: Text(
+                'Group chat is initializing. Please refresh in a moment.',
+              ),
               backgroundColor: AppColors.warning,
             ),
           );
@@ -3090,6 +3104,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     }
+  }
+
+  Future<String> _uploadTripExtensionReceipt({
+    required String bookingId,
+    required XFile file,
+    String prefix = 'ext_payment',
+  }) async {
+    final bytes = await file.readAsBytes();
+    final fileExt = file.name.contains('.') ? file.name.split('.').last : 'jpg';
+    final fileName =
+        '${prefix}_${bookingId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+    final supabase = Supabase.instance.client;
+
+    final candidateBuckets = [
+      'reservation_receipts',
+      'booking_evidence',
+      'chat_attachments',
+      'driver_documents',
+      'partner_documents',
+      'vehicle_images',
+      'public',
+    ];
+
+    for (final bucket in candidateBuckets) {
+      try {
+        await supabase.storage.from(bucket).uploadBinary(
+              fileName,
+              bytes,
+              fileOptions: const FileOptions(upsert: true),
+            );
+        return supabase.storage.from(bucket).getPublicUrl(fileName);
+      } catch (e) {
+        debugPrint('Bucket $bucket upload failed: $e. Trying next bucket...');
+      }
+    }
+    throw Exception('Storage bucket not available to store receipt image.');
   }
 
   // ---------------------------------------------------------------------------
@@ -9169,21 +9219,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               try {
                                 String proofUrl = '';
                                 if (pickedReceipt != null) {
-                                  final bytes = await pickedReceipt!.readAsBytes();
-                                  final fileExt = pickedReceipt!.name.split('.').last;
-                                  final fileName =
-                                      'ext_instant_${bookingId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
-                                  final supabase = Supabase.instance.client;
-                                  await supabase.storage
-                                      .from('booking-payments')
-                                      .uploadBinary(
-                                        fileName,
-                                        bytes,
-                                        fileOptions: const FileOptions(upsert: true),
-                                      );
-                                  proofUrl = supabase.storage
-                                      .from('booking-payments')
-                                      .getPublicUrl(fileName);
+                                  proofUrl = await _uploadTripExtensionReceipt(
+                                    bookingId: bookingId,
+                                    file: pickedReceipt!,
+                                    prefix: 'ext_instant',
+                                  );
                                 }
 
                                 await BookingService().submitInstantTripExtensionWithPayment(
@@ -12628,21 +12668,11 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                               try {
                                 String proofUrl = '';
                                 if (pickedReceipt != null) {
-                                  final bytes = await pickedReceipt!.readAsBytes();
-                                  final fileExt = pickedReceipt!.name.split('.').last;
-                                  final fileName =
-                                      'ext_payment_${bookingId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
-                                  final supabase = Supabase.instance.client;
-                                  await supabase.storage
-                                      .from('booking-payments')
-                                      .uploadBinary(
-                                        fileName,
-                                        bytes,
-                                        fileOptions: const FileOptions(upsert: true),
-                                      );
-                                  proofUrl = supabase.storage
-                                      .from('booking-payments')
-                                      .getPublicUrl(fileName);
+                                  proofUrl = await _uploadTripExtensionReceipt(
+                                    bookingId: bookingId,
+                                    file: pickedReceipt!,
+                                    prefix: 'ext_payment',
+                                  );
                                 }
 
                                 await BookingService().submitExtensionPayment(

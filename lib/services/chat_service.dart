@@ -1475,6 +1475,27 @@ class ChatService {
     }
   }
 
+  Future<Map<String, dynamic>> getOrCreateBookingConversation(
+    String bookingId, {
+    List<String>? initialParticipantIds,
+  }) async {
+    final existing = await _firstBookingConversation(bookingId);
+    if (existing != null) {
+      if (initialParticipantIds != null && initialParticipantIds.isNotEmpty) {
+        await addParticipantsToBookingConversation(
+          bookingId: bookingId,
+          participantIds: initialParticipantIds,
+        );
+      }
+      return existing;
+    }
+
+    return await createGroupConversation(
+      bookingId: bookingId,
+      participantIds: initialParticipantIds ?? const [],
+    );
+  }
+
   Future<void> addParticipantsToBookingConversation({
     required String bookingId,
     required List<String> participantIds,
