@@ -11039,7 +11039,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     booking,
                     isDark,
                     compact: true,
-                    isRowHovered: isHovered,
                   ),
                   5,
                 ),
