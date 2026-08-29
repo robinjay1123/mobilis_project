@@ -19340,7 +19340,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     // 3. User account restriction annotations
     if (flagCount > 0 && !violatedReasons.any((r) => r.contains('registered policy violation'))) {
       violatedReasons.add(
-        'Renter has $flagCount registered policy violation flag${flagCount == 1 ? '' : 's'} on account profile',
+        'Renter has $flagCount confirmed policy violation flag${flagCount == 1 ? '' : 's'} on account profile',
       );
     }
 
@@ -19350,7 +19350,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     if (isBlocked) {
-      violatedReasons.add('Renter account is currently blocked/suspended');
+      violatedReasons.add('Renter account is currently blocked/suspended by Admin');
     }
     if (isSafetyFreeze) {
       violatedReasons.add(
@@ -19361,15 +19361,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       violatedReasons.add('Conversation is closed due to policy restriction');
     }
 
-    final hasViolation = violatedReasons.isNotEmpty ||
-        flaggedMessages.isNotEmpty ||
-        isSafetyFreeze ||
+    // Only lock/close the conversation if explicitly closed in DB, frozen, blocked, or confirmed by Admin
+    final hasConfirmedViolation = isSafetyFreeze ||
         isBlocked ||
-        flagCount > 0 ||
-        convStatus == 'closed';
+        convStatus == 'closed' ||
+        dbFlags.any((f) => f['status'] == 'confirmed' || f['status'] == 'violation') ||
+        flagCount >= 3;
+
+    final hasPendingReview = dbFlags.any((f) => f['status'] == 'pending_review');
 
     return {
-      'has_violation': hasViolation,
+      'has_violation': hasConfirmedViolation,
+      'is_pending_review': hasPendingReview && !hasConfirmedViolation,
       'is_frozen': isSafetyFreeze,
       'renter_name': renterName,
       'renter_id': renterId,
@@ -19386,6 +19389,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   ) {
     final renterName = violation['renter_name']?.toString() ?? 'Renter';
     final isFrozen = violation['is_frozen'] == true;
+    final isPendingReview = violation['is_pending_review'] == true;
     final reasons = List<String>.from(
       violation['violated_reasons'] as List? ?? [],
     );
@@ -19393,14 +19397,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       violation['flagged_messages'] as List? ?? [],
     );
 
+    final bannerColor = isPendingReview
+        ? Colors.amber.shade900.withValues(alpha: isDark ? 0.28 : 0.14)
+        : Colors.red.shade900.withValues(alpha: isDark ? 0.28 : 0.14);
+    final borderColor = isPendingReview
+        ? Colors.amber.shade600
+        : Colors.red.shade600;
+
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(20, 10, 20, 0),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.red.shade900.withValues(alpha: isDark ? 0.28 : 0.14),
+        color: bannerColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.red.shade600, width: 1.4),
+        border: Border.all(color: borderColor, width: 1.4),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -19412,11 +19423,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: Colors.red.shade700,
+                  color: isPendingReview ? Colors.amber.shade700 : Colors.red.shade700,
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: const Icon(
-                  Icons.gavel_rounded,
+                child: Icon(
+                  isPendingReview ? Icons.pending_actions_rounded : Icons.gavel_rounded,
                   size: 18,
                   color: Colors.white,
                 ),
@@ -19429,9 +19440,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     Row(
                       children: [
                         Text(
-                          'CONVERSATION CLOSED — MESSAGE RULE VIOLATION',
+                          isPendingReview
+                              ? 'MESSAGE FLAGGED — PENDING ADMIN VERIFICATION'
+                              : 'CONVERSATION CLOSED — MESSAGE RULE VIOLATION',
                           style: TextStyle(
-                            color: Colors.red.shade400,
+                            color: isPendingReview ? Colors.amber.shade400 : Colors.red.shade400,
                             fontSize: 11,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.5,
@@ -19465,7 +19478,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '$renterName violated PSDC messaging guidelines (Off-platform contact or payment attempt detected).',
+                      isPendingReview
+                          ? 'A message in this conversation was flagged by filter and submitted to Admin for verification. Conversation remains active.'
+                          : '$renterName violated PSDC messaging guidelines (Confirmed off-platform contact/payment attempt).',
                       style: TextStyle(
                         color: isDark ? Colors.white : _operatorInk,
                         fontSize: 12,

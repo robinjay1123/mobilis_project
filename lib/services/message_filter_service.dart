@@ -90,7 +90,7 @@ class MessageFilterService {
 
       final analysis = await analyzeMessageWithFilters(messageContent);
 
-      // Create flag record
+      // Create flag record with status pending_review
       final response = await supabase
           .from('message_flags')
           .insert({
@@ -106,9 +106,6 @@ class MessageFilterService {
           })
           .select()
           .single();
-
-      // Increment user flag count
-      await _incrementUserFlagCount(senderId);
 
       return {
         'success': true,
@@ -425,7 +422,7 @@ class MessageFilterService {
       final response = await supabase
           .from('message_flags')
           .update({
-            'status': action == 'approve' ? 'confirmed' : 'dismissed',
+            'status': (action == 'approve' || action == 'confirm' || action == 'block_user') ? 'confirmed' : 'dismissed',
             'admin_notes': adminNotes,
             'reviewed_at': DateTime.now().toIso8601String(),
           })
@@ -433,11 +430,16 @@ class MessageFilterService {
           .select()
           .single();
 
-      if (action == 'block_user') {
+      final senderId = response['sender_id']?.toString() ?? '';
+      if ((action == 'approve' || action == 'confirm' || action == 'block_user') && senderId.isNotEmpty) {
+        await _incrementUserFlagCount(senderId);
+      }
+
+      if (action == 'block_user' && senderId.isNotEmpty) {
         await supabase
             .from('users')
             .update({'is_blocked': true})
-            .eq('id', response['sender_id']);
+            .eq('id', senderId);
       }
 
       return {'success': true, 'data': response};
@@ -570,5 +572,20 @@ class MessageFilterService {
   /// Unban/unblock user and completely reset all restriction blocks and message violation flags
   static Future<Map<String, dynamic>> unbanUser(String userId) {
     return UserRestrictionService().unbanUser(userId);
+  }
+
+  /// Set restriction duration or permanent ban on a user
+  static Future<Map<String, dynamic>> setCustomRestriction({
+    required String userId,
+    required Duration? duration,
+    required String reason,
+    String? adminNotes,
+  }) {
+    return UserRestrictionService().setCustomRestriction(
+      userId: userId,
+      duration: duration,
+      reason: reason,
+      adminNotes: adminNotes,
+    );
   }
 }

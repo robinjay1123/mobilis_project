@@ -373,6 +373,107 @@ class UserRestrictionService {
     }
   }
 
+  /// Allows an Admin to set a specific restriction duration (or permanent block) on a user.
+  Future<Map<String, dynamic>> setCustomRestriction({
+    required String userId,
+    required Duration? duration, // null means permanent block
+    required String reason,
+    String? adminNotes,
+  }) async {
+    try {
+      final user = await supabase
+          .from('users')
+          .select('id, role, email, phone, full_name')
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (user == null) {
+        return {'success': false, 'error': 'User not found'};
+      }
+
+      final role = user['role']?.toString().trim().toLowerCase() ?? '';
+
+      if (duration == null) {
+        // Permanent Block
+        await supabase.from('users').update({
+          'is_blocked': true,
+          'is_active': false,
+          'restriction_reason': reason,
+          'restriction_level': 'admin_manual_blocked',
+          'chat_restricted_until': null,
+          'account_restricted_until': null,
+          'application_status': 'rejected',
+        }).eq('id', userId);
+
+        await _applyRoleRestrictions(userId: userId, role: role);
+        await _handleRenterBookingsOnViolation(userId: userId);
+        await _recordBlockedIdentity(
+          userId: userId,
+          email: user['email']?.toString(),
+          phone: user['phone']?.toString(),
+          fullName: user['full_name']?.toString(),
+        );
+
+        try {
+          await NotificationService().createNotification(
+            userId: userId,
+            title: 'Account Suspended',
+            message:
+                'Your account has been permanently suspended by administration. Reason: $reason',
+            type: 'policy_restriction',
+            data: {'event': 'admin_permanent_suspension'},
+          );
+        } catch (_) {}
+      } else {
+        // Timed Restriction
+        final until = DateTime.now().add(duration);
+        final untilIso = until.toIso8601String();
+
+        await supabase.from('users').update({
+          'is_blocked': true,
+          'is_active': false,
+          'restriction_reason': reason,
+          'restriction_level': 'admin_manual_timed',
+          'chat_restricted_until': untilIso,
+          'account_restricted_until': untilIso,
+        }).eq('id', userId);
+
+        await _applyRoleRestrictions(
+          userId: userId,
+          role: role,
+          restrictedUntil: until,
+        );
+        await _handleRenterBookingsOnViolation(
+          userId: userId,
+          restrictedUntil: until,
+        );
+
+        final days = duration.inDays;
+        final durationText =
+            days > 0 ? '$days day(s)' : '${duration.inHours} hour(s)';
+
+        try {
+          await NotificationService().createNotification(
+            userId: userId,
+            title: 'Account Restricted ($durationText)',
+            message:
+                'Your account access has been restricted for $durationText until ${until.toLocal().toString().split('.').first}. Reason: $reason',
+            type: 'policy_restriction',
+            data: {
+              'event': 'admin_timed_restriction',
+              'restricted_until': untilIso,
+            },
+          );
+        } catch (_) {}
+      }
+
+      return {'success': true};
+    } catch (e) {
+      debugPrint('Error setting custom restriction: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   Future<UserRestrictionState> applyPolicyViolation({
     required String userId,
     String? conversationId,

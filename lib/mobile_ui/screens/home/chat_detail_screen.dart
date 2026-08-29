@@ -454,7 +454,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         });
       }
 
-      // Flag if necessary
+      // Queue for Admin Review if suspicious (do NOT auto-close conversation or auto-ban)
       if (analysis['should_flag']) {
         final messageId =
             sentMessage['id']?.toString() ??
@@ -467,17 +467,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               'Potential off-platform transaction attempt: ${analysis['found_keywords'].join(', ')}',
           messageContent: messageContent,
         );
-        await _restrictionService.applyPolicyViolation(
-          userId: currentUser.id,
-          conversationId: widget.conversationId,
-        );
 
-        // Show flag notification
+        // Show friendly safety reminder to user
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                '📋 Message has been flagged for safety review. Keep transactions within the app.',
+                '📋 Safety Reminder: Keep all coordination and payments inside the app.',
               ),
               duration: Duration(seconds: 3),
               backgroundColor: AppColors.warning,

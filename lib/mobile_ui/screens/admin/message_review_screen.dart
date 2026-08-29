@@ -1403,35 +1403,277 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
           ),
           const SizedBox(height: 14),
 
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: isBusy ? null : () => _confirmUnbanUser(user, displayName),
-              icon: isBusy
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.lock_open_rounded, size: 18),
-              label: Text(
-                isBlocked ? 'Unban & Reactivate User' : 'Reset Violation Flags & Clear Status',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ElevatedButton.icon(
+                onPressed: isBusy ? null : () => _confirmUnbanUser(user, displayName),
+                icon: isBusy
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.lock_open_rounded, size: 18),
+                label: Text(
+                  isBlocked ? 'Unban & Reactivate' : 'Reset Flags & Clear',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.success,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
-            ),
+              OutlinedButton.icon(
+                onPressed: isBusy ? null : () => _openSetRestrictionDialog(user, displayName),
+                icon: const Icon(Icons.timer_outlined, size: 18),
+                label: const Text(
+                  'Set Restriction Duration',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.warning,
+                  side: const BorderSide(color: AppColors.warning),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openSetRestrictionDialog(
+    Map<String, dynamic> user,
+    String displayName,
+  ) async {
+    final userId = user['id']?.toString() ?? '';
+    if (userId.isEmpty) return;
+
+    int selectedDays = 7;
+    bool isPermanent = false;
+    final reasonController = TextEditingController(
+      text: 'Off-platform contact/payment violation confirmed by administration.',
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: widget.isDarkMode ? AppColors.darkCard : Colors.white,
+          title: Row(
+            children: [
+              const Icon(Icons.security_rounded, color: AppColors.warning),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Set Restriction: $displayName',
+                  style: TextStyle(
+                    color: widget.isDarkMode ? AppColors.textPrimary : Colors.black,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Select how long this user will be restricted from messaging and booking.',
+                    style: TextStyle(
+                      color: widget.isDarkMode ? AppColors.textSecondary : Colors.black87,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Restriction Duration:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: widget.isDarkMode ? AppColors.textPrimary : Colors.black,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildDurationChoiceChip(
+                        label: '1 Day',
+                        isSelected: !isPermanent && selectedDays == 1,
+                        onSelected: () => setDialogState(() {
+                          isPermanent = false;
+                          selectedDays = 1;
+                        }),
+                      ),
+                      _buildDurationChoiceChip(
+                        label: '3 Days',
+                        isSelected: !isPermanent && selectedDays == 3,
+                        onSelected: () => setDialogState(() {
+                          isPermanent = false;
+                          selectedDays = 3;
+                        }),
+                      ),
+                      _buildDurationChoiceChip(
+                        label: '7 Days',
+                        isSelected: !isPermanent && selectedDays == 7,
+                        onSelected: () => setDialogState(() {
+                          isPermanent = false;
+                          selectedDays = 7;
+                        }),
+                      ),
+                      _buildDurationChoiceChip(
+                        label: '14 Days',
+                        isSelected: !isPermanent && selectedDays == 14,
+                        onSelected: () => setDialogState(() {
+                          isPermanent = false;
+                          selectedDays = 14;
+                        }),
+                      ),
+                      _buildDurationChoiceChip(
+                        label: '30 Days',
+                        isSelected: !isPermanent && selectedDays == 30,
+                        onSelected: () => setDialogState(() {
+                          isPermanent = false;
+                          selectedDays = 30;
+                        }),
+                      ),
+                      _buildDurationChoiceChip(
+                        label: '🚫 Permanent Ban',
+                        isSelected: isPermanent,
+                        isError: true,
+                        onSelected: () => setDialogState(() {
+                          isPermanent = true;
+                        }),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Reason for Restriction:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: widget.isDarkMode ? AppColors.textPrimary : Colors.black,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: reasonController,
+                    maxLines: 3,
+                    style: TextStyle(
+                      color: widget.isDarkMode ? Colors.white : Colors.black,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Enter reason shown to user...',
+                      hintStyle: TextStyle(
+                        color: widget.isDarkMode ? Colors.white38 : Colors.black38,
+                      ),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: FilledButton.styleFrom(
+                backgroundColor: isPermanent ? AppColors.error : AppColors.warning,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(isPermanent ? 'Apply Permanent Ban' : 'Apply $selectedDays-Day Restriction'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
+
+    if (confirmed != true) return;
+
+    setState(() => _busyUnbanUserIds.add(userId));
+    try {
+      final res = await MessageFilterService.setCustomRestriction(
+        userId: userId,
+        duration: isPermanent ? null : Duration(days: selectedDays),
+        reason: reason.isNotEmpty ? reason : 'Policy violation confirmed by admin.',
+      );
+      if (res['success'] != true) {
+        throw Exception(res['error'] ?? 'Could not apply restriction.');
+      }
+
+      await Future.wait([_loadViolatingUsers(), _loadFlags()]);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isPermanent
+                ? '$displayName has been permanently banned.'
+                : '$displayName has been restricted for $selectedDays day(s).',
+          ),
+          backgroundColor: isPermanent ? AppColors.error : AppColors.warning,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update restriction: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busyUnbanUserIds.remove(userId));
+      }
+    }
+  }
+
+  Widget _buildDurationChoiceChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onSelected,
+    bool isError = false,
+  }) {
+    final activeColor = isError ? AppColors.error : AppColors.primary;
+    return ChoiceChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          color: isSelected ? Colors.white : (widget.isDarkMode ? Colors.white70 : Colors.black87),
+        ),
+      ),
+      selected: isSelected,
+      selectedColor: activeColor,
+      onSelected: (_) => onSelected(),
     );
   }
 
