@@ -632,43 +632,41 @@ class VehicleService {
 
     try {
       // 1. Check partner_vehicles table first
-      final partnerResponse = await supabase
-          .from('partner_vehicles')
-          .select(
-            'id,plate_number,is_available,is_posted,status,application_status',
-          )
-          .eq('id', vehicleId)
-          .maybeSingle();
+      try {
+        final partnerResponse = await supabase
+            .from('partner_vehicles')
+            .select('id,plate_number,is_available,status')
+            .eq('id', vehicleId)
+            .maybeSingle();
 
-      if (partnerResponse != null) {
-        final pv = Map<String, dynamic>.from(partnerResponse);
-        final status = (pv['status'] ?? '').toString().toLowerCase();
-        final appStatus =
-            (pv['application_status'] ?? '').toString().toLowerCase();
-        const blockedStatuses = {
-          'rejected',
-          'deleted',
-          'archived',
-          'disabled',
-          'sold',
-          'inactive',
-        };
+        if (partnerResponse != null) {
+          final pv = Map<String, dynamic>.from(partnerResponse);
+          final status = (pv['status'] ?? '').toString().toLowerCase();
+          const blockedStatuses = {
+            'rejected',
+            'deleted',
+            'archived',
+            'disabled',
+            'sold',
+            'inactive',
+          };
 
-        if (blockedStatuses.contains(status) ||
-            blockedStatuses.contains(appStatus)) {
-          return false;
+          if (blockedStatuses.contains(status)) {
+            return false;
+          }
+
+          if (pv['is_available'] == false) {
+            return false;
+          }
+
+          final isApprovedOrActive =
+              status == 'available' ||
+              status == 'approved' ||
+              status == 'active';
+          return isApprovedOrActive;
         }
-
-        if (pv['is_available'] == false) {
-          return false;
-        }
-
-        final isApprovedOrActive =
-            status == 'available' ||
-            status == 'approved' ||
-            status == 'active' ||
-            appStatus == 'approved';
-        return pv['is_posted'] == true || isApprovedOrActive;
+      } catch (e) {
+        debugPrint('isVehicleBookable partner_vehicles check fallback: $e');
       }
 
       // 2. Check vehicles table
