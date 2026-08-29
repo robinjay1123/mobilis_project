@@ -53,6 +53,7 @@ class ChatDetailScreen extends StatefulWidget {
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   late TextEditingController _messageController;
   late Stream<List<Map<String, dynamic>>> _messageStream;
+  List<Map<String, dynamic>>? _initialLoadedMessages;
   late Future<List<Map<String, dynamic>>> _participantsFuture;
   late Future<Map<String, dynamic>?> _bookingContextFuture;
   String? _warningMessage;
@@ -196,6 +197,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     super.initState();
     _messageController = TextEditingController();
     _messageStream = _buildMessageStream();
+    _loadInitialMessages();
     _loadParticipants();
     _bookingContextFuture = widget.isCustomerService
         ? Future<Map<String, dynamic>?>.value(null)
@@ -213,6 +215,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     } else {
       unawaited(_markCurrentMessagesRead());
     }
+  }
+
+  Future<void> _loadInitialMessages() async {
+    try {
+      final messages = await ChatService().getMessages(widget.conversationId);
+      if (!mounted) return;
+      setState(() => _initialLoadedMessages = messages);
+    } catch (_) {}
   }
 
   Future<void> _loadConfiguredSupportFaqs() async {
@@ -1460,13 +1470,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         stream: _messageStream,
                         builder: (context, snapshot) {
                           if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
+                              ConnectionState.waiting && _initialLoadedMessages == null) {
                             return const Center(
                               child: CircularProgressIndicator(),
                             );
                           }
 
-                          if (snapshot.hasError) {
+                          if (snapshot.hasError &&
+                              (_initialLoadedMessages == null ||
+                                  _initialLoadedMessages!.isEmpty)) {
                             return Center(
                               child: Padding(
                                 padding: const EdgeInsets.all(24),
@@ -1489,10 +1501,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                     ),
                                     const SizedBox(height: 12),
                                     OutlinedButton.icon(
-                                      onPressed: () => setState(
-                                        () => _messageStream =
-                                            _buildMessageStream(),
-                                      ),
+                                      onPressed: () {
+                                        _loadInitialMessages();
+                                        setState(
+                                          () => _messageStream =
+                                              _buildMessageStream(),
+                                        );
+                                      },
                                       icon: const Icon(Icons.refresh),
                                       label: const Text('Retry'),
                                     ),
@@ -1502,7 +1517,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                             );
                           }
 
-                          final serverMessages = (snapshot.data ?? const [])
+                          final dataList = snapshot.data ?? _initialLoadedMessages ?? const [];
+                          final serverMessages = dataList
                               .map((message) {
                                 final id = message['id']?.toString();
                                 return id == null

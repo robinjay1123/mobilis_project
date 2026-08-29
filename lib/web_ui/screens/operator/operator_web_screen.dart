@@ -18834,7 +18834,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '[Messages] Loading conversations for operator: $currentUserId',
       );
 
-      // 1. Fetch conversations from ChatService (which handles operator/admin lookup)
+      // 1. Fetch conversations from ChatService
       List<Map<String, dynamic>> chatServiceRows = [];
       try {
         chatServiceRows = await ChatService().getConversations(currentUserId);
@@ -18842,45 +18842,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         debugPrint('[Messages] ChatService lookup note: $csErr');
       }
 
-      // 2. Query conversations table directly with full relationship embeds
+      // 2. Direct query on conversations table as fallback
       List<Map<String, dynamic>> directConversations = [];
       try {
         final response = await _supabase
             .from('conversations')
-            .select('''
-                id,
-                booking_id,
-                user_id,
-                other_user_id,
-                status,
-                created_at,
-                updated_at,
-                bookings!conversations_booking_id_fkey (
-                  id,
-                  vehicle_id,
-                  renter_id,
-                  operator_id,
-                  driver_id,
-                  start_at,
-                  end_at,
-                  start_date,
-                  end_date,
-                  status,
-                  cancellation_reason,
-                  vehicles!bookings_vehicle_id_fkey (
-                    brand,
-                    model,
-                    year,
-                    vehicle_images(image_url, display_order)
-                  ),
-                  renter:users!bookings_renter_id_fkey (id, full_name, email, phone, avatar_url, is_blocked, off_platform_flag_count)
-                ),
-                users!conversations_user_id_fkey (id, full_name, email),
-                other_users:users!conversations_other_user_id_fkey (id, full_name, email)
-              ''')
+            .select('id, booking_id, user_id, other_user_id, status, created_at, updated_at')
             .order('updated_at', ascending: false)
             .limit(100);
-        directConversations = List<Map<String, dynamic>>.from(response);
+        final rawRows = List<Map<String, dynamic>>.from(response);
+        final bookingIds = rawRows
+            .map((c) => c['booking_id']?.toString().trim())
+            .whereType<String>()
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList();
+
+        final bookingsMap = <String, Map<String, dynamic>>{};
+        if (bookingIds.isNotEmpty) {
+          try {
+            final bRows = await _supabase
+                .from('bookings')
+                .select()
+                .inFilter('id', bookingIds);
+            for (final b in List<Map<String, dynamic>>.from(bRows)) {
+              final id = b['id']?.toString() ?? '';
+              if (id.isNotEmpty) bookingsMap[id] = b;
+            }
+          } catch (_) {}
+        }
+
+        for (final row in rawRows) {
+          final bId = row['booking_id']?.toString() ?? '';
+          if (bId.isNotEmpty && bookingsMap.containsKey(bId)) {
+            row['bookings'] = bookingsMap[bId];
+          }
+          directConversations.add(row);
+        }
       } catch (queryErr) {
         debugPrint('[Messages] Direct conversations query note: $queryErr');
       }
@@ -18937,6 +18935,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       debugPrint('[Messages] Loaded ${_conversations.length} conversations for operator');
 
+      // Auto-select first conversation if none selected
+      if (_selectedConversationId.isEmpty && _conversations.isNotEmpty) {
+        final firstId = _conversations.first['id']?.toString() ?? '';
+        if (firstId.isNotEmpty) {
+          _selectedConversationId = firstId;
+          unawaited(_loadConversationMessages(firstId));
+        }
+      } else if (_selectedConversationId.isNotEmpty) {
+        unawaited(_loadConversationMessages(_selectedConversationId));
+      }
+
       if (mounted) {
         setState(() {
           _isLoadingConversations = false;
@@ -18966,40 +18975,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       await _loadConversationParticipants(conversationId);
       _watchConversationMessages(conversationId);
 
-      dynamic response;
+      List<Map<String, dynamic>> loadedMessages = [];
       try {
-        response = await _supabase
-            .from('messages')
-            .select('''
-                id,
-                conversation_id,
-                sender_id,
-                message,
-                content,
-                attachment_url,
-                attachment_type,
-                attachment_name,
-                attachment_size,
-                is_auto_generated,
-                is_deleted,
-                deleted_at,
-                created_at,
-                sender:users!messages_new_sender_id_fkey (id, full_name)
-              ''')
-            .eq('conversation_id', conversationId)
-            .order('created_at', ascending: true);
+        loadedMessages = await ChatService().getMessages(conversationId);
       } catch (queryErr) {
         debugPrint(
-          '[Messages] Primary FK query failed, falling back to select(): $queryErr',
+          '[Messages] ChatService getMessages note: $queryErr, falling back to select()',
         );
-        response = await _supabase
+        final response = await _supabase
             .from('messages')
             .select()
             .eq('conversation_id', conversationId)
             .order('created_at', ascending: true);
+        loadedMessages = List<Map<String, dynamic>>.from(response);
       }
 
-      final loadedMessages = List<Map<String, dynamic>>.from(response);
+      // Enrich missing sender details from participants
+      final participants =
+          _conversationParticipants[conversationId] ?? const [];
+      for (final msg in loadedMessages) {
+        if (msg['sender'] == null) {
+          final sId = msg['sender_id']?.toString();
+          final p = participants.cast<Map<String, dynamic>?>().firstWhere(
+            (item) => item?['user_id']?.toString() == sId,
+            orElse: () => null,
+          );
+          final pName = p?['display_name']?.toString() ?? p?['full_name']?.toString();
+          if (pName != null && pName.trim().isNotEmpty) {
+            msg['sender'] = {'id': sId, 'full_name': pName.trim()};
+          }
+        }
+      }
+
       loadedMessages.sort((first, second) {
         final firstTime =
             parseMessageTimestamp(first['created_at']) ?? DateTime(1970);
@@ -19012,7 +19019,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '[Messages] Loaded ${_messages[conversationId]?.length ?? 0} messages',
       );
 
-      setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
       _scrollMessagesToBottom();
 
       // Mark unread messages in this conversation as read

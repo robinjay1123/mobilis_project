@@ -32,15 +32,41 @@ class ChatService {
       final bookingId = conversation?['booking_id']?.toString().trim() ?? '';
       if (bookingId.isEmpty) return null;
 
-      final booking = await supabase
-          .from('bookings')
-          .select(
-            'id, status, start_at, end_at, start_date, end_date, vehicle_id, '
-            'vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name)',
-          )
-          .eq('id', bookingId)
-          .maybeSingle();
-      return booking == null ? null : Map<String, dynamic>.from(booking);
+      try {
+        final booking = await supabase
+            .from('bookings')
+            .select(
+              'id, status, start_at, end_at, start_date, end_date, vehicle_id, '
+              'vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name)',
+            )
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (booking != null) return Map<String, dynamic>.from(booking);
+      } catch (_) {
+        // Fallback without embed
+        final booking = await supabase
+            .from('bookings')
+            .select()
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (booking == null) return null;
+        final bookingMap = Map<String, dynamic>.from(booking);
+        final vehicleId = bookingMap['vehicle_id']?.toString().trim() ?? '';
+        if (vehicleId.isNotEmpty) {
+          try {
+            final vehicle = await supabase
+                .from('vehicles')
+                .select('id, brand, model, vehicle_name')
+                .eq('id', vehicleId)
+                .maybeSingle();
+            if (vehicle != null) {
+              bookingMap['vehicles'] = Map<String, dynamic>.from(vehicle);
+            }
+          } catch (_) {}
+        }
+        return bookingMap;
+      }
+      return null;
     } catch (error) {
       debugPrint('Could not load conversation booking context: $error');
       return null;
@@ -63,53 +89,60 @@ class ChatService {
       if (conversationIds.isEmpty) return [];
 
       // Get conversations with latest messages
-      final response = await supabase
-          .from('conversations')
-          .select('''
-            *,
-            messages!messages_conversation_id_fkey(
-              id,
-              content,
-              sender_id,
-              created_at,
-              is_read,
-              message_type
-            ),
-            bookings!conversations_booking_id_fkey (
-              id,
-              status,
-              renter_id,
-              renter:users!bookings_renter_id_fkey (
+      try {
+        final response = await supabase
+            .from('conversations')
+            .select('''
+              *,
+              messages!messages_conversation_id_fkey(
                 id,
-                full_name,
-                email,
-                phone,
-                avatar_url
+                content,
+                sender_id,
+                created_at,
+                is_read,
+                message_type
               ),
-              vehicles!bookings_vehicle_id_fkey (
+              bookings!conversations_booking_id_fkey (
                 id,
-                brand,
-                model,
-                vehicle_name,
-                vehicle_images(image_url, display_order)
+                status,
+                renter_id,
+                renter:users!bookings_renter_id_fkey (
+                  id,
+                  full_name,
+                  email,
+                  phone,
+                  avatar_url
+                ),
+                vehicles!bookings_vehicle_id_fkey (
+                  id,
+                  brand,
+                  model,
+                  vehicle_name,
+                  vehicle_images(image_url, display_order)
+                )
               )
-            )
-          ''')
-          .inFilter('id', conversationIds)
-          .order('updated_at', ascending: false);
+            ''')
+            .inFilter('id', conversationIds)
+            .order('updated_at', ascending: false);
 
-      debugPrint('Fetched ${response.length} conversations');
-      return _normalizeConversationRows(
-        List<Map<String, dynamic>>.from(response),
-      );
-    } on PostgrestException catch (e) {
-      debugPrint(
-        'Conversation embed failed; loading related rows separately: ${e.message}',
-      );
-      return _getConversationsWithoutEmbed(userId);
+        debugPrint('Fetched ${response.length} conversations');
+        return _normalizeConversationRows(
+          List<Map<String, dynamic>>.from(response),
+        );
+      } catch (e) {
+        debugPrint(
+          'Conversation embed failed; loading related rows separately: $e',
+        );
+        return await _getConversationsWithoutEmbed(userId);
+      }
     } catch (e) {
       debugPrint('Unexpected error fetching conversations: $e');
-      rethrow;
+      try {
+        return await _getConversationsWithoutEmbed(userId);
+      } catch (fallbackErr) {
+        debugPrint('Conversations fallback also failed: $fallbackErr');
+        return [];
+      }
     }
   }
 
@@ -119,13 +152,25 @@ class ChatService {
     // Check if user is an Operator/Admin/Staff who manages platform operations
     bool isOperatorOrAdmin = false;
     try {
+      final currentAuthUser = supabase.auth.currentUser;
+      final metaRole =
+          (currentAuthUser?.userMetadata?['role'] ??
+                  currentAuthUser?.appMetadata?['role'])
+              ?.toString()
+              .trim()
+              .toLowerCase() ??
+          '';
       final userRow = await supabase
           .from('users')
           .select('role')
           .eq('id', userId)
           .maybeSingle();
-      final role = userRow?['role']?.toString().trim().toLowerCase() ?? '';
-      isOperatorOrAdmin = role == 'operator' ||
+      final role = (userRow?['role']?.toString().trim().toLowerCase() ?? '')
+          .isNotEmpty
+          ? userRow!['role'].toString().trim().toLowerCase()
+          : metaRole;
+      isOperatorOrAdmin =
+          role == 'operator' ||
           role == 'admin' ||
           role == 'superadmin' ||
           role == 'staff' ||
@@ -139,7 +184,7 @@ class ChatService {
             .from('conversations')
             .select('id')
             .order('updated_at', ascending: false)
-            .limit(100);
+            .limit(300);
         for (final row in List<Map<String, dynamic>>.from(allConversations)) {
           final id = row['id']?.toString().trim() ?? '';
           if (id.isNotEmpty) conversationIds.add(id);
@@ -158,10 +203,8 @@ class ChatService {
         final id = row['conversation_id']?.toString().trim() ?? '';
         if (id.isNotEmpty) conversationIds.add(id);
       }
-    } on PostgrestException catch (error) {
-      debugPrint(
-        'Normalized participant conversation lookup skipped: ${error.message}',
-      );
+    } catch (error) {
+      debugPrint('Participant conversation lookup note: $error');
     }
 
     // Older direct/support conversations retain these columns even when their
@@ -175,8 +218,8 @@ class ChatService {
         final id = row['id']?.toString().trim() ?? '';
         if (id.isNotEmpty) conversationIds.add(id);
       }
-    } on PostgrestException catch (error) {
-      debugPrint('Legacy direct conversation lookup skipped: ${error.message}');
+    } catch (error) {
+      debugPrint('Legacy direct conversation lookup note: $error');
     }
 
     // Older booking chats can be missing their normalized participant rows.
@@ -196,10 +239,8 @@ class ChatService {
           if (id.isNotEmpty) conversationIds.add(id);
         }
       }
-    } on PostgrestException catch (error) {
-      debugPrint(
-        'Related booking conversation lookup skipped: ${error.message}',
-      );
+    } catch (error) {
+      debugPrint('Related booking conversation lookup note: $error');
     }
 
     debugPrint('Resolved ${conversationIds.length} conversations for $userId');
@@ -209,64 +250,59 @@ class ChatService {
   Future<List<String>> _bookingIdsForConversationUser(String userId) async {
     final bookingIds = <String>{};
 
-    final directBookingRows = await supabase
-        .from('bookings')
-        .select('id')
-        .or('renter_id.eq.$userId,driver_id.eq.$userId,operator_id.eq.$userId');
-    for (final row in List<Map<String, dynamic>>.from(directBookingRows)) {
-      final id = row['id']?.toString().trim() ?? '';
-      if (id.isNotEmpty) bookingIds.add(id);
-    }
-
-    // Partner chats are linked through vehicles.owner_id. Some PSDC records
-    // also carry vehicles.operator_id instead of bookings.operator_id.
-    final vehicleRows = await supabase
-        .from('vehicles')
-        .select('id')
-        .or('owner_id.eq.$userId,operator_id.eq.$userId');
-    final vehicleIds = List<Map<String, dynamic>>.from(vehicleRows)
-        .map((row) => row['id']?.toString().trim())
-        .whereType<String>()
-        .where((id) => id.isNotEmpty)
-        .toSet()
-        .toList();
-    if (vehicleIds.isNotEmpty) {
-      final vehicleBookingRows = await supabase
+    try {
+      final renterBookings = await supabase
           .from('bookings')
           .select('id')
-          .inFilter('vehicle_id', vehicleIds);
-      for (final row in List<Map<String, dynamic>>.from(vehicleBookingRows)) {
+          .eq('renter_id', userId);
+      for (final row in List<Map<String, dynamic>>.from(renterBookings)) {
         final id = row['id']?.toString().trim() ?? '';
         if (id.isNotEmpty) bookingIds.add(id);
       }
-    }
+    } catch (_) {}
 
-    // Operators and Admins manage all company car bookings and all active bookings
     try {
-      final userRow = await supabase
-          .from('users')
-          .select('role')
-          .eq('id', userId)
-          .maybeSingle();
-      final userRole = userRow?['role']?.toString().trim().toLowerCase() ?? '';
-      if (userRole == 'operator' ||
-          userRole == 'admin' ||
-          userRole == 'superadmin' ||
-          userRole == 'staff' ||
-          userRole == 'operations') {
-        final allBookings = await supabase
+      final driverBookings = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('driver_id', userId);
+      for (final row in List<Map<String, dynamic>>.from(driverBookings)) {
+        final id = row['id']?.toString().trim() ?? '';
+        if (id.isNotEmpty) bookingIds.add(id);
+      }
+    } catch (_) {}
+
+    try {
+      final operatorBookings = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('operator_id', userId);
+      for (final row in List<Map<String, dynamic>>.from(operatorBookings)) {
+        final id = row['id']?.toString().trim() ?? '';
+        if (id.isNotEmpty) bookingIds.add(id);
+      }
+    } catch (_) {}
+
+    try {
+      final ownedVehicles = await supabase
+          .from('vehicles')
+          .select('id')
+          .or('owner_id.eq.$userId,operator_id.eq.$userId');
+      final vehicleIds = ownedVehicles
+          .map((row) => row['id']?.toString().trim() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (vehicleIds.isNotEmpty) {
+        final partnerBookings = await supabase
             .from('bookings')
             .select('id')
-            .order('updated_at', ascending: false)
-            .limit(100);
-        for (final row in List<Map<String, dynamic>>.from(allBookings)) {
+            .inFilter('vehicle_id', vehicleIds);
+        for (final row in List<Map<String, dynamic>>.from(partnerBookings)) {
           final id = row['id']?.toString().trim() ?? '';
           if (id.isNotEmpty) bookingIds.add(id);
         }
       }
-    } catch (e) {
-      debugPrint('Company vehicle booking lookup for operator skipped: $e');
-    }
+    } catch (_) {}
 
     return bookingIds.toList();
   }
@@ -285,44 +321,102 @@ class ChatService {
     final conversations = List<Map<String, dynamic>>.from(conversationRows);
 
     final bookingIds = conversations
-        .map((conversation) => conversation['booking_id']?.toString())
+        .map((conversation) => conversation['booking_id']?.toString().trim())
         .whereType<String>()
         .where((id) => id.isNotEmpty)
         .toSet()
         .toList();
+
     final bookingsById = <String, Map<String, dynamic>>{};
     if (bookingIds.isNotEmpty) {
-      final bookingRows = await supabase
-          .from('bookings')
-          .select('''
-            id,
-            status,
-            renter_id,
-            renter:users!bookings_renter_id_fkey (
-              id,
-              full_name,
-              email,
-              phone,
-              avatar_url
-            ),
-            vehicles!bookings_vehicle_id_fkey (
-              id,
-              brand,
-              model,
-              vehicle_name,
-              vehicle_images(image_url, display_order)
-            )
-          ''')
-          .inFilter('id', bookingIds);
-      for (final booking in List<Map<String, dynamic>>.from(bookingRows)) {
-        final id = booking['id']?.toString();
-        if (id != null && id.isNotEmpty) bookingsById[id] = booking;
+      try {
+        final bookingRows = await supabase
+            .from('bookings')
+            .select()
+            .inFilter('id', bookingIds);
+
+        final bookingsList = List<Map<String, dynamic>>.from(bookingRows);
+        final renterIds = bookingsList
+            .map((b) => b['renter_id']?.toString().trim())
+            .whereType<String>()
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList();
+        final vehicleIds = bookingsList
+            .map((b) => b['vehicle_id']?.toString().trim())
+            .whereType<String>()
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList();
+
+        final usersById = <String, Map<String, dynamic>>{};
+        if (renterIds.isNotEmpty) {
+          try {
+            final userRows = await supabase
+                .from('users')
+                .select('id, full_name, email, phone, avatar_url')
+                .inFilter('id', renterIds);
+            for (final u in List<Map<String, dynamic>>.from(userRows)) {
+              final uid = u['id']?.toString() ?? '';
+              if (uid.isNotEmpty) usersById[uid] = u;
+            }
+          } catch (uErr) {
+            debugPrint('Renter lookup note: $uErr');
+          }
+        }
+
+        final vehiclesById = <String, Map<String, dynamic>>{};
+        if (vehicleIds.isNotEmpty) {
+          try {
+            final vehicleRows = await supabase
+                .from('vehicles')
+                .select(
+                  'id, brand, model, vehicle_name, image_url, vehicle_images(image_url, display_order)',
+                )
+                .inFilter('id', vehicleIds);
+            for (final v in List<Map<String, dynamic>>.from(vehicleRows)) {
+              final vid = v['id']?.toString() ?? '';
+              if (vid.isNotEmpty) vehiclesById[vid] = v;
+            }
+          } catch (_) {
+            try {
+              final vehicleRows = await supabase
+                  .from('vehicles')
+                  .select('id, brand, model, vehicle_name, image_url')
+                  .inFilter('id', vehicleIds);
+              for (final v in List<Map<String, dynamic>>.from(vehicleRows)) {
+                final vid = v['id']?.toString() ?? '';
+                if (vid.isNotEmpty) vehiclesById[vid] = v;
+              }
+            } catch (vErr) {
+              debugPrint('Vehicle lookup note: $vErr');
+            }
+          }
+        }
+
+        for (final booking in bookingsList) {
+          final id = booking['id']?.toString() ?? '';
+          if (id.isEmpty) continue;
+          final renterId = booking['renter_id']?.toString() ?? '';
+          final vehicleId = booking['vehicle_id']?.toString() ?? '';
+          if (renterId.isNotEmpty && usersById.containsKey(renterId)) {
+            booking['renter'] = usersById[renterId];
+          }
+          if (vehicleId.isNotEmpty && vehiclesById.containsKey(vehicleId)) {
+            booking['vehicles'] = vehiclesById[vehicleId];
+          }
+          bookingsById[id] = booking;
+        }
+      } catch (bErr) {
+        debugPrint('Bookings lookup note: $bErr');
       }
     }
 
     final messageRows = await supabase
         .from('messages')
-        .select('id, conversation_id, sender_id, content, created_at, is_read, message_type')
+        .select(
+          'id, conversation_id, sender_id, content, message, created_at, is_read, message_type',
+        )
         .inFilter('conversation_id', conversationIds)
         .order('created_at', ascending: true);
     final messagesByConversation = <String, List<Map<String, dynamic>>>{};
@@ -611,22 +705,29 @@ class ChatService {
     try {
       debugPrint('Fetching messages for conversation: $conversationId');
 
-      final response = await supabase
-          .from('messages')
-          .select('*, sender:users!messages_new_sender_id_fkey(*)')
-          .eq('conversation_id', conversationId)
-          .order('created_at', ascending: true);
+      try {
+        final response = await supabase
+            .from('messages')
+            .select('*, sender:users!messages_new_sender_id_fkey(*)')
+            .eq('conversation_id', conversationId)
+            .order('created_at', ascending: true);
 
-      debugPrint('Fetched ${response.length} messages');
-      return List<Map<String, dynamic>>.from(response);
-    } on PostgrestException catch (e) {
-      debugPrint(
-        'Message sender relationship failed; loading profiles separately: ${e.message}',
-      );
-      return _getMessagesWithoutEmbed(conversationId);
+        debugPrint('Fetched ${response.length} messages with embed');
+        return List<Map<String, dynamic>>.from(response);
+      } catch (embedErr) {
+        debugPrint(
+          'Message sender relationship embed failed; loading profiles separately: $embedErr',
+        );
+        return await _getMessagesWithoutEmbed(conversationId);
+      }
     } catch (e) {
       debugPrint('Unexpected error fetching messages: $e');
-      rethrow;
+      try {
+        return await _getMessagesWithoutEmbed(conversationId);
+      } catch (fallbackErr) {
+        debugPrint('Fallback message fetching also failed: $fallbackErr');
+        return [];
+      }
     }
   }
 
@@ -648,19 +749,26 @@ class ChatService {
 
     if (senderIds.isEmpty) return messages;
 
-    final users = await supabase
-        .from('users')
-        .select()
-        .inFilter('id', senderIds);
-    final usersById = {
-      for (final user in List<Map<String, dynamic>>.from(users))
-        user['id']?.toString(): user,
-    };
+    Map<String, Map<String, dynamic>> usersById = {};
+    try {
+      final users = await supabase
+          .from('users')
+          .select('id, full_name, email, phone, avatar_url, role')
+          .inFilter('id', senderIds);
+      usersById = {
+        for (final user in List<Map<String, dynamic>>.from(users))
+          user['id']?.toString() ?? '': user,
+      };
+    } catch (userErr) {
+      debugPrint('Could not fetch message senders: $userErr');
+    }
+
     return messages
         .map(
           (message) => {
             ...message,
-            'sender': usersById[message['sender_id']?.toString()],
+            if (usersById.containsKey(message['sender_id']?.toString()))
+              'sender': usersById[message['sender_id']?.toString()],
           },
         )
         .toList();
@@ -1092,29 +1200,43 @@ class ChatService {
     try {
       final participants = await supabase
           .from('conversation_participants')
-          .select(
-            'user_id, users:users!conversation_participants_new_user_id_fkey(*)',
-          )
+          .select('user_id')
           .eq('conversation_id', conversationId)
           .neq('user_id', currentUserId)
           .limit(1);
 
-      if (participants.isEmpty) return null;
-
-      final participant = Map<String, dynamic>.from(participants.first);
-      final user = participant['users'];
-      if (user is Map<String, dynamic>) {
-        return Map<String, dynamic>.from(user);
+      if (participants.isNotEmpty) {
+        final userId = participants.first['user_id']?.toString().trim();
+        if (userId != null && userId.isNotEmpty) {
+          final user = await supabase
+              .from('users')
+              .select()
+              .eq('id', userId)
+              .maybeSingle();
+          if (user != null) return Map<String, dynamic>.from(user);
+        }
       }
 
-      final userId = participant['user_id']?.toString();
-      if (userId == null || userId.isEmpty) return null;
-
-      return await supabase
-          .from('users')
-          .select()
-          .eq('id', userId)
+      // Fallback: Check conversations table direct user columns
+      final conv = await supabase
+          .from('conversations')
+          .select('user_id, other_user_id')
+          .eq('id', conversationId)
           .maybeSingle();
+      if (conv != null) {
+        final u1 = conv['user_id']?.toString().trim() ?? '';
+        final u2 = conv['other_user_id']?.toString().trim() ?? '';
+        final targetId = u1 == currentUserId ? u2 : (u2 == currentUserId ? u1 : (u1.isNotEmpty ? u1 : u2));
+        if (targetId.isNotEmpty) {
+          final user = await supabase
+              .from('users')
+              .select()
+              .eq('id', targetId)
+              .maybeSingle();
+          if (user != null) return Map<String, dynamic>.from(user);
+        }
+      }
+      return null;
     } catch (e) {
       debugPrint('Error getting other user profile: $e');
       return null;
@@ -1125,61 +1247,63 @@ class ChatService {
     String conversationId,
   ) async {
     try {
-      final participants = await supabase
-          .from('conversation_participants')
-          .select(
-            'user_id, joined_at, users:users!conversation_participants_new_user_id_fkey(*)',
-          )
-          .eq('conversation_id', conversationId);
+      try {
+        final participants = await supabase
+            .from('conversation_participants')
+            .select(
+              'user_id, joined_at, users:users!conversation_participants_new_user_id_fkey(*)',
+            )
+            .eq('conversation_id', conversationId);
 
-      final rows = List<Map<String, dynamic>>.from(participants);
-      final hydrated = <Map<String, dynamic>>[];
-      final missingUserIds = <String>[];
-
-      for (final row in rows) {
-        final user = row['users'];
-        if (user is Map<String, dynamic>) {
-          hydrated.add(_participantProfile(row, user));
-        } else {
-          final userId = row['user_id']?.toString();
-          if (userId != null && userId.isNotEmpty) {
-            missingUserIds.add(userId);
-          }
-        }
-      }
-
-      if (missingUserIds.isNotEmpty) {
-        final users = await supabase
-            .from('users')
-            .select()
-            .inFilter('id', missingUserIds);
-        final userById = {
-          for (final user in List<Map<String, dynamic>>.from(users))
-            user['id']?.toString(): user,
-        };
+        final rows = List<Map<String, dynamic>>.from(participants);
+        final hydrated = <Map<String, dynamic>>[];
+        final missingUserIds = <String>[];
 
         for (final row in rows) {
-          final userId = row['user_id']?.toString();
-          final user = userById[userId];
-          if (user != null) {
+          final user = row['users'];
+          if (user is Map<String, dynamic>) {
             hydrated.add(_participantProfile(row, user));
+          } else {
+            final userId = row['user_id']?.toString();
+            if (userId != null && userId.isNotEmpty) {
+              missingUserIds.add(userId);
+            }
           }
         }
+
+        if (missingUserIds.isNotEmpty) {
+          final users = await supabase
+              .from('users')
+              .select()
+              .inFilter('id', missingUserIds);
+          final userById = {
+            for (final user in List<Map<String, dynamic>>.from(users))
+              user['id']?.toString(): user,
+          };
+
+          for (final row in rows) {
+            final userId = row['user_id']?.toString();
+            final user = userById[userId];
+            if (user != null) {
+              hydrated.add(_participantProfile(row, user));
+            }
+          }
+        }
+
+        hydrated.sort((a, b) {
+          final aRole = _roleSortValue(a['role']?.toString());
+          final bRole = _roleSortValue(b['role']?.toString());
+          if (aRole != bRole) return aRole.compareTo(bRole);
+          return _displayName(a).compareTo(_displayName(b));
+        });
+
+        return hydrated;
+      } catch (e) {
+        debugPrint(
+          'Participant embed failed, retrying without relationship: $e',
+        );
+        return await _getConversationParticipantsFallback(conversationId);
       }
-
-      hydrated.sort((a, b) {
-        final aRole = _roleSortValue(a['role']?.toString());
-        final bRole = _roleSortValue(b['role']?.toString());
-        if (aRole != bRole) return aRole.compareTo(bRole);
-        return _displayName(a).compareTo(_displayName(b));
-      });
-
-      return hydrated;
-    } on PostgrestException catch (e) {
-      debugPrint(
-        'Participant embed failed, retrying without relationship: ${e.message}',
-      );
-      return _getConversationParticipantsFallback(conversationId);
     } catch (e) {
       debugPrint('Error getting conversation participants: $e');
       return [];
