@@ -870,14 +870,29 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
           if (isVehicle) ...[
             // ── Vehicle image carousel ──────────────────────────────────────
             Builder(builder: (context) {
-              final rawImages = target['vehicleImages'];
-              final vehicleImages = (rawImages is List)
-                  ? rawImages.whereType<Map<String, dynamic>>().toList()
-                  : <Map<String, dynamic>>[];
+              final rawImages = target['vehicleImages'] ?? target['vehicle_images'];
+              final List<Map<String, dynamic>> vehicleImages = [];
+              if (rawImages is List) {
+                for (final item in rawImages) {
+                  if (item is Map) {
+                    vehicleImages.add(Map<String, dynamic>.from(item));
+                  } else if (item is String && item.trim().isNotEmpty) {
+                    vehicleImages.add({'image_url': item.trim()});
+                  }
+                }
+              }
               var avatarUrlForFallback = avatarUrl;
               if (avatarUrlForFallback.isEmpty && target['imageUrl'] != null) {
                 avatarUrlForFallback = target['imageUrl'].toString().trim();
               }
+              if (avatarUrlForFallback.isEmpty && target['image_url'] != null) {
+                avatarUrlForFallback = target['image_url'].toString().trim();
+              }
+              if (avatarUrlForFallback.isEmpty && vehicleImages.isNotEmpty) {
+                avatarUrlForFallback = vehicleImages.first['image_url']?.toString().trim() ?? '';
+              }
+
+              final vehicleId = target['userId']?.toString().trim() ?? '';
 
               // Build a minimal vehicle-like map for VehicleImageCarousel
               final vehicleMap = <String, dynamic>{
@@ -885,29 +900,49 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
                 'vehicle_images': vehicleImages,
               };
 
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 180,
-                  child: vehicleImages.isNotEmpty || avatarUrlForFallback.isNotEmpty
-                      ? VehicleImageCarousel(
-                          vehicle: vehicleMap,
-                          height: 180,
-                          backgroundColor: AppColors.darkBg,
-                          iconColor: AppColors.textSecondary,
-                        )
-                      : Container(
-                          color: AppColors.darkBg,
-                          child: const Center(
-                            child: Icon(
-                              Icons.directions_car_rounded,
-                              color: AppColors.primary,
-                              size: 56,
+              Widget renderCarousel(Map<String, dynamic> vMap) {
+                final list = vMap['vehicle_images'] as List?;
+                final single = vMap['image_url']?.toString().trim() ?? '';
+                final hasImages = (list != null && list.isNotEmpty) || single.isNotEmpty;
+
+                return ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 180,
+                    child: hasImages
+                        ? VehicleImageCarousel(
+                            vehicle: vMap,
+                            height: 180,
+                            backgroundColor: AppColors.darkBg,
+                            iconColor: AppColors.textSecondary,
+                          )
+                        : Container(
+                            color: AppColors.darkBg,
+                            child: const Center(
+                              child: Icon(
+                                Icons.directions_car_rounded,
+                                color: AppColors.primary,
+                                size: 56,
+                              ),
                             ),
                           ),
-                        ),
-                ),
+                  ),
+                );
+              }
+
+              if (vehicleImages.isNotEmpty || avatarUrlForFallback.isNotEmpty || vehicleId.isEmpty) {
+                return renderCarousel(vehicleMap);
+              }
+
+              return FutureBuilder<Map<String, dynamic>?>(
+                future: _fetchVehicleImagesFallback(vehicleId),
+                builder: (context, snapshot) {
+                  if (snapshot.hasData && snapshot.data != null) {
+                    return renderCarousel(snapshot.data!);
+                  }
+                  return renderCarousel(vehicleMap);
+                },
               );
             }),
             const SizedBox(height: 16),
@@ -1159,5 +1194,61 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       default:
         return 'Share your review...';
     }
+  }
+
+  Future<Map<String, dynamic>?> _fetchVehicleImagesFallback(String vehicleId) async {
+    try {
+      final client = Supabase.instance.client;
+      // 1. Direct vehicles table
+      var vRow = await client
+          .from('vehicles')
+          .select('id, image_url')
+          .eq('id', vehicleId)
+          .maybeSingle();
+
+      String parentVId = vehicleId;
+      if (vRow == null) {
+        // Check partner_vehicles
+        final pv = await client
+            .from('partner_vehicles')
+            .select('id, vehicle_id')
+            .eq('id', vehicleId)
+            .maybeSingle();
+        if (pv != null && pv['vehicle_id'] != null) {
+          parentVId = pv['vehicle_id'].toString().trim();
+          vRow = await client
+              .from('vehicles')
+              .select('id, image_url')
+              .eq('id', parentVId)
+              .maybeSingle();
+        }
+      }
+
+      final imgRows = await client
+          .from('vehicle_images')
+          .select('id, image_url, display_order')
+          .or('vehicle_id.eq.$vehicleId,vehicle_id.eq.$parentVId')
+          .order('display_order', ascending: true);
+
+      final List<Map<String, dynamic>> images = [];
+      if (imgRows is List) {
+        for (final r in imgRows) {
+          if (r is Map) images.add(Map<String, dynamic>.from(r));
+        }
+      }
+
+      var mainImg = vRow?['image_url']?.toString().trim() ?? '';
+      if (mainImg.isEmpty && images.isNotEmpty) {
+        mainImg = images.first['image_url']?.toString().trim() ?? '';
+      }
+
+      if (mainImg.isNotEmpty || images.isNotEmpty) {
+        return {
+          'image_url': mainImg,
+          'vehicle_images': images,
+        };
+      }
+    } catch (_) {}
+    return null;
   }
 }

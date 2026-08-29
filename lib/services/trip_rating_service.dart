@@ -134,8 +134,8 @@ class TripRatingService {
       var vehicle = booking['vehicles'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(booking['vehicles'])
           : <String, dynamic>{};
-      final rawVehicleId = context['vehicle_id']?.toString();
-      if (vehicle.isEmpty && rawVehicleId != null && rawVehicleId.isNotEmpty) {
+      final rawVehicleId = context['vehicle_id']?.toString()?.trim() ?? '';
+      if (vehicle.isEmpty && rawVehicleId.isNotEmpty) {
         try {
           final fetchedVehicle = await supabase
               .from('vehicles')
@@ -150,24 +150,69 @@ class TripRatingService {
         } catch (_) {}
       }
 
-      final resolvedVehicleId = vehicle['id']?.toString() ?? rawVehicleId;
-      var vImg = (vehicle['image_url']?.toString() ?? '').trim();
-      if (vImg.isEmpty &&
-          resolvedVehicleId != null &&
-          resolvedVehicleId.isNotEmpty) {
+      // If vehicle is a partner_vehicles record, resolve the parent vehicle
+      if ((vehicle.isEmpty || (vehicle['image_url'] == null || vehicle['image_url'].toString().trim().isEmpty)) &&
+          rawVehicleId.isNotEmpty) {
         try {
-          final imgRow = await supabase
-              .from('vehicle_images')
-              .select('image_url')
-              .eq('vehicle_id', resolvedVehicleId)
-              .order('display_order', ascending: true)
-              .limit(1)
+          final pv = await supabase
+              .from('partner_vehicles')
+              .select('id, vehicle_id, partner_id, plate_number')
+              .eq('id', rawVehicleId)
               .maybeSingle();
-          if (imgRow != null && imgRow['image_url'] != null) {
-            vImg = imgRow['image_url'].toString().trim();
-            vehicle['image_url'] = vImg;
+          if (pv != null && pv['vehicle_id'] != null) {
+            final parentVId = pv['vehicle_id'].toString().trim();
+            if (parentVId.isNotEmpty) {
+              final parentV = await supabase
+                  .from('vehicles')
+                  .select(
+                    'id, owner_id, owner_role, operator_id, brand, model, year, vehicle_name, image_url, transmission, fuel_type, seats',
+                  )
+                  .eq('id', parentVId)
+                  .maybeSingle();
+              if (parentV != null) {
+                vehicle = Map<String, dynamic>.from(parentV);
+                if (pv['partner_id'] != null) {
+                  vehicle['owner_id'] ??= pv['partner_id'];
+                  vehicle['owner_role'] ??= 'partner';
+                }
+              }
+            }
           }
         } catch (_) {}
+      }
+
+      final candidateVehicleIds = <String>{
+        if (vehicle['id'] != null) vehicle['id'].toString().trim(),
+        if (rawVehicleId.isNotEmpty) rawVehicleId,
+      }..removeWhere((id) => id.isEmpty);
+
+      final List<Map<String, dynamic>> allVehicleImages = [];
+      for (final vId in candidateVehicleIds) {
+        try {
+          final imgRows = await supabase
+              .from('vehicle_images')
+              .select('id, image_url, display_order')
+              .eq('vehicle_id', vId)
+              .order('display_order', ascending: true);
+          if (imgRows is List && imgRows.isNotEmpty) {
+            for (final r in imgRows) {
+              if (r is Map) {
+                allVehicleImages.add(Map<String, dynamic>.from(r));
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      var vImg = (vehicle['image_url']?.toString() ?? '').trim();
+      if (allVehicleImages.isNotEmpty) {
+        vehicle['vehicle_images'] = allVehicleImages;
+        if (vImg.isEmpty) {
+          vImg = allVehicleImages.first['image_url']?.toString().trim() ?? '';
+        }
+      }
+      if (vImg.isNotEmpty) {
+        vehicle['image_url'] = _normalizeVehicleImageUrl(vImg);
       }
       context['vehicles'] = vehicle;
 
@@ -250,15 +295,56 @@ class TripRatingService {
       final context = Map<String, dynamic>.from(booking);
       final vehicleId = context['vehicle_id']?.toString().trim() ?? '';
       if (vehicleId.isNotEmpty) {
-        final vehicle = await supabase
+        var vehicle = await supabase
             .from('vehicles')
             .select('*')
             .eq('id', vehicleId)
             .maybeSingle();
+        if (vehicle == null) {
+          try {
+            final pv = await supabase
+                .from('partner_vehicles')
+                .select('id, vehicle_id, partner_id, plate_number')
+                .eq('id', vehicleId)
+                .maybeSingle();
+            if (pv != null && pv['vehicle_id'] != null) {
+              final parentVId = pv['vehicle_id'].toString().trim();
+              if (parentVId.isNotEmpty) {
+                final parentV = await supabase
+                    .from('vehicles')
+                    .select('*')
+                    .eq('id', parentVId)
+                    .maybeSingle();
+                if (parentV != null) {
+                  vehicle = Map<String, dynamic>.from(parentV);
+                  if (pv['partner_id'] != null) {
+                    vehicle['owner_id'] ??= pv['partner_id'];
+                    vehicle['owner_role'] ??= 'partner';
+                  }
+                }
+              }
+            }
+          } catch (_) {}
+        }
         if (vehicle != null) {
-          context['vehicles'] = Map<String, dynamic>.from(vehicle);
+          final vMap = Map<String, dynamic>.from(vehicle);
+          try {
+            final imgRows = await supabase
+                .from('vehicle_images')
+                .select('id, image_url, display_order')
+                .eq('vehicle_id', vMap['id'] ?? vehicleId)
+                .order('display_order', ascending: true);
+            if (imgRows is List && imgRows.isNotEmpty) {
+              vMap['vehicle_images'] = List<Map<String, dynamic>>.from(imgRows);
+              if ((vMap['image_url'] == null || vMap['image_url'].toString().trim().isEmpty) &&
+                  imgRows.first['image_url'] != null) {
+                vMap['image_url'] = imgRows.first['image_url'];
+              }
+            }
+          } catch (_) {}
+          context['vehicles'] = vMap;
 
-          final ownerId = vehicle['owner_id']?.toString().trim() ?? '';
+          final ownerId = vMap['owner_id']?.toString().trim() ?? '';
           if (ownerId.isNotEmpty) {
             final owner = await supabase
                 .from('users')
@@ -541,12 +627,24 @@ class TripRatingService {
         }
         // Collect all vehicle images for the carousel
         final rawVehicleImages = vehicle['vehicle_images'];
-        final List<Map<String, dynamic>> vehicleImages =
-            (rawVehicleImages is List)
-                ? rawVehicleImages
-                    .whereType<Map<String, dynamic>>()
-                    .toList()
-                : <Map<String, dynamic>>[];
+        final List<Map<String, dynamic>> vehicleImages = [];
+        if (rawVehicleImages is List) {
+          for (final item in rawVehicleImages) {
+            if (item is Map) {
+              final map = Map<String, dynamic>.from(item);
+              map['image_url'] = _normalizeVehicleImageUrl(map['image_url']);
+              vehicleImages.add(map);
+            } else if (item is String && item.trim().isNotEmpty) {
+              vehicleImages.add({'image_url': _normalizeVehicleImageUrl(item)});
+            }
+          }
+        }
+
+        if (imageUrl.isEmpty && vehicleImages.isNotEmpty) {
+          imageUrl = vehicleImages.first['image_url']?.toString() ?? '';
+        }
+
+        final normalizedImageUrl = _normalizeVehicleImageUrl(imageUrl);
 
         targets.add({
           'userId': vehicleId,
@@ -554,9 +652,11 @@ class TripRatingService {
           'name': vehicleName.isNotEmpty
               ? vehicleName
               : (fallbackName.isNotEmpty ? fallbackName : 'Rental Vehicle'),
-          'avatarUrl': imageUrl,
-          'imageUrl': imageUrl,
+          'avatarUrl': normalizedImageUrl,
+          'imageUrl': normalizedImageUrl,
+          'image_url': normalizedImageUrl,
           'vehicleImages': vehicleImages,
+          'vehicle_images': vehicleImages,
           'brand': text(vehicle['brand']),
           'model': text(vehicle['model']),
           'year': text(vehicle['year']),
