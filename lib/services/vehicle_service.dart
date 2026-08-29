@@ -817,13 +817,21 @@ class VehicleService {
           .eq('is_posted', true)
           .eq('is_available', true);
 
-      if (brand != null && brand.isNotEmpty)
+      if (brand != null && brand.isNotEmpty) {
         query = query.ilike('brand', '%$brand%');
-      if (model != null && model.isNotEmpty)
+      }
+      if (model != null && model.isNotEmpty) {
         query = query.ilike('model', '%$model%');
-      if (minPrice != null) query = query.gte('price_per_day', minPrice);
-      if (maxPrice != null) query = query.lte('price_per_day', maxPrice);
-      if (color != null && color.isNotEmpty) query = query.eq('color', color);
+      }
+      if (minPrice != null) {
+        query = query.gte('price_per_day', minPrice);
+      }
+      if (maxPrice != null) {
+        query = query.lte('price_per_day', maxPrice);
+      }
+      if (color != null && color.isNotEmpty) {
+        query = query.eq('color', color);
+      }
       if (fuelType != null && fuelType.isNotEmpty) {
         query = query.eq('fuel_type', fuelType);
       }
