@@ -2765,28 +2765,84 @@ class BookingService {
 
   Future<List<Map<String, dynamic>>> getAvailableVerifiedDrivers({
     DateTime? bookingDate,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? excludeBookingId,
     List<Map<String, double>> proximityTargets = const [],
     bool prioritizeProximity = false,
     bool prioritizePsdc = false,
   }) async {
     try {
-      final targetDate = (bookingDate ?? DateTime.now()).toLocal();
-      final scheduleDate =
-          '${targetDate.year.toString().padLeft(4, '0')}-'
-          '${targetDate.month.toString().padLeft(2, '0')}-'
-          '${targetDate.day.toString().padLeft(2, '0')}';
+      final effectiveStart = (startDate ?? bookingDate ?? DateTime.now()).toLocal();
+      final effectiveEnd = (endDate ?? (startDate != null ? startDate.add(const Duration(days: 1)) : bookingDate?.add(const Duration(days: 1)) ?? DateTime.now().add(const Duration(days: 1)))).toLocal();
 
+      final reqStartDay = DateTime(effectiveStart.year, effectiveStart.month, effectiveStart.day);
+      final reqEndDay = DateTime(effectiveEnd.year, effectiveEnd.month, effectiveEnd.day, 23, 59, 59);
+
+      // 1. Check which drivers already have active / confirmed / ongoing bookings on overlapping dates
+      final Set<String> busyDriverIds = {};
+      try {
+        var bookingsQuery = supabase
+            .from('bookings')
+            .select('id, driver_id, status, start_at, end_at, start_date, end_date')
+            .not('driver_id', 'is', null)
+            .not('status', 'in', '(cancelled,rejected,completed,refunded,failed)');
+
+        if (excludeBookingId != null && excludeBookingId.isNotEmpty) {
+          bookingsQuery = bookingsQuery.neq('id', excludeBookingId);
+        }
+
+        final overlappingBookings = await bookingsQuery;
+        for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
+          final dId = b['driver_id']?.toString()?.trim() ?? '';
+          if (dId.isEmpty) continue;
+
+          final bStart = DateTime.tryParse((b['start_at'] ?? b['start_date'])?.toString() ?? '')?.toLocal();
+          final bEnd = DateTime.tryParse((b['end_at'] ?? b['end_date'])?.toString() ?? '')?.toLocal();
+
+          if (bStart != null) {
+            final bStartDay = DateTime(bStart.year, bStart.month, bStart.day);
+            final bEffectiveEnd = bEnd ?? bStart.add(const Duration(days: 1));
+            final bEndDay = DateTime(bEffectiveEnd.year, bEffectiveEnd.month, bEffectiveEnd.day, 23, 59, 59);
+
+            final isOverlap = !bEndDay.isBefore(reqStartDay) && !bStartDay.isAfter(reqEndDay);
+            if (isOverlap) {
+              busyDriverIds.add(dId);
+            }
+          }
+        }
+      } catch (err) {
+        debugPrint('Driver overlapping bookings check note: $err');
+      }
+
+      // 2. Check driver availability schedule for off-duty days
       final Map<String, bool> dateScheduleMap = {};
       try {
-        final dateScheduleResponse = await supabase
-            .from('driver_availability_schedule')
-            .select('driver_id, is_available')
-            .eq('date', scheduleDate);
+        final datesToCheck = <String>[];
+        var cur = DateTime(reqStartDay.year, reqStartDay.month, reqStartDay.day);
+        final endCheck = DateTime(reqEndDay.year, reqEndDay.month, reqEndDay.day);
+        while (!cur.isAfter(endCheck)) {
+          datesToCheck.add(
+            '${cur.year.toString().padLeft(4, '0')}-${cur.month.toString().padLeft(2, '0')}-${cur.day.toString().padLeft(2, '0')}',
+          );
+          cur = cur.add(const Duration(days: 1));
+        }
 
-        for (final row in List<Map<String, dynamic>>.from(dateScheduleResponse)) {
-          final dId = row['driver_id']?.toString();
-          if (dId != null && dId.isNotEmpty) {
-            dateScheduleMap[dId] = row['is_available'] == true;
+        if (datesToCheck.isNotEmpty) {
+          final dateScheduleResponse = await supabase
+              .from('driver_availability_schedule')
+              .select('driver_id, is_available, date')
+              .inFilter('date', datesToCheck);
+
+          for (final row in List<Map<String, dynamic>>.from(dateScheduleResponse)) {
+            final dId = row['driver_id']?.toString();
+            if (dId != null && dId.isNotEmpty) {
+              if (row['is_available'] == false) {
+                dateScheduleMap[dId] = false;
+              } else if (!dateScheduleMap.containsKey(dId)) {
+                dateScheduleMap[dId] = true;
+              }
+            }
           }
         }
       } catch (scheduleErr) {
@@ -2795,7 +2851,7 @@ class BookingService {
 
       List<Map<String, dynamic>> rawDriverRows = [];
 
-      // 1. Query verified & approved drivers directly from public.drivers joined with public.users
+      // 3. Query verified & approved drivers directly from public.drivers joined with public.users
       try {
         final response = await supabase
             .from('drivers')
@@ -2824,6 +2880,12 @@ class BookingService {
 
             final driverUserId = driver['user_id']?.toString() ?? '';
             final driverProfileId = driver['id']?.toString() ?? '';
+
+            // Reject drivers who already have an active / confirmed / ongoing booking on overlapping dates
+            if (busyDriverIds.contains(driverUserId) ||
+                busyDriverIds.contains(driverProfileId)) {
+              return false;
+            }
 
             final bool? dateOverride =
                 dateScheduleMap[driverUserId] ??

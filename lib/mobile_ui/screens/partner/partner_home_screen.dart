@@ -9906,9 +9906,13 @@ class _PartnerAssignDriverModalState extends State<_PartnerAssignDriverModal> {
   }
 
   Future<void> _fetchDrivers({bool initial = false}) async {
-    final bookingDate = DateTime.tryParse(
+    final startDate = DateTime.tryParse(
       (widget.booking['start_at'] ?? widget.booking['start_date'])?.toString() ?? '',
     );
+    final endDate = DateTime.tryParse(
+      (widget.booking['end_at'] ?? widget.booking['end_date'])?.toString() ?? '',
+    );
+    final bookingId = widget.booking['id']?.toString();
     try {
       final refinedTargets =
           await widget.state._resolvePartnerBookingVehicleAndProximityTargets(widget.booking);
@@ -9917,7 +9921,10 @@ class _PartnerAssignDriverModalState extends State<_PartnerAssignDriverModal> {
           _mapTargets = refinedTargets;
         }
         final list = await BookingService().getAvailableVerifiedDrivers(
-          bookingDate: bookingDate,
+          bookingDate: startDate,
+          startDate: startDate,
+          endDate: endDate,
+          excludeBookingId: bookingId,
           proximityTargets: _mapTargets,
           prioritizeProximity: true,
           prioritizePsdc: false,
@@ -9941,9 +9948,13 @@ class _PartnerAssignDriverModalState extends State<_PartnerAssignDriverModal> {
   Future<void> _pollLiveTracker() async {
     if (!mounted || _isRefreshingTracker) return;
     setState(() => _isRefreshingTracker = true);
-    final bookingDate = DateTime.tryParse(
+    final startDate = DateTime.tryParse(
       (widget.booking['start_at'] ?? widget.booking['start_date'])?.toString() ?? '',
     );
+    final endDate = DateTime.tryParse(
+      (widget.booking['end_at'] ?? widget.booking['end_date'])?.toString() ?? '',
+    );
+    final bookingId = widget.booking['id']?.toString();
     try {
       final refinedTargets =
           await widget.state._resolvePartnerBookingVehicleAndProximityTargets(widget.booking);
@@ -9952,7 +9963,10 @@ class _PartnerAssignDriverModalState extends State<_PartnerAssignDriverModal> {
           _mapTargets = refinedTargets;
         }
         final list = await BookingService().getAvailableVerifiedDrivers(
-          bookingDate: bookingDate,
+          bookingDate: startDate,
+          startDate: startDate,
+          endDate: endDate,
+          excludeBookingId: bookingId,
           proximityTargets: _mapTargets,
           prioritizeProximity: true,
           prioritizePsdc: false,
@@ -10512,9 +10526,13 @@ class _PartnerEnlargedDriverMapDialogState
   Future<void> _pollLiveTracker() async {
     if (!mounted || _isRefreshing) return;
     setState(() => _isRefreshing = true);
-    final bookingDate = DateTime.tryParse(
+    final startDate = DateTime.tryParse(
       (widget.booking['start_at'] ?? widget.booking['start_date'])?.toString() ?? '',
     );
+    final endDate = DateTime.tryParse(
+      (widget.booking['end_at'] ?? widget.booking['end_date'])?.toString() ?? '',
+    );
+    final bookingId = widget.booking['id']?.toString();
     try {
       final refinedTargets =
           await widget.state._resolvePartnerBookingVehicleAndProximityTargets(widget.booking);
@@ -10523,7 +10541,10 @@ class _PartnerEnlargedDriverMapDialogState
           _mapTargets = refinedTargets;
         }
         final list = await BookingService().getAvailableVerifiedDrivers(
-          bookingDate: bookingDate,
+          bookingDate: startDate,
+          startDate: startDate,
+          endDate: endDate,
+          excludeBookingId: bookingId,
           proximityTargets: _mapTargets,
           prioritizeProximity: true,
           prioritizePsdc: false,

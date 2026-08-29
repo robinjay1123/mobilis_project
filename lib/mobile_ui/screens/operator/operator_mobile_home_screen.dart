@@ -929,8 +929,11 @@ class _BookingsTabState extends State<_BookingsTab> {
     final bookingId = booking['id']?.toString();
     if (bookingId == null || bookingId.isEmpty) return;
 
-    final bookingDate = DateTime.tryParse(
+    final startDate = DateTime.tryParse(
       (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+    );
+    final endDate = DateTime.tryParse(
+      (booking['end_at'] ?? booking['end_date'])?.toString() ?? '',
     );
 
     final vehicle = (booking['vehicles'] as Map<String, dynamic>?) ?? {};
@@ -944,7 +947,10 @@ class _BookingsTabState extends State<_BookingsTab> {
 
     try {
       final drivers = await BookingService().getAvailableVerifiedDrivers(
-        bookingDate: bookingDate,
+        bookingDate: startDate,
+        startDate: startDate,
+        endDate: endDate,
+        excludeBookingId: bookingId,
         proximityTargets: proximityTargets,
         prioritizeProximity: partnerVehicle,
         prioritizePsdc: !partnerVehicle,
