@@ -8107,195 +8107,177 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
     Widget cell(Widget child, int flex) => Expanded(flex: flex, child: child);
 
-    bool isHovered = false;
-
-    return StatefulBuilder(
-      builder: (context, setQueueRowHover) {
-        return MouseRegion(
-          onEnter: (_) => setQueueRowHover(() => isHovered = true),
-          onExit: (_) => setQueueRowHover(() => isHovered = false),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            decoration: BoxDecoration(
-              color: isHovered
-                  ? (isDark
-                      ? Colors.white.withValues(alpha: 0.04)
-                      : const Color(0xFFF8FAFC))
-                  : Colors.transparent,
-              border: Border(
-                top: BorderSide(
-                  color: isDark ? Colors.white10 : Colors.grey.shade200,
-                ),
-              ),
-            ),
-            child: Row(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          cell(
+            Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                cell(
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '#$shortId',
-                        style: TextStyle(
-                          color: foreground,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      if (!_viewedBookingIds.contains(booking['id']?.toString())) ...[
-                        const SizedBox(width: 5),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'NEW',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+                Text(
+                  '#$shortId',
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
                   ),
-                  2,
                 ),
-                cell(
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.directions_car_outlined,
-                        color: _operatorGold,
-                        size: 18,
+                if (!_viewedBookingIds.contains(booking['id']?.toString())) ...[
+                  const SizedBox(width: 5),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'NEW',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _vehicleTitle(vehicle.isNotEmpty ? vehicle : booking),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: foreground,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            Text(
-                              plateNumber.isEmpty ? 'No plate' : plateNumber,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: muted, fontSize: 9),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                  3,
+                ],
+              ],
+            ),
+            2,
+          ),
+          cell(
+            Row(
+              children: [
+                Icon(
+                  Icons.directions_car_outlined,
+                  color: _operatorGold,
+                  size: 18,
                 ),
-                cell(
-                  _buildOperatorPersonCell(
-                    renter['full_name']?.toString() ?? 'Unknown renter',
-                    renter['email']?.toString() ?? 'Renter',
-                    foreground,
-                    muted ?? Colors.grey,
-                    avatarUrl: _operatorUserAvatarUrl(renter),
-                  ),
-                  3,
-                ),
-                cell(
-                  Column(
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _formatBookingDateTime(start),
+                        _vehicleTitle(vehicle.isNotEmpty ? vehicle : booking),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: foreground,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                       Text(
-                        'Return: ${_formatBookingDateTime(end)}',
+                        plateNumber.isEmpty ? 'No plate' : plateNumber,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: muted, fontSize: 9),
                       ),
                     ],
                   ),
-                  4,
-                ),
-                cell(
-                  Text(
-                    service,
-                    style: TextStyle(
-                      color: foreground,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  3,
-                ),
-                cell(
-                  Text(
-                    driverLabel,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: needsDriver && driverName?.isNotEmpty != true
-                          ? Colors.orange.shade400
-                          : foreground,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  3,
-                ),
-                cell(
-                  Text(
-                    'PHP ${_bookingAmount(booking).toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: foreground,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  2,
-                ),
-                cell(
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: _buildStatusBadge(
-                      booking['status']?.toString() ?? 'pending',
-                    ),
-                  ),
-                  2,
-                ),
-                cell(
-                  _buildOperatorBookingActions(
-                    booking,
-                    isDark,
-                    compact: true,
-                    isRowHovered: isHovered,
-                  ),
-                  5,
                 ),
               ],
             ),
+            3,
           ),
-        );
-      },
+          cell(
+            _buildOperatorPersonCell(
+              renter['full_name']?.toString() ?? 'Unknown renter',
+              renter['email']?.toString() ?? 'Renter',
+              foreground,
+              muted ?? Colors.grey,
+              avatarUrl: _operatorUserAvatarUrl(renter),
+            ),
+            3,
+          ),
+          cell(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _formatBookingDateTime(start),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  'Return: ${_formatBookingDateTime(end)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: muted, fontSize: 9),
+                ),
+              ],
+            ),
+            4,
+          ),
+          cell(
+            Text(
+              service,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            3,
+          ),
+          cell(
+            Text(
+              driverLabel,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: needsDriver && driverName?.isNotEmpty != true
+                    ? Colors.orange.shade400
+                    : foreground,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            3,
+          ),
+          cell(
+            Text(
+              'PHP ${_bookingAmount(booking).toStringAsFixed(2)}',
+              style: TextStyle(
+                color: foreground,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            2,
+          ),
+          cell(
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _buildStatusBadge(
+                booking['status']?.toString() ?? 'pending',
+              ),
+            ),
+            2,
+          ),
+          cell(
+            _buildOperatorBookingActions(
+              booking,
+              isDark,
+              compact: true,
+            ),
+            5,
+          ),
+        ],
+      ),
     );
   }
 
@@ -11264,7 +11246,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic> booking,
     bool isDark, {
     bool compact = false,
-    bool isRowHovered = false,
   }) {
     final bookingId = booking['id']?.toString() ?? '';
     final group = bookingStatusGroup(booking['status']);
@@ -11628,51 +11609,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }
     }
 
-    return StatefulBuilder(
-      builder: (context, setHover) {
-        bool localHovered = false;
-        final effectiveHover = isRowHovered || localHovered;
-        return MouseRegion(
-          onEnter: (_) => setHover(() => localHovered = true),
-          onExit: (_) => setHover(() => localHovered = false),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? (effectiveHover ? 6 : 2) : 6,
-              vertical: 2,
-            ),
-            decoration: BoxDecoration(
-              color: effectiveHover
-                  ? (isDark
-                      ? Colors.white.withValues(alpha: 0.05)
-                      : Colors.black.withValues(alpha: 0.03))
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: effectiveHover
-                    ? (isDark
-                        ? Colors.white.withValues(alpha: 0.12)
-                        : Colors.grey.shade300)
-                    : Colors.transparent,
-                width: 1,
-              ),
-            ),
-            child: AnimatedScale(
-              scale: effectiveHover ? 1.02 : 1.0,
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: buttons,
-              ),
-            ),
-          ),
-        );
-      },
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: buttons,
     );
   }
 
@@ -11716,76 +11658,55 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _ => label,
     };
 
-    return StatefulBuilder(
-      builder: (context, setBtnHover) {
-        bool btnHovered = false;
-        return MouseRegion(
-          onEnter: (_) => setBtnHover(() => btnHovered = true),
-          onExit: (_) => setBtnHover(() => btnHovered = false),
-          child: Tooltip(
-            message: actionDescription,
-            waitDuration: const Duration(milliseconds: 350),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOutCubic,
-              transform: btnHovered && enabled
-                  ? Matrix4.diagonal3Values(1.04, 1.04, 1.0)
-                  : Matrix4.identity(),
-              transformAlignment: Alignment.center,
-              child: Material(
-                color: effectiveBackground,
-                borderRadius: BorderRadius.circular(10),
-                elevation: btnHovered && enabled ? 3 : 0,
-                shadowColor: (backgroundColor ?? foregroundColor).withValues(alpha: 0.35),
-                child: InkWell(
-                  onTap: onPressed,
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    height: compact ? 32 : 38,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: compact ? 9 : 13,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: enabled
-                            ? (btnHovered
-                                ? (borderColor ?? foregroundColor).withValues(alpha: 0.9)
-                                : (borderColor ?? backgroundColor ?? Colors.transparent))
-                            : Colors.grey.shade700.withValues(alpha: 0.5),
-                        width: btnHovered && enabled ? 1.4 : 1.0,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          icon,
-                          size: compact ? 13 : 15,
-                          color: effectiveForeground,
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          label,
-                          maxLines: 1,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: effectiveForeground,
-                            fontSize: compact ? 11 : 12,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+    return Tooltip(
+      message: actionDescription,
+      waitDuration: const Duration(milliseconds: 350),
+      child: Material(
+        color: effectiveBackground,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            height: compact ? 30 : 34,
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 9 : 12,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: enabled
+                    ? (borderColor ?? backgroundColor ?? Colors.transparent)
+                    : Colors.grey.shade700.withValues(alpha: 0.5),
+                width: 1.0,
               ),
             ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: compact ? 13 : 15,
+                  color: effectiveForeground,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                    color: effectiveForeground,
+                    fontSize: compact ? 11 : 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
