@@ -483,7 +483,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     required DateTime initialStart,
     required DateTime initialEnd,
     bool isHourly = false,
-  }) {
+  }) async {
+    // Fetch fresh unavailable dates to ensure live accuracy
+    try {
+      final freshUnavailable =
+          await VehicleService().getUnavailableDates(widget.vehicleId);
+      if (mounted && freshUnavailable.isNotEmpty) {
+        setState(() {
+          _unavailableDates = freshUnavailable;
+        });
+      }
+    } catch (_) {}
+
+    if (!mounted) return null;
+
     var focusedDay = initialStart;
     DateTime? rangeStart = initialStart;
     DateTime? rangeEnd = initialEnd;

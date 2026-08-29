@@ -916,13 +916,16 @@ class BookingService {
       try {
         vehicleState = await supabase
             .from('vehicles')
-            .select('id,owner_role,plate_number,is_available,is_posted,status,owner_id,partner_id')
+            .select('*')
             .eq('id', vehicleId)
             .maybeSingle();
         if (vehicleState != null) {
           plateNumber = vehicleState['plate_number']?.toString();
           ownerId = vehicleState['owner_id']?.toString();
-          partnerId = vehicleState['partner_id']?.toString() ?? ownerId;
+          final rawPartnerId = vehicleState['partner_id']?.toString();
+          if (rawPartnerId != null && rawPartnerId.isNotEmpty) {
+            partnerId = rawPartnerId;
+          }
           if (vehicleState['owner_role']?.toString().toLowerCase() == 'partner') {
             isPartnerVehicle = true;
           }
@@ -931,37 +934,41 @@ class BookingService {
         debugPrint('Could not query vehicles table: $e');
       }
 
-      // Check partner_vehicles table
-      try {
-        final partnerState = await supabase
-            .from('partner_vehicles')
-            .select('id,plate_number,is_available,status,partner_id,vehicle_id')
-            .eq('id', vehicleId)
-            .maybeSingle();
+      // Check partner_vehicles table if not found in vehicles table or to enrich partner vehicle state
+      if (vehicleState == null) {
+        try {
+          final partnerState = await supabase
+              .from('partner_vehicles')
+              .select('*')
+              .eq('id', vehicleId)
+              .maybeSingle();
 
-        if (partnerState != null) {
-          vehicleState = Map<String, dynamic>.from(partnerState);
-          vehicleState['owner_role'] = 'partner';
-          isPartnerVehicle = true;
-          partnerId = partnerState['partner_id']?.toString() ?? partnerId;
-          ownerId ??= partnerId;
-          plateNumber ??= partnerState['plate_number']?.toString();
-        } else if (isPartnerVehicle || (plateNumber != null && plateNumber.isNotEmpty)) {
-          try {
-            final pvByPlate = await supabase
-                .from('partner_vehicles')
-                .select('id,partner_id,vehicle_id')
-                .or('id.eq.$vehicleId${plateNumber != null && plateNumber.isNotEmpty ? ',plate_number.eq.$plateNumber' : ''}')
-                .maybeSingle();
-            if (pvByPlate != null) {
-              isPartnerVehicle = true;
-              partnerId ??= pvByPlate['partner_id']?.toString();
-              ownerId ??= partnerId;
-            }
-          } catch (_) {}
+          if (partnerState != null) {
+            vehicleState = Map<String, dynamic>.from(partnerState);
+            vehicleState['owner_role'] = 'partner';
+            isPartnerVehicle = true;
+            partnerId = partnerState['partner_id']?.toString() ?? partnerId;
+            ownerId ??= partnerId;
+            plateNumber ??= partnerState['plate_number']?.toString();
+          }
+        } catch (e) {
+          debugPrint('Could not query partner_vehicles table: $e');
         }
-      } catch (e) {
-        debugPrint('Could not query partner_vehicles table: $e');
+      }
+
+      if (isPartnerVehicle || (plateNumber != null && plateNumber.isNotEmpty)) {
+        try {
+          final pvByPlate = await supabase
+              .from('partner_vehicles')
+              .select('id,partner_id,vehicle_id')
+              .or('id.eq.$vehicleId${plateNumber != null && plateNumber.isNotEmpty ? ',plate_number.eq.$plateNumber' : ''}')
+              .maybeSingle();
+          if (pvByPlate != null) {
+            isPartnerVehicle = true;
+            partnerId ??= pvByPlate['partner_id']?.toString();
+            ownerId ??= partnerId;
+          }
+        } catch (_) {}
       }
 
       final (
@@ -1011,10 +1018,19 @@ class BookingService {
         vehicleCanBeBooked =
             !isBlocked && isAvailableNotFalse && isApprovedOrPosted;
       } else {
-        vehicleCanBeBooked = vehicleState['is_available'] != false &&
-            vehicleState['is_posted'] != false &&
-            !{'inactive', 'archived', 'deleted', 'rejected'}
-                .contains(vehicleStatus);
+        const blockedStatuses = {
+          'inactive',
+          'archived',
+          'deleted',
+          'rejected',
+          'disabled',
+          'sold',
+        };
+        final isBlocked = blockedStatuses.contains(vehicleStatus);
+        final isAvailableNotFalse = vehicleState['is_available'] != false;
+        final isPostedNotFalse = vehicleState['is_posted'] != false;
+        vehicleCanBeBooked =
+            !isBlocked && isAvailableNotFalse && isPostedNotFalse;
       }
 
       if (!vehicleCanBeBooked) {
@@ -1056,7 +1072,8 @@ class BookingService {
         'renter_id': renterId,
         'vehicle_id': vehicleId,
         if (isPartnerVehicle) 'partner_vehicle_id': vehicleId,
-        if (partnerId != null && partnerId.isNotEmpty) 'partner_id': partnerId,
+        if (isPartnerVehicle && partnerId != null && partnerId.isNotEmpty)
+          'partner_id': partnerId,
         if (ownerId != null && ownerId.isNotEmpty) 'owner_id': ownerId,
         'start_at': startAt.toIso8601String(),
         'end_at': endAt.toIso8601String(),
@@ -1216,19 +1233,42 @@ class BookingService {
               msg.contains('foreign key') ||
               details.contains('foreign key') ||
               msg.contains('fk_') ||
-              (msg.contains('vehicle_id') && msg.contains('violates'));
+              (msg.contains('vehicle_id') && msg.contains('violates')) ||
+              (msg.contains('partner_vehicle_id') && msg.contains('violates')) ||
+              (msg.contains('owner_id') && msg.contains('violates')) ||
+              (msg.contains('partner_id') && msg.contains('violates'));
 
-          if (isFkError &&
-              isPartnerVehicle &&
-              currentPayload.containsKey('vehicle_id') &&
-              currentPayload.containsKey('partner_vehicle_id')) {
+          if (isFkError) {
             retryCount++;
             if (retryCount > 8) rethrow;
-            debugPrint(
-              'Foreign key constraint on vehicle_id for partner vehicle ($e). Removing vehicle_id and retrying with partner_vehicle_id...',
-            );
-            currentPayload.remove('vehicle_id');
-            continue;
+
+            if (isPartnerVehicle &&
+                currentPayload.containsKey('vehicle_id') &&
+                currentPayload.containsKey('partner_vehicle_id')) {
+              debugPrint(
+                'Foreign key constraint on vehicle_id for partner vehicle ($e). Removing vehicle_id and retrying with partner_vehicle_id...',
+              );
+              currentPayload.remove('vehicle_id');
+              continue;
+            }
+
+            if (currentPayload.containsKey('owner_id') &&
+                (msg.contains('owner_id') || details.contains('owner_id') || !isPartnerVehicle)) {
+              debugPrint(
+                'Foreign key constraint on owner_id ($e). Removing owner_id and retrying...',
+              );
+              currentPayload.remove('owner_id');
+              continue;
+            }
+
+            if (currentPayload.containsKey('partner_id') &&
+                (msg.contains('partner_id') || details.contains('partner_id') || !isPartnerVehicle)) {
+              debugPrint(
+                'Foreign key constraint on partner_id ($e). Removing partner_id and retrying...',
+              );
+              currentPayload.remove('partner_id');
+              continue;
+            }
           }
 
           if (e.code == 'PGRST204' ||

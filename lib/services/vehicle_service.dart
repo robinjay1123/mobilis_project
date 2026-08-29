@@ -673,11 +673,16 @@ class VehicleService {
       }
 
       // 2. Check vehicles table
-      final response = await supabase
-          .from('vehicles')
-          .select('id,plate_number,owner_role,is_available,is_posted,status')
-          .eq('id', vehicleId)
-          .maybeSingle();
+      Map<String, dynamic>? response;
+      try {
+        response = await supabase
+            .from('vehicles')
+            .select('*')
+            .eq('id', vehicleId)
+            .maybeSingle();
+      } catch (e) {
+        debugPrint('isVehicleBookable vehicles check fallback: $e');
+      }
 
       if (response != null) {
         final vehicle = Map<String, dynamic>.from(response);
@@ -938,7 +943,10 @@ class VehicleService {
 
   Future<List<DateTime>> getUnavailableDates(String vehicleId) async {
     final byDay = <String, DateTime>{};
+    if (vehicleId.trim().isEmpty) return [];
+
     try {
+      // 1. Explicit unavailable dates from vehicle_availability table
       try {
         final availability = await getVehicleAvailability(vehicleId);
         final explicitlyUnavailableDates = availability
@@ -953,6 +961,7 @@ class VehicleService {
         debugPrint('getVehicleAvailability optional lookup note: $e');
       }
 
+      // 2. Direct or RPC fetched bookings
       final response = await _fetchVehicleBookings(vehicleId);
 
       for (final row in response) {
@@ -970,6 +979,50 @@ class VehicleService {
           current = current.add(const Duration(days: 1));
         }
       }
+
+      // 3. Security Definer RPC day-probe fallback
+      // Since public.is_vehicle_available_for_booking is SECURITY DEFINER,
+      // it verifies active bookings across all users even if RLS hides booking rows.
+      try {
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final daysToCheck = <DateTime>[];
+        for (var i = 0; i < 90; i++) {
+          final day = today.add(Duration(days: i));
+          if (!byDay.containsKey(_dateKey(day))) {
+            daysToCheck.add(day);
+          }
+        }
+
+        if (daysToCheck.isNotEmpty) {
+          const chunkSize = 15;
+          for (var i = 0; i < daysToCheck.length; i += chunkSize) {
+            final chunk = daysToCheck.skip(i).take(chunkSize).toList();
+            await Future.wait(
+              chunk.map((day) async {
+                try {
+                  final dayStart = DateTime.utc(day.year, day.month, day.day, 0, 0, 0);
+                  final dayEnd = DateTime.utc(day.year, day.month, day.day, 23, 59, 59, 999);
+                  final isAvailable = await supabase.rpc(
+                    'is_vehicle_available_for_booking',
+                    params: {
+                      'p_vehicle_id': vehicleId,
+                      'p_start_date': dayStart.toIso8601String(),
+                      'p_end_date': dayEnd.toIso8601String(),
+                    },
+                  );
+                  if (isAvailable == false) {
+                    byDay[_dateKey(day)] = day;
+                  }
+                } catch (_) {}
+              }),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('is_vehicle_available_for_booking day probe note: $e');
+      }
+
       return byDay.values.toList()..sort();
     } catch (e) {
       debugPrint('getUnavailableDates error: $e');
@@ -979,6 +1032,8 @@ class VehicleService {
 
   Future<List<DateTime>> getBookedDates(String vehicleId) async {
     final dates = <String, DateTime>{};
+    if (vehicleId.trim().isEmpty) return [];
+
     try {
       final response = await _fetchVehicleBookings(vehicleId);
 
@@ -997,6 +1052,48 @@ class VehicleService {
           current = current.add(const Duration(days: 1));
         }
       }
+
+      // Security Definer RPC day probe
+      try {
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final daysToCheck = <DateTime>[];
+        for (var i = 0; i < 90; i++) {
+          final day = today.add(Duration(days: i));
+          if (!dates.containsKey(_dateKey(day))) {
+            daysToCheck.add(day);
+          }
+        }
+
+        if (daysToCheck.isNotEmpty) {
+          const chunkSize = 15;
+          for (var i = 0; i < daysToCheck.length; i += chunkSize) {
+            final chunk = daysToCheck.skip(i).take(chunkSize).toList();
+            await Future.wait(
+              chunk.map((day) async {
+                try {
+                  final dayStart = DateTime.utc(day.year, day.month, day.day, 0, 0, 0);
+                  final dayEnd = DateTime.utc(day.year, day.month, day.day, 23, 59, 59, 999);
+                  final isAvailable = await supabase.rpc(
+                    'is_vehicle_available_for_booking',
+                    params: {
+                      'p_vehicle_id': vehicleId,
+                      'p_start_date': dayStart.toIso8601String(),
+                      'p_end_date': dayEnd.toIso8601String(),
+                    },
+                  );
+                  if (isAvailable == false) {
+                    dates[_dateKey(day)] = day;
+                  }
+                } catch (_) {}
+              }),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('getBookedDates day probe note: $e');
+      }
+
       return dates.values.toList()..sort();
     } catch (e) {
       debugPrint('getBookedDates error: $e');
@@ -1107,6 +1204,22 @@ class VehicleService {
     if (!endAt.isAfter(startAt)) return false;
 
     try {
+      // 1. Direct Security Definer RPC check against Postgres trigger logic
+      try {
+        final isAvailableRpc = await supabase.rpc(
+          'is_vehicle_available_for_booking',
+          params: {
+            'p_vehicle_id': vehicleId,
+            'p_start_date': startAt.toUtc().toIso8601String(),
+            'p_end_date': endAt.toUtc().toIso8601String(),
+          },
+        );
+        if (isAvailableRpc == false) return false;
+      } catch (e) {
+        debugPrint('is_vehicle_available_for_booking rpc check note: $e');
+      }
+
+      // 2. vehicle_availability table check
       try {
         final table = await _availabilityTable();
         final unavailableRows = await supabase
@@ -1121,6 +1234,7 @@ class VehicleService {
         debugPrint('isTimeRangeAvailable availability check note: $e');
       }
 
+      // 3. In-memory check against fetched vehicle bookings
       final bookingRows = await _fetchVehicleBookings(vehicleId);
       for (final row in bookingRows) {
         final status = row['status']?.toString();
