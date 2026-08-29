@@ -180,8 +180,8 @@ class BookingService {
             .select('id, user_id')
             .or('user_id.eq.$userId,id.eq.$userId');
         for (final p in List<Map<String, dynamic>>.from(partners)) {
-          final id = p['id']?.toString();
-          final uId = p['user_id']?.toString();
+          final id = p['id']?.toString().trim();
+          final uId = p['user_id']?.toString().trim();
           if (id != null && id.isNotEmpty) partnerIds.add(id);
           if (uId != null && uId.isNotEmpty) partnerIds.add(uId);
         }
@@ -189,72 +189,106 @@ class BookingService {
         debugPrint('Error fetching partner IDs: $e');
       }
 
-      // 2. Get partner_vehicles IDs and plate numbers
-      final partnerVehicleIds = <String>{};
+      final allVehicleIds = <String>{};
       final vehiclePlates = <String>{};
+
+      // 2. Get partner_vehicles IDs and plate numbers
       try {
-        final partnerFilter = partnerIds.map((id) => 'partner_id.eq.$id').join(',');
-        if (partnerFilter.isNotEmpty) {
-          final pVehicles = await supabase
-              .from('partner_vehicles')
-              .select('id, plate_number, vehicle_id')
-              .or(partnerFilter);
-          for (final pv in List<Map<String, dynamic>>.from(pVehicles)) {
-            final id = pv['id']?.toString();
-            final vid = pv['vehicle_id']?.toString();
-            final plate = pv['plate_number']?.toString().trim().toUpperCase();
-            if (id != null && id.isNotEmpty) partnerVehicleIds.add(id);
-            if (vid != null && vid.isNotEmpty) partnerVehicleIds.add(vid);
-            if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
-          }
+        final pVehicles = await supabase
+            .from('partner_vehicles')
+            .select('id, plate_number, vehicle_id')
+            .inFilter('partner_id', partnerIds.toList());
+        for (final pv in List<Map<String, dynamic>>.from(pVehicles)) {
+          final id = pv['id']?.toString().trim();
+          final vid = pv['vehicle_id']?.toString().trim();
+          final plate = pv['plate_number']?.toString().trim().toUpperCase();
+          if (id != null && id.isNotEmpty) allVehicleIds.add(id);
+          if (vid != null && vid.isNotEmpty) allVehicleIds.add(vid);
+          if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
         }
       } catch (e) {
         debugPrint('Error fetching partner_vehicles for partner: $e');
       }
 
-      // 3. Get partner_vehicle_applications IDs and plates
+      // Also check partner_vehicles where user_id is the user
+      try {
+        final pVehiclesByUser = await supabase
+            .from('partner_vehicles')
+            .select('id, plate_number, vehicle_id')
+            .eq('user_id', userId);
+        for (final pv in List<Map<String, dynamic>>.from(pVehiclesByUser)) {
+          final id = pv['id']?.toString().trim();
+          final vid = pv['vehicle_id']?.toString().trim();
+          final plate = pv['plate_number']?.toString().trim().toUpperCase();
+          if (id != null && id.isNotEmpty) allVehicleIds.add(id);
+          if (vid != null && vid.isNotEmpty) allVehicleIds.add(vid);
+          if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
+        }
+      } catch (_) {}
+
+      // 3. Get partner_vehicle_applications IDs, created_vehicle_ids, and plates
       try {
         final pApps = await supabase
             .from('partner_vehicle_applications')
-            .select('id, partner_vehicle_id, plate_number')
+            .select('id, partner_vehicle_id, created_vehicle_id, plate_number')
             .inFilter('partner_id', partnerIds.toList());
         for (final app in List<Map<String, dynamic>>.from(pApps)) {
-          final appId = app['id']?.toString();
-          final pvId = app['partner_vehicle_id']?.toString();
+          final appId = app['id']?.toString().trim();
+          final pvId = app['partner_vehicle_id']?.toString().trim();
+          final cvId = app['created_vehicle_id']?.toString().trim();
           final plate = app['plate_number']?.toString().trim().toUpperCase();
-          if (appId != null && appId.isNotEmpty) partnerVehicleIds.add(appId);
-          if (pvId != null && pvId.isNotEmpty) partnerVehicleIds.add(pvId);
+          if (appId != null && appId.isNotEmpty) allVehicleIds.add(appId);
+          if (pvId != null && pvId.isNotEmpty) allVehicleIds.add(pvId);
+          if (cvId != null && cvId.isNotEmpty) allVehicleIds.add(cvId);
           if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
         }
       } catch (e) {
         debugPrint('Error fetching partner_vehicle_applications: $e');
       }
 
-      // 4. Get standard vehicles owned by this user
-      final standardVehicleIds = <String>{};
+      // 4. Get standard vehicles owned by this partner/user
       try {
-        final ownerFilter = partnerIds.map((id) => 'owner_id.eq.$id').join(',');
-        final partnerColFilter = partnerIds.map((id) => 'partner_id.eq.$id').join(',');
-        final orParts = <String>[
-          if (ownerFilter.isNotEmpty) ownerFilter,
-          if (partnerColFilter.isNotEmpty) partnerColFilter,
-          'owner_id.eq.$userId',
-        ];
         final vehicles = await supabase
             .from('vehicles')
             .select('id, plate_number')
-            .or(orParts.join(','));
+            .inFilter('owner_id', partnerIds.toList());
         for (final v in List<Map<String, dynamic>>.from(vehicles)) {
-          final id = v['id']?.toString();
+          final id = v['id']?.toString().trim();
           final plate = v['plate_number']?.toString().trim().toUpperCase();
-          if (id != null && id.isNotEmpty) standardVehicleIds.add(id);
+          if (id != null && id.isNotEmpty) allVehicleIds.add(id);
           if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
         }
       } catch (e) {
-        debugPrint('Error fetching standard vehicles for partner: $e');
+        debugPrint('Error fetching standard vehicles by owner_id: $e');
       }
 
-      final allVehicleIds = {...standardVehicleIds, ...partnerVehicleIds};
+      try {
+        final vehiclesByOp = await supabase
+            .from('vehicles')
+            .select('id, plate_number')
+            .eq('operator_id', userId);
+        for (final v in List<Map<String, dynamic>>.from(vehiclesByOp)) {
+          final id = v['id']?.toString().trim();
+          final plate = v['plate_number']?.toString().trim().toUpperCase();
+          if (id != null && id.isNotEmpty) allVehicleIds.add(id);
+          if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
+        }
+      } catch (_) {}
+
+      // If plate numbers found, also match any vehicles sharing those plate numbers
+      if (vehiclePlates.isNotEmpty) {
+        try {
+          final vehiclesByPlate = await supabase
+              .from('vehicles')
+              .select('id')
+              .inFilter('plate_number', vehiclePlates.toList());
+          for (final v in List<Map<String, dynamic>>.from(vehiclesByPlate)) {
+            final id = v['id']?.toString().trim();
+            if (id != null && id.isNotEmpty) allVehicleIds.add(id);
+          }
+        } catch (_) {}
+      }
+
       final bookingList = <Map<String, dynamic>>[];
       final seenBookingIds = <String>{};
 
@@ -262,7 +296,7 @@ class BookingService {
         for (final r in rows) {
           if (r is Map) {
             final rowMap = Map<String, dynamic>.from(r);
-            final id = rowMap['id']?.toString();
+            final id = rowMap['id']?.toString().trim();
             if (id != null && id.isNotEmpty && !seenBookingIds.contains(id)) {
               seenBookingIds.add(id);
               bookingList.add(rowMap);
@@ -271,57 +305,53 @@ class BookingService {
         }
       }
 
-      // Query bookings efficiently using indexed filters in parallel
-      final queries = <Future<dynamic>>[];
+      // Query bookings with isolated try-catches so one failure does not drop others
       if (allVehicleIds.isNotEmpty) {
         final vehicleList = allVehicleIds.toList();
-        queries.add(
-          supabase
+        try {
+          final res = await supabase
               .from('bookings')
               .select('*')
               .inFilter('vehicle_id', vehicleList)
               .order('created_at', ascending: false)
-              .limit(100),
-        );
-        queries.add(
-          supabase
+              .limit(300);
+          addRows(res);
+        } catch (e) {
+          debugPrint('Error querying bookings by vehicle_id: $e');
+        }
+
+        try {
+          final res = await supabase
               .from('bookings')
               .select('*')
               .inFilter('partner_vehicle_id', vehicleList)
               .order('created_at', ascending: false)
-              .limit(100),
-        );
+              .limit(300);
+          addRows(res);
+        } catch (_) {}
       }
 
       if (partnerIds.isNotEmpty) {
         final pList = partnerIds.toList();
-        queries.add(
-          supabase
+        try {
+          final res = await supabase
               .from('bookings')
               .select('*')
               .inFilter('partner_id', pList)
               .order('created_at', ascending: false)
-              .limit(100),
-        );
-        queries.add(
-          supabase
+              .limit(300);
+          addRows(res);
+        } catch (_) {}
+
+        try {
+          final res = await supabase
               .from('bookings')
               .select('*')
               .inFilter('owner_id', pList)
               .order('created_at', ascending: false)
-              .limit(100),
-        );
-      }
-
-      if (queries.isNotEmpty) {
-        try {
-          final queryResults = await Future.wait(queries);
-          for (final res in queryResults) {
-            if (res is List) addRows(res);
-          }
-        } catch (e) {
-          debugPrint('Error querying partner bookings: $e');
-        }
+              .limit(300);
+          addRows(res);
+        } catch (_) {}
       }
 
       // Sort all fetched bookings by created_at descending
@@ -331,13 +361,12 @@ class BookingService {
         return bDate.compareTo(aDate);
       });
 
-      debugPrint('Fetched ${bookingList.length} total partner bookings for partner $userId');
+      debugPrint(
+        'Fetched ${bookingList.length} total partner bookings for partner $userId (allVehicleIds: ${allVehicleIds.length})',
+      );
       return await hydrateBookingVehicles(bookingList);
-    } on PostgrestException catch (e) {
-      debugPrint('Database error fetching partner bookings: ${e.message}');
-      return [];
     } catch (e) {
-      debugPrint('Unexpected error fetching partner bookings: $e');
+      debugPrint('Error fetching partner bookings: $e');
       return [];
     }
   }

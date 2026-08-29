@@ -948,41 +948,31 @@ class PartnerService {
     try {
       debugPrint('Searching bookings for partner: $partnerId');
 
-      // Get partner's vehicles
-      final vehicles = await supabase
-          .from('vehicles')
-          .select('id')
-          .eq('owner_id', partnerId);
+      final allBookings = await BookingService().getPartnerBookings(partnerId);
 
-      if (vehicles.isEmpty) return [];
-
-      final vehicleIds = vehicles.map((v) => v['id']).cast<String>().toList();
-
-      var query = supabase
-          .from('bookings')
-          .select(
-            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model), users:users!bookings_renter_id_fkey(full_name, email)',
-          )
-          .inFilter('vehicle_id', vehicleIds);
-
-      if (status != null) {
-        query = query.eq('status', status);
+      var filtered = allBookings;
+      if (status != null && status.isNotEmpty && status != 'all') {
+        filtered = filtered.where((b) {
+          final s = b['status']?.toString().toLowerCase().trim();
+          return s == status.toLowerCase().trim();
+        }).toList();
       }
 
       if (afterDate != null) {
-        query = query.gte('start_date', afterDate.toIso8601String());
+        filtered = filtered.where((b) {
+          final sDate = DateTime.tryParse((b['start_at'] ?? b['start_date'])?.toString() ?? '');
+          return sDate != null && !sDate.isBefore(afterDate);
+        }).toList();
       }
 
       if (beforeDate != null) {
-        query = query.lte('end_date', beforeDate.toIso8601String());
+        filtered = filtered.where((b) {
+          final eDate = DateTime.tryParse((b['end_at'] ?? b['end_date'])?.toString() ?? '');
+          return eDate != null && !eDate.isAfter(beforeDate);
+        }).toList();
       }
 
-      final response = await query.order('created_at', ascending: false);
-
-      return List<Map<String, dynamic>>.from(response);
-    } on PostgrestException catch (e) {
-      debugPrint('Database error searching bookings: ${e.message}');
-      return [];
+      return filtered;
     } catch (e) {
       debugPrint('Error searching bookings: $e');
       return [];
