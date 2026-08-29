@@ -179,10 +179,13 @@ class VehicleService {
   // Visibility filter
   // ---------------------------------------------------------------------------
   bool _isVisibleForRent(Map<String, dynamic> v) {
-    if (v['is_posted'] != true) return false;
-    if (v['is_available'] != true) return false;
+    if (v['is_posted'] == false) return false;
+    if (v['is_available'] == false) return false;
     final status = (v['status'] ?? '').toString().toLowerCase();
-    return status != 'inactive' && status != 'archived' && status != 'deleted';
+    return status != 'inactive' &&
+        status != 'archived' &&
+        status != 'deleted' &&
+        status != 'rejected';
   }
 
   bool _isPartnerOwned(
@@ -893,6 +896,38 @@ class VehicleService {
     }
   }
 
+  /// Safely fetches booked date/time ranges for a vehicle using the SECURITY DEFINER RPC
+  /// with automatic fallback to direct query.
+  Future<List<Map<String, dynamic>>> _fetchVehicleBookings(
+    String vehicleId,
+  ) async {
+    if (vehicleId.trim().isEmpty) return [];
+    try {
+      final rpcResponse = await supabase.rpc(
+        'get_vehicle_booked_schedules',
+        params: {'p_vehicle_id': vehicleId},
+      );
+      if (rpcResponse is List) {
+        return List<Map<String, dynamic>>.from(
+          rpcResponse.whereType<Map<String, dynamic>>(),
+        );
+      }
+    } catch (e) {
+      debugPrint('get_vehicle_booked_schedules rpc fallback: $e');
+    }
+
+    try {
+      final response = await supabase
+          .from('bookings')
+          .select('start_at,end_at,start_date,end_date,status')
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId');
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Direct bookings query fallback note: $e');
+      return [];
+    }
+  }
+
   Future<List<DateTime>> getUnavailableDates(String vehicleId) async {
     final byDay = <String, DateTime>{};
     try {
@@ -910,12 +945,9 @@ class VehicleService {
         debugPrint('getVehicleAvailability optional lookup note: $e');
       }
 
-      final response = await supabase
-          .from('bookings')
-          .select('start_at,end_at,start_date,end_date,status')
-          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId');
+      final response = await _fetchVehicleBookings(vehicleId);
 
-      for (final row in List<Map<String, dynamic>>.from(response)) {
+      for (final row in response) {
         final status = row['status']?.toString();
         if (!_isBlockingStatus(status)) continue;
         final interval = _bookingInterval(row);
@@ -940,12 +972,9 @@ class VehicleService {
   Future<List<DateTime>> getBookedDates(String vehicleId) async {
     final dates = <String, DateTime>{};
     try {
-      final response = await supabase
-          .from('bookings')
-          .select('start_at,end_at,start_date,end_date,status')
-          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId');
+      final response = await _fetchVehicleBookings(vehicleId);
 
-      for (final row in List<Map<String, dynamic>>.from(response)) {
+      for (final row in response) {
         final status = row['status']?.toString();
         if (!_isBlockingStatus(status)) continue;
         final interval = _bookingInterval(row);
@@ -1003,12 +1032,9 @@ class VehicleService {
         debugPrint('getAvailableTimeSlots availability table note: $e');
       }
 
-      final bookingRows = await supabase
-          .from('bookings')
-          .select('start_at,end_at,start_date,end_date,status')
-          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId');
+      final bookingRows = await _fetchVehicleBookings(vehicleId);
       final bookedIntervals = <(DateTime, DateTime)>[];
-      for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
+      for (final row in bookingRows) {
         final status = row['status']?.toString();
         if (!_isBlockingStatus(status)) continue;
         final interval = _bookingInterval(row);
@@ -1087,11 +1113,8 @@ class VehicleService {
         debugPrint('isTimeRangeAvailable availability check note: $e');
       }
 
-      final bookingRows = await supabase
-          .from('bookings')
-          .select('start_at,end_at,start_date,end_date,status')
-          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId');
-      for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
+      final bookingRows = await _fetchVehicleBookings(vehicleId);
+      for (final row in bookingRows) {
         final status = row['status']?.toString();
         if (!_isBlockingStatus(status)) continue;
         final interval = _bookingInterval(row);

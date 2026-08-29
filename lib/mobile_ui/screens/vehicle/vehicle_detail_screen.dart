@@ -2195,9 +2195,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final message = e.toString().toLowerCase().contains('unavailable')
-            ? 'Selected dates are unavailable for bookings'
-            : 'Error creating booking: $e';
+        final rawMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        final message = rawMsg.isNotEmpty ? rawMsg : 'Error creating booking';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message), backgroundColor: AppColors.error),
         );
