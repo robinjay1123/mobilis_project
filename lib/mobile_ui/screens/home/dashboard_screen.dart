@@ -9514,7 +9514,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         (booking['end_at'] != null ? DateTime.tryParse(booking['end_at']) : null);
 
     final durationDays = (currentStart != null && currentEnd != null)
-        ? currentEnd.difference(currentStart).inDays.clamp(1, 30)
+        ? (currentEnd.difference(currentStart).inMinutes / Duration.minutesPerDay).ceil().clamp(1, 365)
         : 1;
 
     DateTime selectedStartDate = DateTime.now().add(const Duration(days: 2));
@@ -9723,6 +9723,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 lastDate: DateTime.now().add(const Duration(days: 90)),
                                 initialStart: selectedStartDate,
                                 initialEnd: selectedEndDate,
+                                fixedDurationDays: durationDays,
                                 previousStart: currentStart,
                                 previousEnd: currentEnd,
                                 unavailableDays: unavailableDays,
@@ -10226,14 +10227,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required DateTime lastDate,
     required DateTime initialStart,
     required DateTime initialEnd,
+    required int fixedDurationDays,
     required DateTime? previousStart,
     required DateTime? previousEnd,
     required Set<DateTime> unavailableDays,
     required String carName,
   }) {
     var focusedDay = initialStart;
-    DateTime? rangeStart = initialStart;
-    DateTime? rangeEnd = initialEnd;
+    DateTime rangeStart = _dateOnly(initialStart);
+    DateTime rangeEnd = rangeStart.add(Duration(days: fixedDurationDays));
     final unavailable = unavailableDays.map(_dateOnly).toSet();
 
     final previousDays = <DateTime>{};
@@ -10251,9 +10253,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final hasInvalidRange = rangeStart != null &&
-                rangeEnd != null &&
-                _rangeContainsBlockedDate(rangeStart!, rangeEnd!, unavailable);
+            final hasInvalidRange = _rangeContainsBlockedDate(rangeStart, rangeEnd, unavailable);
+
+            void selectStartDate(DateTime selectedDay) {
+              final start = _dateOnly(selectedDay);
+              final end = start.add(Duration(days: fixedDurationDays));
+
+              if (_rangeContainsBlockedDate(start, end, unavailable)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Cannot reschedule to this start date: $fixedDurationDays-day trip overlaps with booked / unavailable dates.',
+                    ),
+                    backgroundColor: AppColors.error,
+                  ),
+                );
+              }
+
+              setDialogState(() {
+                rangeStart = start;
+                rangeEnd = end;
+                focusedDay = selectedDay;
+              });
+            }
 
             return Dialog(
               backgroundColor: AppColors.darkBgSecondary,
@@ -10280,7 +10302,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
-                                  'Select Reschedule Dates',
+                                  'Select Reschedule Start Date',
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w700,
@@ -10308,6 +10330,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 8),
+                      // Locked Duration Banner
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE5A93C).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE5A93C).withValues(alpha: 0.35)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.lock_clock_rounded, size: 16, color: Color(0xFFE5A93C)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Fixed Duration: $fixedDurationDays day${fixedDurationDays > 1 ? 's' : ''} (Original booking duration. Extending trip days is not permitted during reschedule).',
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: 10),
                       Wrap(
                         spacing: 10,
@@ -10315,7 +10364,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         children: const [
                           _CalendarLegendDot(
                             color: Color(0xFFE5A93C),
-                            label: 'Planning to Reschedule',
+                            label: 'Rescheduled Trip Period',
                             textColor: AppColors.textPrimary,
                           ),
                           _CalendarLegendDot(
@@ -10346,75 +10395,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         availableCalendarFormats: const {
                           CalendarFormat.month: 'Month',
                         },
-                        onRangeSelected: (start, end, focused) {
-                          final startDay = start == null ? null : _dateOnly(start);
-                          final endDay = end == null ? null : _dateOnly(end);
-                          if ((startDay != null && unavailable.contains(startDay)) ||
-                              (endDay != null && unavailable.contains(endDay))) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('That date is already booked / unavailable for this car.'),
-                                backgroundColor: AppColors.error,
-                              ),
-                            );
-                            return;
-                          }
-                          if (start != null &&
-                              end != null &&
-                              _rangeContainsBlockedDate(start, end, unavailable)) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Selected date range includes booked / unavailable dates.'),
-                                backgroundColor: AppColors.error,
-                              ),
-                            );
-                            return;
-                          }
-
-                          setDialogState(() {
-                            rangeStart = start;
-                            rangeEnd = end ?? start;
-                            focusedDay = focused;
-                          });
-                        },
                         onDaySelected: (selectedDay, focused) {
-                          final selectedDate = _dateOnly(selectedDay);
-                          if (unavailable.contains(selectedDate)) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('This date is already reserved by another booking.'),
-                                backgroundColor: AppColors.error,
-                              ),
-                            );
-                            return;
+                          selectStartDate(selectedDay);
+                        },
+                        onRangeSelected: (start, end, focused) {
+                          if (start != null) {
+                            selectStartDate(start);
                           }
-
-                          setDialogState(() {
-                            if (rangeStart == null ||
-                                (rangeStart != null && rangeEnd != null)) {
-                              rangeStart = selectedDay;
-                              rangeEnd = null;
-                            } else if (selectedDay.isBefore(rangeStart!)) {
-                              rangeEnd = rangeStart;
-                              rangeStart = selectedDay;
-                            } else {
-                              if (_rangeContainsBlockedDate(
-                                rangeStart!,
-                                selectedDay,
-                                unavailable,
-                              )) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Selected range contains unavailable dates.'),
-                                    backgroundColor: AppColors.error,
-                                  ),
-                                );
-                                return;
-                              }
-                              rangeEnd = selectedDay;
-                            }
-                            focusedDay = focused;
-                          });
                         },
                         headerStyle: const HeaderStyle(
                           titleCentered: true,
@@ -10536,15 +10523,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: rangeStart == null ||
-                                      rangeEnd == null ||
-                                      hasInvalidRange
+                              onPressed: hasInvalidRange
                                   ? null
                                   : () => Navigator.pop(
                                       dialogContext,
                                       DateTimeRange(
-                                        start: rangeStart!,
-                                        end: rangeEnd!,
+                                        start: rangeStart,
+                                        end: rangeEnd,
                                       ),
                                     ),
                               style: ElevatedButton.styleFrom(

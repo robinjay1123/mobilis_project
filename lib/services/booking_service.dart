@@ -5347,6 +5347,20 @@ class BookingService {
       final originalStart = booking['original_start_at'] ?? booking['start_at'];
       final originalEnd = booking['original_end_at'] ?? booking['end_at'];
 
+      // Validate that reschedule duration does not exceed original reservation duration
+      final origStartDt = DateTime.tryParse(originalStart?.toString() ?? '');
+      final origEndDt = DateTime.tryParse(originalEnd?.toString() ?? '');
+      if (origStartDt != null && origEndDt != null) {
+        final origDurationMinutes = origEndDt.difference(origStartDt).inMinutes;
+        final newDurationMinutes = newEndAt.difference(newStartAt).inMinutes;
+        if (newDurationMinutes > origDurationMinutes + 60) {
+          final origDays = (origDurationMinutes / Duration.minutesPerDay).ceil();
+          throw Exception(
+            'Rescheduled booking duration cannot exceed your original reservation of $origDays day${origDays > 1 ? 's' : ''}. Extending duration is not allowed during reschedule.',
+          );
+        }
+      }
+
       // Check vehicle availability on requested dates
       final resolvedVehicleId = vehicleId.isNotEmpty
           ? vehicleId
