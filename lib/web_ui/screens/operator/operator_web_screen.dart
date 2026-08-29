@@ -11215,6 +11215,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isDark, {
     bool compact = false,
   }) {
+    final bookingId = booking['id']?.toString() ?? '';
     final group = bookingStatusGroup(booking['status']);
     final needsDriver = _bookingNeedsDriver(booking['with_driver']);
     final latestAssignment = _latestDriverAssignment(booking);
@@ -11239,259 +11240,474 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final effectiveWaitingForDriver = waitingForDriver && !isOfferExpired;
     final driverDeclined = assignmentStatus == 'rejected' || isOfferExpired;
 
-    final buttons = <Widget>[
-      _buildOperatorBookingActionButton(
-        onPressed: () => _showOperatorBookingDetailsDialog(booking),
-        icon: Icons.visibility_rounded,
-        label: compact ? 'Details' : 'View Details',
-        foregroundColor: isDark ? Colors.white : _operatorInk,
-        borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
-        compact: compact,
+    final isPartner = _isPartnerVehicleBooking(booking);
+    final depositRefunded = booking['security_deposit_refunded'] == true;
+    final partnerDisbursed = booking['partner_payout_disbursed'] == true ||
+        (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed');
+    final driverDisbursed = booking['driver_payout_disbursed'] == true ||
+        (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed');
+    final isChatEligible = BookingService().isEligibleForBookingChat(booking);
+    final canTrack = _canTrackBooking(booking);
+    final hasExtensionPending = booking['extension_status'] == 'pending_operator';
+
+    // ── 1. PRIMARY BUTTON: Details ───────────────────────────────────────────
+    final detailsButton = _buildOperatorBookingActionButton(
+      onPressed: () => ActionGuard.runGuarded(
+        'op_booking_details_$bookingId',
+        () => _showOperatorBookingDetailsDialog(booking),
       ),
-    ];
+      icon: Icons.visibility_rounded,
+      label: compact ? 'Details' : 'View Details',
+      foregroundColor: isDark ? Colors.white : _operatorInk,
+      borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
+      compact: compact,
+    );
 
+    // ── 2. SECONDARY BUTTON: Main Contextual Action ──────────────────────────
+    Widget secondaryButton;
     if (group == BookingStatusGroup.pending && !_isPartnerOwnedBooking(booking)) {
-      final String actionLabel;
-      final IconData actionIcon;
-      final VoidCallback? actionOnPressed;
-      final Color actionBgColor;
-
       if (effectiveWaitingForDriver) {
         final mm = (offerRemainingSec ~/ 60).toString().padLeft(2, '0');
         final ss = (offerRemainingSec % 60).toString().padLeft(2, '0');
-        actionLabel = 'Awaiting ($mm:$ss)';
-        actionIcon = Icons.hourglass_top_rounded;
-        actionOnPressed = null;
-        actionBgColor = Colors.amber.shade800;
-      } else if (waitingForDriver && isOfferExpired) {
-        actionLabel = compact ? 'Assign Again' : 'Driver Expired • Reassign';
-        actionIcon = Icons.person_search_rounded;
-        actionOnPressed = () => _handleQuickApproveBooking(
-          booking,
-          needsDriver: needsDriver,
-          driverAccepted: false,
-        );
-        actionBgColor = Colors.amber.shade900;
-      } else if (needsDriver && !driverAccepted) {
-        actionLabel = driverDeclined
-            ? (compact ? 'Assign Again' : 'Select Another Driver')
-            : (compact ? 'Select Driver' : 'Approve & Assign Driver');
-        actionIcon = Icons.person_search_rounded;
-        actionOnPressed = () => _handleQuickApproveBooking(
-          booking,
-          needsDriver: needsDriver,
-          driverAccepted: driverAccepted,
-        );
-        actionBgColor = Colors.green.shade600;
-      } else {
-        actionLabel = 'Approve';
-        actionIcon = Icons.check_circle_outline_rounded;
-        actionOnPressed = () => _handleQuickApproveBooking(
-          booking,
-          needsDriver: needsDriver,
-          driverAccepted: driverAccepted,
-        );
-        actionBgColor = Colors.green.shade600;
-      }
-
-      buttons.add(
-        _buildOperatorBookingActionButton(
-          onPressed: actionOnPressed,
-          icon: actionIcon,
-          label: actionLabel,
+        secondaryButton = _buildOperatorBookingActionButton(
+          onPressed: null,
+          icon: Icons.hourglass_top_rounded,
+          label: 'Awaiting ($mm:$ss)',
           foregroundColor: Colors.white,
-          backgroundColor: actionBgColor,
+          backgroundColor: Colors.amber.shade800,
           compact: compact,
-        ),
-      );
-      buttons.add(
-        _buildOperatorBookingActionButton(
-          onPressed: () => _showRejectDialog(booking['id'].toString()),
-          icon: Icons.cancel_outlined,
-          label: 'Reject',
-          foregroundColor: Colors.red.shade400,
-          borderColor: Colors.red.shade400,
+        );
+      } else if (waitingForDriver && isOfferExpired) {
+        secondaryButton = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_approve_booking_$bookingId',
+            () => _handleQuickApproveBooking(
+              booking,
+              needsDriver: needsDriver,
+              driverAccepted: false,
+            ),
+          ),
+          icon: Icons.person_search_rounded,
+          label: compact ? 'Reassign' : 'Reassign Driver',
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.amber.shade900,
           compact: compact,
-        ),
+        );
+      } else if (needsDriver && !driverAccepted) {
+        secondaryButton = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_approve_booking_$bookingId',
+            () => _handleQuickApproveBooking(
+              booking,
+              needsDriver: needsDriver,
+              driverAccepted: driverAccepted,
+            ),
+          ),
+          icon: Icons.person_search_rounded,
+          label: driverDeclined ? (compact ? 'Reassign' : 'Select Driver') : (compact ? 'Select Driver' : 'Assign Driver'),
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.green.shade600,
+          compact: compact,
+        );
+      } else {
+        secondaryButton = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_approve_booking_$bookingId',
+            () => _handleQuickApproveBooking(
+              booking,
+              needsDriver: needsDriver,
+              driverAccepted: driverAccepted,
+            ),
+          ),
+          icon: Icons.check_circle_outline_rounded,
+          label: 'Approve',
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.green.shade600,
+          compact: compact,
+        );
+      }
+    } else if (group == BookingStatusGroup.approved || group == BookingStatusGroup.ongoing) {
+      secondaryButton = _buildOperatorBookingActionButton(
+        onPressed: isChatEligible
+            ? () => ActionGuard.runGuarded(
+                'op_chat_booking_$bookingId',
+                () => _openBookingConversation(booking),
+              )
+            : null,
+        icon: isChatEligible
+            ? Icons.chat_bubble_outline_rounded
+            : Icons.lock_clock,
+        label: isChatEligible ? 'Message' : 'Chat',
+        foregroundColor: isChatEligible
+            ? _operatorNavyDeep
+            : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+        backgroundColor: isChatEligible
+            ? _operatorGold
+            : (isDark ? Colors.grey.shade800 : Colors.grey.shade300),
+        compact: compact,
       );
-    }
-
-    if (group == BookingStatusGroup.approved ||
-        group == BookingStatusGroup.ongoing) {
-      final isChatEligible = BookingService().isEligibleForBookingChat(booking);
-      buttons.add(
-        _buildOperatorBookingActionButton(
-          onPressed: () => _openBookingConversation(booking),
+    } else if (group == BookingStatusGroup.completed) {
+      if (!depositRefunded) {
+        secondaryButton = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_deposit_refund_$bookingId',
+            () => _showSecurityDepositRefundDialog(booking),
+          ),
+          icon: Icons.assignment_return_rounded,
+          label: compact ? 'Refund Dep.' : 'Refund Deposit',
+          foregroundColor: Colors.white,
+          backgroundColor: const Color(0xFF10B981),
+          compact: compact,
+        );
+      } else {
+        secondaryButton = _buildOperatorBookingActionButton(
+          onPressed: isChatEligible
+              ? () => ActionGuard.runGuarded(
+                  'op_chat_booking_$bookingId',
+                  () => _openBookingConversation(booking),
+                )
+              : null,
           icon: isChatEligible
               ? Icons.chat_bubble_outline_rounded
-              : Icons.lock_clock,
-          label: isChatEligible ? 'Message' : 'Chat (72h Prior)',
-          foregroundColor: isChatEligible
-              ? _operatorNavyDeep
-              : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
-          backgroundColor: isChatEligible
-              ? _operatorGold
-              : (isDark ? Colors.grey.shade800 : Colors.grey.shade300),
+              : Icons.check_circle_outline,
+          label: isChatEligible ? 'Message' : 'Refunded ✓',
+          foregroundColor: isChatEligible ? _operatorNavyDeep : const Color(0xFF10B981),
+          backgroundColor: isChatEligible ? _operatorGold : const Color(0xFF10B981).withValues(alpha: 0.15),
+          borderColor: isChatEligible ? null : const Color(0xFF10B981),
           compact: compact,
-        ),
-      );
-    }
-
-    if (_canTrackBooking(booking)) {
-      buttons.add(
-        _buildOperatorBookingActionButton(
-          onPressed: () => _openTrackingForBooking(booking),
-          icon: Icons.near_me_outlined,
-          label: 'Track',
-          foregroundColor: _operatorNavyDeep,
-          backgroundColor: _operatorGold,
-          compact: compact,
-        ),
-      );
-    }
-
-    if (booking['extension_status'] == 'pending_operator') {
-      buttons.add(
-        _buildOperatorBookingActionButton(
-          onPressed: () => _showExtensionApprovalDialog(booking),
-          icon: Icons.update_rounded,
-          label: compact ? 'Extension' : 'Review Extension',
-          foregroundColor: Colors.black,
-          backgroundColor: const Color(0xFFFFD740),
-          compact: compact,
-        ),
-      );
-    }
-
-    final statusLower = (booking['status']?.toString() ?? '').toLowerCase().trim();
-    final isPartner = _isPartnerVehicleBooking(booking);
-
-    // Completed / Ongoing Return Inspection Actions
-    if (statusLower == 'completed' ||
-        statusLower == 'awaiting_completion' ||
-        statusLower == 'return_pending_inspection' ||
-        group == BookingStatusGroup.completed) {
-      // 1. Security Deposit Refund Button / Badge
-      if (booking['security_deposit_refunded'] == true) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () {
-              final receiptUrl = booking['security_deposit_refund_receipt_url']?.toString();
-              if (receiptUrl != null && receiptUrl.isNotEmpty) {
-                _showReceiptProofDialog(receiptUrl, isDark);
-              }
-            },
-            icon: Icons.check_circle_outline,
-            label: compact ? 'Dep. Refunded' : 'Deposit Refunded',
-            foregroundColor: const Color(0xFF10B981),
-            borderColor: const Color(0xFF10B981),
-            compact: compact,
-          ),
-        );
-      } else {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => _showSecurityDepositRefundDialog(booking),
-            icon: Icons.assignment_return_rounded,
-            label: compact ? 'Refund Deposit' : 'Return Deposit',
-            foregroundColor: Colors.white,
-            backgroundColor: const Color(0xFF10B981),
-            compact: compact,
-          ),
         );
       }
-
-      // 2. Partner Commission Disburse Button / Badge
-      if (isPartner) {
-        final partnerDisbursed = booking['partner_payout_disbursed'] == true ||
-            (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed');
-        if (partnerDisbursed) {
-          buttons.add(
-            _buildOperatorBookingActionButton(
-              onPressed: () {
-                final receiptUrl = booking['partner_payout_receipt_url']?.toString();
-                if (receiptUrl != null && receiptUrl.isNotEmpty) {
-                  _showReceiptProofDialog(receiptUrl, isDark);
-                }
-              },
-              icon: Icons.check_circle_outline,
-              label: compact ? 'Partner Paid' : 'Partner Disbursed',
-              foregroundColor: Colors.purpleAccent,
-              borderColor: Colors.purpleAccent,
-              compact: compact,
-            ),
-          );
-        } else {
-          buttons.add(
-            _buildOperatorBookingActionButton(
-              onPressed: () => _showDisbursePartnerPayoutDialog(booking),
-              icon: Icons.payments_outlined,
-              label: compact ? 'Disburse Partner' : 'Disburse Partner Payout',
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.purple.shade600,
-              compact: compact,
-            ),
-          );
-        }
-      }
-
-      // 3. Driver Commission Disburse Button / Badge
-      if (needsDriver) {
-        final driverDisbursed = booking['driver_payout_disbursed'] == true ||
-            (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed');
-        if (driverDisbursed) {
-          buttons.add(
-            _buildOperatorBookingActionButton(
-              onPressed: () {
-                final receiptUrl = booking['driver_payout_receipt_url']?.toString();
-                if (receiptUrl != null && receiptUrl.isNotEmpty) {
-                  _showReceiptProofDialog(receiptUrl, isDark);
-                }
-              },
-              icon: Icons.check_circle_outline,
-              label: compact ? 'Driver Paid' : 'Driver Disbursed',
-              foregroundColor: const Color(0xFF38BDF8),
-              borderColor: const Color(0xFF38BDF8),
-              compact: compact,
-            ),
-          );
-        } else {
-          buttons.add(
-            _buildOperatorBookingActionButton(
-              onPressed: () => _showDisburseDriverPayoutDialog(booking),
-              icon: Icons.paid_outlined,
-              label: compact ? 'Disburse Driver' : 'Disburse Driver Fee',
-              foregroundColor: Colors.white,
-              backgroundColor: const Color(0xFF0284C7),
-              compact: compact,
-            ),
-          );
-        }
-      }
+    } else {
+      secondaryButton = _buildOperatorBookingActionButton(
+        onPressed: isChatEligible
+            ? () => ActionGuard.runGuarded(
+                'op_chat_booking_$bookingId',
+                () => _openBookingConversation(booking),
+              )
+            : null,
+        icon: Icons.chat_bubble_outline_rounded,
+        label: 'Message',
+        foregroundColor: isChatEligible ? _operatorNavyDeep : Colors.grey.shade400,
+        backgroundColor: isChatEligible ? _operatorGold : Colors.grey.shade800,
+        compact: compact,
+      );
     }
 
-    if (compact) {
-      return FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.center,
+    // ── 3. TERTIARY BUTTON: Popup Actions Menu (Kebab / Dropdown) ────────────
+    final menuItems = <PopupMenuEntry<String>>[];
+
+    // Track Option
+    if (canTrack) {
+      menuItems.add(
+        PopupMenuItem<String>(
+          value: 'track',
+          child: Row(
+            children: [
+              const Icon(Icons.near_me_outlined, size: 18, color: Color(0xFFE5A93C)),
+              const SizedBox(width: 10),
+              const Text('Track Live GPS', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Message Customer Option
+    menuItems.add(
+      PopupMenuItem<String>(
+        value: 'message',
+        enabled: isChatEligible,
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            for (var index = 0; index < buttons.length; index++) ...[
-              if (index > 0) const SizedBox(width: 7),
-              buttons[index],
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 18,
+              color: isChatEligible ? const Color(0xFF38BDF8) : Colors.grey,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              isChatEligible ? 'Message Customer' : 'Chat (Available 72h Prior)',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: isChatEligible ? null : Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // Extension Review Option
+    if (hasExtensionPending) {
+      menuItems.add(
+        PopupMenuItem<String>(
+          value: 'extension',
+          child: Row(
+            children: [
+              const Icon(Icons.update_rounded, size: 18, color: Color(0xFFFFD740)),
+              const SizedBox(width: 10),
+              const Text('Review Extension Request', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Security Deposit Refund Action
+    menuItems.add(
+      PopupMenuItem<String>(
+        value: depositRefunded ? 'deposit_receipt' : 'deposit_refund',
+        enabled: !depositRefunded || (booking['security_deposit_refund_receipt_url'] != null && booking['security_deposit_refund_receipt_url'].toString().isNotEmpty),
+        child: Row(
+          children: [
+            Icon(
+              depositRefunded ? Icons.check_circle_rounded : Icons.assignment_return_rounded,
+              size: 18,
+              color: const Color(0xFF10B981),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                depositRefunded ? 'Deposit Refunded (Done)' : 'Refund Security Deposit',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: depositRefunded ? const Color(0xFF10B981) : null,
+                ),
+              ),
+            ),
+            if (depositRefunded) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'DONE',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF10B981),
+                  ),
+                ),
+              ),
             ],
           ],
         ),
+      ),
+    );
+
+    // Partner Payout Action
+    if (isPartner) {
+      menuItems.add(
+        PopupMenuItem<String>(
+          value: partnerDisbursed ? 'partner_receipt' : 'partner_payout',
+          enabled: !partnerDisbursed || (booking['partner_payout_receipt_url'] != null && booking['partner_payout_receipt_url'].toString().isNotEmpty),
+          child: Row(
+            children: [
+              Icon(
+                partnerDisbursed ? Icons.check_circle_rounded : Icons.payments_outlined,
+                size: 18,
+                color: Colors.purpleAccent,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  partnerDisbursed ? 'Partner Payout Disbursed (Done)' : 'Disburse Partner Payout',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: partnerDisbursed ? Colors.purpleAccent : null,
+                  ),
+                ),
+              ),
+              if (partnerDisbursed) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'DONE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.purpleAccent,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       );
     }
 
-    return Wrap(
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 8,
-      runSpacing: 8,
-      children: buttons,
+    // Driver Fee Action
+    if (needsDriver) {
+      menuItems.add(
+        PopupMenuItem<String>(
+          value: driverDisbursed ? 'driver_receipt' : 'driver_payout',
+          enabled: !driverDisbursed || (booking['driver_payout_receipt_url'] != null && booking['driver_payout_receipt_url'].toString().isNotEmpty),
+          child: Row(
+            children: [
+              Icon(
+                driverDisbursed ? Icons.check_circle_rounded : Icons.paid_outlined,
+                size: 18,
+                color: const Color(0xFF38BDF8),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  driverDisbursed ? 'Driver Fee Disbursed (Done)' : 'Disburse Driver Fee',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: driverDisbursed ? const Color(0xFF38BDF8) : null,
+                  ),
+                ),
+              ),
+              if (driverDisbursed) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'DONE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF38BDF8),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Reject Action for Pending
+    if (group == BookingStatusGroup.pending && !_isPartnerOwnedBooking(booking)) {
+      menuItems.add(const PopupMenuDivider());
+      menuItems.add(
+        PopupMenuItem<String>(
+          value: 'reject',
+          child: Row(
+            children: [
+              Icon(Icons.cancel_outlined, size: 18, color: Colors.red.shade400),
+              const SizedBox(width: 10),
+              Text('Reject Booking', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.red.shade400)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final moreButton = Theme(
+      data: Theme.of(context).copyWith(
+        popupMenuTheme: PopupMenuThemeData(
+          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+            ),
+          ),
+          elevation: 12,
+        ),
+      ),
+      child: PopupMenuButton<String>(
+        tooltip: 'More Booking Actions',
+        offset: const Offset(0, 42),
+        onSelected: (val) {
+          switch (val) {
+            case 'track':
+              ActionGuard.runGuarded('op_track_booking_$bookingId', () => _openTrackingForBooking(booking));
+              break;
+            case 'message':
+              ActionGuard.runGuarded('op_chat_booking_$bookingId', () => _openBookingConversation(booking));
+              break;
+            case 'extension':
+              ActionGuard.runGuarded('op_extension_$bookingId', () => _showExtensionApprovalDialog(booking));
+              break;
+            case 'deposit_refund':
+              ActionGuard.runGuarded('op_deposit_refund_$bookingId', () => _showSecurityDepositRefundDialog(booking));
+              break;
+            case 'deposit_receipt':
+              final r = booking['security_deposit_refund_receipt_url']?.toString();
+              if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
+              break;
+            case 'partner_payout':
+              ActionGuard.runGuarded('op_disburse_partner_$bookingId', () => _showDisbursePartnerPayoutDialog(booking));
+              break;
+            case 'partner_receipt':
+              final r = booking['partner_payout_receipt_url']?.toString();
+              if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
+              break;
+            case 'driver_payout':
+              ActionGuard.runGuarded('op_disburse_driver_$bookingId', () => _showDisburseDriverPayoutDialog(booking));
+              break;
+            case 'driver_receipt':
+              final r = booking['driver_payout_receipt_url']?.toString();
+              if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
+              break;
+            case 'reject':
+              ActionGuard.runGuarded('op_reject_booking_$bookingId', () => _showRejectDialog(booking['id'].toString()));
+              break;
+          }
+        },
+        itemBuilder: (_) => menuItems,
+        child: Container(
+          height: compact ? 34 : 40,
+          padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isDark ? const Color(0xFF334155) : Colors.grey.shade300,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.more_horiz_rounded,
+                size: compact ? 16 : 18,
+                color: isDark ? Colors.white70 : const Color(0xFF334155),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.arrow_drop_down_rounded,
+                size: 16,
+                color: isDark ? Colors.white54 : Colors.grey.shade600,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        detailsButton,
+        const SizedBox(width: 6),
+        secondaryButton,
+        const SizedBox(width: 6),
+        moreButton,
+      ],
     );
   }
 
