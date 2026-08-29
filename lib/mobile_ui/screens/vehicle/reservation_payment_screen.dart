@@ -207,17 +207,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
       _deskMpinError = null;
     });
 
-    final isPartnerVehicle =
-        widget.vehicleData['source']?.toString().toLowerCase() == 'partner' ||
-        widget.vehicleData['is_partner_vehicle'] == true ||
-        widget.vehicleData['partner_vehicle_id'] != null ||
-        widget.vehicleData['partner_name'] != null;
-    final partnerCommission =
-        isPartnerVehicle ? widget.rentalTotal * 0.05 : 0.0;
     final principalRentalSubtotal = (widget.rentalSubtotal +
             widget.driverFee +
-            widget.deliveryFee +
-            partnerCommission -
+            widget.deliveryFee -
             widget.discountAmount)
         .clamp(0.0, double.infinity);
     final seats = (widget.vehicleData['seats'] as num?)?.toInt() ?? 5;
@@ -302,17 +294,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             : (_selectedSavedNumber ?? _senderPhoneController.text.trim()))
         .trim();
 
-    final isPartnerVehicle =
-        widget.vehicleData['source']?.toString().toLowerCase() == 'partner' ||
-        widget.vehicleData['is_partner_vehicle'] == true ||
-        widget.vehicleData['partner_vehicle_id'] != null ||
-        widget.vehicleData['partner_name'] != null;
-    final partnerCommission =
-        isPartnerVehicle ? widget.rentalTotal * 0.05 : 0.0;
     final principalRentalSubtotal = (widget.rentalSubtotal +
             widget.driverFee +
-            widget.deliveryFee +
-            partnerCommission -
+            widget.deliveryFee -
             widget.discountAmount)
         .clamp(0.0, double.infinity);
     final seats = (widget.vehicleData['seats'] as num?)?.toInt() ?? 5;
@@ -521,13 +505,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         vehicle['partner_vehicle_id'] != null ||
         vehicle['partner_name'] != null;
 
-    final partnerCommission =
-        isPartnerVehicle ? widget.rentalTotal * 0.05 : 0.0;
-
     final principalRentalSubtotal = (widget.rentalSubtotal +
             widget.driverFee +
-            widget.deliveryFee +
-            partnerCommission -
+            widget.deliveryFee -
             widget.discountAmount)
         .clamp(0.0, double.infinity);
 
@@ -666,8 +646,6 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                       else
                         _buildBreakdownCard(
                           isDark: isDark,
-                          isPartnerVehicle: isPartnerVehicle,
-                          partnerCommission: partnerCommission,
                           principalRentalSubtotal: principalRentalSubtotal,
                           securityDeposit: securityDeposit,
                           reservationFee: reservationFee,
@@ -1011,8 +989,6 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
 
   Widget _buildBreakdownCard({
     required bool isDark,
-    required bool isPartnerVehicle,
-    required double partnerCommission,
     required double principalRentalSubtotal,
     required double securityDeposit,
     required double reservationFee,
@@ -1210,10 +1186,6 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           if (widget.discountAmount > 0) ...[
             const SizedBox(height: 8),
             _buildBreakdownRow('Voucher / Loyalty discount', widget.discountAmount, isDark: isDark, isDiscount: true),
-          ],
-          if (isPartnerVehicle && partnerCommission > 0) ...[
-            const SizedBox(height: 8),
-            _buildBreakdownRow('Partner commission (5%)', partnerCommission, isDark: isDark),
           ],
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 10),
