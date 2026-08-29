@@ -8107,170 +8107,195 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
     Widget cell(Widget child, int flex) => Expanded(flex: flex, child: child);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: isDark ? Colors.white10 : Colors.grey.shade200,
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          cell(
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '#$shortId',
-                  style: TextStyle(
-                    color: foreground,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                  ),
+    bool isHovered = false;
+
+    return StatefulBuilder(
+      builder: (context, setQueueRowHover) {
+        return MouseRegion(
+          onEnter: (_) => setQueueRowHover(() => isHovered = true),
+          onExit: (_) => setQueueRowHover(() => isHovered = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: BoxDecoration(
+              color: isHovered
+                  ? (isDark
+                      ? Colors.white.withValues(alpha: 0.04)
+                      : const Color(0xFFF8FAFC))
+                  : Colors.transparent,
+              border: Border(
+                top: BorderSide(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
                 ),
-                if (!_viewedBookingIds.contains(booking['id']?.toString())) ...[
-                  const SizedBox(width: 5),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      'NEW',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
-            2,
-          ),
-          cell(
-            Row(
+            child: Row(
               children: [
-                Icon(
-                  Icons.directions_car_outlined,
-                  color: _operatorGold,
-                  size: 18,
+                cell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '#$shortId',
+                        style: TextStyle(
+                          color: foreground,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      if (!_viewedBookingIds.contains(booking['id']?.toString())) ...[
+                        const SizedBox(width: 5),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'NEW',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  2,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
+                cell(
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.directions_car_outlined,
+                        color: _operatorGold,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _vehicleTitle(vehicle.isNotEmpty ? vehicle : booking),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: foreground,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              plateNumber.isEmpty ? 'No plate' : plateNumber,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: muted, fontSize: 9),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  3,
+                ),
+                cell(
+                  _buildOperatorPersonCell(
+                    renter['full_name']?.toString() ?? 'Unknown renter',
+                    renter['email']?.toString() ?? 'Renter',
+                    foreground,
+                    muted ?? Colors.grey,
+                    avatarUrl: _operatorUserAvatarUrl(renter),
+                  ),
+                  3,
+                ),
+                cell(
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _vehicleTitle(vehicle.isNotEmpty ? vehicle : booking),
+                        _formatBookingDateTime(start),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: foreground,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       Text(
-                        plateNumber.isEmpty ? 'No plate' : plateNumber,
+                        'Return: ${_formatBookingDateTime(end)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: muted, fontSize: 9),
                       ),
                     ],
                   ),
+                  4,
                 ),
-              ],
-            ),
-            3,
-          ),
-          cell(
-            _buildOperatorPersonCell(
-              renter['full_name']?.toString() ?? 'Unknown renter',
-              renter['email']?.toString() ?? 'Renter',
-              foreground,
-              muted ?? Colors.grey,
-              avatarUrl: _operatorUserAvatarUrl(renter),
-            ),
-            3,
-          ),
-          cell(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _formatBookingDateTime(start),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: foreground,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
+                cell(
+                  Text(
+                    service,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
+                  3,
                 ),
-                Text(
-                  'Return: ${_formatBookingDateTime(end)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: muted, fontSize: 9),
+                cell(
+                  Text(
+                    driverLabel,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: needsDriver && driverName?.isNotEmpty != true
+                          ? Colors.orange.shade400
+                          : foreground,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  3,
+                ),
+                cell(
+                  Text(
+                    'PHP ${_bookingAmount(booking).toStringAsFixed(2)}',
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  2,
+                ),
+                cell(
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _buildStatusBadge(
+                      booking['status']?.toString() ?? 'pending',
+                    ),
+                  ),
+                  2,
+                ),
+                cell(
+                  _buildOperatorBookingActions(
+                    booking,
+                    isDark,
+                    compact: true,
+                    isRowHovered: isHovered,
+                  ),
+                  5,
                 ),
               ],
             ),
-            4,
           ),
-          cell(
-            Text(
-              service,
-              style: TextStyle(
-                color: foreground,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            3,
-          ),
-          cell(
-            Text(
-              driverLabel,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: needsDriver && driverName?.isNotEmpty != true
-                    ? Colors.orange.shade400
-                    : foreground,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            3,
-          ),
-          cell(
-            Text(
-              'PHP ${_bookingAmount(booking).toStringAsFixed(2)}',
-              style: TextStyle(
-                color: foreground,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            2,
-          ),
-          cell(
-            Align(
-              alignment: Alignment.centerLeft,
-              child: _buildStatusBadge(
-                booking['status']?.toString() ?? 'pending',
-              ),
-            ),
-            2,
-          ),
-          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 5),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -10815,7 +10840,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           label('Driver', 3),
           label('Date & Time', 3),
           label('Status', 2),
-          label('Actions', 4),
+          label('Actions', 5),
         ],
       ),
     );
@@ -10848,174 +10873,199 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? Colors.grey.shade400
         : Colors.grey.shade600;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: isDark ? Colors.white10 : Colors.grey.shade200,
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          cell(
-            Text(
-              displayId,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: primaryColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
+    bool isHovered = false;
+
+    return StatefulBuilder(
+      builder: (context, setRowHover) {
+        return MouseRegion(
+          onEnter: (_) => setRowHover(() => isHovered = true),
+          onExit: (_) => setRowHover(() => isHovered = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+            decoration: BoxDecoration(
+              color: isHovered
+                  ? (isDark
+                      ? Colors.white.withValues(alpha: 0.04)
+                      : const Color(0xFFF8FAFC))
+                  : Colors.transparent,
+              border: Border(
+                top: BorderSide(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
               ),
             ),
-            2,
-          ),
-          cell(
-            _buildOperatorPersonCell(
-              renter['full_name']?.toString() ?? 'Unknown renter',
-              renter['email']?.toString() ?? 'Renter',
-              primaryColor,
-              mutedColor,
-              avatarUrl: _operatorUserAvatarUrl(renter),
-              centered: true,
-            ),
-            3,
-          ),
-          cell(
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Row(
               children: [
-                Icon(
-                  Icons.directions_car_outlined,
-                  size: 17,
-                  color: isDark ? _operatorGold : _operatorNavy,
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    _vehicleTitle(
-                      vehicle.isNotEmpty && vehicle['brand'] != null
-                          ? vehicle
-                          : booking,
+                cell(
+                  Text(
+                    displayId,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: primaryColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
                     ),
+                  ),
+                  2,
+                ),
+                cell(
+                  _buildOperatorPersonCell(
+                    renter['full_name']?.toString() ?? 'Unknown renter',
+                    renter['email']?.toString() ?? 'Renter',
+                    primaryColor,
+                    mutedColor,
+                    avatarUrl: _operatorUserAvatarUrl(renter),
+                    centered: true,
+                  ),
+                  3,
+                ),
+                cell(
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.directions_car_outlined,
+                        size: 17,
+                        color: isDark ? _operatorGold : _operatorNavy,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _vehicleTitle(
+                            vehicle.isNotEmpty && vehicle['brand'] != null
+                                ? vehicle
+                                : booking,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: primaryColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (_isPartnerVehicleBooking(booking)) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                              color: Colors.purple.withValues(alpha: 0.45),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.handshake_outlined,
+                                size: 11,
+                                color: Colors.purpleAccent,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Partner',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark
+                                      ? Colors.purple[200]
+                                      : Colors.purple[800],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  3,
+                ),
+                cell(
+                  Text(
+                    needsDriver
+                        ? (driverName == null || driverName.isEmpty
+                              ? 'Unassigned'
+                              : driverName)
+                        : 'Self-drive',
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: primaryColor,
+                      color: needsDriver && (driverName == null || driverName.isEmpty)
+                          ? Colors.red.shade400
+                          : primaryColor,
                       fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
+                  3,
                 ),
-                if (_isPartnerVehicleBooking(booking)) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(
-                        color: Colors.purple.withValues(alpha: 0.45),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.handshake_outlined,
-                          size: 11,
-                          color: Colors.purpleAccent,
+                cell(
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
+                        UpcomingReleaseCountdownBadge(
+                          booking: booking,
+                          compact: true,
+                          isDark: isDark,
                         ),
-                        const SizedBox(width: 3),
-                        Text(
-                          'Partner',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            color: isDark
-                                ? Colors.purple[200]
-                                : Colors.purple[800],
+                        const SizedBox(height: 2),
+                      ],
+                      Text(
+                        _formatBookingDateTime(start),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: primaryColor, fontSize: 11),
+                      ),
+                      if (_canTrackBooking(booking)) ...[
+                        const SizedBox(height: 5),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: BookingReturnCountdown(
+                            booking: booking,
+                            compact: true,
+                            lightBackground: !isDark,
                           ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
-                ],
-              ],
-            ),
-            3,
-          ),
-          cell(
-            Text(
-              needsDriver
-                  ? (driverName == null || driverName.isEmpty
-                        ? 'Unassigned'
-                        : driverName)
-                  : 'Self-drive',
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: needsDriver && (driverName == null || driverName.isEmpty)
-                    ? Colors.red.shade400
-                    : primaryColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            3,
-          ),
-          cell(
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (UpcomingReleaseCountdownBadge.isWithin24Hours(booking)) ...[
-                  UpcomingReleaseCountdownBadge(
-                    booking: booking,
-                    compact: true,
-                    isDark: isDark,
-                  ),
-                  const SizedBox(height: 2),
-                ],
-                Text(
-                  _formatBookingDateTime(start),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: primaryColor, fontSize: 11),
+                  3,
                 ),
-                if (_canTrackBooking(booking)) ...[
-                  const SizedBox(height: 5),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: BookingReturnCountdown(
-                      booking: booking,
-                      compact: true,
-                      lightBackground: !isDark,
+                cell(
+                  Align(
+                    alignment: Alignment.center,
+                    child: _buildStatusBadge(
+                      booking['status']?.toString() ?? 'pending',
                     ),
                   ),
-                ],
+                  2,
+                ),
+                cell(
+                  _buildOperatorBookingActions(
+                    booking,
+                    isDark,
+                    compact: true,
+                    isRowHovered: isHovered,
+                  ),
+                  5,
+                ),
               ],
             ),
-            3,
           ),
-          cell(
-            Align(
-              alignment: Alignment.center,
-              child: _buildStatusBadge(
-                booking['status']?.toString() ?? 'pending',
-              ),
-            ),
-            2,
-          ),
-          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 4),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -11214,6 +11264,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic> booking,
     bool isDark, {
     bool compact = false,
+    bool isRowHovered = false,
   }) {
     final bookingId = booking['id']?.toString() ?? '';
     final group = bookingStatusGroup(booking['status']);
@@ -11250,464 +11301,378 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final canTrack = _canTrackBooking(booking);
     final hasExtensionPending = booking['extension_status'] == 'pending_operator';
 
-    // ── 1. PRIMARY BUTTON: Details ───────────────────────────────────────────
-    final detailsButton = _buildOperatorBookingActionButton(
-      onPressed: () => ActionGuard.runGuarded(
-        'op_booking_details_$bookingId',
-        () => _showOperatorBookingDetailsDialog(booking),
+    final buttons = <Widget>[];
+
+    // ── 1. PRIMARY: Details (Always First) ──────────────────────────────────
+    buttons.add(
+      _buildOperatorBookingActionButton(
+        onPressed: () => ActionGuard.runGuarded(
+          'op_booking_details_$bookingId',
+          () async => _showOperatorBookingDetailsDialog(booking),
+        ),
+        icon: Icons.visibility_rounded,
+        label: compact ? 'Details' : 'View Details',
+        foregroundColor: isDark ? Colors.white : _operatorInk,
+        borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
+        compact: compact,
       ),
-      icon: Icons.visibility_rounded,
-      label: compact ? 'Details' : 'View Details',
-      foregroundColor: isDark ? Colors.white : _operatorInk,
-      borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
-      compact: compact,
     );
 
-    // ── 2. SECONDARY BUTTON: Main Contextual Action ──────────────────────────
-    Widget secondaryButton;
+    // ── 2. CONTEXTUAL ACTIONS (Zero Redundancy) ─────────────────────────────
     if (group == BookingStatusGroup.pending && !_isPartnerOwnedBooking(booking)) {
+      // Pending: Approve / Driver Assignment
       if (effectiveWaitingForDriver) {
         final mm = (offerRemainingSec ~/ 60).toString().padLeft(2, '0');
         final ss = (offerRemainingSec % 60).toString().padLeft(2, '0');
-        secondaryButton = _buildOperatorBookingActionButton(
-          onPressed: null,
-          icon: Icons.hourglass_top_rounded,
-          label: 'Awaiting ($mm:$ss)',
-          foregroundColor: Colors.white,
-          backgroundColor: Colors.amber.shade800,
-          compact: compact,
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: null,
+            icon: Icons.hourglass_top_rounded,
+            label: 'Awaiting ($mm:$ss)',
+            foregroundColor: Colors.white,
+            backgroundColor: Colors.amber.shade800,
+            compact: compact,
+          ),
         );
       } else if (waitingForDriver && isOfferExpired) {
-        secondaryButton = _buildOperatorBookingActionButton(
-          onPressed: () => ActionGuard.runGuarded(
-            'op_approve_booking_$bookingId',
-            () => _handleQuickApproveBooking(
-              booking,
-              needsDriver: needsDriver,
-              driverAccepted: false,
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_approve_booking_$bookingId',
+              () async => _handleQuickApproveBooking(
+                booking,
+                needsDriver: needsDriver,
+                driverAccepted: false,
+              ),
             ),
+            icon: Icons.person_search_rounded,
+            label: compact ? 'Reassign' : 'Reassign Driver',
+            foregroundColor: Colors.white,
+            backgroundColor: Colors.amber.shade900,
+            compact: compact,
           ),
-          icon: Icons.person_search_rounded,
-          label: compact ? 'Reassign' : 'Reassign Driver',
-          foregroundColor: Colors.white,
-          backgroundColor: Colors.amber.shade900,
-          compact: compact,
         );
       } else if (needsDriver && !driverAccepted) {
-        secondaryButton = _buildOperatorBookingActionButton(
-          onPressed: () => ActionGuard.runGuarded(
-            'op_approve_booking_$bookingId',
-            () => _handleQuickApproveBooking(
-              booking,
-              needsDriver: needsDriver,
-              driverAccepted: driverAccepted,
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_approve_booking_$bookingId',
+              () async => _handleQuickApproveBooking(
+                booking,
+                needsDriver: needsDriver,
+                driverAccepted: driverAccepted,
+              ),
             ),
+            icon: Icons.person_search_rounded,
+            label: driverDeclined
+                ? (compact ? 'Reassign' : 'Select Driver')
+                : (compact ? 'Select Driver' : 'Assign Driver'),
+            foregroundColor: Colors.white,
+            backgroundColor: Colors.green.shade600,
+            compact: compact,
           ),
-          icon: Icons.person_search_rounded,
-          label: driverDeclined ? (compact ? 'Reassign' : 'Select Driver') : (compact ? 'Select Driver' : 'Assign Driver'),
-          foregroundColor: Colors.white,
-          backgroundColor: Colors.green.shade600,
-          compact: compact,
         );
       } else {
-        secondaryButton = _buildOperatorBookingActionButton(
-          onPressed: () => ActionGuard.runGuarded(
-            'op_approve_booking_$bookingId',
-            () => _handleQuickApproveBooking(
-              booking,
-              needsDriver: needsDriver,
-              driverAccepted: driverAccepted,
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_approve_booking_$bookingId',
+              () async => _handleQuickApproveBooking(
+                booking,
+                needsDriver: needsDriver,
+                driverAccepted: driverAccepted,
+              ),
             ),
+            icon: Icons.check_circle_outline_rounded,
+            label: 'Approve',
+            foregroundColor: Colors.white,
+            backgroundColor: Colors.green.shade600,
+            compact: compact,
           ),
-          icon: Icons.check_circle_outline_rounded,
-          label: 'Approve',
-          foregroundColor: Colors.white,
-          backgroundColor: Colors.green.shade600,
+        );
+      }
+
+      // Pending: Reject
+      buttons.add(
+        _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_reject_booking_$bookingId',
+            () async => _showRejectDialog(booking['id'].toString()),
+          ),
+          icon: Icons.cancel_outlined,
+          label: 'Reject',
+          foregroundColor: Colors.red.shade400,
+          backgroundColor: Colors.red.withValues(alpha: 0.12),
+          borderColor: Colors.red.shade400.withValues(alpha: 0.4),
           compact: compact,
+        ),
+      );
+
+      // Pending: Message Customer (if eligible)
+      if (isChatEligible) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_chat_booking_$bookingId',
+              () async => _openBookingConversation(booking),
+            ),
+            icon: Icons.chat_bubble_outline_rounded,
+            label: 'Message',
+            foregroundColor: _operatorNavyDeep,
+            backgroundColor: _operatorGold,
+            compact: compact,
+          ),
         );
       }
     } else if (group == BookingStatusGroup.approved || group == BookingStatusGroup.ongoing) {
-      secondaryButton = _buildOperatorBookingActionButton(
-        onPressed: isChatEligible
-            ? () => ActionGuard.runGuarded(
-                'op_chat_booking_$bookingId',
-                () => _openBookingConversation(booking),
-              )
-            : null,
-        icon: isChatEligible
-            ? Icons.chat_bubble_outline_rounded
-            : Icons.lock_clock,
-        label: isChatEligible ? 'Message' : 'Chat',
-        foregroundColor: isChatEligible
-            ? _operatorNavyDeep
-            : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
-        backgroundColor: isChatEligible
-            ? _operatorGold
-            : (isDark ? Colors.grey.shade800 : Colors.grey.shade300),
-        compact: compact,
-      );
-    } else if (group == BookingStatusGroup.completed) {
-      if (!depositRefunded) {
-        secondaryButton = _buildOperatorBookingActionButton(
-          onPressed: () => ActionGuard.runGuarded(
-            'op_deposit_refund_$bookingId',
-            () => _showSecurityDepositRefundDialog(booking),
+      // Approved / Ongoing: Message
+      if (isChatEligible) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_chat_booking_$bookingId',
+              () async => _openBookingConversation(booking),
+            ),
+            icon: Icons.chat_bubble_outline_rounded,
+            label: 'Message',
+            foregroundColor: _operatorNavyDeep,
+            backgroundColor: _operatorGold,
+            compact: compact,
           ),
-          icon: Icons.assignment_return_rounded,
-          label: compact ? 'Refund Dep.' : 'Refund Deposit',
-          foregroundColor: Colors.white,
-          backgroundColor: const Color(0xFF10B981),
-          compact: compact,
+        );
+      }
+
+      // Approved / Ongoing: Track Live GPS
+      if (canTrack) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_track_booking_$bookingId',
+              () async => _openTrackingForBooking(booking),
+            ),
+            icon: Icons.near_me_outlined,
+            label: compact ? 'Track' : 'Track GPS',
+            foregroundColor: const Color(0xFFE5A93C),
+            backgroundColor: const Color(0xFFE5A93C).withValues(alpha: 0.14),
+            borderColor: const Color(0xFFE5A93C).withValues(alpha: 0.45),
+            compact: compact,
+          ),
+        );
+      }
+
+      // Approved / Ongoing: Review Extension
+      if (hasExtensionPending) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_extension_$bookingId',
+              () async => _showExtensionApprovalDialog(booking),
+            ),
+            icon: Icons.update_rounded,
+            label: compact ? 'Extension' : 'Review Ext.',
+            foregroundColor: Colors.amber.shade300,
+            backgroundColor: Colors.amber.shade900.withValues(alpha: 0.35),
+            borderColor: Colors.amber.shade400,
+            compact: compact,
+          ),
+        );
+      }
+    } else if (group == BookingStatusGroup.completed) {
+      // Completed: Security Deposit (Active refund button OR completed receipt view)
+      if (!depositRefunded) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_deposit_refund_$bookingId',
+              () async => _showSecurityDepositRefundDialog(booking),
+            ),
+            icon: Icons.assignment_return_rounded,
+            label: compact ? 'Refund Dep.' : 'Refund Deposit',
+            foregroundColor: Colors.white,
+            backgroundColor: const Color(0xFF10B981),
+            compact: compact,
+          ),
         );
       } else {
-        secondaryButton = _buildOperatorBookingActionButton(
-          onPressed: isChatEligible
-              ? () => ActionGuard.runGuarded(
-                  'op_chat_booking_$bookingId',
-                  () => _openBookingConversation(booking),
-                )
-              : null,
-          icon: isChatEligible
-              ? Icons.chat_bubble_outline_rounded
-              : Icons.check_circle_outline,
-          label: isChatEligible ? 'Message' : 'Refunded ✓',
-          foregroundColor: isChatEligible ? _operatorNavyDeep : const Color(0xFF10B981),
-          backgroundColor: isChatEligible ? _operatorGold : const Color(0xFF10B981).withValues(alpha: 0.15),
-          borderColor: isChatEligible ? null : const Color(0xFF10B981),
-          compact: compact,
+        final r = booking['security_deposit_refund_receipt_url']?.toString();
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: (r != null && r.isNotEmpty)
+                ? () => _showReceiptProofDialog(r, isDark)
+                : null,
+            icon: Icons.check_circle_rounded,
+            label: compact ? 'Refunded ✓' : 'Deposit Refunded ✓',
+            foregroundColor: const Color(0xFF10B981),
+            backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.14),
+            borderColor: const Color(0xFF10B981).withValues(alpha: 0.45),
+            compact: compact,
+          ),
+        );
+      }
+
+      // Completed: Partner Payout (Active disburse button OR completed receipt view)
+      if (isPartner) {
+        if (!partnerDisbursed) {
+          buttons.add(
+            _buildOperatorBookingActionButton(
+              onPressed: () => ActionGuard.runGuarded(
+                'op_disburse_partner_$bookingId',
+                () async => _showDisbursePartnerPayoutDialog(booking),
+              ),
+              icon: Icons.payments_outlined,
+              label: compact ? 'Partner Pay' : 'Disburse Partner',
+              foregroundColor: Colors.white,
+              backgroundColor: Colors.purple.shade600,
+              compact: compact,
+            ),
+          );
+        } else {
+          final r = booking['partner_payout_receipt_url']?.toString();
+          buttons.add(
+            _buildOperatorBookingActionButton(
+              onPressed: (r != null && r.isNotEmpty)
+                  ? () => _showReceiptProofDialog(r, isDark)
+                  : null,
+              icon: Icons.check_circle_rounded,
+              label: compact ? 'Partner Paid ✓' : 'Partner Disbursed ✓',
+              foregroundColor: Colors.purpleAccent,
+              backgroundColor: Colors.purple.withValues(alpha: 0.14),
+              borderColor: Colors.purple.withValues(alpha: 0.45),
+              compact: compact,
+            ),
+          );
+        }
+      }
+
+      // Completed: Driver Fee Payout (Active disburse button OR completed receipt view)
+      if (needsDriver) {
+        if (!driverDisbursed) {
+          buttons.add(
+            _buildOperatorBookingActionButton(
+              onPressed: () => ActionGuard.runGuarded(
+                'op_disburse_driver_$bookingId',
+                () async => _showDisburseDriverPayoutDialog(booking),
+              ),
+              icon: Icons.paid_outlined,
+              label: compact ? 'Driver Fee' : 'Disburse Driver',
+              foregroundColor: Colors.white,
+              backgroundColor: const Color(0xFF0284C7),
+              compact: compact,
+            ),
+          );
+        } else {
+          final r = booking['driver_payout_receipt_url']?.toString();
+          buttons.add(
+            _buildOperatorBookingActionButton(
+              onPressed: (r != null && r.isNotEmpty)
+                  ? () => _showReceiptProofDialog(r, isDark)
+                  : null,
+              icon: Icons.check_circle_rounded,
+              label: compact ? 'Driver Paid ✓' : 'Driver Fee Disbursed ✓',
+              foregroundColor: const Color(0xFF38BDF8),
+              backgroundColor: const Color(0xFF38BDF8).withValues(alpha: 0.14),
+              borderColor: const Color(0xFF38BDF8).withValues(alpha: 0.45),
+              compact: compact,
+            ),
+          );
+        }
+      }
+
+      // Completed: Message Customer (if eligible)
+      if (isChatEligible) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_chat_booking_$bookingId',
+              () async => _openBookingConversation(booking),
+            ),
+            icon: Icons.chat_bubble_outline_rounded,
+            label: 'Message',
+            foregroundColor: _operatorNavyDeep,
+            backgroundColor: _operatorGold,
+            compact: compact,
+          ),
         );
       }
     } else {
-      secondaryButton = _buildOperatorBookingActionButton(
-        onPressed: isChatEligible
-            ? () => ActionGuard.runGuarded(
-                'op_chat_booking_$bookingId',
-                () => _openBookingConversation(booking),
-              )
-            : null,
-        icon: Icons.chat_bubble_outline_rounded,
-        label: 'Message',
-        foregroundColor: isChatEligible ? _operatorNavyDeep : Colors.grey.shade400,
-        backgroundColor: isChatEligible ? _operatorGold : Colors.grey.shade800,
-        compact: compact,
-      );
+      // Cancelled / Other: Refund deposit if paid and not refunded
+      if (booking['security_deposit_paid'] == true && !depositRefunded) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_deposit_refund_$bookingId',
+              () async => _showSecurityDepositRefundDialog(booking),
+            ),
+            icon: Icons.assignment_return_rounded,
+            label: compact ? 'Refund Dep.' : 'Refund Deposit',
+            foregroundColor: Colors.white,
+            backgroundColor: const Color(0xFF10B981),
+            compact: compact,
+          ),
+        );
+      }
+      if (isChatEligible) {
+        buttons.add(
+          _buildOperatorBookingActionButton(
+            onPressed: () => ActionGuard.runGuarded(
+              'op_chat_booking_$bookingId',
+              () async => _openBookingConversation(booking),
+            ),
+            icon: Icons.chat_bubble_outline_rounded,
+            label: 'Message',
+            foregroundColor: _operatorNavyDeep,
+            backgroundColor: _operatorGold,
+            compact: compact,
+          ),
+        );
+      }
     }
 
-    // ── 3. TERTIARY BUTTON: Popup Actions Menu (Kebab / Dropdown) ────────────
-    final menuItems = <PopupMenuEntry<String>>[];
-
-    // Track Option
-    if (canTrack) {
-      menuItems.add(
-        PopupMenuItem<String>(
-          value: 'track',
-          child: Row(
-            children: [
-              const Icon(Icons.near_me_outlined, size: 18, color: Color(0xFFE5A93C)),
-              const SizedBox(width: 10),
-              const Text('Track Live GPS', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Message Customer Option
-    menuItems.add(
-      PopupMenuItem<String>(
-        value: 'message',
-        enabled: isChatEligible,
-        child: Row(
-          children: [
-            Icon(
-              Icons.chat_bubble_outline_rounded,
-              size: 18,
-              color: isChatEligible ? const Color(0xFF38BDF8) : Colors.grey,
+    return StatefulBuilder(
+      builder: (context, setHover) {
+        bool localHovered = false;
+        final effectiveHover = isRowHovered || localHovered;
+        return MouseRegion(
+          onEnter: (_) => setHover(() => localHovered = true),
+          onExit: (_) => setHover(() => localHovered = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? (effectiveHover ? 6 : 2) : 6,
+              vertical: 2,
             ),
-            const SizedBox(width: 10),
-            Text(
-              isChatEligible ? 'Message Customer' : 'Chat (Available 72h Prior)',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-                color: isChatEligible ? null : Colors.grey,
+            decoration: BoxDecoration(
+              color: effectiveHover
+                  ? (isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : Colors.black.withValues(alpha: 0.03))
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: effectiveHover
+                    ? (isDark
+                        ? Colors.white.withValues(alpha: 0.12)
+                        : Colors.grey.shade300)
+                    : Colors.transparent,
+                width: 1,
               ),
             ),
-          ],
-        ),
-      ),
-    );
-
-    // Extension Review Option
-    if (hasExtensionPending) {
-      menuItems.add(
-        PopupMenuItem<String>(
-          value: 'extension',
-          child: Row(
-            children: [
-              const Icon(Icons.update_rounded, size: 18, color: Color(0xFFFFD740)),
-              const SizedBox(width: 10),
-              const Text('Review Extension Request', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Security Deposit Refund Action
-    menuItems.add(
-      PopupMenuItem<String>(
-        value: depositRefunded ? 'deposit_receipt' : 'deposit_refund',
-        enabled: !depositRefunded || (booking['security_deposit_refund_receipt_url'] != null && booking['security_deposit_refund_receipt_url'].toString().isNotEmpty),
-        child: Row(
-          children: [
-            Icon(
-              depositRefunded ? Icons.check_circle_rounded : Icons.assignment_return_rounded,
-              size: 18,
-              color: const Color(0xFF10B981),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                depositRefunded ? 'Deposit Refunded (Done)' : 'Refund Security Deposit',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                  color: depositRefunded ? const Color(0xFF10B981) : null,
-                ),
+            child: AnimatedScale(
+              scale: effectiveHover ? 1.02 : 1.0,
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: buttons,
               ),
             ),
-            if (depositRefunded) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  'DONE',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF10B981),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-
-    // Partner Payout Action
-    if (isPartner) {
-      menuItems.add(
-        PopupMenuItem<String>(
-          value: partnerDisbursed ? 'partner_receipt' : 'partner_payout',
-          enabled: !partnerDisbursed || (booking['partner_payout_receipt_url'] != null && booking['partner_payout_receipt_url'].toString().isNotEmpty),
-          child: Row(
-            children: [
-              Icon(
-                partnerDisbursed ? Icons.check_circle_rounded : Icons.payments_outlined,
-                size: 18,
-                color: Colors.purpleAccent,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  partnerDisbursed ? 'Partner Payout Disbursed (Done)' : 'Disburse Partner Payout',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                    color: partnerDisbursed ? Colors.purpleAccent : null,
-                  ),
-                ),
-              ),
-              if (partnerDisbursed) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    'DONE',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.purpleAccent,
-                    ),
-                  ),
-                ),
-              ],
-            ],
           ),
-        ),
-      );
-    }
-
-    // Driver Fee Action
-    if (needsDriver) {
-      menuItems.add(
-        PopupMenuItem<String>(
-          value: driverDisbursed ? 'driver_receipt' : 'driver_payout',
-          enabled: !driverDisbursed || (booking['driver_payout_receipt_url'] != null && booking['driver_payout_receipt_url'].toString().isNotEmpty),
-          child: Row(
-            children: [
-              Icon(
-                driverDisbursed ? Icons.check_circle_rounded : Icons.paid_outlined,
-                size: 18,
-                color: const Color(0xFF38BDF8),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  driverDisbursed ? 'Driver Fee Disbursed (Done)' : 'Disburse Driver Fee',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                    color: driverDisbursed ? const Color(0xFF38BDF8) : null,
-                  ),
-                ),
-              ),
-              if (driverDisbursed) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    'DONE',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF38BDF8),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Reject Action for Pending
-    if (group == BookingStatusGroup.pending && !_isPartnerOwnedBooking(booking)) {
-      menuItems.add(const PopupMenuDivider());
-      menuItems.add(
-        PopupMenuItem<String>(
-          value: 'reject',
-          child: Row(
-            children: [
-              Icon(Icons.cancel_outlined, size: 18, color: Colors.red.shade400),
-              const SizedBox(width: 10),
-              Text('Reject Booking', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.red.shade400)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final moreButton = Theme(
-      data: Theme.of(context).copyWith(
-        popupMenuTheme: PopupMenuThemeData(
-          color: isDark ? const Color(0xFF1E293B) : Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(
-              color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
-            ),
-          ),
-          elevation: 12,
-        ),
-      ),
-      child: PopupMenuButton<String>(
-        tooltip: 'More Booking Actions',
-        offset: const Offset(0, 42),
-        onSelected: (val) {
-          switch (val) {
-            case 'track':
-              ActionGuard.runGuarded('op_track_booking_$bookingId', () async => _openTrackingForBooking(booking));
-              break;
-            case 'message':
-              ActionGuard.runGuarded('op_chat_booking_$bookingId', () async => _openBookingConversation(booking));
-              break;
-            case 'extension':
-              ActionGuard.runGuarded('op_extension_$bookingId', () async => _showExtensionApprovalDialog(booking));
-              break;
-            case 'deposit_refund':
-              ActionGuard.runGuarded('op_deposit_refund_$bookingId', () async => _showSecurityDepositRefundDialog(booking));
-              break;
-            case 'deposit_receipt':
-              final r = booking['security_deposit_refund_receipt_url']?.toString();
-              if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
-              break;
-            case 'partner_payout':
-              ActionGuard.runGuarded('op_disburse_partner_$bookingId', () async => _showDisbursePartnerPayoutDialog(booking));
-              break;
-            case 'partner_receipt':
-              final r = booking['partner_payout_receipt_url']?.toString();
-              if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
-              break;
-            case 'driver_payout':
-              ActionGuard.runGuarded('op_disburse_driver_$bookingId', () async => _showDisburseDriverPayoutDialog(booking));
-              break;
-            case 'driver_receipt':
-              final r = booking['driver_payout_receipt_url']?.toString();
-              if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
-              break;
-            case 'reject':
-              ActionGuard.runGuarded('op_reject_booking_$bookingId', () async => _showRejectDialog(booking['id'].toString()));
-              break;
-          }
-        },
-        itemBuilder: (_) => menuItems,
-        child: Container(
-          height: compact ? 34 : 40,
-          padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isDark ? const Color(0xFF334155) : Colors.grey.shade300,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.more_horiz_rounded,
-                size: compact ? 16 : 18,
-                color: isDark ? Colors.white70 : const Color(0xFF334155),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.arrow_drop_down_rounded,
-                size: 16,
-                color: isDark ? Colors.white54 : Colors.grey.shade600,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        detailsButton,
-        const SizedBox(width: 6),
-        secondaryButton,
-        const SizedBox(width: 6),
-        moreButton,
-      ],
+        );
+      },
     );
   }
 
@@ -11726,7 +11691,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         : Colors.grey.shade400;
     final effectiveBackground = enabled
         ? (backgroundColor ?? Colors.transparent)
-        : Colors.grey.shade700.withOpacity(0.45);
+        : Colors.grey.shade800.withValues(alpha: 0.35);
 
     final actionDescription = switch (label.toLowerCase()) {
       'details' || 'view details' => 'View full booking details and customer info',
@@ -11734,54 +11699,93 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _ when label.toLowerCase().startsWith('awaiting') =>
         'Awaiting driver acceptance (10-minute offer countdown)',
       _ when label.toLowerCase().contains('assign') || label.toLowerCase().contains('reassign') =>
-        'Driver did not accept within 10 minutes. Click to assign a driver again.',
-      'extension' || 'review extension' => 'Review and re-approve trip extension request',
+        'Click to assign/reassign driver for this trip',
+      'extension' || 'review ext.' || 'review extension' => 'Review and approve trip extension request',
       'reject' => 'Decline or cancel this booking request',
-      'message' => 'Chat directly with the renter or driver',
-      'track' => 'Track live GPS location on map',
+      'message' => 'Chat directly with customer',
+      'track' || 'track gps' => 'Track live GPS location on map',
+      'refund dep.' || 'refund deposit' => 'Refund security deposit to renter via proof of transfer',
+      _ when label.toLowerCase().contains('refunded') =>
+        'Security deposit already refunded. Click to view transfer proof receipt.',
+      'partner pay' || 'disburse partner' => 'Disburse net earnings to vehicle partner',
+      _ when label.toLowerCase().contains('partner paid') =>
+        'Partner payout already disbursed. Click to view transfer proof receipt.',
+      'driver fee' || 'disburse driver' => 'Disburse trip driver fee',
+      _ when label.toLowerCase().contains('driver paid') =>
+        'Driver fee already disbursed. Click to view transfer proof receipt.',
       _ => label,
     };
 
-    return Tooltip(
-      message: actionDescription,
-      child: Material(
-        color: effectiveBackground,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            height: compact ? 34 : 40,
-            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: enabled
-                    ? (borderColor ?? backgroundColor ?? Colors.transparent)
-                    : Colors.grey.shade600,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: compact ? 14 : 16, color: effectiveForeground),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  maxLines: 1,
-                  softWrap: false,
-                  style: TextStyle(
-                    color: effectiveForeground,
-                    fontSize: compact ? 11 : 12,
-                    fontWeight: FontWeight.w800,
+    return StatefulBuilder(
+      builder: (context, setBtnHover) {
+        bool btnHovered = false;
+        return MouseRegion(
+          onEnter: (_) => setBtnHover(() => btnHovered = true),
+          onExit: (_) => setBtnHover(() => btnHovered = false),
+          child: Tooltip(
+            message: actionDescription,
+            waitDuration: const Duration(milliseconds: 350),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+              transform: btnHovered && enabled
+                  ? Matrix4.diagonal3Values(1.04, 1.04, 1.0)
+                  : Matrix4.identity(),
+              transformAlignment: Alignment.center,
+              child: Material(
+                color: effectiveBackground,
+                borderRadius: BorderRadius.circular(10),
+                elevation: btnHovered && enabled ? 3 : 0,
+                shadowColor: (backgroundColor ?? foregroundColor).withValues(alpha: 0.35),
+                child: InkWell(
+                  onTap: onPressed,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    height: compact ? 32 : 38,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 9 : 13,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: enabled
+                            ? (btnHovered
+                                ? (borderColor ?? foregroundColor).withValues(alpha: 0.9)
+                                : (borderColor ?? backgroundColor ?? Colors.transparent))
+                            : Colors.grey.shade700.withValues(alpha: 0.5),
+                        width: btnHovered && enabled ? 1.4 : 1.0,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          icon,
+                          size: compact ? 13 : 15,
+                          color: effectiveForeground,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          softWrap: false,
+                          style: TextStyle(
+                            color: effectiveForeground,
+                            fontSize: compact ? 11 : 12,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
