@@ -4260,7 +4260,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  void _showRejectDialog(String bookingId) {
+  Future<void> _showRejectDialog(String bookingId) async {
     final reasonController = TextEditingController();
     const reasons = [
       'Vehicle unavailable',
@@ -4270,7 +4270,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       'Other',
     ];
 
-    showDialog<void>(
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
@@ -11632,37 +11632,37 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         onSelected: (val) {
           switch (val) {
             case 'track':
-              ActionGuard.runGuarded('op_track_booking_$bookingId', () => _openTrackingForBooking(booking));
+              ActionGuard.runGuarded('op_track_booking_$bookingId', () async => _openTrackingForBooking(booking));
               break;
             case 'message':
-              ActionGuard.runGuarded('op_chat_booking_$bookingId', () => _openBookingConversation(booking));
+              ActionGuard.runGuarded('op_chat_booking_$bookingId', () async => _openBookingConversation(booking));
               break;
             case 'extension':
-              ActionGuard.runGuarded('op_extension_$bookingId', () => _showExtensionApprovalDialog(booking));
+              ActionGuard.runGuarded('op_extension_$bookingId', () async => _showExtensionApprovalDialog(booking));
               break;
             case 'deposit_refund':
-              ActionGuard.runGuarded('op_deposit_refund_$bookingId', () => _showSecurityDepositRefundDialog(booking));
+              ActionGuard.runGuarded('op_deposit_refund_$bookingId', () async => _showSecurityDepositRefundDialog(booking));
               break;
             case 'deposit_receipt':
               final r = booking['security_deposit_refund_receipt_url']?.toString();
               if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
               break;
             case 'partner_payout':
-              ActionGuard.runGuarded('op_disburse_partner_$bookingId', () => _showDisbursePartnerPayoutDialog(booking));
+              ActionGuard.runGuarded('op_disburse_partner_$bookingId', () async => _showDisbursePartnerPayoutDialog(booking));
               break;
             case 'partner_receipt':
               final r = booking['partner_payout_receipt_url']?.toString();
               if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
               break;
             case 'driver_payout':
-              ActionGuard.runGuarded('op_disburse_driver_$bookingId', () => _showDisburseDriverPayoutDialog(booking));
+              ActionGuard.runGuarded('op_disburse_driver_$bookingId', () async => _showDisburseDriverPayoutDialog(booking));
               break;
             case 'driver_receipt':
               final r = booking['driver_payout_receipt_url']?.toString();
               if (r != null && r.isNotEmpty) _showReceiptProofDialog(r, isDark);
               break;
             case 'reject':
-              ActionGuard.runGuarded('op_reject_booking_$bookingId', () => _showRejectDialog(booking['id'].toString()));
+              ActionGuard.runGuarded('op_reject_booking_$bookingId', () async => _showRejectDialog(booking['id'].toString()));
               break;
           }
         },
