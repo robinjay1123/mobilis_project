@@ -326,10 +326,51 @@ class MessageFilterService {
           .select('word')
           .order('created_at', ascending: false);
 
-      return (response as List).map((item) => item['word'] as String).toList();
+      return (response as List)
+          .map((item) => item['word']?.toString().trim() ?? '')
+          .where((w) => w.isNotEmpty)
+          .toList();
     } catch (e) {
       debugPrint('Error loading filter words: $e');
       return [];
+    }
+  }
+
+  /// Add a filter word or pattern into database
+  static Future<Map<String, dynamic>> addFilterWord(String word) async {
+    final cleanWord = word.trim().toLowerCase();
+    if (cleanWord.isEmpty) {
+      return {'success': false, 'error': 'Filter word cannot be empty'};
+    }
+
+    try {
+      final currentUserId = supabase.auth.currentUser?.id;
+      final insertData = <String, dynamic>{'word': cleanWord};
+      if (currentUserId != null) {
+        insertData['created_by'] = currentUserId;
+      }
+      try {
+        await supabase.from('filter_words').insert(insertData);
+      } catch (insertError) {
+        // Fallback without created_by in case foreign key check fails
+        await supabase.from('filter_words').insert({'word': cleanWord});
+      }
+      return {'success': true, 'word': cleanWord};
+    } catch (e) {
+      debugPrint('Error adding filter word: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Remove a filter word from database
+  static Future<Map<String, dynamic>> removeFilterWord(String word) async {
+    final cleanWord = word.trim().toLowerCase();
+    try {
+      await supabase.from('filter_words').delete().eq('word', cleanWord);
+      return {'success': true};
+    } catch (e) {
+      debugPrint('Error removing filter word: $e');
+      return {'success': false, 'error': e.toString()};
     }
   }
 

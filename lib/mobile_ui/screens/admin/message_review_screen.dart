@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/message_filter_service.dart';
 import '../../../services/notification_service.dart';
 import '../../theme/app_colors.dart';
@@ -22,7 +21,6 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
   List<String> _filterWords = [];
   List<Map<String, dynamic>> _violatingUsers = [];
   final TextEditingController _filterWordController = TextEditingController();
-  final _supabase = Supabase.instance.client;
   bool _filterWordsLoaded = false;
   bool _flagsLoaded = false;
   bool _violatingUsersLoaded = false;
@@ -98,16 +96,10 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
 
   Future<void> _loadFilterWords() async {
     try {
-      final response = await _supabase
-          .from('filter_words')
-          .select('word')
-          .order('created_at', ascending: false);
-
+      final words = await MessageFilterService.loadFilterWords();
       if (mounted) {
         setState(() {
-          _filterWords = (response as List)
-              .map((item) => item['word'] as String)
-              .toList();
+          _filterWords = words;
           _filterWordsLoaded = true;
         });
       }
@@ -119,57 +111,63 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
     }
   }
 
-  Future<void> _addFilterWord(String word) async {
-    try {
-      await _supabase.from('filter_words').insert({
-        'word': word.toLowerCase(),
-        'created_by': _supabase.auth.currentUser?.id,
-      });
+  Future<void> _addFilterWord(String input) async {
+    final rawTokens = input
+        .split(RegExp(r'[,;\n]+'))
+        .map((t) => t.trim().toLowerCase())
+        .where((t) => t.isNotEmpty)
+        .toList();
 
-      if (mounted) {
-        setState(() {
-          _filterWords.add(word.toLowerCase());
-          _filterWordController.clear();
-        });
+    if (rawTokens.isEmpty) return;
+
+    int addedCount = 0;
+    for (final token in rawTokens) {
+      if (_filterWords.any((w) => w.toLowerCase() == token)) continue;
+      final res = await MessageFilterService.addFilterWord(token);
+      if (res['success'] == true) {
+        _filterWords.insert(0, token);
+        addedCount++;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _filterWordController.clear();
+      });
+      if (addedCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Filter word added'),
+          SnackBar(
+            content: Text('$addedCount filter word(s) added successfully.'),
             backgroundColor: AppColors.success,
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 2),
           ),
         );
-      }
-    } catch (e) {
-      if (mounted) {
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('Word(s) already exist in the filter list.'),
+            backgroundColor: AppColors.warning,
+            duration: Duration(seconds: 2),
+          ),
         );
       }
     }
   }
 
   Future<void> _removeFilterWord(String word) async {
-    try {
-      await _supabase.from('filter_words').delete().eq('word', word);
-
-      if (mounted) {
-        setState(() {
-          _filterWords.remove(word);
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Filter word removed'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
+    final clean = word.trim().toLowerCase();
+    final res = await MessageFilterService.removeFilterWord(clean);
+    if (res['success'] == true && mounted) {
+      setState(() {
+        _filterWords.removeWhere((w) => w.toLowerCase() == clean);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Filter word removed'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -530,12 +528,31 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
     final notesController = TextEditingController(
       text: isConfirm
           ? 'Confirmed policy warning. The sender was notified.'
-          : 'Dismissed as a false positive.',
+          : 'Allowed as legitimate booking coordination / trip details.',
     );
     final shouldContinue = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(isConfirm ? 'Confirm warning?' : 'Dismiss warning?'),
+        backgroundColor: widget.isDarkMode ? AppColors.darkCard : Colors.white,
+        title: Row(
+          children: [
+            Icon(
+              isConfirm ? Icons.gavel_rounded : Icons.check_circle_outline_rounded,
+              color: isConfirm ? AppColors.error : AppColors.success,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                isConfirm ? 'Confirm Policy Violation?' : 'Allow & Dismiss Warning?',
+                style: TextStyle(
+                  color: widget.isDarkMode ? AppColors.textPrimary : Colors.black,
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
         content: SizedBox(
           width: 440,
           child: Column(
@@ -544,16 +561,26 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
             children: [
               Text(
                 isConfirm
-                    ? 'This confirms the violation and sends a safety warning to the user.'
-                    : 'This removes the message from the pending review queue.',
+                    ? 'This confirms an intentional off-platform transaction attempt, registers a policy violation flag on the user account, and sends a warning.'
+                    : 'This marks the message as an allowed trip detail or false positive. The warning is dismissed and no penalties are applied.',
+                style: TextStyle(
+                  color: widget.isDarkMode ? AppColors.textSecondary : Colors.black87,
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: notesController,
                 maxLines: 3,
-                decoration: const InputDecoration(
+                style: TextStyle(
+                  color: widget.isDarkMode ? Colors.white : Colors.black,
+                ),
+                decoration: InputDecoration(
                   labelText: 'Admin notes',
-                  border: OutlineInputBorder(),
+                  labelStyle: TextStyle(
+                    color: widget.isDarkMode ? Colors.white70 : Colors.black54,
+                  ),
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
@@ -566,7 +593,11 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(isConfirm ? 'Confirm & Warn' : 'Dismiss'),
+            style: FilledButton.styleFrom(
+              backgroundColor: isConfirm ? AppColors.error : AppColors.success,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(isConfirm ? 'Confirm & Penalize' : 'Allow / Dismiss'),
           ),
         ],
       ),
@@ -626,7 +657,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                 ? 'Review saved, but the warning notification could not be sent.'
                 : action == 'approve'
                 ? 'Warning confirmed and the user was notified.'
-                : 'Warning dismissed.',
+                : 'Warning dismissed as allowed detail / false positive.',
           ),
           backgroundColor: notificationFailed
               ? AppColors.warning
@@ -647,6 +678,23 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
   }
 
   Widget _buildFilterWordsTab(bool isDark, Color cardColor, Color textColor) {
+    const popularPresets = [
+      '@gmail',
+      '@yahoo',
+      '@hotmail',
+      '@outlook',
+      '.com',
+      'gcash',
+      'maya',
+      'bank transfer',
+      '09',
+      'viber',
+      'telegram',
+      'whatsapp',
+      'fb',
+      'messenger',
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -660,12 +708,12 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
           ),
           child: Row(
             children: [
-              Icon(Icons.info_outline, color: AppColors.success, size: 20),
+              const Icon(Icons.info_outline, color: AppColors.success, size: 20),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Add words to filter and flag inappropriate messages',
-                  style: TextStyle(
+                  'Add patterns and keywords to monitor messages (e.g. @gmail, phone digits, payment names). When detected, messages are delivered uninterrupted for active bookings while queuing for Admin review.',
+                  style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.success,
                     fontWeight: FontWeight.w500,
@@ -677,7 +725,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
         ),
         const SizedBox(height: 20),
 
-        // Add new filter word
+        // Add new filter word card
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -693,11 +741,19 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Add New Filter Word',
+                'Add Filter Words & Patterns',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: textColor,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Add words or patterns like @gmail, @yahoo, gcash. You can add multiple words separated by commas.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? AppColors.textTertiary : AppColors.lightTextTertiary,
                 ),
               ),
               const SizedBox(height: 12),
@@ -707,7 +763,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                     child: TextField(
                       controller: _filterWordController,
                       decoration: InputDecoration(
-                        hintText: 'Enter word to filter...',
+                        hintText: 'e.g. @gmail, @yahoo, gcash, bank transfer...',
                         hintStyle: TextStyle(
                           color: isDark ? Colors.grey : Colors.grey.shade500,
                           fontSize: 13,
@@ -734,7 +790,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
+                          borderSide: const BorderSide(
                             color: AppColors.success,
                             width: 2,
                           ),
@@ -750,45 +806,78 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                       cursorColor: AppColors.success,
-                      onSubmitted: (value) {
-                        final word = value.trim().toLowerCase();
-                        if (word.isNotEmpty && !_filterWords.contains(word)) {
-                          _addFilterWord(word);
-                        }
-                      },
+                      onSubmitted: (value) => _addFilterWord(value),
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [AppColors.success, Color(0xFF27AE60)],
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      final input = _filterWordController.text.trim();
+                      if (input.isNotEmpty) {
+                        _addFilterWord(input);
+                      }
+                    },
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add Word(s)'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
                       ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        final word = _filterWordController.text
-                            .trim()
-                            .toLowerCase();
-                        if (word.isNotEmpty && !_filterWords.contains(word)) {
-                          _addFilterWord(word);
-                        }
-                      },
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
                       ),
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Quick Add Presets:',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white70 : Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: popularPresets.map((preset) {
+                  final alreadyAdded = _filterWords.any(
+                    (w) => w.toLowerCase() == preset.toLowerCase(),
+                  );
+                  return ActionChip(
+                    avatar: Icon(
+                      alreadyAdded ? Icons.check : Icons.add,
+                      size: 14,
+                      color: alreadyAdded
+                          ? AppColors.success
+                          : (isDark ? Colors.white70 : Colors.black87),
+                    ),
+                    label: Text(
+                      preset,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: alreadyAdded ? FontWeight.bold : FontWeight.normal,
+                        color: alreadyAdded
+                            ? AppColors.success
+                            : (isDark ? Colors.white : Colors.black87),
+                      ),
+                    ),
+                    backgroundColor: alreadyAdded
+                        ? AppColors.success.withValues(alpha: 0.12)
+                        : (isDark ? AppColors.darkBg : Colors.grey.shade100),
+                    onPressed: () {
+                      if (!alreadyAdded) {
+                        _addFilterWord(preset);
+                      }
+                    },
+                  );
+                }).toList(),
               ),
             ],
           ),
@@ -814,7 +903,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Filter Words (${_filterWords.length})',
+                    'Active Filter Words & Patterns (${_filterWords.length})',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -822,12 +911,19 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                     ),
                   ),
                   if (_filterWords.isNotEmpty)
-                    Text(
-                      'Active',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.success,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'ACTIVE FILTERING',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.success,
+                        ),
                       ),
                     ),
                 ],
@@ -845,7 +941,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 40),
                     child: Text(
-                      'No filter words added yet',
+                      'No filter words added yet. Add @gmail or presets above!',
                       style: TextStyle(
                         color: isDark
                             ? AppColors.textTertiary
@@ -885,7 +981,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                             onTap: () {
                               _removeFilterWord(word);
                             },
-                            child: Icon(
+                            child: const Icon(
                               Icons.close,
                               size: 16,
                               color: AppColors.error,
@@ -930,7 +1026,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
         : AppColors.success;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: cardColor,
@@ -953,8 +1049,8 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                     Text(
                       userName,
                       style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
                         color: textColor,
                       ),
                     ),
@@ -991,8 +1087,8 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                   _buildStatusChip(status),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                      horizontal: 10,
+                      vertical: 5,
                     ),
                     decoration: BoxDecoration(
                       color: riskColor.withValues(alpha: 0.1),
@@ -1003,7 +1099,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                       '${riskLevel.toUpperCase()} RISK',
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
                         color: riskColor,
                       ),
                     ),
@@ -1028,10 +1124,14 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
 
           // Message content
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: isDark ? AppColors.darkBgSecondary : Colors.grey[100],
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isDark ? Colors.white12 : Colors.grey.shade300,
+              ),
             ),
             child: Text(
               messageContent,
@@ -1042,22 +1142,22 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
           // Keywords
-          if (keywords.isNotEmpty)
+          if (keywords.isNotEmpty) ...[
             Wrap(
-              spacing: 8,
+              spacing: 6,
               runSpacing: 6,
               children: keywords
                   .map(
                     (keyword) => Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
-                        vertical: 4,
+                        vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                      color: riskColor.withValues(alpha: 0.1),
+                        color: riskColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(color: riskColor, width: 0.5),
                       ),
@@ -1066,14 +1166,49 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                         style: TextStyle(
                           fontSize: 11,
                           color: riskColor,
-                          fontWeight: FontWeight.w500,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                   )
                   .toList(),
             ),
-          if (keywords.isNotEmpty) const SizedBox(height: 12),
+            const SizedBox(height: 10),
+          ],
+
+          // Ongoing Booking & Detail Exception Guidance Note
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.25),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Trip Detail Exception Note: Message was delivered so active booking coordination is not broken. If this is legitimate trip info (flight number, meeting pin, directions, or itinerary notes), click "Allow / Dismiss" to approve as an allowed exception.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? AppColors.textPrimary : Colors.black87,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
 
           // Timestamp
           Text(
@@ -1086,7 +1221,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
             ),
           ),
           if (adminNotes?.trim().isNotEmpty == true) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
               'Admin notes: ${adminNotes!.trim()}',
               style: TextStyle(
@@ -1095,10 +1230,8 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
               ),
             ),
           ],
-          if (showActions) const SizedBox(height: 16),
-
-          // Actions
-          if (showActions)
+          if (showActions) ...[
+            const SizedBox(height: 14),
             Row(
               children: [
                 Expanded(
@@ -1109,29 +1242,31 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                             dimension: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.gpp_good_rounded),
-                    label: const Text('Confirm & Warn'),
+                        : const Icon(Icons.gpp_bad_rounded, size: 18),
+                    label: const Text('Confirm Violation & Warn'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.success,
+                      backgroundColor: AppColors.error,
                       foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: isBusy ? null : onDismiss,
-                    icon: const Icon(Icons.close),
-                    label: const Text('Dismiss'),
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                    label: const Text('Allow / Dismiss'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: isDark
-                          ? AppColors.textPrimary
-                          : Colors.black,
+                      foregroundColor: AppColors.success,
+                      side: const BorderSide(color: AppColors.success),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ),
               ],
             ),
+          ],
         ],
       ),
     );
