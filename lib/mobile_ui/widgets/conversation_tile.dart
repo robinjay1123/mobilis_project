@@ -27,16 +27,22 @@ class ConversationTile extends StatelessWidget {
   });
 
   Widget _buildStatusChip(String label, bool isDark) {
+    final bool isOngoing = label.contains('Ongoing') || label.contains('Active');
+    final bool isApproved = label.contains('Approved') || label.contains('Confirmed');
     final bool isReadOnly = label.contains('Completed') ||
         label.contains('Read-Only') ||
         label.contains('Cancelled');
     final bool isSupport = label.contains('Support');
     final Color chipColor = statusColor ??
-        (isSupport
-            ? Colors.amber.shade700
-            : (isReadOnly
-                ? Colors.purple.shade400
-                : Colors.blue.shade500));
+        (isOngoing
+            ? AppColors.success
+            : (isApproved
+                ? AppColors.primary
+                : (isSupport
+                    ? Colors.amber.shade700
+                    : (isReadOnly
+                        ? Colors.purple.shade400
+                        : Colors.blue.shade500))));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -51,11 +57,15 @@ class ConversationTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isReadOnly
-                ? Icons.lock_outline_rounded
-                : (isSupport
-                    ? Icons.support_agent
-                    : Icons.check_circle_outline_rounded),
+            isOngoing
+                ? Icons.directions_car_rounded
+                : (isApproved
+                    ? Icons.verified_rounded
+                    : (isReadOnly
+                        ? Icons.lock_outline_rounded
+                        : (isSupport
+                            ? Icons.support_agent
+                            : Icons.check_circle_outline_rounded))),
             size: 11,
             color: chipColor,
           ),

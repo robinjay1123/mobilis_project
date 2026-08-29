@@ -565,16 +565,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
       }
 
-      hydratedConversations.sort((a, b) {
-        final aLast = a['last_message'] as Map<String, dynamic>?;
-        final bLast = b['last_message'] as Map<String, dynamic>?;
-        final aDate = DateTime.tryParse(aLast?['created_at']?.toString() ?? '');
-        final bDate = DateTime.tryParse(bLast?['created_at']?.toString() ?? '');
-        if (aDate == null && bDate == null) return 0;
-        if (aDate == null) return 1;
-        if (bDate == null) return -1;
-        return bDate.compareTo(aDate);
-      });
+      ChatService.sortConversationsByPriority(hydratedConversations);
 
       if (mounted) {
         setState(() {
@@ -2609,15 +2600,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           : 'Booking Group Chat';
 
       final statusRaw = (booking?['status'] ?? '').toString().toLowerCase().trim();
+      final statusGrp = bookingStatusGroup(statusRaw);
       final String statusBadge;
       if (isCustomerService) {
         statusBadge = 'Support';
-      } else if (statusRaw == 'completed') {
+      } else if (statusGrp == BookingStatusGroup.ongoing) {
+        statusBadge = 'Ongoing Trip';
+      } else if (statusGrp == BookingStatusGroup.approved) {
+        statusBadge = 'Approved Booking';
+      } else if (statusGrp == BookingStatusGroup.completed) {
         statusBadge = 'Completed • Read-Only';
-      } else if (statusRaw == 'cancelled' || statusRaw == 'rejected' || statusRaw == 'expired') {
+      } else if (statusGrp == BookingStatusGroup.cancelled) {
         statusBadge = 'Cancelled • Read-Only';
+      } else if (statusGrp == BookingStatusGroup.frozen) {
+        statusBadge = 'Frozen';
       } else if (statusRaw.isNotEmpty) {
-        statusBadge = 'Active Booking';
+        statusBadge = '${bookingStatusLabel(statusGrp)} Booking';
       } else {
         statusBadge = 'Active';
       }
@@ -2646,13 +2644,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildConversationStatusChip(String label) {
+    final bool isOngoing = label.contains('Ongoing') || label.contains('Active');
+    final bool isApproved = label.contains('Approved') || label.contains('Confirmed');
     final bool isReadOnly = label.contains('Completed') ||
         label.contains('Read-Only') ||
         label.contains('Cancelled');
     final bool isSupport = label.contains('Support');
-    final Color chipColor = isSupport
-        ? Colors.amber.shade700
-        : (isReadOnly ? Colors.purple.shade300 : Colors.blue.shade400);
+    final Color chipColor = isOngoing
+        ? AppColors.success
+        : (isApproved
+            ? AppColors.primary
+            : (isSupport
+                ? Colors.amber.shade700
+                : (isReadOnly ? Colors.purple.shade300 : Colors.blue.shade400)));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -2665,11 +2669,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isReadOnly
-                ? Icons.lock_outline_rounded
-                : (isSupport
-                    ? Icons.support_agent
-                    : Icons.check_circle_outline_rounded),
+            isOngoing
+                ? Icons.directions_car_rounded
+                : (isApproved
+                    ? Icons.verified_rounded
+                    : (isReadOnly
+                        ? Icons.lock_outline_rounded
+                        : (isSupport
+                            ? Icons.support_agent
+                            : Icons.check_circle_outline_rounded))),
             size: 11,
             color: chipColor,
           ),
@@ -5695,7 +5703,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         children: [
                                           Expanded(
                                             child: Text(
-                                              conversations[index]['recipientName'],
+                                            conversations[index]['recipientName'],
                                               style: const TextStyle(
                                                 fontSize: 14,
                                                 fontWeight: FontWeight.w600,
@@ -5715,6 +5723,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           ),
                                         ],
                                       ),
+                                      if (conversations[index]['statusBadge'] !=
+                                              null &&
+                                          conversations[index]['statusBadge']
+                                              .toString()
+                                              .isNotEmpty) ...[
+                                        const SizedBox(height: 4),
+                                        _buildConversationStatusChip(
+                                          conversations[index]['statusBadge']
+                                              .toString(),
+                                        ),
+                                      ],
                                       const SizedBox(height: 4),
                                       Row(
                                         children: [

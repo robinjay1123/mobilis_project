@@ -6,6 +6,7 @@ import 'notification_service.dart';
 import 'user_restriction_service.dart';
 import 'image_optimization_service.dart';
 import 'booking_service.dart';
+import '../utils/booking_status.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -155,7 +156,7 @@ class ChatService {
       final currentAuthUser = supabase.auth.currentUser;
       final metaRole =
           (currentAuthUser?.userMetadata?['role'] ??
-                  currentAuthUser?.appMetadata?['role'])
+                  currentAuthUser?.appMetadata['role'])
               ?.toString()
               .trim()
               .toLowerCase() ??
@@ -463,7 +464,88 @@ class ChatService {
         conversation,
       );
     }
-    return conversations.where(_isVisibleConversation).toList();
+    final visible = conversations.where(_isVisibleConversation).toList();
+    sortConversationsByPriority(visible);
+    return visible;
+  }
+
+  /// Priority ranking for conversation ordering:
+  /// 0: Ongoing / Active rental trips (top operational priority)
+  /// 1: Approved / Confirmed / Upcoming rental trips (high priority)
+  /// 2: Direct Support / Customer Service conversations
+  /// 3: Pending / Requested booking conversations
+  /// 4: Frozen / Safety locked conversations
+  /// 5: Completed / Returned past trips (read-only history)
+  /// 6: Cancelled / Rejected bookings
+  static int getConversationPriority(Map<String, dynamic> conversation) {
+    final booking = conversation['bookings'];
+    if (booking is! Map) {
+      // Direct Support / Customer Service conversation
+      return 2;
+    }
+    final rawStatus = (booking['status'] ?? '').toString().trim().toLowerCase();
+    final group = bookingStatusGroup(rawStatus);
+    switch (group) {
+      case BookingStatusGroup.ongoing:
+        return 0; // Top priority: Ongoing / Active trip
+      case BookingStatusGroup.approved:
+        return 1; // High priority: Approved / Confirmed / Upcoming trip
+      case BookingStatusGroup.pending:
+        return 3;
+      case BookingStatusGroup.frozen:
+        return 4;
+      case BookingStatusGroup.completed:
+        return 5;
+      case BookingStatusGroup.cancelled:
+        return 6;
+    }
+  }
+
+  /// Extracts the most recent timestamp for sorting conversations within the same priority tier.
+  static DateTime getConversationTimestamp(Map<String, dynamic> conversation) {
+    final lastMessage = conversation['last_message'];
+    if (lastMessage is Map) {
+      final d = DateTime.tryParse(lastMessage['created_at']?.toString() ?? '');
+      if (d != null) return d;
+    }
+    final messages = conversation['messages'];
+    if (messages is List && messages.isNotEmpty) {
+      final last = messages.last;
+      if (last is Map) {
+        final d = DateTime.tryParse(last['created_at']?.toString() ?? '');
+        if (d != null) return d;
+      }
+      final first = messages.first;
+      if (first is Map) {
+        final d = DateTime.tryParse(first['created_at']?.toString() ?? '');
+        if (d != null) return d;
+      }
+    }
+    final updated = DateTime.tryParse(conversation['updated_at']?.toString() ?? '');
+    if (updated != null) return updated;
+    final created = DateTime.tryParse(conversation['created_at']?.toString() ?? '');
+    if (created != null) return created;
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  /// Compares two conversations prioritizing Ongoing (0) and Approved (1), then latest message timestamp descending.
+  static int compareConversationsByPriority(
+    Map<String, dynamic> a,
+    Map<String, dynamic> b,
+  ) {
+    final aPriority = getConversationPriority(a);
+    final bPriority = getConversationPriority(b);
+    if (aPriority != bPriority) {
+      return aPriority.compareTo(bPriority);
+    }
+    final aDate = getConversationTimestamp(a);
+    final bDate = getConversationTimestamp(b);
+    return bDate.compareTo(aDate);
+  }
+
+  /// Sorts a conversation list in-place so Ongoing and Approved bookings appear at the top.
+  static void sortConversationsByPriority(List<Map<String, dynamic>> conversations) {
+    conversations.sort(compareConversationsByPriority);
   }
 
   bool _isVisibleConversation(Map<String, dynamic> conversation) {

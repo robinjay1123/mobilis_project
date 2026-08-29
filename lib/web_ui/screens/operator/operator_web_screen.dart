@@ -18934,6 +18934,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
       }
 
+      ChatService.sortConversationsByPriority(_conversations);
+
       debugPrint('[Messages] Loaded ${_conversations.length} conversations for operator');
 
       // Auto-select first conversation if none selected

@@ -336,6 +336,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             applications = apps;
             bookingCounts = bCounts;
             bookings = bList;
+            ChatService.sortConversationsByPriority(convs);
             conversations = convs;
             notifications = notifs;
             trackingLocations = liveTracking;
@@ -4050,13 +4051,20 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                               : 'No messages';
 
                           final statusRaw = (booking?['status'] ?? '').toString().toLowerCase().trim();
+                          final statusGrp = bookingStatusGroup(statusRaw);
                           final String statusBadge = isCustomerService
                               ? 'Support'
-                              : (statusRaw == 'completed'
-                                  ? 'Completed • Read-Only'
-                                  : (statusRaw == 'cancelled' || statusRaw == 'rejected' || statusRaw == 'expired'
-                                      ? 'Cancelled • Read-Only'
-                                      : (statusRaw.isNotEmpty ? 'Active Booking' : 'Active')));
+                              : (statusGrp == BookingStatusGroup.ongoing
+                                  ? 'Ongoing Trip'
+                                  : (statusGrp == BookingStatusGroup.approved
+                                      ? 'Approved Booking'
+                                      : (statusGrp == BookingStatusGroup.completed
+                                          ? 'Completed • Read-Only'
+                                          : (statusGrp == BookingStatusGroup.cancelled
+                                              ? 'Cancelled • Read-Only'
+                                              : (statusGrp == BookingStatusGroup.frozen
+                                                  ? 'Frozen'
+                                                  : (statusRaw.isNotEmpty ? '${bookingStatusLabel(statusGrp)} Booking' : 'Active'))))));
 
                           return ConversationTile(
                             senderName: topicTitle,

@@ -35,6 +35,7 @@ import '../../widgets/handover_pin_verifier_modal.dart';
 import '../../widgets/inspection_damage_comparison_dialog.dart';
 import '../../widgets/trip_route_history_dialog.dart';
 import '../../widgets/trip_location_map_dialog.dart';
+import '../../../utils/booking_status.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -2204,13 +2205,19 @@ class _DriverConversationCard extends StatelessWidget {
   });
 
   Widget _buildStatusChip(String label) {
+    final bool isOngoing = label.contains('Ongoing') || label.contains('Active');
+    final bool isApproved = label.contains('Approved') || label.contains('Confirmed');
     final bool isReadOnly = label.contains('Completed') ||
         label.contains('Read-Only') ||
         label.contains('Cancelled');
     final bool isSupport = label.contains('Support');
-    final Color chipColor = isSupport
-        ? Colors.amber.shade700
-        : (isReadOnly ? Colors.purple.shade300 : Colors.blue.shade400);
+    final Color chipColor = isOngoing
+        ? AppColors.success
+        : (isApproved
+            ? AppColors.primary
+            : (isSupport
+                ? Colors.amber.shade700
+                : (isReadOnly ? Colors.purple.shade300 : Colors.blue.shade400)));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -2223,11 +2230,15 @@ class _DriverConversationCard extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isReadOnly
-                ? Icons.lock_outline_rounded
-                : (isSupport
-                    ? Icons.support_agent
-                    : Icons.check_circle_outline_rounded),
+            isOngoing
+                ? Icons.directions_car_rounded
+                : (isApproved
+                    ? Icons.verified_rounded
+                    : (isReadOnly
+                        ? Icons.lock_outline_rounded
+                        : (isSupport
+                            ? Icons.support_agent
+                            : Icons.check_circle_outline_rounded))),
             size: 11,
             color: chipColor,
           ),
@@ -4668,7 +4679,7 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
     if (user == null) return [];
 
     final conversations = await ChatService().getConversations(user.id);
-    return conversations.map((conversation) {
+    final hydrated = conversations.map((conversation) {
       final messages = List<Map<String, dynamic>>.from(
         conversation['messages'] as List? ?? const [],
       );
@@ -4691,6 +4702,9 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
         'unread_count': unreadCount,
       };
     }).toList();
+
+    ChatService.sortConversationsByPriority(hydrated);
+    return hydrated;
   }
 
   Future<void> _refresh() async {
@@ -4818,13 +4832,20 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
                   );
                   final booking = conversation['bookings'] as Map?;
                   final statusRaw = (booking?['status'] ?? '').toString().toLowerCase().trim();
+                  final statusGrp = bookingStatusGroup(statusRaw);
                   final String statusBadge = isCustomerService
                       ? 'Support'
-                      : (statusRaw == 'completed'
-                          ? 'Completed • Read-Only'
-                          : (statusRaw == 'cancelled' || statusRaw == 'rejected' || statusRaw == 'expired'
-                              ? 'Cancelled • Read-Only'
-                              : (statusRaw.isNotEmpty ? 'Active Booking' : 'Active')));
+                      : (statusGrp == BookingStatusGroup.ongoing
+                          ? 'Ongoing Trip'
+                          : (statusGrp == BookingStatusGroup.approved
+                              ? 'Approved Booking'
+                              : (statusGrp == BookingStatusGroup.completed
+                                  ? 'Completed • Read-Only'
+                                  : (statusGrp == BookingStatusGroup.cancelled
+                                      ? 'Cancelled • Read-Only'
+                                      : (statusGrp == BookingStatusGroup.frozen
+                                          ? 'Frozen'
+                                          : (statusRaw.isNotEmpty ? '${bookingStatusLabel(statusGrp)} Booking' : 'Active'))))));
 
                   return _DriverConversationCard(
                     title: _conversationTitle(conversation),
