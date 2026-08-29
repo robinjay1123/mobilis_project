@@ -3204,8 +3204,7 @@ class _TripCardState extends State<_TripCard> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Rentee: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}'
-                  '${renterPhone != null && renterPhone.isNotEmpty ? ' • $renterPhone' : ''}',
+                  'Rentee: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -3897,8 +3896,7 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Rentee: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}'
-                  '${renterPhone != null && renterPhone.isNotEmpty ? ' • $renterPhone' : ''}',
+                  'Rentee: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

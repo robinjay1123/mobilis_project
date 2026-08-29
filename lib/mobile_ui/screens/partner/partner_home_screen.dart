@@ -5190,22 +5190,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                         ),
                       ),
                     ),
-                    if (renterPhone.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        onPressed: () => _launchPhone(renterPhone),
-                        icon: const Icon(Icons.phone_outlined, size: 14),
-                        label: const Text('Contact'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primary),
-                          padding: const EdgeInsets.symmetric(vertical: 9),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ],
@@ -8994,34 +8978,8 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                             ],
                           ),
                         ),
-                        if (renter?['phone'] != null && renter!['phone'].toString().trim().isNotEmpty) ...[
-                          IconButton.filledTonal(
-                            onPressed: () => _callPhone(renter!['phone'].toString()),
-                            icon: const Icon(Icons.phone_rounded, size: 16),
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.green.withValues(alpha: 0.15),
-                              foregroundColor: Colors.green,
-                              padding: const EdgeInsets.all(8),
-                            ),
-                            tooltip: 'Call Rentee',
-                          ),
-                        ],
                       ],
                     ),
-                    if (renter?['phone'] != null && renter!['phone'].toString().trim().isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 46),
-                        child: Text(
-                          'Phone: ${renter!['phone']}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -9392,17 +9350,6 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                               ],
                             ),
                           ),
-                          if (driverPhone.isNotEmpty)
-                            IconButton.filledTonal(
-                              onPressed: () => _callPhone(driverPhone),
-                              icon: const Icon(Icons.phone_rounded, size: 14),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.green.withValues(alpha: 0.2),
-                                foregroundColor: Colors.green,
-                                padding: const EdgeInsets.all(6),
-                              ),
-                              tooltip: 'Call Driver',
-                            ),
                         ],
                       ),
                       const SizedBox(height: 8),

@@ -11510,33 +11510,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                           ],
                         ),
                       ),
-                      if (driverPhone.isNotEmpty)
-                        IconButton.filledTonal(
-                          onPressed: () => _callPhone(context, driverPhone),
-                          icon: const Icon(Icons.phone_rounded, size: 16),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.green.withValues(alpha: 0.2),
-                            foregroundColor: Colors.green,
-                            padding: const EdgeInsets.all(8),
-                          ),
-                          tooltip: 'Call Driver',
-                        ),
                     ],
                   ),
-                  if (driverPhone.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 46),
-                      child: Text(
-                        'Phone: $driverPhone',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
