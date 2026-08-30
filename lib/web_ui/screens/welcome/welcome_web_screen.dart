@@ -48,7 +48,9 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   static const String facebookUrl = 'https://www.facebook.com/psdc.dagupan';
   static const String mainOfficeLocation = 'Urdaneta City, Pangasinan, Philippines';
   static const String apkDownloadUrl =
-      'https://zmaudwpinfdnlvplzovx.supabase.co/storage/v1/object/public/app_releases/mobilis-app.apk';
+      'https://github.com/robinjay1123/mobilis_project/releases/latest/download/mobilis-app.apk';
+  static const String githubReleasesUrl =
+      'https://github.com/robinjay1123/mobilis_project/releases';
 
   @override
   void initState() {
@@ -280,7 +282,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                       },
                       icon: const Icon(Icons.download_rounded, size: 18),
                       label: const Text(
-                        'Direct APK Download (.apk)',
+                        'Direct Download (.apk)',
                         style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
                       ),
                       style: ElevatedButton.styleFrom(
@@ -289,6 +291,28 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         elevation: 6,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // GitHub Releases Link
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        _openUrl(githubReleasesUrl);
+                      },
+                      icon: const Icon(Icons.code_rounded, size: 18, color: Colors.white),
+                      label: const Text(
+                        'View on GitHub Releases',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0x33FFFFFF)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
                   ),
