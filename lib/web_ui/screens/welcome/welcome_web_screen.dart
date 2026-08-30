@@ -46,6 +46,9 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   static const String hotline2 = '0955-281-1306';
   static const String facebookUrl = 'https://www.facebook.com/psdc.dagupan';
   static const String mainOfficeLocation = 'Urdaneta City, Pangasinan, Philippines';
+  static const String mainOfficePlusCode = 'XGFW+JQ Urdaneta City, Pangasinan';
+  static const String googleMapsLocationUrl =
+      'https://www.google.com/maps/search/?api=1&query=XGFW%2BJQ+Urdaneta+City%2C+Pangasinan';
   static const String apkDownloadUrl =
       'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app.apk';
   static const String githubReleasesUrl =
@@ -68,7 +71,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       final supabase = Supabase.instance.client;
       final List<Map<String, dynamic>> combined = [];
 
-      // 1. Fetch Company Fleet Vehicles
+      // 1. Fetch PSDC Company Fleet Vehicles Only (excludes partner cars to save space)
       try {
         final companyRes = await supabase
             .from('vehicles')
@@ -81,21 +84,6 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
         }
       } catch (e) {
         debugPrint('Error fetching company vehicles: $e');
-      }
-
-      // 2. Fetch Partner Registered Vehicles
-      try {
-        final partnerRes = await supabase
-            .from('partner_vehicles')
-            .select('id, brand, model, year, plate_number, price_per_day, price_per_hour, seats, transmission, fuel_type, category, vehicle_type, vehicle_name, status, is_available, is_posted, rating, rating_count, owner_name, vehicle_images(image_url, display_order)')
-            .neq('status', 'deleted')
-            .order('created_at', ascending: false);
-
-        for (final item in List<Map<String, dynamic>>.from(partnerRes)) {
-          combined.add(_normalizeVehicle(item, isPartner: true));
-        }
-      } catch (e) {
-        debugPrint('Error fetching partner vehicles: $e');
       }
 
       if (combined.isNotEmpty && mounted) {
@@ -591,9 +579,12 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                     ),
                     if (isDesktop) ...[
                       const SizedBox(width: 16),
-                      const Text(
-                        '•   Main Office: Urdaneta City   •   PSDC Fleet & Verified Partners',
-                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                      InkWell(
+                        onTap: () => _openUrl(googleMapsLocationUrl),
+                        child: const Text(
+                          '•   Main Office: Urdaneta City ($mainOfficePlusCode)   •   PSDC Fleet',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        ),
                       ),
                     ],
                   ],
@@ -1722,10 +1713,11 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 alignment: WrapAlignment.center,
                 children: [
                   _buildHubDetailCard(
-                    icon: Icons.apartment_rounded,
-                    title: 'Main Office',
-                    value: mainOfficeLocation,
-                    subtext: 'Central operations, vehicle dispatch & administrative hub',
+                    icon: Icons.location_on_rounded,
+                    title: 'Main Office (Tap for Maps 📍)',
+                    value: '$mainOfficeLocation\n($mainOfficePlusCode)',
+                    subtext: 'Tap to view exact GPS location & directions on Google Maps',
+                    onTap: () => _openUrl(googleMapsLocationUrl),
                     isDesktop: isDesktop,
                     width: width,
                   ),
@@ -2618,17 +2610,30 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           style: TextStyle(color: Color(0xFF64748B), fontSize: 12, height: 1.5),
         ),
         const SizedBox(height: 12),
-        const Row(
-          children: [
-            Icon(Icons.location_city_rounded, size: 14, color: AppColors.primary),
-            SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                mainOfficeLocation,
-                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w600),
-              ),
+        InkWell(
+          onTap: () => _openUrl(googleMapsLocationUrl),
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on_rounded, size: 14, color: AppColors.primary),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    '$mainOfficeLocation ($mainOfficePlusCode)',
+                    style: const TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      decoration: TextDecoration.underline,
+                      decorationColor: Color(0x55FFD740),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ],
     );
