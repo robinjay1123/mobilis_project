@@ -39,4 +39,22 @@ class _BodyStub {
   void append(dynamic element) {}
 }
 
+class _HistoryStub {
+  void replaceState(dynamic data, String title, String? url) {}
+  void pushState(dynamic data, String title, String? url) {}
+}
+
+class _LocationStub {
+  String href = '';
+  String hash = '';
+  String search = '';
+  String pathname = '';
+}
+
+class _WindowStub {
+  final history = _HistoryStub();
+  final location = _LocationStub();
+}
+
 final document = _DocumentStub();
+final window = _WindowStub();
