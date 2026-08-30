@@ -6300,10 +6300,10 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
   @override
   void initState() {
     super.initState();
-    final metadata = AuthService().currentUser?.userMetadata;
-    _mpinEnabled = metadata?['mpin_enabled'] == true;
-    _mpinHash = metadata?['mpin_hash']?.toString() ?? '';
-    _mpinSalt = metadata?['mpin_salt']?.toString() ?? '';
+    final metadata = AuthService().currentUser?.userMetadata ?? const <String, dynamic>{};
+    _mpinEnabled = metadata['mpin_enabled'] == true;
+    _mpinHash = metadata['mpin_hash']?.toString() ?? '';
+    _mpinSalt = metadata['mpin_salt']?.toString() ?? '';
   }
 
   Future<void> _showChangeEmailDialog() async {
