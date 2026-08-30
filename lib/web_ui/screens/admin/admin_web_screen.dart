@@ -1982,10 +1982,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           final bList = List<Map<String, dynamic>>.from(totalBookingsResponse);
           _totalBookings = bList.length;
           _pendingBookingsCount =
-              bList.where((b) => b['status'] == 'pending').length;
+              bList.where((b) => (b['status']?.toString() ?? '').toLowerCase() == 'pending').length;
           _activeBookings =
-              bList.where((b) => b['status'] == 'active').length;
-          _totalRevenue = bList.fold(
+              bList.where((b) {
+                final st = (b['status']?.toString() ?? '').toLowerCase();
+                return st == 'active' || st == 'ongoing' || st == 'in_progress';
+              }).length;
+          final validRevenueBookings = bList.where((b) => _isValidRevenueBooking(b));
+          _totalRevenue = validRevenueBookings.fold(
             0.0,
             (sum, b) => sum + ((b['total_cost'] as num?)?.toDouble() ?? 0),
           );
@@ -2000,6 +2004,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         debugPrint('Error loading stats fallback: $e');
       }
     }
+  }
+
+  bool _isValidRevenueBooking(Map<String, dynamic> b) {
+    final status = (b['status']?.toString() ?? '').toLowerCase().trim();
+    if (status.isEmpty) return false;
+    // Strictly EXCLUDE cancelled, rejected, declined, refunded, pending, or draft bookings
+    if (status == 'cancelled' ||
+        status == 'canceled' ||
+        status == 'rejected' ||
+        status == 'declined' ||
+        status == 'refunded' ||
+        status == 'pending' ||
+        status == 'draft') {
+      return false;
+    }
+    // Only count confirmed, active, ongoing, completed, paid, in_progress, returned
+    return status == 'completed' ||
+        status == 'active' ||
+        status == 'ongoing' ||
+        status == 'confirmed' ||
+        status == 'paid' ||
+        status == 'in_progress' ||
+        status == 'returned' ||
+        status == 'to_return';
   }
 
   void _computeStatsFromMemory() {
@@ -2031,11 +2059,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .length;
       _activeBookings = _allBookings
           .where(
-            (b) =>
-                (b['status'] as String? ?? '').toLowerCase() == 'active',
+            (b) {
+              final st = (b['status'] as String? ?? '').toLowerCase();
+              return st == 'active' || st == 'ongoing' || st == 'in_progress';
+            },
           )
           .length;
-      _totalRevenue = _allBookings.fold(
+      final validRevenueBookings = _allBookings.where((b) => _isValidRevenueBooking(b));
+      _totalRevenue = validRevenueBookings.fold(
         0.0,
         (sum, b) => sum + ((b['total_cost'] as num?)?.toDouble() ?? 0.0),
       );
@@ -4911,7 +4942,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          'Aggregated from ${_formatNumber(_totalBookings)} total bookings',
+                          'Aggregated from ${_formatNumber(_allBookings.where(_isValidRevenueBooking).length)} paid & active bookings (excludes cancelled)',
                           style: const TextStyle(
                             color: Colors.black,
                             fontSize: 12,
@@ -13977,20 +14008,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   List<FlSpot> _calculateWeeklyBookingData() {
-    final avgPerDay = (_totalBookings / 7).toDouble();
-    final activeRatio = _activeBookings > 0
-        ? _activeBookings / _totalBookings
-        : 0.5;
-
-    return [
-      FlSpot(0, (avgPerDay * 0.8).toDouble()),
-      FlSpot(1, (avgPerDay * 0.9).toDouble()),
-      FlSpot(2, (avgPerDay * activeRatio).toDouble()),
-      FlSpot(3, (avgPerDay * 1.1).toDouble()),
-      FlSpot(4, (avgPerDay * 1.2).toDouble()),
-      FlSpot(5, (avgPerDay * activeRatio * 0.9).toDouble()),
-      FlSpot(6, (avgPerDay * 1.15).toDouble()),
-    ];
+    final weekdayCounts = List<double>.filled(7, 0.0);
+    
+    for (final b in _allBookings) {
+      if (!_isValidRevenueBooking(b)) continue;
+      final dateStr = b['created_at'] ?? b['pickup_date'] ?? b['start_date'];
+      if (dateStr != null) {
+        final parsed = DateTime.tryParse(dateStr.toString());
+        if (parsed != null) {
+          final weekdayIndex = (parsed.weekday - 1) % 7; // 0: Mon ... 6: Sun
+          weekdayCounts[weekdayIndex] += 1.0;
+        }
+      }
+    }
+    
+    return List.generate(7, (i) => FlSpot(i.toDouble(), weekdayCounts[i]));
   }
 
   Widget _buildRevenueChart(bool isDark) {
@@ -14168,15 +14200,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   List<double> _calculateUserGrowthData() {
-    final baseUsers = (_totalUsers / 6).toDouble();
-    return [
-      baseUsers * 0.6,
-      baseUsers * 0.7,
-      baseUsers * 0.8,
-      baseUsers * 0.9,
-      baseUsers * 0.95,
-      baseUsers,
-    ];
+    final monthCounts = List<double>.filled(6, 0.0);
+    final now = DateTime.now();
+    
+    for (final u in _allUsers) {
+      final dateStr = u['created_at'];
+      if (dateStr != null) {
+        final parsed = DateTime.tryParse(dateStr.toString());
+        if (parsed != null) {
+          final monthDiff = (now.year - parsed.year) * 12 + (now.month - parsed.month);
+          if (monthDiff >= 0 && monthDiff < 6) {
+            final slotIndex = 5 - monthDiff;
+            monthCounts[slotIndex] += 1.0;
+          }
+        }
+      }
+    }
+    
+    double running = 0;
+    final cumulative = List<double>.filled(6, 0.0);
+    for (int i = 0; i < 6; i++) {
+      running += monthCounts[i];
+      cumulative[i] = running > 0 ? running : ((_totalUsers / 6) * (i + 1)).clamp(0, _totalUsers.toDouble());
+    }
+    return cumulative;
   }
 
   Widget _buildMetricsTable(bool isDark) {
