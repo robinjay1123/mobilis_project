@@ -3821,6 +3821,218 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
   }
 
+  Future<void> _approveDriverApplication(Map<String, dynamic> driverApp) async {
+    final user = driverApp['users'] as Map<String, dynamic>?;
+    final submittedName = (driverApp['full_name'] as String?)?.trim();
+    final profileName = (user?['full_name'] as String?)?.trim();
+    final displayName = submittedName?.isNotEmpty == true
+        ? submittedName!
+        : (profileName?.isNotEmpty == true ? profileName! : 'Driver Applicant');
+
+    final isDark = isDarkTheme(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF021F35) : Colors.white,
+        title: const Text(
+          'Approve Driver Application?',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        content: Text(
+          'This will approve $displayName\'s onboarding application and activate their driver profile, making them immediately eligible for dispatch job assignments.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Approve Driver'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final rawUserId = driverApp['user_id']?.toString() ??
+        user?['id']?.toString() ??
+        driverApp['id']?.toString() ??
+        '';
+    final userId = rawUserId.replaceFirst('fallback_', '');
+    if (userId.isEmpty) return;
+
+    // Immediate action: optimistically update UI state
+    if (mounted) {
+      setState(() {
+        driverApp['application_status'] = 'approved';
+        if (user != null) user['application_status'] = 'approved';
+      });
+    }
+
+    try {
+      // 1. Update user record: application_status = 'approved', role = 'driver', verification_status = 'verified', id_verified = true
+      await _supabase.from('users').update({
+        'role': 'driver',
+        'application_status': 'approved',
+        'verification_status': 'verified',
+        'id_verified': true,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', userId);
+
+      // 2. Sync / activate driver profile in drivers table
+      final existingDriver = await _supabase
+          .from('drivers')
+          .select('id, license_number')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (existingDriver == null) {
+        await _supabase.from('drivers').insert({
+          'user_id': userId,
+          'license_number': 'LIC-$userId',
+          'license_expiry': DateTime.now().add(const Duration(days: 365 * 3)).toIso8601String().split('T').first,
+          'license_verified': true,
+          'nbi_verified': true,
+          'is_active': true,
+          'is_available': true,
+          'verification_status': 'verified',
+          'driver_tier': 'standard',
+          'rating': 5.0,
+          'total_trips': 0,
+        });
+      } else {
+        await _supabase.from('drivers').update({
+          'is_active': true,
+          'is_available': true,
+          'verification_status': 'verified',
+          'license_verified': true,
+          'nbi_verified': true,
+        }).eq('id', existingDriver['id']);
+      }
+
+      // 3. If there is a user_verifications record, mark it verified
+      final verRecId = driverApp['id']?.toString();
+      if (verRecId != null && verRecId.isNotEmpty && !verRecId.startsWith('fallback_')) {
+        try {
+          await _supabase.from('user_verifications').update({
+            'verification_status': 'verified',
+            'verified_at': DateTime.now().toIso8601String(),
+          }).eq('id', verRecId);
+        } catch (_) {}
+      }
+
+      // 4. Send real-time notification to the driver
+      try {
+        await NotificationService().createNotification(
+          userId: userId,
+          title: 'Driver Application Approved! 🎉',
+          message: 'Congratulations! Your driver onboarding application has been approved. You are now eligible for booking job assignments.',
+          type: 'driver_application_approved',
+          data: {'event': 'driver_approved', 'user_id': userId},
+        );
+      } catch (_) {}
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$displayName approved as driver & eligible for job assignments'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      _refreshVerificationsAndApplicationsSilently();
+      _loadAllUsers();
+    } catch (e) {
+      debugPrint('Error approving driver application: $e');
+      _refreshVerificationsAndApplicationsSilently();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Approval failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _rejectDriverApplication(Map<String, dynamic> driverApp) async {
+    final user = driverApp['users'] as Map<String, dynamic>?;
+    final submittedName = (driverApp['full_name'] as String?)?.trim();
+    final profileName = (user?['full_name'] as String?)?.trim();
+    final displayName = submittedName?.isNotEmpty == true
+        ? submittedName!
+        : (profileName?.isNotEmpty == true ? profileName! : 'Driver Applicant');
+
+    final isDark = isDarkTheme(context);
+    final reason = await _showRejectionReasonDialog(
+      context,
+      displayName,
+      isDark,
+    );
+    if (reason == null || reason.trim().isEmpty) return;
+
+    final rawUserId = driverApp['user_id']?.toString() ??
+        user?['id']?.toString() ??
+        driverApp['id']?.toString() ??
+        '';
+    final userId = rawUserId.replaceFirst('fallback_', '');
+    if (userId.isEmpty) return;
+
+    // Immediate action: optimistically update UI state
+    if (mounted) {
+      setState(() {
+        driverApp['application_status'] = 'rejected';
+        driverApp['rejection_reason'] = reason;
+        if (user != null) user['application_status'] = 'rejected';
+      });
+    }
+
+    try {
+      await _supabase.from('users').update({
+        'application_status': 'rejected',
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', userId);
+
+      final verRecId = driverApp['id']?.toString();
+      if (verRecId != null && verRecId.isNotEmpty && !verRecId.startsWith('fallback_')) {
+        try {
+          await _supabase.from('user_verifications').update({
+            'verification_status': 'rejected',
+            'rejection_reason': reason,
+            'verified_at': DateTime.now().toIso8601String(),
+          }).eq('id', verRecId);
+        } catch (_) {}
+      }
+
+      try {
+        await NotificationService().createNotification(
+          userId: userId,
+          title: 'Driver Application Update',
+          message: 'Your driver onboarding application was not approved. Reason: $reason',
+          type: 'driver_application_rejected',
+          data: {'event': 'driver_rejected', 'user_id': userId, 'reason': reason},
+        );
+      } catch (_) {}
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Application rejected for $displayName'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      _refreshVerificationsAndApplicationsSilently();
+      _loadAllUsers();
+    } catch (e) {
+      debugPrint('Error rejecting driver application: $e');
+      _refreshVerificationsAndApplicationsSilently();
+    }
+  }
+
   Future<void> _updateUserRole(String userId, String newRole) async {
     try {
       await _supabase.from('users').update({'role': newRole}).eq('id', userId);
@@ -11925,20 +12137,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
           .toLowerCase()
           .trim();
-      final status = (r['verification_status']?.toString() ??
-              user?['verification_status']?.toString() ??
+      final appStatus = (r['application_status']?.toString() ??
               user?['application_status']?.toString() ??
               'pending')
           .toLowerCase()
           .trim();
-      final isPending = (status == 'pending' ||
-              status == 'submitted' ||
-              status == 'under_review' ||
-              user?['application_status'] == 'pending' ||
-              r['application_status'] == 'pending') &&
-          status != 'verified' &&
-          status != 'approved' &&
-          status != 'rejected';
+      final isPending = appStatus == 'pending' ||
+          appStatus == 'submitted' ||
+          appStatus == 'under_review';
       return role == 'driver' && isPending;
     }).toList();
 
@@ -12259,12 +12465,564 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   .map(
                     (record) => Padding(
                       padding: const EdgeInsets.only(bottom: 16),
-                      child: _buildVerificationCard(record, isDark),
+                      child: _buildDriverApplicationCard(record, isDark),
                     ),
                   )
                   .toList(),
             ),
       isDark,
+    );
+  }
+
+  Widget _buildDriverApplicationCard(Map<String, dynamic> record, bool isDark) {
+    final user = record['users'] as Map<String, dynamic>?;
+    final submittedName = (record['full_name'] as String?)?.trim();
+    final profileName = (user?['full_name'] as String?)?.trim();
+    final displayName = submittedName?.isNotEmpty == true
+        ? submittedName!
+        : (profileName?.isNotEmpty == true ? profileName! : 'Driver Applicant');
+
+    final userEmail = user?['email']?.toString().trim() ?? (record['email']?.toString().trim() ?? '');
+    final userPhone = (record['phone'] as String?)?.trim().isNotEmpty == true
+        ? record['phone'].toString().trim()
+        : (user?['phone']?.toString().trim() ?? '');
+    final userLocation = (record['location'] as String?)?.trim().isNotEmpty == true
+        ? record['location'].toString().trim()
+        : (user?['location']?.toString().trim() ?? '');
+    final avatarUrl = user?['avatar_url']?.toString().trim() ?? record['avatar_url']?.toString().trim();
+    final joinedAt = user?['created_at']?.toString() ?? record['created_at']?.toString();
+
+    final idParts = (record['id_document_url'] as String? ?? '').split('|');
+    final legacyIdUrls = idParts
+        .where((part) => part.trim().isNotEmpty)
+        .map((part) => part.trim())
+        .toList();
+    final idFrontUrl = record['id_front_url']?.toString().trim().isNotEmpty == true
+        ? record['id_front_url'].toString().trim()
+        : (legacyIdUrls.isNotEmpty ? legacyIdUrls.first : '');
+    final idBackUrl = record['id_back_url']?.toString().trim().isNotEmpty == true
+        ? record['id_back_url'].toString().trim()
+        : (legacyIdUrls.length > 1 ? legacyIdUrls[1] : '');
+    final faceSelfieUrl = record['face_selfie_url']?.toString().trim() ?? '';
+    final selfieWithIdUrl = record['selfie_with_id_url']?.toString().trim() ?? '';
+    final driverSignatureUrl = record['driver_signature_url']?.toString().trim() ?? '';
+    final driverNbiUrl = record['driver_nbi_url']?.toString().trim() ?? '';
+    final driverYearsExperience = record['driver_years_experience']?.toString().trim() ?? '';
+    final driverPreviousCompanies = record['driver_previous_companies']?.toString().trim() ?? '';
+    final driverLicenseExpiry = record['driver_license_expiry']?.toString().trim() ?? '';
+    final rejectionReason = record['rejection_reason']?.toString().trim() ?? '';
+
+    // Strictly check application_status for Driver Applications
+    final appStatus = (record['application_status'] as String? ??
+            user?['application_status']?.toString() ??
+            'pending')
+        .toLowerCase();
+
+    final isPending = appStatus == 'pending' ||
+        appStatus == 'submitted' ||
+        appStatus == 'under_review';
+
+    Color statusBadgeColor;
+    IconData statusIcon;
+    String statusDisplay;
+    switch (appStatus) {
+      case 'approved':
+        statusBadgeColor = Colors.green;
+        statusIcon = Icons.check_circle_rounded;
+        statusDisplay = 'APPLICATION APPROVED';
+        break;
+      case 'rejected':
+        statusBadgeColor = Colors.red;
+        statusIcon = Icons.cancel_rounded;
+        statusDisplay = 'APPLICATION REJECTED';
+        break;
+      default:
+        statusBadgeColor = Colors.orange;
+        statusIcon = Icons.hourglass_top_rounded;
+        statusDisplay = 'APPLICATION PENDING';
+    }
+
+    final roleBg = Colors.blue.withValues(alpha: 0.15);
+    final roleText = Colors.blue;
+    final roleIcon = Icons.badge_rounded;
+    const roleTag = 'DRIVER ONBOARDING';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF021F35) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.3)
+              : Colors.grey.shade300,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.grey.shade50,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: roleText.withValues(alpha: 0.2),
+                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                      ? NetworkImage(avatarUrl)
+                      : null,
+                  child: avatarUrl == null || avatarUrl.isEmpty
+                      ? Text(
+                          displayName.isNotEmpty
+                              ? displayName[0].toUpperCase()
+                              : 'D',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: roleText,
+                          ),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              displayName,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: roleBg,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: roleText.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(roleIcon, size: 13, color: roleText),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  roleTag,
+                                  style: TextStyle(
+                                    color: roleText,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusBadgeColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: statusBadgeColor.withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  statusIcon,
+                                  size: 13,
+                                  color: statusBadgeColor,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  statusDisplay,
+                                  style: TextStyle(
+                                    color: statusBadgeColor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          if (userEmail.isNotEmpty) ...[
+                            Icon(
+                              Icons.email_outlined,
+                              size: 13,
+                              color: isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              userEmail,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                          ],
+                          if (userPhone.isNotEmpty) ...[
+                            Icon(
+                              Icons.phone_outlined,
+                              size: 13,
+                              color: isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              userPhone,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                          ],
+                          if (joinedAt != null) ...[
+                            Icon(
+                              Icons.calendar_today_outlined,
+                              size: 13,
+                              color: isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Submitted ${_formatDate(joinedAt)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.white54
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // Action Buttons strictly for Application Approval / Rejection
+                if (isPending) ...[
+                  const SizedBox(width: 16),
+                  FilledButton.icon(
+                    onPressed: () => _approveDriverApplication(record),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.check_circle_rounded, size: 18),
+                    label: const Text('Approve Driver'),
+                  ),
+                  const SizedBox(width: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _rejectDriverApplication(record),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.redAccent),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    label: const Text('Reject'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Rejection Reason Notice Banner (if rejected)
+          if (appStatus == 'rejected' && rejectionReason.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              color: Colors.red.withValues(alpha: 0.1),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    color: Colors.red,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Rejection Reason: $rejectionReason',
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // 2. User Essential Data Fields Grid
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'DRIVER ONBOARDING DATA & EVALUATION METRICS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
+                    color: isDark ? Colors.white54 : Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 700;
+                    final itemWidth = isNarrow
+                        ? constraints.maxWidth
+                        : (constraints.maxWidth - 36) / 4;
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Full Legal Name',
+                            displayName,
+                            isDark,
+                            icon: Icons.person_outline,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Target Role',
+                            'PSDC Fleet Driver',
+                            isDark,
+                            icon: Icons.badge_outlined,
+                            highlightColor: Colors.blue,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Address / Location',
+                            userLocation.isNotEmpty
+                                ? userLocation
+                                : 'Not specified',
+                            isDark,
+                            icon: Icons.location_on_outlined,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Driving Experience',
+                            driverYearsExperience.isNotEmpty
+                                ? '$driverYearsExperience years'
+                                : 'Not specified',
+                            isDark,
+                            icon: Icons.history_edu_outlined,
+                          ),
+                        ),
+                        if (driverPreviousCompanies.isNotEmpty)
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildDetailCard(
+                              'Previous Employer',
+                              driverPreviousCompanies,
+                              isDark,
+                              icon: Icons.business_outlined,
+                            ),
+                          ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Digital Signature Status',
+                            driverSignatureUrl.isNotEmpty
+                                ? 'Submitted & Signed'
+                                : 'Not submitted',
+                            isDark,
+                            icon: Icons.draw_rounded,
+                            highlightColor: driverSignatureUrl.isNotEmpty
+                                ? Colors.green
+                                : Colors.orange,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'NBI Clearance Status',
+                            driverNbiUrl.isNotEmpty
+                                ? 'Submitted Document'
+                                : 'Not submitted',
+                            isDark,
+                            icon: Icons.verified_outlined,
+                            highlightColor: driverNbiUrl.isNotEmpty
+                                ? Colors.green
+                                : Colors.orange,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 24),
+                Text(
+                  'DRIVER DOCUMENT INSPECTION (TAP IMAGE TO ZOOM / INSPECT)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
+                    color: isDark ? Colors.white54 : Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // 3. Document Proof Inspection Grid
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 800;
+                    final cardWidth = isNarrow
+                        ? constraints.maxWidth
+                        : (constraints.maxWidth - 36) / 4;
+
+                    final docList = <Widget>[
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildDocumentPreview(
+                          title: 'Driver License (Front)',
+                          url: idFrontUrl,
+                          isDark: isDark,
+                          context: context,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildDocumentPreview(
+                          title: 'Driver License (Back)',
+                          url: idBackUrl,
+                          isDark: isDark,
+                          context: context,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildDocumentPreview(
+                          title: 'Face Selfie (Liveness)',
+                          url: faceSelfieUrl,
+                          isDark: isDark,
+                          context: context,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildDocumentPreview(
+                          title: 'Selfie Holding License',
+                          url: selfieWithIdUrl,
+                          isDark: isDark,
+                          context: context,
+                        ),
+                      ),
+                      if (driverSignatureUrl.isNotEmpty)
+                        SizedBox(
+                          width: cardWidth,
+                          child: _buildDocumentPreview(
+                            title: 'Digital Signature',
+                            url: driverSignatureUrl,
+                            isDark: isDark,
+                            context: context,
+                          ),
+                        ),
+                      if (driverNbiUrl.isNotEmpty)
+                        SizedBox(
+                          width: cardWidth,
+                          child: _buildDocumentPreview(
+                            title: 'NBI Clearance Proof',
+                            url: driverNbiUrl,
+                            isDark: isDark,
+                            context: context,
+                          ),
+                        ),
+                    ];
+
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: docList,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -12594,41 +13352,34 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         record['driver_license_expiry']?.toString().trim() ?? '';
     final rejectionReason = record['rejection_reason']?.toString().trim() ?? '';
 
-    final rawStatus = (record['verification_status'] as String? ??
-            user?['verification_status']?.toString() ??
-            user?['application_status']?.toString() ??
-            'pending')
-        .toLowerCase();
-
     final status = (record['verification_status'] as String? ??
             user?['verification_status']?.toString() ??
             'pending')
         .toLowerCase();
 
-    final isPending = (rawStatus == 'pending' ||
-            rawStatus == 'submitted' ||
-            rawStatus == 'under_review' ||
-            user?['application_status'] == 'pending' ||
-            record['application_status'] == 'pending') &&
-        status != 'verified' &&
-        status != 'approved' &&
-        status != 'rejected';
+    final isPending = status == 'pending' ||
+        status == 'submitted' ||
+        status == 'under_review';
 
     Color statusBadgeColor;
     IconData statusIcon;
+    String statusDisplay;
     switch (status) {
       case 'verified':
       case 'approved':
         statusBadgeColor = Colors.green;
         statusIcon = Icons.check_circle_rounded;
+        statusDisplay = 'VERIFIED';
         break;
       case 'rejected':
         statusBadgeColor = Colors.red;
         statusIcon = Icons.cancel_rounded;
+        statusDisplay = 'REJECTED';
         break;
       default:
         statusBadgeColor = Colors.orange;
         statusIcon = Icons.hourglass_top_rounded;
+        statusDisplay = 'PENDING VERIFICATION';
     }
 
     Color roleBg = Colors.purple.withValues(alpha: 0.15);
@@ -12796,7 +13547,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  status.toUpperCase(),
+                                  statusDisplay,
                                   style: TextStyle(
                                     color: statusBadgeColor,
                                     fontSize: 11,
@@ -12875,31 +13626,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ],
                   ),
                 ),
-                // Action Buttons
-                if (isPending || status == 'pending') ...[
+                // Action Buttons strictly for Identity Verification
+                if (isPending) ...[
                   const SizedBox(width: 16),
                   FilledButton.icon(
                     onPressed: () async {
-                      final isDriver = role == 'driver';
                       final confirmed = await showDialog<bool>(
                         context: context,
                         builder: (dialogContext) => AlertDialog(
                           backgroundColor: isDark
                               ? AppColors.darkBgSecondary
                               : Colors.white,
-                          title: Text(
-                            isDriver
-                                ? 'Approve Driver Application?'
-                                : 'Approve Verification?',
+                          title: const Text(
+                            'Approve Verification?',
                             style: TextStyle(
                               color: isDark ? Colors.white : Colors.black,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           content: Text(
-                            isDriver
-                                ? 'This will verify $displayName\'s driver documents and activate their profile, making them immediately eligible for dispatch job assignments.'
-                                : 'This will verify $displayName\'s identity and notify them immediately.',
+                            'This will verify $displayName\'s identity documents and notify them immediately.',
                             style: TextStyle(
                               color: isDark
                                   ? Colors.grey.shade300
@@ -12919,11 +13665,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
                               ),
-                              child: Text(
-                                isDriver
-                                    ? 'Approve Driver'
-                                    : 'Approve Verification',
-                              ),
+                              child: const Text('Approve Verification'),
                             ),
                           ],
                         ),
@@ -12969,11 +13711,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       if (result['success'] == true) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(
-                              isDriver
-                                  ? '$displayName approved as driver & eligible for job assignments'
-                                  : '$displayName verified successfully',
-                            ),
+                            content: Text('$displayName verified successfully'),
                             backgroundColor: Colors.green,
                           ),
                         );
@@ -13003,7 +13741,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ),
                     ),
                     icon: const Icon(Icons.check_circle_rounded, size: 18),
-                    label: Text(role == 'driver' ? 'Approve Driver' : 'Approve'),
+                    label: const Text('Approve Verification'),
                   ),
                   const SizedBox(width: 10),
                   OutlinedButton.icon(
@@ -13071,7 +13809,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ),
                     ),
                     icon: const Icon(Icons.close_rounded, size: 18),
-                    label: const Text('Reject'),
+                    label: const Text('Reject Verification'),
                   ),
                 ],
               ],
