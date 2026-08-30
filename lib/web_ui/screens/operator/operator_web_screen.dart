@@ -27865,29 +27865,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       if (isPartnerVehicle) {
         final targetId = partnerVehicleId ?? vehicleId;
-        await _supabase
-            .from('partner_vehicles')
-            .update({
-              'is_posted': isPosted,
-              'is_available': isPosted,
-              'status': isPosted ? 'available' : 'hidden',
-              'cleaning_until': isPosted ? null : vehicle['cleaning_until'],
-              'auto_relist_at': isPosted ? null : vehicle['auto_relist_at'],
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', targetId);
+        try {
+          await _supabase
+              .from('partner_vehicles')
+              .update({
+                'is_posted': isPosted,
+                'is_available': isPosted,
+                'status': isPosted ? 'available' : 'hidden',
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('id', targetId);
+        } catch (e) {
+          await _supabase
+              .from('partner_vehicles')
+              .update({
+                'is_posted': isPosted,
+                'is_available': isPosted,
+              })
+              .eq('id', targetId);
+        }
       } else {
-        await _supabase
-            .from('vehicles')
-            .update({
-              'is_posted': isPosted,
-              'is_available': isPosted,
-              'status': isPosted ? 'active' : 'hidden',
-              'cleaning_until': isPosted ? null : vehicle['cleaning_until'],
-              'auto_relist_at': isPosted ? null : vehicle['auto_relist_at'],
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', vehicleId);
+        try {
+          await _supabase
+              .from('vehicles')
+              .update({
+                'is_posted': isPosted,
+                'is_available': isPosted,
+                'status': isPosted ? 'active' : 'hidden',
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('id', vehicleId);
+        } catch (e) {
+          await _supabase
+              .from('vehicles')
+              .update({
+                'is_posted': isPosted,
+                'is_available': isPosted,
+              })
+              .eq('id', vehicleId);
+        }
       }
 
       vehicle['is_posted'] = isPosted;
