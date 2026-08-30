@@ -3884,34 +3884,36 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }).eq('id', userId);
 
       // 2. Sync / activate driver profile in drivers table
-      final existingDriver = await _supabase
-          .from('drivers')
-          .select('id, license_number')
-          .eq('user_id', userId)
-          .maybeSingle();
+      try {
+        final existingDriver = await _supabase
+            .from('drivers')
+            .select('id, license_number')
+            .eq('user_id', userId)
+            .maybeSingle();
 
-      if (existingDriver == null) {
-        await _supabase.from('drivers').insert({
-          'user_id': userId,
-          'license_number': 'LIC-$userId',
-          'license_expiry': DateTime.now().add(const Duration(days: 365 * 3)).toIso8601String().split('T').first,
-          'license_verified': true,
-          'nbi_verified': true,
-          'is_active': true,
-          'is_available': true,
-          'verification_status': 'verified',
-          'driver_tier': 'standard',
-          'rating': 5.0,
-          'total_trips': 0,
-        });
-      } else {
-        await _supabase.from('drivers').update({
-          'is_active': true,
-          'is_available': true,
-          'verification_status': 'verified',
-          'license_verified': true,
-          'nbi_verified': true,
-        }).eq('id', existingDriver['id']);
+        if (existingDriver == null) {
+          await _supabase.from('drivers').insert({
+            'user_id': userId,
+            'license_number': 'LIC-$userId',
+            'license_expiry': DateTime.now().add(const Duration(days: 365 * 3)).toIso8601String().split('T').first,
+            'license_verified': true,
+            'nbi_verified': true,
+            'is_available': true,
+            'verification_status': 'verified',
+            'driver_tier': 'standard',
+            'rating': 5.0,
+            'total_trips': 0,
+          });
+        } else {
+          await _supabase.from('drivers').update({
+            'is_available': true,
+            'verification_status': 'verified',
+            'license_verified': true,
+            'nbi_verified': true,
+          }).eq('id', existingDriver['id']);
+        }
+      } catch (driverSyncErr) {
+        debugPrint('Error syncing drivers table on approval: $driverSyncErr');
       }
 
       // 3. If there is a user_verifications record, mark it verified
