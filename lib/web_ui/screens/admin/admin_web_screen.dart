@@ -2788,22 +2788,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .where((id) => id.isNotEmpty)
           .toSet();
 
-      // Query any drivers or users with pending status directly as fallback
+      // Query any applicants or users with pending status directly as fallback
       try {
         final pendingUsers = await _supabase
             .from('users')
             .select('id, full_name, email, phone, role, verification_status, application_status, created_at')
-            .or('role.eq.driver,application_status.eq.pending,verification_status.eq.pending');
+            .or('application_status.eq.pending,verification_status.eq.pending');
 
         for (final u in List<Map<String, dynamic>>.from(pendingUsers)) {
           final uid = u['id']?.toString() ?? '';
           final role = u['role']?.toString().toLowerCase().trim() ?? '';
           final vStatus = u['verification_status']?.toString().toLowerCase().trim() ?? '';
           final aStatus = u['application_status']?.toString().toLowerCase().trim() ?? '';
+          final isPending = vStatus == 'pending' || aStatus == 'pending';
           
-          if (uid.isNotEmpty &&
-              !existingUserIds.contains(uid) &&
-              (role == 'driver' || vStatus == 'pending' || aStatus == 'pending')) {
+          if (uid.isNotEmpty && !existingUserIds.contains(uid) && isPending) {
             records.add({
               'id': 'fallback_$uid',
               'user_id': uid,
@@ -2811,7 +2810,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               'email': u['email'],
               'phone': u['phone'],
               'role': role.isNotEmpty ? role : 'driver',
-              'verification_status': vStatus.isNotEmpty ? vStatus : 'pending',
+              'verification_status': 'pending',
+              'application_status': 'pending',
               'created_at': u['created_at'] ?? DateTime.now().toIso8601String(),
               'id_type': 'Driver License / Identity Document',
               'users': u,
@@ -11925,7 +11925,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
           .toLowerCase()
           .trim();
-      return role == 'driver';
+      final status = (r['verification_status']?.toString() ??
+              user?['verification_status']?.toString() ??
+              user?['application_status']?.toString() ??
+              'pending')
+          .toLowerCase()
+          .trim();
+      final isPending = (status == 'pending' ||
+              status == 'submitted' ||
+              status == 'under_review' ||
+              user?['application_status'] == 'pending' ||
+              r['application_status'] == 'pending') &&
+          status != 'verified' &&
+          status != 'approved' &&
+          status != 'rejected';
+      return role == 'driver' && isPending;
     }).toList();
 
     if (_applicationSearchQuery.trim().isNotEmpty) {
@@ -12580,8 +12594,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         record['driver_license_expiry']?.toString().trim() ?? '';
     final rejectionReason = record['rejection_reason']?.toString().trim() ?? '';
 
-    final status = (record['verification_status'] as String? ?? 'pending')
+    final rawStatus = (record['verification_status'] as String? ??
+            user?['verification_status']?.toString() ??
+            user?['application_status']?.toString() ??
+            'pending')
         .toLowerCase();
+
+    final status = (record['verification_status'] as String? ??
+            user?['verification_status']?.toString() ??
+            'pending')
+        .toLowerCase();
+
+    final isPending = (rawStatus == 'pending' ||
+            rawStatus == 'submitted' ||
+            rawStatus == 'under_review' ||
+            user?['application_status'] == 'pending' ||
+            record['application_status'] == 'pending') &&
+        status != 'verified' &&
+        status != 'approved' &&
+        status != 'rejected';
 
     Color statusBadgeColor;
     IconData statusIcon;
@@ -12845,10 +12876,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   ),
                 ),
                 // Action Buttons
-                if (status == 'pending') ...[
+                if (isPending || status == 'pending') ...[
                   const SizedBox(width: 16),
                   FilledButton.icon(
                     onPressed: () async {
+                      final isDriver = role == 'driver';
                       final confirmed = await showDialog<bool>(
                         context: context,
                         builder: (dialogContext) => AlertDialog(
@@ -12856,14 +12888,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               ? AppColors.darkBgSecondary
                               : Colors.white,
                           title: Text(
-                            'Approve Verification?',
+                            isDriver
+                                ? 'Approve Driver Application?'
+                                : 'Approve Verification?',
                             style: TextStyle(
                               color: isDark ? Colors.white : Colors.black,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           content: Text(
-                            'This will verify $displayName\'s identity and notify them immediately.',
+                            isDriver
+                                ? 'This will verify $displayName\'s driver documents and activate their profile, making them immediately eligible for dispatch job assignments.'
+                                : 'This will verify $displayName\'s identity and notify them immediately.',
                             style: TextStyle(
                               color: isDark
                                   ? Colors.grey.shade300
@@ -12883,7 +12919,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
                               ),
-                              child: const Text('Approve Verification'),
+                              child: Text(
+                                isDriver
+                                    ? 'Approve Driver'
+                                    : 'Approve Verification',
+                              ),
                             ),
                           ],
                         ),
@@ -12929,7 +12969,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       if (result['success'] == true) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('$displayName verified successfully'),
+                            content: Text(
+                              isDriver
+                                  ? '$displayName approved as driver & eligible for job assignments'
+                                  : '$displayName verified successfully',
+                            ),
                             backgroundColor: Colors.green,
                           ),
                         );
@@ -12959,7 +13003,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ),
                     ),
                     icon: const Icon(Icons.check_circle_rounded, size: 18),
-                    label: const Text('Approve'),
+                    label: Text(role == 'driver' ? 'Approve Driver' : 'Approve'),
                   ),
                   const SizedBox(width: 10),
                   OutlinedButton.icon(

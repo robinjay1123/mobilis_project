@@ -271,15 +271,53 @@ class VerificationService {
         'verified_at': DateTime.now().toIso8601String(),
       };
 
-      final response = await supabase
-          .from('user_verifications')
-          .update(payload)
-          .eq('id', verificationId)
-          .select()
-          .single();
+      Map<String, dynamic> response;
+      String? userId;
+
+      if (verificationId.startsWith('fallback_')) {
+        userId = verificationId.replaceFirst('fallback_', '').trim();
+        final existingVer = await supabase
+            .from('user_verifications')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (existingVer != null) {
+          response = await supabase
+              .from('user_verifications')
+              .update(payload)
+              .eq('id', existingVer['id'])
+              .select()
+              .single();
+        } else {
+          final uRec = await supabase
+              .from('users')
+              .select('id, full_name, email, role')
+              .eq('id', userId)
+              .maybeSingle();
+          response = await supabase
+              .from('user_verifications')
+              .insert({
+                'user_id': userId,
+                'full_name': uRec?['full_name'] ?? 'Driver Applicant',
+                'verification_status': 'verified',
+                'id_type': 'Driver License / Verification',
+                'verified_at': DateTime.now().toIso8601String(),
+              })
+              .select()
+              .single();
+        }
+      } else {
+        response = await supabase
+            .from('user_verifications')
+            .update(payload)
+            .eq('id', verificationId)
+            .select()
+            .single();
+        userId = response['user_id']?.toString();
+      }
 
       // Sync approval status to the users table so the app gate reads correctly
-      final userId = response['user_id']?.toString();
       if (userId != null && userId.isNotEmpty) {
         final userRecord = await supabase
             .from('users')
@@ -377,15 +415,54 @@ class VerificationService {
         'verified_at': DateTime.now().toIso8601String(),
       };
 
-      final response = await supabase
-          .from('user_verifications')
-          .update(payload)
-          .eq('id', verificationId)
-          .select()
-          .single();
+      Map<String, dynamic> response;
+      String? userId;
+
+      if (verificationId.startsWith('fallback_')) {
+        userId = verificationId.replaceFirst('fallback_', '').trim();
+        final existingVer = await supabase
+            .from('user_verifications')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (existingVer != null) {
+          response = await supabase
+              .from('user_verifications')
+              .update(payload)
+              .eq('id', existingVer['id'])
+              .select()
+              .single();
+        } else {
+          final uRec = await supabase
+              .from('users')
+              .select('id, full_name, email, role')
+              .eq('id', userId)
+              .maybeSingle();
+          response = await supabase
+              .from('user_verifications')
+              .insert({
+                'user_id': userId,
+                'full_name': uRec?['full_name'] ?? 'Driver Applicant',
+                'verification_status': 'rejected',
+                'rejection_reason': rejectionReason,
+                'id_type': 'Driver License / Verification',
+                'verified_at': DateTime.now().toIso8601String(),
+              })
+              .select()
+              .single();
+        }
+      } else {
+        response = await supabase
+            .from('user_verifications')
+            .update(payload)
+            .eq('id', verificationId)
+            .select()
+            .single();
+        userId = response['user_id']?.toString();
+      }
 
       // Sync rejection status to the users table so the app gate reads correctly
-      final userId = response['user_id']?.toString();
       if (userId != null && userId.isNotEmpty) {
         final userRecord = await supabase
             .from('users')
@@ -395,7 +472,11 @@ class VerificationService {
 
         await supabase
             .from('users')
-            .update({'id_verified': false, 'verification_status': 'rejected'})
+            .update({
+              'id_verified': false,
+              'verification_status': 'rejected',
+              'application_status': 'rejected',
+            })
             .eq('id', userId);
 
         final role = (userRecord?['role'] ?? '').toString().toLowerCase();
@@ -422,20 +503,10 @@ class VerificationService {
               .select('role')
               .eq('id', userId)
               .maybeSingle();
-          if ((userRecord?['role']?.toString().toLowerCase() ?? '') ==
-              'driver') {
-            await NotificationService().notifyDriverApplicationRejected(
-              driverId: userId,
-              reason: rejectionReason,
-            );
-          }
-          await NotificationService().createNotification(
+          await NotificationService().notifyVerificationRejected(
             userId: userId,
-            title: 'Verification Rejected',
-            message:
-                'Your verification has been rejected. Reason: $rejectionReason',
-            type: 'verification',
-            data: {'verification_id': response['id'], 'status': 'rejected'},
+            role: userRecord?['role']?.toString() ?? 'account',
+            rejectionReason: rejectionReason,
           );
         }
       } catch (notificationError) {
@@ -524,6 +595,7 @@ class VerificationService {
     required String status,
   }) async {
     final driverStatus = _profileStatusFromVerificationStatus(status);
+    final isVerified = driverStatus == 'verified' || driverStatus == 'approved';
     final existingDriver = await supabase
         .from('drivers')
         .select('id, license_number')
@@ -533,6 +605,10 @@ class VerificationService {
     final payload = <String, dynamic>{
       'user_id': userId,
       'verification_status': driverStatus,
+      'is_active': isVerified,
+      'is_available': isVerified,
+      'license_verified': isVerified,
+      'nbi_verified': isVerified,
     };
 
     if (existingDriver == null) {
@@ -540,10 +616,8 @@ class VerificationService {
         ...payload,
         'license_number': _placeholderLicenseNumber(userId),
         'license_expiry': _placeholderLicenseExpiry,
-        'license_verified': false,
-        'nbi_verified': false,
         'driver_tier': 'standard',
-        'rating': 0.0,
+        'rating': 5.0,
         'total_trips': 0,
       });
     } else {
