@@ -10547,6 +10547,50 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  String _resolveTrackingVehicleName(Map<String, dynamic> loc) {
+    final booking = loc['bookings'] as Map<String, dynamic>?;
+    final vehicle = (booking?['vehicles'] ??
+            booking?['partner_vehicles'] ??
+            loc['vehicle'])
+        as Map<String, dynamic>?;
+    final tracker = loc['tracker'] as Map<String, dynamic>?;
+
+    var title = '';
+    final vName = vehicle?['vehicle_name']?.toString().trim() ?? '';
+    if (vName.isNotEmpty &&
+        vName.toLowerCase() != 'partner vehicle' &&
+        vName.toLowerCase() != 'unknown vehicle' &&
+        vName.toLowerCase() != 'vehicle') {
+      title = vName;
+    } else {
+      final b = vehicle?['brand']?.toString().trim() ?? '';
+      final m = vehicle?['model']?.toString().trim() ?? '';
+      final y = vehicle?['year']?.toString().trim() ?? '';
+      final combo = [b, m].where((s) => s.isNotEmpty).join(' ');
+      if (combo.isNotEmpty) {
+        title = y.isEmpty ? combo : '$combo ($y)';
+      }
+    }
+
+    final deviceId = tracker?['device_identifier']?.toString().trim() ??
+        vehicle?['plate_number']?.toString().trim() ??
+        '';
+
+    if (title.isEmpty || title == 'Partner Vehicle' || title == 'Vehicle') {
+      if (deviceId.isNotEmpty) {
+        title = 'GPS Tracker ($deviceId)';
+      } else {
+        title = loc['has_active_booking'] == true ? 'Tracked Trip' : 'Tracked Vehicle';
+      }
+    }
+
+    final plate = vehicle?['plate_number']?.toString().trim() ?? '';
+    if (plate.isNotEmpty && !title.contains(plate)) {
+      return '$title ($plate)';
+    }
+    return title;
+  }
+
   Widget _buildTrackingContent(bool isDark) {
     final visibleLocations = _visibleTrackingLocations();
     final isFocused = _focusedTrackingBookingId != null &&
@@ -10596,16 +10640,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     List<MobilisMapPoint> routePoints = const [];
 
     if (isFocused && focusedLocation != null) {
-      final fBooking = focusedLocation['bookings'] as Map<String, dynamic>?;
-      final fVehicle = (fBooking?['vehicles'] ?? focusedLocation['vehicle'])
-          as Map<String, dynamic>?;
-      final vehicleName = [
-        fVehicle?['brand'],
-        fVehicle?['model'],
-        fVehicle?['plate_number'] == null
-            ? null
-            : '(${fVehicle?['plate_number']})',
-      ].where((part) => part != null && part.toString().isNotEmpty).join(' ');
+      final vehicleName = _resolveTrackingVehicleName(focusedLocation);
 
       final carLat = (focusedLocation['latitude'] as num?)?.toDouble();
       final carLng = (focusedLocation['longitude'] as num?)?.toDouble();
@@ -10667,15 +10702,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         final lat = (loc['latitude'] as num?)?.toDouble();
         final lng = (loc['longitude'] as num?)?.toDouble();
         final booking = loc['bookings'] as Map<String, dynamic>?;
-        final vehicle = (booking?['vehicles'] ?? loc['vehicle'])
-            as Map<String, dynamic>?;
-        final vehicleName = [
-          vehicle?['brand'],
-          vehicle?['model'],
-          vehicle?['plate_number'] == null
-              ? null
-              : '(${vehicle?['plate_number']})',
-        ].where((part) => part != null && part.toString().isNotEmpty).join(' ');
+        final vehicleName = _resolveTrackingVehicleName(loc);
 
         final locId =
             booking?['id']?.toString() ?? loc['id']?.toString() ?? '';
@@ -10911,7 +10938,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         {'ongoing', 'active', 'in_progress', 'picked_up'}.contains(bStatus) &&
         booking['returned_at'] == null &&
         booking['completed_at'] == null;
-    final vehicle = (booking?['vehicles'] ?? location['vehicle'])
+    final vehicle = (booking?['vehicles'] ??
+            booking?['partner_vehicles'] ??
+            location['vehicle'])
         as Map<String, dynamic>?;
     final tracker = location['tracker'] as Map<String, dynamic>?;
     final driver = booking?['drivers'] as Map<String, dynamic>?;
@@ -10922,13 +10951,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         'vehicle_${location['vehicle_id']}';
     final pickup = booking?['pickup_location']?.toString().trim() ?? '';
     final dropoff = booking?['dropoff_location']?.toString().trim() ?? '';
-    final vehicleName = [
-      vehicle?['brand'],
-      vehicle?['model'],
-      vehicle?['plate_number'] == null
-          ? null
-          : '(${vehicle?['plate_number']})',
-    ].where((part) => part != null && part.toString().isNotEmpty).join(' ');
+    final vehicleName = _resolveTrackingVehicleName(location);
     final lat = (location['latitude'] as num?)?.toDouble();
     final lng = (location['longitude'] as num?)?.toDouble();
     final speedKph = (((location['speed_mps'] as num?) ?? 0) * 3.6).round();

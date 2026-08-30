@@ -693,25 +693,33 @@ class TrackingService {
 
         final trackers = List<Map<String, dynamic>>.from(trackerRows);
 
-        // Fetch vehicle details for all tracked vehicles
-        final vehicleIds = trackers
-            .map((t) => (t['vehicle_id'] ?? t['partner_vehicle_id'])?.toString())
-            .whereType<String>()
-            .where(
-              (id) =>
-                  id.isNotEmpty && !vehiclesWithActiveTracking.contains(id),
-            )
-            .toSet()
+        // Fetch vehicle details for all tracked vehicles across vehicles, partner_vehicles, and partner_vehicle_applications
+        final vehicleIds = <String>{};
+        for (final t in trackers) {
+          final vid = t['vehicle_id']?.toString();
+          final pvid = t['partner_vehicle_id']?.toString();
+          final vaid = t['vehicle_application_id']?.toString();
+          if (vid != null && vid.isNotEmpty) vehicleIds.add(vid);
+          if (pvid != null && pvid.isNotEmpty) vehicleIds.add(pvid);
+          if (vaid != null && vaid.isNotEmpty) vehicleIds.add(vaid);
+        }
+
+        final filteredIds = vehicleIds
+            .where((id) => !vehiclesWithActiveTracking.contains(id))
             .toList();
 
         final vehiclesMap = <String, Map<String, dynamic>>{};
-        if (vehicleIds.isNotEmpty) {
+        if (filteredIds.isNotEmpty) {
           try {
             final vehRows = await supabase
                 .from('vehicles')
                 .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude')
-                .inFilter('id', vehicleIds);
+                .inFilter('id', filteredIds);
             for (final v in List<Map<String, dynamic>>.from(vehRows)) {
+              final brand = v['brand']?.toString().trim() ?? '';
+              final model = v['model']?.toString().trim() ?? '';
+              final combo = [brand, model].where((s) => s.isNotEmpty).join(' ');
+              v['vehicle_name'] = v['vehicle_name'] ?? (combo.isNotEmpty ? combo : 'Vehicle');
               vehiclesMap[v['id'].toString()] = v;
             }
           } catch (e) {
@@ -722,7 +730,7 @@ class TrackingService {
             final pVehRows = await supabase
                 .from('partner_vehicles')
                 .select('id, brand, model, plate_number, partner_id, status, latitude, longitude')
-                .inFilter('id', vehicleIds);
+                .inFilter('id', filteredIds);
             for (final pv in List<Map<String, dynamic>>.from(pVehRows)) {
               final brand = pv['brand']?.toString().trim() ?? '';
               final model = pv['model']?.toString().trim() ?? '';
@@ -731,21 +739,60 @@ class TrackingService {
               vehiclesMap[pv['id'].toString()] = pv;
             }
           } catch (_) {}
+
+          try {
+            final pAppRows = await supabase
+                .from('partner_vehicle_applications')
+                .select('id, brand, model, plate_number, vehicle_name, partner_id, partner_vehicle_id, status, latitude, longitude')
+                .inFilter('id', filteredIds);
+            for (final pva in List<Map<String, dynamic>>.from(pAppRows)) {
+              final brand = pva['brand']?.toString().trim() ?? '';
+              final model = pva['model']?.toString().trim() ?? '';
+              final synthesized = [brand, model].where((s) => s.isNotEmpty).join(' ');
+              pva['vehicle_name'] = pva['vehicle_name'] ?? (synthesized.isNotEmpty ? synthesized : 'Partner Vehicle');
+              vehiclesMap[pva['id'].toString()] = pva;
+              if (pva['partner_vehicle_id'] != null) {
+                vehiclesMap[pva['partner_vehicle_id'].toString()] = pva;
+              }
+            }
+          } catch (_) {}
         }
 
         // Add idle tracked vehicles to the result list
         for (final t in trackers) {
-          final vid = (t['vehicle_id'] ?? t['partner_vehicle_id'])?.toString() ?? '';
+          final vid = (t['vehicle_id'] ?? t['partner_vehicle_id'] ?? t['vehicle_application_id'])?.toString() ?? '';
           if (vid.isNotEmpty && vehiclesWithActiveTracking.contains(vid)) {
             continue; // Already included as active booking
           }
 
-          final veh = vehiclesMap[vid] ?? {
-            'id': vid,
-            'brand': 'GPS Tracked',
-            'model': 'Vehicle',
-            'plate_number': t['device_identifier']?.toString() ?? '',
-          };
+          var veh = vehiclesMap[vid] ??
+              (t['vehicle_id'] != null ? vehiclesMap[t['vehicle_id']?.toString()] : null) ??
+              (t['partner_vehicle_id'] != null ? vehiclesMap[t['partner_vehicle_id']?.toString()] : null) ??
+              (t['vehicle_application_id'] != null ? vehiclesMap[t['vehicle_application_id']?.toString()] : null);
+
+          final deviceId = t['device_identifier']?.toString() ?? '';
+          if (veh == null) {
+            veh = {
+              'id': vid.isNotEmpty ? vid : 'tracker_${t['id']}',
+              'brand': 'GPS Tracker',
+              'model': deviceId.isNotEmpty ? deviceId : 'Vehicle',
+              'vehicle_name': deviceId.isNotEmpty ? 'GPS Tracker ($deviceId)' : 'GPS Tracked Vehicle',
+              'plate_number': deviceId,
+            };
+          } else {
+            veh = Map<String, dynamic>.from(veh);
+            if ((veh['vehicle_name'] == null || veh['vehicle_name'].toString().trim().isEmpty) &&
+                (veh['brand'] != null || veh['model'] != null)) {
+              final b = veh['brand']?.toString().trim() ?? '';
+              final m = veh['model']?.toString().trim() ?? '';
+              final combo = [b, m].where((s) => s.isNotEmpty).join(' ');
+              if (combo.isNotEmpty) veh['vehicle_name'] = combo;
+            }
+            if ((veh['plate_number'] == null || veh['plate_number'].toString().trim().isEmpty) &&
+                deviceId.isNotEmpty) {
+              veh['plate_number'] = deviceId;
+            }
+          }
 
           var lat = (t['last_latitude'] as num?)?.toDouble();
           var lng = (t['last_longitude'] as num?)?.toDouble();
@@ -764,7 +811,7 @@ class TrackingService {
 
           candidateList.add({
             'id': 'idle_tracker_${t['id']}',
-            'vehicle_id': vid,
+            'vehicle_id': vid.isNotEmpty ? vid : 'tracker_${t['id']}',
             'latitude': lat,
             'longitude': lng,
             'speed_mps': lastSpeed / 3.6,
