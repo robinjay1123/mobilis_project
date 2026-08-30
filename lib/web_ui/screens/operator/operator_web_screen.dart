@@ -2195,6 +2195,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               extension_finalized_by,
               extension_rejection_reason,
               extension_conversation_id,
+              security_deposit_refunded,
+              security_deposit_refund_amount,
+              security_deposit_refund_deduction,
+              security_deposit_refund_notes,
+              security_deposit_refund_method,
+              security_deposit_refund_ref,
+              security_deposit_refund_receipt_url,
+              security_deposit_refunded_at,
+              partner_payout_disbursed,
+              partner_payout_status,
+              partner_payout_amount,
+              partner_payout_commission,
+              partner_payout_method,
+              partner_payout_ref,
+              partner_payout_receipt_url,
+              partner_payout_disbursed_at,
+              driver_payout_disbursed,
+              driver_payout_status,
+              driver_payout_amount,
+              driver_payout_commission,
+              driver_payout_method,
+              driver_payout_ref,
+              driver_payout_receipt_url,
+              driver_payout_disbursed_at,
               created_at,
               vehicles:vehicle_id (
                 id,
@@ -15496,14 +15520,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final double defaultSecurityDeposit = adminSettings.getDepositForSeats(seats);
     final depositAmount = (booking['security_deposit'] as num?)?.toDouble() ?? defaultSecurityDeposit;
 
-    final refundAmountController =
-        TextEditingController(text: depositAmount.toStringAsFixed(0));
-    final deductionAmountController = TextEditingController(text: '0');
-    final deductionNotesController = TextEditingController();
-    final referenceController = TextEditingController();
-    String selectedMethod = renterPayoutMethods.isNotEmpty
-        ? renterPayoutMethods.first.provider
-        : 'GCash';
+    final isAlreadyRefunded = booking['security_deposit_refunded'] == true;
+    final pastRefundAmount = (booking['security_deposit_refund_amount'] as num?)?.toDouble();
+    final pastDeduction = (booking['security_deposit_refund_deduction'] as num?)?.toDouble();
+    final pastNotes = booking['security_deposit_refund_notes']?.toString() ?? '';
+    final pastRef = booking['security_deposit_refund_ref']?.toString() ?? '';
+    final pastMethod = booking['security_deposit_refund_method']?.toString();
+
+    final refundAmountController = TextEditingController(
+      text: (isAlreadyRefunded && pastRefundAmount != null)
+          ? pastRefundAmount.toStringAsFixed(0)
+          : depositAmount.toStringAsFixed(0),
+    );
+    final deductionAmountController = TextEditingController(
+      text: (isAlreadyRefunded && pastDeduction != null)
+          ? pastDeduction.toStringAsFixed(0)
+          : '0',
+    );
+    final deductionNotesController = TextEditingController(
+      text: isAlreadyRefunded ? pastNotes : '',
+    );
+    final referenceController = TextEditingController(
+      text: isAlreadyRefunded ? pastRef : '',
+    );
+    String selectedMethod = (isAlreadyRefunded && pastMethod != null && pastMethod.isNotEmpty)
+        ? pastMethod
+        : (renterPayoutMethods.isNotEmpty
+            ? renterPayoutMethods.first.provider
+            : 'GCash');
     PlatformFile? receiptFile;
     bool isSubmitting = false;
 
@@ -15873,6 +15917,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       TextFormField(
                                         controller: refundAmountController,
                                         keyboardType: TextInputType.number,
+                                        readOnly: isAlreadyRefunded,
                                         onChanged: (_) => setDialogState(() {}),
                                         decoration: InputDecoration(
                                           isDense: true,
@@ -15904,6 +15949,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       TextFormField(
                                         controller: deductionAmountController,
                                         keyboardType: TextInputType.number,
+                                        readOnly: isAlreadyRefunded,
                                         onChanged: (_) => setDialogState(() {}),
                                         decoration: InputDecoration(
                                           isDense: true,
@@ -15929,6 +15975,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   const SizedBox(height: 6),
                                   TextFormField(
                                     controller: deductionNotesController,
+                                    readOnly: isAlreadyRefunded,
                                     decoration: InputDecoration(
                                       isDense: true,
                                       hintText: 'e.g. Minor cleaning fee, missing fuel shortage',
@@ -15994,9 +16041,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           DropdownMenuItem(value: 'Maya', child: Text('Maya')),
                                           DropdownMenuItem(value: 'PSDC Cash Counter', child: Text('PSDC Cash Counter')),
                                         ],
-                                        onChanged: (val) {
-                                          if (val != null) setDialogState(() => selectedMethod = val);
-                                        },
+                                        onChanged: isAlreadyRefunded
+                                            ? null
+                                            : (val) {
+                                                if (val != null) setDialogState(() => selectedMethod = val);
+                                              },
                                       ),
                                     ],
                                   ),
@@ -16012,6 +16061,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         controller: referenceController,
                                         keyboardType: TextInputType.number,
                                         maxLength: 13,
+                                        readOnly: isAlreadyRefunded,
                                         inputFormatters: [
                                           FilteringTextInputFormatter.digitsOnly,
                                           LengthLimitingTextInputFormatter(13),
@@ -16033,9 +16083,42 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             const SizedBox(height: 16),
 
                             // Upload Receipt Section
-                            const Text('Proof of Refund Receipt (Required)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                            Text(
+                              isAlreadyRefunded ? 'Proof of Refund Receipt' : 'Proof of Refund Receipt (Required)',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                            ),
                             const SizedBox(height: 6),
-                            if (receiptFile == null)
+                            if (isAlreadyRefunded)
+                              Builder(
+                                builder: (_) {
+                                  final receiptUrl = booking['security_deposit_refund_receipt_url']?.toString();
+                                  if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                                    return OutlinedButton.icon(
+                                      onPressed: () => _showReceiptProofDialog(receiptUrl, isDark),
+                                      style: OutlinedButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(46),
+                                        side: const BorderSide(color: Color(0xFF10B981)),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      icon: const Icon(Icons.receipt_long_rounded, color: Color(0xFF10B981)),
+                                      label: const Text('View Deposit Refund Receipt Proof', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF10B981))),
+                                    );
+                                  }
+                                  return Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      'No receipt proof uploaded.',
+                                      style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: isDark ? Colors.white60 : Colors.black54),
+                                    ),
+                                  );
+                                },
+                              )
+                            else if (receiptFile == null)
                               OutlinedButton.icon(
                                 onPressed: () async {
                                   final result = await FilePicker.platform.pickFiles(
@@ -16096,13 +16179,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             child: OutlinedButton(
                               onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
                               style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                              child: const Text('Cancel'),
+                              child: Text(isAlreadyRefunded ? 'Close' : 'Cancel'),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: (isSubmitting || booking['security_deposit_refunded'] == true)
+                              onPressed: (isSubmitting || isAlreadyRefunded)
                                   ? null
                                   : () async {
                                       final ref = referenceController.text.trim();
@@ -16143,13 +16226,37 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         await BookingService().refundSecurityDeposit(
                                           bookingId: bookingId,
                                           refundAmount: netRefund,
-                                      deductionAmount: deduction,
+                                          deductionAmount: deduction,
                                           deductionNotes: deductionNotesController.text.trim(),
                                           refundMethod: selectedMethod,
                                           refundReference: ref,
                                           refundReceiptUrl: uploadedReceiptUrl,
                                           operatorId: currentUserId,
                                         );
+
+                                        booking['security_deposit_refunded'] = true;
+                                        booking['security_deposit_refund_amount'] = netRefund;
+                                        booking['security_deposit_refund_deduction'] = deduction;
+                                        booking['security_deposit_refund_notes'] = deductionNotesController.text.trim();
+                                        booking['security_deposit_refund_method'] = selectedMethod;
+                                        booking['security_deposit_refund_ref'] = ref;
+                                        booking['security_deposit_refund_receipt_url'] = uploadedReceiptUrl;
+                                        booking['security_deposit_refunded_at'] = DateTime.now().toIso8601String();
+
+                                        final rIdx = _recentBookings.indexWhere((b) => b['id']?.toString() == bookingId);
+                                        if (rIdx != -1) {
+                                          _recentBookings[rIdx]['security_deposit_refunded'] = true;
+                                          _recentBookings[rIdx]['security_deposit_refund_amount'] = netRefund;
+                                          _recentBookings[rIdx]['security_deposit_refund_deduction'] = deduction;
+                                          _recentBookings[rIdx]['security_deposit_refund_notes'] = deductionNotesController.text.trim();
+                                          _recentBookings[rIdx]['security_deposit_refund_method'] = selectedMethod;
+                                          _recentBookings[rIdx]['security_deposit_refund_ref'] = ref;
+                                          _recentBookings[rIdx]['security_deposit_refund_receipt_url'] = uploadedReceiptUrl;
+                                          _recentBookings[rIdx]['security_deposit_refunded_at'] = DateTime.now().toIso8601String();
+                                        }
+                                        if (mounted) {
+                                          setState(() {});
+                                        }
 
                                         if (dialogContext.mounted) {
                                           Navigator.pop(dialogContext);
@@ -16179,10 +16286,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF10B981),
                                 foregroundColor: Colors.white,
+                                disabledBackgroundColor: isDark ? Colors.white12 : Colors.grey.shade300,
+                                disabledForegroundColor: isDark ? Colors.white38 : Colors.grey.shade600,
                                 minimumSize: const Size.fromHeight(46),
                               ),
-                              child: booking['security_deposit_refunded'] == true
-                                  ? const Text('Deposit Already Refunded', style: TextStyle(fontWeight: FontWeight.w700))
+                              child: isAlreadyRefunded
+                                  ? const Text('Deposit Refunded ✓', style: TextStyle(fontWeight: FontWeight.w700))
                                   : (isSubmitting
                                       ? const SizedBox(
                                           width: 20,
@@ -16241,16 +16350,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final commission = rentalSubtotal * 0.05;
     final netPayout = (rentalSubtotal - commission).clamp(0.0, double.infinity);
 
-    final payoutAmountController =
-        TextEditingController(text: netPayout.toStringAsFixed(2));
-    final referenceController = TextEditingController();
-    String selectedMethod = 'GCash';
+    final isAlreadyDisbursed = booking['partner_payout_disbursed'] == true ||
+        booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed';
+    final pastPayoutAmount = (booking['partner_payout_amount'] as num?)?.toDouble();
+    final pastRef = booking['partner_payout_ref']?.toString() ?? '';
+    final pastMethod = booking['partner_payout_method']?.toString();
+
+    final payoutAmountController = TextEditingController(
+      text: (isAlreadyDisbursed && pastPayoutAmount != null)
+          ? pastPayoutAmount.toStringAsFixed(2)
+          : netPayout.toStringAsFixed(2),
+    );
+    final referenceController = TextEditingController(
+      text: isAlreadyDisbursed ? pastRef : '',
+    );
+    String selectedMethod = (isAlreadyDisbursed && pastMethod != null && pastMethod.isNotEmpty)
+        ? pastMethod
+        : 'GCash';
     PlatformFile? receiptFile;
     bool isSubmitting = false;
 
     // Load registered payout methods
     List<PayoutMethod> registeredMethods = [];
-    if (partnerUserId != null && partnerUserId.isNotEmpty) {
+    if (partnerUserId != null && partnerUserId.isNotEmpty && !isAlreadyDisbursed) {
       try {
         registeredMethods = await PayoutMethodService().getPayoutMethods(partnerUserId);
         if (registeredMethods.isNotEmpty) {
@@ -16349,8 +16471,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (booking['partner_payout_disbursed'] == true ||
-                                (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
+                            if (isAlreadyDisbursed) ...[
                               Container(
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(14),
@@ -16523,9 +16644,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           DropdownMenuItem(value: 'Maya', child: Text('Maya')),
                                           DropdownMenuItem(value: 'PSDC Cash Counter', child: Text('PSDC Cash Counter')),
                                         ],
-                                        onChanged: (val) {
-                                          if (val != null) setDialogState(() => selectedMethod = val);
-                                        },
+                                        onChanged: isAlreadyDisbursed
+                                            ? null
+                                            : (val) {
+                                                if (val != null) setDialogState(() => selectedMethod = val);
+                                              },
                                       ),
                                     ],
                                   ),
@@ -16541,6 +16664,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         controller: referenceController,
                                         keyboardType: TextInputType.number,
                                         maxLength: 13,
+                                        readOnly: isAlreadyDisbursed,
                                         inputFormatters: [
                                           FilteringTextInputFormatter.digitsOnly,
                                           LengthLimitingTextInputFormatter(13),
@@ -16562,9 +16686,42 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             const SizedBox(height: 16),
 
                             // Upload Receipt Section
-                            const Text('Proof of Disbursement (Receipt / Screenshot)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                            Text(
+                              isAlreadyDisbursed ? 'Proof of Disbursement' : 'Proof of Disbursement (Receipt / Screenshot)',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                            ),
                             const SizedBox(height: 6),
-                            if (receiptFile == null)
+                            if (isAlreadyDisbursed)
+                              Builder(
+                                builder: (_) {
+                                  final receiptUrl = booking['partner_payout_receipt_url']?.toString();
+                                  if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                                    return OutlinedButton.icon(
+                                      onPressed: () => _showReceiptProofDialog(receiptUrl, isDark),
+                                      style: OutlinedButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(46),
+                                        side: const BorderSide(color: Colors.purpleAccent),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      icon: const Icon(Icons.receipt_long_rounded, color: Colors.purpleAccent),
+                                      label: const Text('View Partner Payout Receipt Proof', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.purpleAccent)),
+                                    );
+                                  }
+                                  return Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      'No receipt proof uploaded.',
+                                      style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: isDark ? Colors.white60 : Colors.black54),
+                                    ),
+                                  );
+                                },
+                              )
+                            else if (receiptFile == null)
                               OutlinedButton.icon(
                                 onPressed: () async {
                                   final result = await FilePicker.platform.pickFiles(
@@ -16625,15 +16782,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             child: OutlinedButton(
                               onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
                               style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                              child: const Text('Cancel'),
+                              child: Text(isAlreadyDisbursed ? 'Close' : 'Cancel'),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: (isSubmitting ||
-                                      booking['partner_payout_disbursed'] == true ||
-                                      (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed'))
+                              onPressed: (isSubmitting || isAlreadyDisbursed)
                                   ? null
                                   : () async {
                                       final ref = referenceController.text.trim();
@@ -16682,6 +16837,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           partnerUserId: partnerUserId,
                                         );
 
+                                        booking['partner_payout_disbursed'] = true;
+                                        booking['partner_payout_status'] = 'disbursed';
+                                        booking['partner_payout_amount'] = effectiveNet;
+                                        booking['partner_payout_commission'] = commission;
+                                        booking['partner_payout_method'] = selectedMethod;
+                                        booking['partner_payout_ref'] = ref;
+                                        booking['partner_payout_receipt_url'] = uploadedReceiptUrl;
+                                        booking['partner_payout_disbursed_at'] = DateTime.now().toIso8601String();
+
+                                        final pIdx = _recentBookings.indexWhere((b) => b['id']?.toString() == bookingId);
+                                        if (pIdx != -1) {
+                                          _recentBookings[pIdx]['partner_payout_disbursed'] = true;
+                                          _recentBookings[pIdx]['partner_payout_status'] = 'disbursed';
+                                          _recentBookings[pIdx]['partner_payout_amount'] = effectiveNet;
+                                          _recentBookings[pIdx]['partner_payout_commission'] = commission;
+                                          _recentBookings[pIdx]['partner_payout_method'] = selectedMethod;
+                                          _recentBookings[pIdx]['partner_payout_ref'] = ref;
+                                          _recentBookings[pIdx]['partner_payout_receipt_url'] = uploadedReceiptUrl;
+                                          _recentBookings[pIdx]['partner_payout_disbursed_at'] = DateTime.now().toIso8601String();
+                                        }
+                                        if (mounted) {
+                                          setState(() {});
+                                        }
+
                                         if (dialogContext.mounted) {
                                           Navigator.pop(dialogContext);
                                         }
@@ -16710,11 +16889,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.purple.shade600,
                                 foregroundColor: Colors.white,
+                                disabledBackgroundColor: isDark ? Colors.white12 : Colors.grey.shade300,
+                                disabledForegroundColor: isDark ? Colors.white38 : Colors.grey.shade600,
                                 minimumSize: const Size.fromHeight(46),
                               ),
-                              child: (booking['partner_payout_disbursed'] == true ||
-                                      (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed'))
-                                  ? const Text('Partner Payout Already Disbursed', style: TextStyle(fontWeight: FontWeight.w700))
+                              child: isAlreadyDisbursed
+                                  ? const Text('Partner Disbursed ✓', style: TextStyle(fontWeight: FontWeight.w700))
                                   : (isSubmitting
                                       ? const SizedBox(
                                           width: 20,
@@ -16783,16 +16963,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final commission = driverGross * 0.05;
     final netPayout = (driverGross - commission).clamp(0.0, double.infinity);
 
-    final payoutAmountController =
-        TextEditingController(text: netPayout.toStringAsFixed(2));
-    final referenceController = TextEditingController();
-    String selectedMethod = 'GCash';
+    final isAlreadyDisbursed = booking['driver_payout_disbursed'] == true ||
+        booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed';
+    final pastPayoutAmount = (booking['driver_payout_amount'] as num?)?.toDouble();
+    final pastRef = booking['driver_payout_ref']?.toString() ?? '';
+    final pastMethod = booking['driver_payout_method']?.toString();
+
+    final payoutAmountController = TextEditingController(
+      text: (isAlreadyDisbursed && pastPayoutAmount != null)
+          ? pastPayoutAmount.toStringAsFixed(2)
+          : netPayout.toStringAsFixed(2),
+    );
+    final referenceController = TextEditingController(
+      text: isAlreadyDisbursed ? pastRef : '',
+    );
+    String selectedMethod = (isAlreadyDisbursed && pastMethod != null && pastMethod.isNotEmpty)
+        ? pastMethod
+        : 'GCash';
     PlatformFile? receiptFile;
     bool isSubmitting = false;
 
     // Load registered payout methods
     List<PayoutMethod> registeredMethods = [];
-    if (driverUserId != null && driverUserId.isNotEmpty) {
+    if (driverUserId != null && driverUserId.isNotEmpty && !isAlreadyDisbursed) {
       try {
         registeredMethods = await PayoutMethodService().getPayoutMethods(driverUserId);
         if (registeredMethods.isNotEmpty) {
@@ -16891,8 +17084,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (booking['driver_payout_disbursed'] == true ||
-                                (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
+                            if (isAlreadyDisbursed) ...[
                               Container(
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(14),
@@ -17065,9 +17257,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           DropdownMenuItem(value: 'Maya', child: Text('Maya')),
                                           DropdownMenuItem(value: 'PSDC Cash Counter', child: Text('PSDC Cash Counter')),
                                         ],
-                                        onChanged: (val) {
-                                          if (val != null) setDialogState(() => selectedMethod = val);
-                                        },
+                                        onChanged: isAlreadyDisbursed
+                                            ? null
+                                            : (val) {
+                                                if (val != null) setDialogState(() => selectedMethod = val);
+                                              },
                                       ),
                                     ],
                                   ),
@@ -17083,6 +17277,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         controller: referenceController,
                                         keyboardType: TextInputType.number,
                                         maxLength: 13,
+                                        readOnly: isAlreadyDisbursed,
                                         inputFormatters: [
                                           FilteringTextInputFormatter.digitsOnly,
                                           LengthLimitingTextInputFormatter(13),
@@ -17104,9 +17299,42 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             const SizedBox(height: 16),
 
                             // Upload Receipt Section
-                            const Text('Proof of Disbursement (Receipt / Screenshot)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                            Text(
+                              isAlreadyDisbursed ? 'Proof of Disbursement' : 'Proof of Disbursement (Receipt / Screenshot)',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                            ),
                             const SizedBox(height: 6),
-                            if (receiptFile == null)
+                            if (isAlreadyDisbursed)
+                              Builder(
+                                builder: (_) {
+                                  final receiptUrl = booking['driver_payout_receipt_url']?.toString();
+                                  if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                                    return OutlinedButton.icon(
+                                      onPressed: () => _showReceiptProofDialog(receiptUrl, isDark),
+                                      style: OutlinedButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(46),
+                                        side: const BorderSide(color: Color(0xFF0284C7)),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      icon: const Icon(Icons.receipt_long_rounded, color: Color(0xFF0284C7)),
+                                      label: const Text('View Driver Fee Receipt Proof', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0284C7))),
+                                    );
+                                  }
+                                  return Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      'No receipt proof uploaded.',
+                                      style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: isDark ? Colors.white60 : Colors.black54),
+                                    ),
+                                  );
+                                },
+                              )
+                            else if (receiptFile == null)
                               OutlinedButton.icon(
                                 onPressed: () async {
                                   final result = await FilePicker.platform.pickFiles(
@@ -17167,15 +17395,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             child: OutlinedButton(
                               onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
                               style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                              child: const Text('Cancel'),
+                              child: Text(isAlreadyDisbursed ? 'Close' : 'Cancel'),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: (isSubmitting ||
-                                      booking['driver_payout_disbursed'] == true ||
-                                      (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed'))
+                              onPressed: (isSubmitting || isAlreadyDisbursed)
                                   ? null
                                   : () async {
                                       final ref = referenceController.text.trim();
@@ -17224,6 +17450,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           driverUserId: driverUserId,
                                         );
 
+                                        booking['driver_payout_disbursed'] = true;
+                                        booking['driver_payout_status'] = 'disbursed';
+                                        booking['driver_payout_amount'] = effectiveNet;
+                                        booking['driver_payout_commission'] = commission;
+                                        booking['driver_payout_method'] = selectedMethod;
+                                        booking['driver_payout_ref'] = ref;
+                                        booking['driver_payout_receipt_url'] = uploadedReceiptUrl;
+                                        booking['driver_payout_disbursed_at'] = DateTime.now().toIso8601String();
+
+                                        final dIdx = _recentBookings.indexWhere((b) => b['id']?.toString() == bookingId);
+                                        if (dIdx != -1) {
+                                          _recentBookings[dIdx]['driver_payout_disbursed'] = true;
+                                          _recentBookings[dIdx]['driver_payout_status'] = 'disbursed';
+                                          _recentBookings[dIdx]['driver_payout_amount'] = effectiveNet;
+                                          _recentBookings[dIdx]['driver_payout_commission'] = commission;
+                                          _recentBookings[dIdx]['driver_payout_method'] = selectedMethod;
+                                          _recentBookings[dIdx]['driver_payout_ref'] = ref;
+                                          _recentBookings[dIdx]['driver_payout_receipt_url'] = uploadedReceiptUrl;
+                                          _recentBookings[dIdx]['driver_payout_disbursed_at'] = DateTime.now().toIso8601String();
+                                        }
+                                        if (mounted) {
+                                          setState(() {});
+                                        }
+
                                         if (dialogContext.mounted) {
                                           Navigator.pop(dialogContext);
                                         }
@@ -17252,11 +17502,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF0284C7),
                                 foregroundColor: Colors.white,
+                                disabledBackgroundColor: isDark ? Colors.white12 : Colors.grey.shade300,
+                                disabledForegroundColor: isDark ? Colors.white38 : Colors.grey.shade600,
                                 minimumSize: const Size.fromHeight(46),
                               ),
-                              child: (booking['driver_payout_disbursed'] == true ||
-                                      (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed'))
-                                  ? const Text('Driver Fee Already Disbursed', style: TextStyle(fontWeight: FontWeight.w700))
+                              child: isAlreadyDisbursed
+                                  ? const Text('Driver Fee Disbursed ✓', style: TextStyle(fontWeight: FontWeight.w700))
                                   : (isSubmitting
                                       ? const SizedBox(
                                           width: 20,

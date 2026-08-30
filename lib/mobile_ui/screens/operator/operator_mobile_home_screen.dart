@@ -3276,6 +3276,15 @@ class _BookingCard extends StatelessWidget {
                                   operatorId: currentUserId,
                                 );
 
+                                booking['security_deposit_refunded'] = true;
+                                booking['security_deposit_refund_amount'] = netRefund;
+                                booking['security_deposit_refund_deduction'] = deduction;
+                                booking['security_deposit_refund_notes'] = deductionNotesController.text.trim();
+                                booking['security_deposit_refund_method'] = selectedMethod;
+                                booking['security_deposit_refund_ref'] = ref;
+                                booking['security_deposit_refund_receipt_url'] = uploadedReceiptUrl;
+                                booking['security_deposit_refunded_at'] = DateTime.now().toIso8601String();
+
                                 if (!context.mounted) return;
                                 Navigator.pop(dialogContext);
                                 onRefresh?.call();
@@ -3696,6 +3705,15 @@ class _BookingCard extends StatelessWidget {
                                   commissionAmount: commission,
                                   partnerUserId: partnerUserId,
                                 );
+
+                                booking['partner_payout_disbursed'] = true;
+                                booking['partner_payout_status'] = 'disbursed';
+                                booking['partner_payout_amount'] = effectiveNet;
+                                booking['partner_payout_commission'] = commission;
+                                booking['partner_payout_method'] = selectedMethod;
+                                booking['partner_payout_ref'] = ref;
+                                booking['partner_payout_receipt_url'] = uploadedReceiptUrl;
+                                booking['partner_payout_disbursed_at'] = DateTime.now().toIso8601String();
 
                                 if (!context.mounted) return;
                                 Navigator.pop(dialogContext);
@@ -4123,6 +4141,15 @@ class _BookingCard extends StatelessWidget {
                                   commissionAmount: commission,
                                   driverUserId: driverUserId,
                                 );
+
+                                booking['driver_payout_disbursed'] = true;
+                                booking['driver_payout_status'] = 'disbursed';
+                                booking['driver_payout_amount'] = effectiveNet;
+                                booking['driver_payout_commission'] = commission;
+                                booking['driver_payout_method'] = selectedMethod;
+                                booking['driver_payout_ref'] = ref;
+                                booking['driver_payout_receipt_url'] = uploadedReceiptUrl;
+                                booking['driver_payout_disbursed_at'] = DateTime.now().toIso8601String();
 
                                 if (!context.mounted) return;
                                 Navigator.pop(dialogContext);
