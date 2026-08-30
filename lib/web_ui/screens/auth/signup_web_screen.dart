@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/preferences_service.dart';
@@ -513,7 +514,69 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                             height: 1.5,
                           ),
                         ),
-                        const SizedBox(height: 48),
+                        const SizedBox(height: 32),
+
+                        // Mobile App Notice Banner
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 28),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF0F2B5C), Color(0xFF081938)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0x44FFD740)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.android_rounded, color: AppColors.primary, size: 28),
+                              ),
+                              const SizedBox(width: 14),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Renters, Drivers & Partners use our Mobile App',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    SizedBox(height: 3),
+                                    Text(
+                                      'Download the official Mobilis Android app for live GPS maps, vehicle rentals, and daily payouts.',
+                                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  final uri = Uri.parse('https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app.apk');
+                                  if (await canLaunchUrl(uri)) {
+                                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                  }
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: const Color(0xFF030A18),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                child: const Text('Download APK', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                        ),
 
                         // Role Selection
                         _buildLabel('What will you do on Mobilis?'),

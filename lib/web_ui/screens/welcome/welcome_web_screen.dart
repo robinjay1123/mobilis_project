@@ -224,7 +224,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   }
 
   void _goToSignup() {
-    Navigator.of(context).pushNamed('/signup');
+    _showDownloadApkDialog();
   }
 
   void _showDownloadApkDialog() {
@@ -1052,7 +1052,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   value: 'Self-Drive or with Driver',
                 ),
                 ElevatedButton.icon(
-                  onPressed: _goToLogin,
+                  onPressed: _showDownloadApkDialog,
                   icon: const Icon(Icons.search_rounded, size: 18),
                   label: const Text('Check Availability', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
                   style: ElevatedButton.styleFrom(
@@ -1871,14 +1871,14 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
-                                onPressed: _goToLogin,
+                                onPressed: _showDownloadApkDialog,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.primary,
                                   foregroundColor: const Color(0xFF030A18),
                                   padding: const EdgeInsets.symmetric(vertical: 14),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
-                                child: const Text('Proceed to Book in App', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
+                                child: const Text('Proceed to Book in Mobile App', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
                               ),
                             ),
                           ],
@@ -2264,7 +2264,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: const Text('Log In to Portal', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                      child: const Text('Admin & Operator Portal', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
                     ),
                   ],
                 ),
@@ -2380,9 +2380,9 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                           const SizedBox(height: 12),
                           InkWell(onTap: _showDownloadApkDialog, child: const Text('📲 Download Android App (.apk)', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700))),
                           const SizedBox(height: 6),
-                          InkWell(onTap: _goToLogin, child: const Text('Renter / Driver / Partner Login', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
+                          InkWell(onTap: _goToLogin, child: const Text('Admin & Operator Portal', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
                           const SizedBox(height: 6),
-                          InkWell(onTap: _goToSignup, child: const Text('Register Account', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
+                          InkWell(onTap: _showDownloadApkDialog, child: const Text('Register via Mobile App', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
                           const SizedBox(height: 6),
                           InkWell(
                             onTap: () => Navigator.of(context).pushNamed('/terms-and-privacy'),

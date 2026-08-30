@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'mobile_ui/theme/app_theme.dart';
 import 'mobile_ui/theme/app_colors.dart';
@@ -363,6 +364,11 @@ class _MyAppState extends State<MyApp> {
             userRole: args?['userRole']?.toString() ?? 'renter',
           );
         },
+        '/mobile-only-access': (context) {
+          final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+          final role = args?['role']?.toString() ?? 'Renter';
+          return MobileOnlyAccessScreen(role: role);
+        },
       },
     );
   }
@@ -671,6 +677,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
       debugPrint('✅ Route: OPERATOR');
       return '/operator-home';
     }
+    if (kIsWeb && (role == 'renter' || role == 'partner' || role == 'driver')) {
+      debugPrint('✅ Route: MOBILE ONLY ACCESS ($role)');
+      return '/mobile-only-access';
+    }
     if (role == 'renter') {
       debugPrint('✅ Route: RENTER');
       return '/dashboard';
@@ -754,6 +764,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
         }
 
         if (role == 'renter') {
+          if (kIsWeb) {
+            return const MobileOnlyAccessScreen(role: 'Renter');
+          }
           return DashboardScreen(
             onThemeToggle: widget.onThemeToggle,
             isDarkMode: widget.isDarkMode,
@@ -761,6 +774,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
         }
 
         if (role == 'partner') {
+          if (kIsWeb) {
+            return const MobileOnlyAccessScreen(role: 'Partner');
+          }
           if (!applicationApproved) {
             return const IdentityVerificationFormScreen(userRole: 'partner');
           }
@@ -771,6 +787,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
         }
 
         if (role == 'driver') {
+          if (kIsWeb) {
+            return const MobileOnlyAccessScreen(role: 'Driver');
+          }
           if (!applicationApproved) {
             return const IdentityVerificationFormScreen(userRole: 'driver');
           }
@@ -910,6 +929,239 @@ class WebOnlyAccessScreen extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class MobileOnlyAccessScreen extends StatefulWidget {
+  final String role;
+
+  const MobileOnlyAccessScreen({super.key, required this.role});
+
+  @override
+  State<MobileOnlyAccessScreen> createState() => _MobileOnlyAccessScreenState();
+}
+
+class _MobileOnlyAccessScreenState extends State<MobileOnlyAccessScreen> {
+  static const String apkDownloadUrl =
+      'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app.apk';
+  static const String githubReleasesUrl =
+      'https://github.com/robinjay1123/mobilis_project/releases';
+  bool _downloadTriggered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-trigger APK download
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 600), () {
+        if (mounted && !_downloadTriggered) {
+          _downloadTriggered = true;
+          _downloadApk();
+        }
+      });
+    });
+  }
+
+  Future<void> _downloadApk() async {
+    try {
+      final uri = Uri.parse(apkDownloadUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint('Auto-download APK error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF030A18),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 540),
+            child: Container(
+              padding: const EdgeInsets.all(36),
+              decoration: BoxDecoration(
+                color: const Color(0xFF07142E),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: const Color(0x33FFD740), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    blurRadius: 40,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Android Icon
+                  Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      border: Border.all(color: AppColors.primary, width: 2),
+                    ),
+                    child: const Icon(
+                      Icons.android_rounded,
+                      size: 48,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'MOBILE APP ONLY • ${widget.role.toUpperCase()}',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Title
+                  Text(
+                    'Mobilis for ${widget.role}s is on Mobile',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Description
+                  Text(
+                    'Your ${widget.role} account is active! Vehicle reservations, digital contracts, live GPS tracking, and trip settlements are exclusive to our official Android mobile app.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontSize: 13.5,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Auto-download status banner
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF030D22),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Your APK download has started automatically. If it didn\'t, tap the button below.',
+                            style: TextStyle(
+                              color: Color(0xFFCBD5E1),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Download Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _downloadApk,
+                      icon: const Icon(Icons.download_rounded, size: 20),
+                      label: const Text(
+                        'Download Android APK Now',
+                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: const Color(0xFF030A18),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // GitHub Releases Link
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final uri = Uri.parse(githubReleasesUrl);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      icon: const Icon(Icons.code_rounded, size: 18, color: Colors.white),
+                      label: const Text(
+                        'View on GitHub Releases',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0x33FFFFFF)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Navigation links
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                        },
+                        icon: const Icon(Icons.home_rounded, size: 16, color: Color(0xFF94A3B8)),
+                        label: const Text('Back to Home', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12.5)),
+                      ),
+                      const SizedBox(width: 16),
+                      TextButton.icon(
+                        onPressed: () async {
+                          await AuthService().signOut();
+                          if (context.mounted) {
+                            Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+                          }
+                        },
+                        icon: const Icon(Icons.logout_rounded, size: 16, color: Color(0xFFEF4444)),
+                        label: const Text('Log Out', style: TextStyle(color: Color(0xFFEF4444), fontSize: 12.5)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
