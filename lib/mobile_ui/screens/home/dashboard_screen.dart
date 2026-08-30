@@ -529,7 +529,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final otherUserFutures = conversations.map((c) {
         final cId = c['id']?.toString() ?? '';
         if (cId.isEmpty) return Future<Map<String, dynamic>?>.value(null);
-        return chatService.getOtherUser(cId, user.id);
+        return chatService.getOtherUser(cId, user.id).catchError((err) {
+          debugPrint('Single otherUser fetch note: $err');
+          return null;
+        });
       }).toList();
       final otherUsers = await Future.wait(otherUserFutures);
 

@@ -98,10 +98,14 @@ class ChatService {
               messages!messages_conversation_id_fkey(
                 id,
                 content,
+                message,
                 sender_id,
                 created_at,
                 is_read,
-                message_type
+                is_auto_generated,
+                attachment_url,
+                attachment_type,
+                attachment_name
               ),
               bookings!conversations_booking_id_fkey (
                 id,
@@ -413,15 +417,32 @@ class ChatService {
       }
     }
 
-    final messageRows = await supabase
-        .from('messages')
-        .select(
-          'id, conversation_id, sender_id, content, message, created_at, is_read, message_type',
-        )
-        .inFilter('conversation_id', conversationIds)
-        .order('created_at', ascending: true);
+    List<Map<String, dynamic>> messageRowsList = [];
+    try {
+      final messageRows = await supabase
+          .from('messages')
+          .select(
+            'id, conversation_id, sender_id, content, message, created_at, is_read, is_auto_generated, attachment_url, attachment_type, attachment_name',
+          )
+          .inFilter('conversation_id', conversationIds)
+          .order('created_at', ascending: true);
+      messageRowsList = List<Map<String, dynamic>>.from(messageRows);
+    } catch (msgSelectErr) {
+      debugPrint('Specific column messages query note: $msgSelectErr');
+      try {
+        final fallbackRows = await supabase
+            .from('messages')
+            .select()
+            .inFilter('conversation_id', conversationIds)
+            .order('created_at', ascending: true);
+        messageRowsList = List<Map<String, dynamic>>.from(fallbackRows);
+      } catch (fallbackMsgErr) {
+        debugPrint('Fallback messages query note: $fallbackMsgErr');
+      }
+    }
+
     final messagesByConversation = <String, List<Map<String, dynamic>>>{};
-    for (final message in List<Map<String, dynamic>>.from(messageRows)) {
+    for (final message in messageRowsList) {
       final conversationId = message['conversation_id']?.toString();
       if (conversationId == null || conversationId.isEmpty) continue;
       messagesByConversation.putIfAbsent(conversationId, () => []).add(message);

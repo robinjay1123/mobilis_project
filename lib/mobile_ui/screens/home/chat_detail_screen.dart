@@ -73,6 +73,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   RealtimeChannel? _typingChannel;
   Timer? _typingStopTimer;
   Timer? _markReadDebounce;
+  Timer? _fallbackPollTimer;
+  bool _initialLoadError = false;
   final AuthService _authService = AuthService();
   final UserRestrictionService _restrictionService = UserRestrictionService();
   UserRestrictionState _restrictionState = UserRestrictionState.empty;
@@ -210,6 +212,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _loadRestrictionState();
     _messageController.addListener(_handleTypingChanged);
     _setupTypingChannel();
+    _fallbackPollTimer = Timer.periodic(
+      const Duration(seconds: 4),
+      (_) => _loadInitialMessages(),
+    );
     if (widget.isCustomerService) {
       unawaited(_loadConfiguredSupportFaqs());
     } else {
@@ -218,11 +224,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _loadInitialMessages() async {
+    if (widget.conversationId.trim().isEmpty) return;
     try {
       final messages = await ChatService().getMessages(widget.conversationId);
       if (!mounted) return;
-      setState(() => _initialLoadedMessages = messages);
-    } catch (_) {}
+      setState(() {
+        _initialLoadedMessages = messages;
+        _initialLoadError = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading initial chat messages: $e');
+      if (!mounted) return;
+      if (_initialLoadedMessages == null) {
+        setState(() => _initialLoadError = true);
+      }
+    }
   }
 
   Future<void> _loadConfiguredSupportFaqs() async {
@@ -1224,6 +1240,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
+    _fallbackPollTimer?.cancel();
     _messageController.removeListener(_handleTypingChanged);
     unawaited(_sendTypingState(false));
     _typingStopTimer?.cancel();
@@ -1466,15 +1483,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         stream: _messageStream,
                         builder: (context, snapshot) {
                           if (snapshot.connectionState ==
-                              ConnectionState.waiting && _initialLoadedMessages == null) {
+                                  ConnectionState.waiting &&
+                              _initialLoadedMessages == null &&
+                              !_initialLoadError) {
                             return const Center(
                               child: CircularProgressIndicator(),
                             );
                           }
 
-                          if (snapshot.hasError &&
-                              (_initialLoadedMessages == null ||
-                                  _initialLoadedMessages!.isEmpty)) {
+                          if (_initialLoadError &&
+                              _initialLoadedMessages == null &&
+                              (snapshot.hasError || !snapshot.hasData)) {
                             return Center(
                               child: Padding(
                                 padding: const EdgeInsets.all(24),
