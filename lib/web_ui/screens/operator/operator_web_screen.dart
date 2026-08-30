@@ -25064,126 +25064,322 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return null;
   }
 
+  Future<bool> _showVehicleProcessingModal({
+    required BuildContext parentContext,
+    required String title,
+    required String message,
+    required String successTitle,
+    required String successMessage,
+    required Future<void> Function(void Function(String) updateStatus) operation,
+    required bool isDark,
+  }) async {
+    String currentStatus = message;
+    bool isSuccess = false;
+    String? errorMessage;
+    StateSetter? modalSetState;
+
+    showDialog<void>(
+      context: parentContext,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          modalSetState = setDialogState;
+          final bgColor = isDark ? const Color(0xFF1E293B) : Colors.white;
+          final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+          final subTextColor = isDark ? Colors.white70 : const Color(0xFF64748B);
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Center(
+              child: Container(
+                width: 420,
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.6 : 0.25),
+                      blurRadius: 36,
+                      offset: const Offset(0, 18),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: isSuccess
+                        ? const Color(0xFF10B981)
+                        : (errorMessage != null
+                            ? Colors.red
+                            : (isDark ? Colors.white12 : Colors.black12)),
+                    width: 1.5,
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 350),
+                      transitionBuilder: (child, animation) => ScaleTransition(
+                        scale: animation,
+                        child: FadeTransition(opacity: animation, child: child),
+                      ),
+                      child: isSuccess
+                          ? Container(
+                              key: const ValueKey('success_icon'),
+                              width: 80,
+                              height: 80,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.check_circle_rounded,
+                                color: Color(0xFF10B981),
+                                size: 60,
+                              ),
+                            )
+                          : (errorMessage != null
+                              ? Container(
+                                  key: const ValueKey('error_icon'),
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.withValues(alpha: 0.15),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.error_outline_rounded,
+                                    color: Colors.red,
+                                    size: 60,
+                                  ),
+                                )
+                              : Container(
+                                  key: const ValueKey('loading_spinner'),
+                                  width: 80,
+                                  height: 80,
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: (isDark ? _operatorNavy : const Color(0xFFF59E0B))
+                                        .withValues(alpha: 0.12),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 3.5,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      isDark ? _operatorGold : const Color(0xFFD97706),
+                                    ),
+                                  ),
+                                )),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      isSuccess
+                          ? successTitle
+                          : (errorMessage != null ? 'Action Failed' : title),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      isSuccess
+                          ? successMessage
+                          : (errorMessage ?? currentStatus),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: subTextColor,
+                        fontSize: 13,
+                        height: 1.4,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (errorMessage != null) ...[
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(dialogCtx),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('Close'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    try {
+      await operation((newStatus) {
+        if (modalSetState != null) {
+          modalSetState!(() => currentStatus = newStatus);
+        }
+      });
+
+      if (modalSetState != null) {
+        modalSetState!(() => isSuccess = true);
+      }
+
+      await Future.delayed(const Duration(milliseconds: 1300));
+      if (parentContext.mounted) {
+        Navigator.of(parentContext, rootNavigator: true).pop();
+      }
+      return true;
+    } catch (e) {
+      if (modalSetState != null) {
+        modalSetState!(() => errorMessage = e.toString());
+      }
+      return false;
+    }
+  }
+
   Future<bool> _saveOperatorVehicle({
+    required BuildContext parentContext,
     required String category,
     required String vehicleType,
     required String fuelType,
     required String transmission,
     required String status,
+    required bool isDark,
     required void Function(VoidCallback callback) setDialogState,
   }) async {
     setDialogState(() => _isSubmittingVehicle = true);
+    final normalizedPlate = _plateController.text.trim().toUpperCase();
+    final vName = _vehicleNameController.text.trim();
+
     try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) {
-        throw 'Operator account is required to add vehicles';
-      }
+      final success = await _showVehicleProcessingModal(
+        parentContext: parentContext,
+        title: 'Adding Vehicle',
+        message: 'Registering $vName ($normalizedPlate) into fleet...',
+        successTitle: 'Vehicle Added Successfully!',
+        successMessage: '$vName ($normalizedPlate) is now registered in PSDC inventory.',
+        isDark: isDark,
+        operation: (updateStatus) async {
+          final currentUserId = _supabase.auth.currentUser?.id;
+          if (currentUserId == null) {
+            throw 'Operator account is required to add vehicles';
+          }
 
-      final normalizedPlate = _plateController.text.trim().toUpperCase();
-      final existing = await _supabase
-          .from('vehicles')
-          .select('id')
-          .eq('plate_number', normalizedPlate)
-          .limit(1);
-      if ((existing as List).isNotEmpty) {
-        throw 'A vehicle with plate number $normalizedPlate already exists';
-      }
+          updateStatus('Verifying vehicle plate & records...');
+          final existing = await _supabase
+              .from('vehicles')
+              .select('id')
+              .eq('plate_number', normalizedPlate)
+              .limit(1);
+          if ((existing as List).isNotEmpty) {
+            throw 'A vehicle with plate number $normalizedPlate already exists';
+          }
 
-      final vehicleResponse = await _supabase
-          .from('vehicles')
-          .insert({
-            'brand': _brandController.text.trim(),
-            'model': _modelController.text.trim(),
-            'category': category,
-            'vehicle_type': vehicleType,
-            'vehicle_name': _vehicleNameController.text.trim(),
-            'description': _descriptionController.text.trim(),
-            'color': _colorController.text.trim(),
-            'fuel_type': fuelType,
-            'transmission': transmission,
-            'plate_number': normalizedPlate,
-            'year': int.parse(_yearController.text.trim()),
-            'seats': int.parse(_seatsController.text.trim()),
-            'price_per_day': double.parse(_priceController.text.trim()),
-            'price_per_hour': double.parse(_pricePerHourController.text.trim()),
-            'location': _locationController.text.trim(),
-            'latitude': double.tryParse(_latitudeController.text.trim()),
-            'longitude': double.tryParse(_longitudeController.text.trim()),
-            'status': status,
-            'is_available': status == 'active',
-            'is_posted': false,
-            'owner_id': currentUserId,
-          })
-          .select('id')
-          .single();
-      final vehicleId = vehicleResponse['id'].toString();
+          updateStatus('Saving vehicle specifications...');
+          final vehicleResponse = await _supabase
+              .from('vehicles')
+              .insert({
+                'brand': _brandController.text.trim(),
+                'model': _modelController.text.trim(),
+                'category': category,
+                'vehicle_type': vehicleType,
+                'vehicle_name': _vehicleNameController.text.trim(),
+                'description': _descriptionController.text.trim(),
+                'color': _colorController.text.trim(),
+                'fuel_type': fuelType,
+                'transmission': transmission,
+                'plate_number': normalizedPlate,
+                'year': int.parse(_yearController.text.trim()),
+                'seats': int.parse(_seatsController.text.trim()),
+                'price_per_day': double.parse(_priceController.text.trim()),
+                'price_per_hour': double.parse(_pricePerHourController.text.trim()),
+                'location': _locationController.text.trim(),
+                'latitude': double.tryParse(_latitudeController.text.trim()),
+                'longitude': double.tryParse(_longitudeController.text.trim()),
+                'status': status,
+                'is_available': status == 'active',
+                'is_posted': false,
+                'owner_id': currentUserId,
+              })
+              .select('id')
+              .single();
+          final vehicleId = vehicleResponse['id'].toString();
 
-      if (_gpsDeviceIdController.text.trim().isNotEmpty) {
-        try {
-          await GpsService().verifyAndConnectTracker(
-            vehicleId: vehicleId,
-            provider: 'aika168',
-            deviceIdentifier: _gpsDeviceIdController.text.trim(),
-            password: _gpsPasswordController.text.trim(),
-          );
-        } catch (trackerErr) {
-          debugPrint(
-            'GPS Tracker pairing note during operator vehicle creation: $trackerErr',
-          );
-        }
-      }
-
-      var uploadedImageCount = 0;
-      for (var index = 0; index < _selectedImages.length; index++) {
-        final fileName =
-            'vehicle_${DateTime.now().millisecondsSinceEpoch}_$index.jpg';
-        final filePath = 'vehicles/$currentUserId/$fileName';
-        try {
-          final originalBytes = await _selectedImages[index].readAsBytes();
-          final imageBytes = await ImageOptimizationService.optimizeForUpload(
-            originalBytes,
-            fileName: fileName,
-          );
-          await _supabase.storage
-              .from(_vehicleImagesBucket)
-              .uploadBinary(
-                filePath,
-                imageBytes,
-                fileOptions: const FileOptions(
-                  cacheControl: '31536000',
-                  upsert: false,
-                ),
+          if (_gpsDeviceIdController.text.trim().isNotEmpty) {
+            updateStatus('Pairing GPS tracker (${_gpsDeviceIdController.text.trim()})...');
+            try {
+              await GpsService().verifyAndConnectTracker(
+                vehicleId: vehicleId,
+                provider: 'aika168',
+                deviceIdentifier: _gpsDeviceIdController.text.trim(),
+                password: _gpsPasswordController.text.trim(),
               );
-          final imageUrl = _supabase.storage
-              .from(_vehicleImagesBucket)
-              .getPublicUrl(filePath);
-          await _supabase.from('vehicle_images').insert({
-            'vehicle_id': vehicleId,
-            'image_url': imageUrl,
-            'display_order': index,
-          });
-          uploadedImageCount++;
-        } catch (error) {
-          debugPrint('Error uploading vehicle image $index: $error');
-        }
-      }
+            } catch (trackerErr) {
+              debugPrint(
+                'GPS Tracker pairing note during operator vehicle creation: $trackerErr',
+              );
+            }
+          }
 
-      _resetNewVehicleForm();
-      await _loadVehicles();
-      await _loadTrackingLocations();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              uploadedImageCount == 1
-                  ? 'Vehicle added with 1 image.'
-                  : 'Vehicle added with $uploadedImageCount images.',
-            ),
-            backgroundColor: const Color(0xFF178A5B),
-          ),
-        );
+          if (_selectedImages.isNotEmpty) {
+            for (var index = 0; index < _selectedImages.length; index++) {
+              updateStatus('Optimizing & uploading photo ${index + 1} of ${_selectedImages.length}...');
+              final fileName =
+                  'vehicle_${DateTime.now().millisecondsSinceEpoch}_$index.jpg';
+              final filePath = 'vehicles/$currentUserId/$fileName';
+              try {
+                final originalBytes = await _selectedImages[index].readAsBytes();
+                final imageBytes = await ImageOptimizationService.optimizeForUpload(
+                  originalBytes,
+                  fileName: fileName,
+                );
+                await _supabase.storage
+                    .from(_vehicleImagesBucket)
+                    .uploadBinary(
+                      filePath,
+                      imageBytes,
+                      fileOptions: const FileOptions(
+                        cacheControl: '31536000',
+                        upsert: false,
+                      ),
+                    );
+                final imageUrl = _supabase.storage
+                    .from(_vehicleImagesBucket)
+                    .getPublicUrl(filePath);
+                await _supabase.from('vehicle_images').insert({
+                  'vehicle_id': vehicleId,
+                  'image_url': imageUrl,
+                  'display_order': index,
+                });
+              } catch (error) {
+                debugPrint('Error uploading vehicle image $index: $error');
+              }
+            }
+          }
+
+          updateStatus('Finalizing vehicle inventory...');
+        },
+      );
+
+      if (success) {
+        _resetNewVehicleForm();
+        await _loadVehicles();
+        await _loadTrackingLocations();
+        _loadDashboardData(showLoading: false);
+        return true;
       }
-      return true;
+      return false;
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -25383,11 +25579,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       return;
                                     }
                                     final saved = await _saveOperatorVehicle(
+                                      parentContext: dialogContext,
                                       category: category,
                                       vehicleType: vehicleType,
                                       fuelType: fuelType,
                                       transmission: transmission,
                                       status: status,
+                                      isDark: isDark,
                                       setDialogState: setDialogState,
                                     );
                                     if (saved && dialogContext.mounted) {
@@ -27364,16 +27562,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 24,
                                 vertical: 16,
-                              ),
-                            ),
-                            child: Text(
-                              isPartnerVehicle ? 'Close' : 'Cancel',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          if (!isPartnerVehicle) ...[
+                                                      if (!isPartnerVehicle) ...[
                             const SizedBox(width: 12),
                             ElevatedButton.icon(
                               onPressed: isUpdating
@@ -27387,326 +27576,337 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           .text
                                           .trim()
                                           .toUpperCase();
+                                      final vName = _vehicleNameController.text.trim();
                                       setDialogState(() => isUpdating = true);
+
                                       try {
-                                        if (isPartnerVehicle) {
-                                          await _supabase
-                                              .from('partner_vehicles')
-                                              .update({
-                                                'price_per_day':
-                                                    double.tryParse(
-                                                      _priceController.text
-                                                          .trim(),
-                                                    ) ??
-                                                    0.0,
-                                                'price_per_hour':
-                                                    double.tryParse(
-                                                      _pricePerHourController
-                                                          .text
-                                                          .trim(),
-                                                    ) ??
-                                                    0.0,
-                                                'updated_at': DateTime.now()
-                                                    .toIso8601String(),
-                                              })
-                                              .eq('id', partnerVehicleId);
-
-                                          await _supabase
-                                              .from(
-                                                'partner_vehicle_applications',
-                                              )
-                                              .update({
-                                                'price_per_day':
-                                                    double.tryParse(
-                                                      _priceController.text
-                                                          .trim(),
-                                                    ) ??
-                                                    0.0,
-                                                'price_per_hour':
-                                                    double.tryParse(
-                                                      _pricePerHourController
-                                                          .text
-                                                          .trim(),
-                                                    ) ??
-                                                    0.0,
-                                              })
-                                              .eq(
-                                                'partner_vehicle_id',
-                                                partnerVehicleId,
-                                              );
-                                        } else {
-                                          await _supabase
-                                              .from('vehicles')
-                                              .update({
-                                                'brand': _brandController.text
-                                                    .trim(),
-                                                'model': _modelController.text
-                                                    .trim(),
-                                                'plate_number': normalizedPlate,
-                                                'category': category,
-                                                'vehicle_type': vehicleType,
-                                                'vehicle_name':
-                                                    _vehicleNameController.text
-                                                        .trim(),
-                                                'description':
-                                                    _descriptionController.text
-                                                        .trim(),
-                                                'color': _colorController.text
-                                                    .trim(),
-                                                'fuel_type': fuelType,
-                                                'transmission': transmission,
-                                                'year':
-                                                    int.tryParse(
-                                                      _yearController.text
-                                                          .trim(),
-                                                    ) ??
-                                                    0,
-                                                'seats':
-                                                    int.tryParse(
-                                                      _seatsController.text
-                                                          .trim(),
-                                                    ) ??
-                                                    5,
-                                                'price_per_day':
-                                                    double.tryParse(
-                                                      _priceController.text
-                                                          .trim(),
-                                                    ) ??
-                                                    0.0,
-                                                'price_per_hour':
-                                                    double.tryParse(
-                                                      _pricePerHourController
-                                                          .text
-                                                          .trim(),
-                                                    ) ??
-                                                    0.0,
-                                                'location': _locationController
-                                                    .text
-                                                    .trim(),
-                                                'latitude': double.tryParse(
-                                                  _latitudeController.text
-                                                      .trim(),
-                                                ),
-                                                'longitude': double.tryParse(
-                                                  _longitudeController.text
-                                                      .trim(),
-                                                ),
-                                                'status': status,
-                                                'is_available':
-                                                    status == 'active',
-                                              })
-                                              .eq('id', vehicle['id']);
-
-                                          for (
-                                            int i = 0;
-                                            i < newImages.length;
-                                            i++
-                                          ) {
-                                            final fileName =
-                                                'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-                                            final ownerId =
-                                                vehicle['owner_id'] ??
-                                                _supabase.auth.currentUser?.id;
-                                            final filePath =
-                                                'vehicles/${ownerId ?? 'unknown'}/$fileName';
-                                            try {
-                                              final originalImageBytes =
-                                                  await newImages[i]
-                                                      .readAsBytes();
-                                              final imageBytes =
-                                                  await ImageOptimizationService.optimizeForUpload(
-                                                    originalImageBytes,
-                                                    fileName: fileName,
-                                                  );
-                                              await _supabase.storage
-                                                  .from(_vehicleImagesBucket)
-                                                  .uploadBinary(
-                                                    filePath,
-                                                    imageBytes,
-                                                    fileOptions:
-                                                        const FileOptions(
-                                                          cacheControl:
-                                                              '31536000',
-                                                          upsert: false,
-                                                        ),
-                                                  );
-                                              final imageUrl = _supabase.storage
-                                                  .from(_vehicleImagesBucket)
-                                                  .getPublicUrl(filePath);
+                                        final success = await _showVehicleProcessingModal(
+                                          parentContext: dialogContext,
+                                          title: 'Updating Vehicle',
+                                          message: 'Saving vehicle modifications for $vName ($normalizedPlate)...',
+                                          successTitle: 'Vehicle Updated Successfully!',
+                                          successMessage: '$vName ($normalizedPlate) details and rates have been saved.',
+                                          isDark: isDark,
+                                          operation: (updateStatus) async {
+                                            if (isPartnerVehicle) {
+                                              updateStatus('Updating partner vehicle rates...');
                                               await _supabase
-                                                  .from('vehicle_images')
-                                                  .insert({
-                                                    'vehicle_id': vehicle['id'],
-                                                    'image_url': imageUrl,
-                                                    'display_order':
-                                                        existingImages.length +
-                                                        i,
-                                                  });
-                                            } catch (e) {
-                                              debugPrint(
-                                                'Error uploading image $i: $e',
-                                              );
-                                            }
-                                          }
-                                        }
-
-                                        // Connect or update GPS Tracker credentials
-                                        final trimmedDeviceId =
-                                            _gpsDeviceIdController.text.trim();
-                                        final trimmedPassword =
-                                            _gpsPasswordController.text.trim();
-                                        final targetVehicleId =
-                                            (vehicle['id'] ?? partnerVehicleId)
-                                                ?.toString() ??
-                                            '';
-
-                                        if (targetVehicleId.isNotEmpty) {
-                                          if (trimmedDeviceId.isNotEmpty) {
-                                            try {
-                                              await GpsService()
-                                                  .verifyAndConnectTracker(
-                                                vehicleId: isPartnerVehicle
-                                                    ? null
-                                                    : targetVehicleId,
-                                                partnerVehicleId:
-                                                    isPartnerVehicle
-                                                        ? targetVehicleId
-                                                        : null,
-                                                provider: 'aika168',
-                                                deviceIdentifier:
-                                                    trimmedDeviceId,
-                                                password:
-                                                    trimmedPassword.isEmpty
-                                                        ? '123456'
-                                                        : trimmedPassword,
-                                              );
-                                            } catch (trackerErr) {
-                                              debugPrint(
-                                                'GPS Tracker pairing note during vehicle edit: $trackerErr',
-                                              );
-                                            }
-                                          } else {
-                                            // User cleared the GPS field -> disconnect tracker
-                                            try {
-                                              await GpsService()
-                                                  .disconnectTracker(
-                                                targetVehicleId,
-                                              );
-                                            } catch (e) {
-                                              debugPrint(
-                                                'GPS Tracker disconnect note: $e',
-                                              );
-                                            }
-                                          }
-                                        }
-
-                                        if (!mounted) return;
-                                        Navigator.pop(dialogContext);
-                                        _loadRecentBookings();
-                                        _loadDashboardData(showLoading: false);
-                                        await _loadVehicles();
-                                        await _loadTrackingLocations();
-
-                                        if (priceChangeRequestId != null &&
-                                            priceChangeRequestId.isNotEmpty) {
-                                          try {
-                                            final reqRow = _priceChangeRequests
-                                                .firstWhere(
-                                                  (r) =>
-                                                      r['id']?.toString() ==
-                                                      priceChangeRequestId,
-                                                  orElse: () =>
-                                                      <String, dynamic>{},
-                                                );
-                                            final rawData = reqRow['data'] is Map
-                                                ? Map<String, dynamic>.from(
-                                                    reqRow['data'],
-                                                  )
-                                                : <String, dynamic>{};
-                                            await _supabase
-                                                .from('notifications')
-                                                .update({
-                                                  'is_read': true,
-                                                  'data': {
-                                                    ...rawData,
-                                                    'status': 'approved',
-                                                    'approved': true,
-                                                    'approved_at':
-                                                        DateTime.now()
-                                                            .toIso8601String(),
-                                                    'updated_daily_price':
+                                                  .from('partner_vehicles')
+                                                  .update({
+                                                    'price_per_day':
                                                         double.tryParse(
                                                           _priceController.text
                                                               .trim(),
-                                                        ),
-                                                    'updated_hourly_price':
+                                                        ) ??
+                                                        0.0,
+                                                    'price_per_hour':
                                                         double.tryParse(
                                                           _pricePerHourController
                                                               .text
                                                               .trim(),
-                                                        ),
-                                                  },
-                                                })
-                                                .eq('id', priceChangeRequestId);
+                                                        ) ??
+                                                        0.0,
+                                                    'updated_at': DateTime.now()
+                                                        .toIso8601String(),
+                                                  })
+                                                  .eq('id', partnerVehicleId);
 
-                                            final pId =
-                                                partnerIdForNotification ??
-                                                rawData['partner_id']?.toString() ??
-                                                vehicle['partner_id']?.toString() ??
-                                                '';
-                                            final vTitle =
-                                                vehicleTitleForNotification ??
-                                                rawData['vehicle_title']?.toString() ??
-                                                '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
-                                            if (pId.isNotEmpty) {
-                                              await NotificationService()
-                                                  .createNotification(
-                                                    userId: pId,
-                                                    title:
-                                                        'Price Change Approved',
-                                                    message:
-                                                        'Your price change request for $vTitle (PHP ${_priceController.text.trim()}/day) has been approved and updated by the operator.',
-                                                    type:
-                                                        'partner_price_change_approved',
-                                                    data: {
-                                                      'vehicle_id':
-                                                          vehicle['id'],
-                                                      'price_per_day':
-                                                          double.tryParse(
-                                                            _priceController
-                                                                .text
-                                                                .trim(),
-                                                          ),
-                                                      'price_per_hour':
-                                                          double.tryParse(
-                                                            _pricePerHourController
-                                                                .text
-                                                                .trim(),
-                                                          ),
-                                                    },
+                                              await _supabase
+                                                  .from(
+                                                    'partner_vehicle_applications',
+                                                  )
+                                                  .update({
+                                                    'price_per_day':
+                                                        double.tryParse(
+                                                          _priceController.text
+                                                              .trim(),
+                                                        ) ??
+                                                        0.0,
+                                                    'price_per_hour':
+                                                        double.tryParse(
+                                                          _pricePerHourController
+                                                              .text
+                                                              .trim(),
+                                                        ) ??
+                                                        0.0,
+                                                  })
+                                                  .eq(
+                                                    'partner_vehicle_id',
+                                                    partnerVehicleId,
                                                   );
-                                            }
-                                            await _loadPriceChangeRequests();
-                                          } catch (e) {
-                                            debugPrint(
-                                              'Error updating price change request: $e',
-                                            );
-                                          }
-                                        }
+                                            } else {
+                                              updateStatus('Saving vehicle specifications...');
+                                              await _supabase
+                                                  .from('vehicles')
+                                                  .update({
+                                                    'brand': _brandController.text
+                                                        .trim(),
+                                                    'model': _modelController.text
+                                                        .trim(),
+                                                    'plate_number': normalizedPlate,
+                                                    'category': category,
+                                                    'vehicle_type': vehicleType,
+                                                    'vehicle_name':
+                                                        _vehicleNameController.text
+                                                            .trim(),
+                                                    'description':
+                                                        _descriptionController.text
+                                                            .trim(),
+                                                    'color': _colorController.text
+                                                        .trim(),
+                                                    'fuel_type': fuelType,
+                                                    'transmission': transmission,
+                                                    'year':
+                                                        int.tryParse(
+                                                          _yearController.text
+                                                              .trim(),
+                                                        ) ??
+                                                        0,
+                                                    'seats':
+                                                        int.tryParse(
+                                                          _seatsController.text
+                                                              .trim(),
+                                                        ) ??
+                                                        5,
+                                                    'price_per_day':
+                                                        double.tryParse(
+                                                          _priceController.text
+                                                              .trim(),
+                                                        ) ??
+                                                        0.0,
+                                                    'price_per_hour':
+                                                        double.tryParse(
+                                                          _pricePerHourController
+                                                              .text
+                                                              .trim(),
+                                                        ) ??
+                                                        0.0,
+                                                    'location': _locationController
+                                                        .text
+                                                        .trim(),
+                                                    'latitude': double.tryParse(
+                                                      _latitudeController.text
+                                                          .trim(),
+                                                    ),
+                                                    'longitude': double.tryParse(
+                                                      _longitudeController.text
+                                                          .trim(),
+                                                    ),
+                                                    'status': status,
+                                                    'is_available':
+                                                        status == 'active',
+                                                    'updated_at': DateTime.now()
+                                                        .toIso8601String(),
+                                                  })
+                                                  .eq('id', vehicle['id']);
 
-                                        if (mounted) {
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Vehicle updated successfully!',
-                                              ),
-                                              backgroundColor: Color(
-                                                0xFF178A5B,
-                                              ),
-                                            ),
-                                          );
+                                              if (newImages.isNotEmpty) {
+                                                for (
+                                                  int i = 0;
+                                                  i < newImages.length;
+                                                  i++
+                                                ) {
+                                                  updateStatus('Uploading photo ${i + 1} of ${newImages.length}...');
+                                                  final fileName =
+                                                      'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+                                                  final ownerId =
+                                                      vehicle['owner_id'] ??
+                                                      _supabase.auth.currentUser?.id;
+                                                  final filePath =
+                                                      'vehicles/${ownerId ?? 'unknown'}/$fileName';
+                                                  try {
+                                                    final originalImageBytes =
+                                                        await newImages[i]
+                                                            .readAsBytes();
+                                                    final imageBytes =
+                                                        await ImageOptimizationService.optimizeForUpload(
+                                                          originalImageBytes,
+                                                          fileName: fileName,
+                                                        );
+                                                    await _supabase.storage
+                                                        .from(_vehicleImagesBucket)
+                                                        .uploadBinary(
+                                                          filePath,
+                                                          imageBytes,
+                                                          fileOptions:
+                                                              const FileOptions(
+                                                                cacheControl:
+                                                                    '31536000',
+                                                                upsert: false,
+                                                              ),
+                                                        );
+                                                    final imageUrl = _supabase.storage
+                                                        .from(_vehicleImagesBucket)
+                                                        .getPublicUrl(filePath);
+                                                    await _supabase
+                                                        .from('vehicle_images')
+                                                        .insert({
+                                                          'vehicle_id': vehicle['id'],
+                                                          'image_url': imageUrl,
+                                                          'display_order':
+                                                              existingImages.length +
+                                                              i,
+                                                        });
+                                                  } catch (e) {
+                                                    debugPrint(
+                                                      'Error uploading image $i: $e',
+                                                    );
+                                                  }
+                                                }
+                                              }
+                                            }
+
+                                            // Connect or update GPS Tracker credentials
+                                            final trimmedDeviceId =
+                                                _gpsDeviceIdController.text.trim();
+                                            final trimmedPassword =
+                                                _gpsPasswordController.text.trim();
+                                            final targetVehicleId =
+                                                (vehicle['id'] ?? partnerVehicleId)
+                                                    ?.toString() ??
+                                                '';
+
+                                            if (targetVehicleId.isNotEmpty) {
+                                              if (trimmedDeviceId.isNotEmpty) {
+                                                updateStatus('Verifying GPS tracker ($trimmedDeviceId)...');
+                                                try {
+                                                  await GpsService()
+                                                      .verifyAndConnectTracker(
+                                                    vehicleId: isPartnerVehicle
+                                                        ? null
+                                                        : targetVehicleId,
+                                                    partnerVehicleId:
+                                                        isPartnerVehicle
+                                                            ? targetVehicleId
+                                                            : null,
+                                                    provider: 'aika168',
+                                                    deviceIdentifier:
+                                                        trimmedDeviceId,
+                                                    password:
+                                                        trimmedPassword.isEmpty
+                                                            ? '123456'
+                                                            : trimmedPassword,
+                                                  );
+                                                } catch (trackerErr) {
+                                                  debugPrint(
+                                                    'GPS Tracker pairing note during vehicle edit: $trackerErr',
+                                                  );
+                                                }
+                                              } else {
+                                                // User cleared the GPS field -> disconnect tracker
+                                                try {
+                                                  await GpsService()
+                                                      .disconnectTracker(
+                                                    targetVehicleId,
+                                                  );
+                                                } catch (e) {
+                                                  debugPrint(
+                                                    'GPS Tracker disconnect note: $e',
+                                                  );
+                                                }
+                                              }
+                                            }
+
+                                            if (priceChangeRequestId != null &&
+                                                priceChangeRequestId.isNotEmpty) {
+                                              updateStatus('Approving price change request...');
+                                              try {
+                                                final reqRow = _priceChangeRequests
+                                                    .firstWhere(
+                                                      (r) =>
+                                                          r['id']?.toString() ==
+                                                          priceChangeRequestId,
+                                                      orElse: () =>
+                                                          <String, dynamic>{},
+                                                    );
+                                                final rawData = reqRow['data'] is Map
+                                                    ? Map<String, dynamic>.from(
+                                                        reqRow['data'],
+                                                      )
+                                                    : <String, dynamic>{};
+                                                await _supabase
+                                                    .from('notifications')
+                                                    .update({
+                                                      'is_read': true,
+                                                      'data': {
+                                                        ...rawData,
+                                                        'status': 'approved',
+                                                        'approved': true,
+                                                        'approved_at':
+                                                            DateTime.now()
+                                                                .toIso8601String(),
+                                                        'updated_daily_price':
+                                                            double.tryParse(
+                                                              _priceController.text
+                                                                  .trim(),
+                                                            ),
+                                                        'updated_hourly_price':
+                                                            double.tryParse(
+                                                              _pricePerHourController
+                                                                  .text
+                                                                  .trim(),
+                                                            ),
+                                                      },
+                                                    })
+                                                    .eq('id', priceChangeRequestId);
+
+                                                final pId =
+                                                    partnerIdForNotification ??
+                                                    rawData['partner_id']?.toString() ??
+                                                    vehicle['partner_id']?.toString() ??
+                                                    '';
+                                                final vTitle =
+                                                    vehicleTitleForNotification ??
+                                                    rawData['vehicle_title']?.toString() ??
+                                                    '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+                                                if (pId.isNotEmpty) {
+                                                  await NotificationService()
+                                                      .createNotification(
+                                                        userId: pId,
+                                                        title:
+                                                            'Price Change Approved',
+                                                        message:
+                                                            'Your price change request for $vTitle (PHP ${_priceController.text.trim()}/day) has been approved and updated by the operator.',
+                                                        type:
+                                                            'partner_price_change_approved',
+                                                        data: {
+                                                          'vehicle_id':
+                                                              vehicle['id'],
+                                                          'price_per_day':
+                                                              double.tryParse(
+                                                                _priceController
+                                                                    .text
+                                                                    .trim(),
+                                                              ),
+                                                          'price_per_hour':
+                                                              double.tryParse(
+                                                                _pricePerHourController
+                                                                    .text
+                                                                    .trim(),
+                                                              ),
+                                                        },
+                                                      );
+                                                }
+                                                await _loadPriceChangeRequests();
+                                              } catch (e) {
+                                                debugPrint(
+                                                  'Error updating price change request: $e',
+                                                );
+                                              }
+                                            }
+
+                                            updateStatus('Finalizing update...');
+                                          },
+                                        );
+
+                                        if (success) {
+                                          if (dialogContext.mounted) {
+                                            Navigator.pop(dialogContext);
+                                          }
+                                          _loadRecentBookings();
+                                          _loadDashboardData(showLoading: false);
+                                          await _loadVehicles();
+                                          await _loadTrackingLocations();
                                         }
                                       } catch (e) {
                                         if (mounted) {
@@ -27725,9 +27925,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         }
                                       } finally {
                                         if (mounted) {
-                                          setDialogState(
-                                            () => isUpdating = false,
-                                          );
+                                          setDialogState(() => isUpdating = false);
                                         }
                                       }
                                     },
