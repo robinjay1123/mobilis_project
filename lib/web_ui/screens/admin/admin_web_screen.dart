@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../utils/input_validation.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../../utils/web_html.dart' as html;
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
@@ -4406,6 +4407,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             }
           });
           _persistSelectedTab(index);
+          _syncWebUrl(index);
         },
         borderRadius: BorderRadius.circular(12),
         child: Container(
@@ -4496,6 +4498,64 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  static const Map<int, String> _adminTabSlugs = {
+    0: 'overview',
+    1: 'users',
+    2: 'vehicles',
+    3: 'bookings',
+    4: 'verifications',
+    5: 'applications',
+    6: 'message-review',
+    7: 'customer-service',
+    8: 'analytics',
+    9: 'announcements',
+    10: 'tracking',
+    11: 'settings',
+    12: 'action-logs',
+    13: 'safety-reports',
+  };
+
+  static const Map<String, int> _adminSlugToTab = {
+    'home': 0,
+    'overview': 0,
+    'dashboard': 0,
+    'users': 1,
+    'user': 1,
+    'vehicles': 2,
+    'fleet': 2,
+    'bookings': 3,
+    'booking': 3,
+    'verifications': 4,
+    'verification': 4,
+    'applications': 5,
+    'application': 5,
+    'message-review': 6,
+    'messages': 6,
+    'customer-service': 7,
+    'support': 7,
+    'analytics': 8,
+    'revenue': 8,
+    'announcements': 9,
+    'tracking': 10,
+    'live-tracking': 10,
+    'gps': 10,
+    'settings': 11,
+    'action-logs': 12,
+    'logs': 12,
+    'safety-reports': 13,
+    'reports': 13,
+  };
+
+  void _syncWebUrl(int index) {
+    if (!kIsWeb) return;
+    try {
+      final slug = _adminTabSlugs[index] ?? 'overview';
+      final currentUri = Uri.base;
+      final newUrl = '${currentUri.origin}/#/admin-home?tab=$slug';
+      html.window.history.replaceState(null, '', newUrl);
+    } catch (_) {}
+  }
+
   Future<void> _persistSelectedTab(int index) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -4504,16 +4564,44 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Future<void> _restoreSavedTab() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedIndex = prefs.getInt('mobilis_admin_web_tab');
-      if (savedIndex != null &&
-          savedIndex >= 0 &&
-          savedIndex <= 12 &&
-          mounted) {
-        setState(() => _selectedIndex = savedIndex);
-      }
-    } catch (_) {}
+    int? initialTab;
+
+    if (kIsWeb) {
+      try {
+        final currentUri = Uri.base;
+        String? tabParam = currentUri.queryParameters['tab'];
+
+        if (tabParam == null || tabParam.isEmpty) {
+          final fragment = currentUri.fragment;
+          if (fragment.contains('?')) {
+            final queryPart = fragment.substring(fragment.indexOf('?') + 1);
+            final params = Uri.splitQueryString(queryPart);
+            tabParam = params['tab'];
+          }
+        }
+
+        if (tabParam != null && _adminSlugToTab.containsKey(tabParam.toLowerCase().trim())) {
+          initialTab = _adminSlugToTab[tabParam.toLowerCase().trim()];
+        }
+      } catch (_) {}
+    }
+
+    if (initialTab == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final savedIndex = prefs.getInt('mobilis_admin_web_tab');
+        if (savedIndex != null &&
+            savedIndex >= 0 &&
+            savedIndex <= 13) {
+          initialTab = savedIndex;
+        }
+      } catch (_) {}
+    }
+
+    if (initialTab != null && mounted) {
+      setState(() => _selectedIndex = initialTab!);
+      _syncWebUrl(initialTab);
+    }
   }
 
   Future<void> _refreshCurrentSection() async {

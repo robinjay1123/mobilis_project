@@ -18,6 +18,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:intl/intl.dart';
+import '../../../utils/web_html.dart' as html;
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
 import '../../../mobile_ui/screens/profile/trip_rating_flow_screen.dart';
@@ -5067,10 +5068,60 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  static const Map<int, String> _operatorTabSlugs = {
+    0: 'overview',
+    1: 'bookings',
+    2: 'messages',
+    3: 'notifications',
+    4: 'vehicles',
+    5: 'settings',
+    6: 'tracking',
+    7: 'revenue',
+    8: 'handover-inspections',
+    9: 'price-requests',
+  };
+
+  static const Map<String, int> _operatorSlugToTab = {
+    'home': 0,
+    'overview': 0,
+    'dashboard': 0,
+    'bookings': 1,
+    'booking': 1,
+    'messages': 2,
+    'chats': 2,
+    'chat': 2,
+    'notifications': 3,
+    'vehicles': 4,
+    'fleet': 4,
+    'settings': 5,
+    'tracking': 6,
+    'live-tracking': 6,
+    'gps': 6,
+    'revenue': 7,
+    'earnings': 7,
+    'handover-inspections': 8,
+    'inspections': 8,
+    'inspection': 8,
+    'activity': 8,
+    'price-requests': 9,
+    'pricing': 9,
+  };
+
+  void _syncWebUrl(int index) {
+    if (!kIsWeb) return;
+    try {
+      final slug = _operatorTabSlugs[index] ?? 'overview';
+      final currentUri = Uri.base;
+      final newUrl = '${currentUri.origin}/#/operator-home?tab=$slug';
+      html.window.history.replaceState(null, '', newUrl);
+    } catch (_) {}
+  }
+
   void _selectNavigationIndex(int index) {
     if (_selectedIndex != index) {
       setState(() => _selectedIndex = index);
       _persistSelectedTab(index);
+      _syncWebUrl(index);
     }
     if (index == 1) {
       _unviewedBookingsCount = 0;
@@ -5093,16 +5144,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Future<void> _restoreSavedTab() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedIndex = prefs.getInt('mobilis_operator_web_tab');
-      if (savedIndex != null &&
-          savedIndex >= 0 &&
-          savedIndex <= 9 &&
-          mounted) {
-        setState(() => _selectedIndex = savedIndex);
-      }
-    } catch (_) {}
+    int? initialTab;
+
+    if (kIsWeb) {
+      try {
+        final currentUri = Uri.base;
+        String? tabParam = currentUri.queryParameters['tab'];
+
+        if (tabParam == null || tabParam.isEmpty) {
+          final fragment = currentUri.fragment;
+          if (fragment.contains('?')) {
+            final queryPart = fragment.substring(fragment.indexOf('?') + 1);
+            final params = Uri.splitQueryString(queryPart);
+            tabParam = params['tab'];
+          }
+        }
+
+        if (tabParam != null && _operatorSlugToTab.containsKey(tabParam.toLowerCase().trim())) {
+          initialTab = _operatorSlugToTab[tabParam.toLowerCase().trim()];
+        }
+      } catch (_) {}
+    }
+
+    if (initialTab == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final savedIndex = prefs.getInt('mobilis_operator_web_tab');
+        if (savedIndex != null &&
+            savedIndex >= 0 &&
+            savedIndex <= 9) {
+          initialTab = savedIndex;
+        }
+      } catch (_) {}
+    }
+
+    if (initialTab != null && mounted) {
+      setState(() => _selectedIndex = initialTab!);
+      _syncWebUrl(initialTab);
+    }
   }
 
   Future<void> _refreshCurrentSection() async {
