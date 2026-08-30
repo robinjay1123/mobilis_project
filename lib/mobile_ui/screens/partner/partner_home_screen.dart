@@ -4109,7 +4109,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     const statusList = [
       'pending',
-      'extensions',
       'approved',
       'ongoing',
       'completed',
