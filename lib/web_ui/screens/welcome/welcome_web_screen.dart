@@ -42,11 +42,13 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   List<Map<String, dynamic>> _liveVehicles = [];
   bool _isLoadingVehicles = true;
 
-  // Contacts & Brand Data
+  // Contacts, Downloads & Brand Data
   static const String hotline1 = '0962-269-9862';
   static const String hotline2 = '0955-281-1306';
   static const String facebookUrl = 'https://www.facebook.com/psdc.dagupan';
   static const String mainOfficeLocation = 'Urdaneta City, Pangasinan, Philippines';
+  static const String apkDownloadUrl =
+      'https://zmaudwpinfdnlvplzovx.supabase.co/storage/v1/object/public/app_releases/mobilis-app.apk';
 
   @override
   void initState() {
@@ -117,6 +119,111 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
 
   void _goToSignup() {
     Navigator.of(context).pushNamed('/signup');
+  }
+
+  void _showDownloadApkDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: const Color(0xFF07142E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: const BorderSide(color: Color(0x33FFD740)),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.primary),
+                    ),
+                    child: const Icon(Icons.android_rounded, color: AppColors.primary, size: 36),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Download Mobilis for Android',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Official release for Renters, Drivers, and Vehicle Partners in Pangasinan.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.5),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Direct Download Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        _openUrl(apkDownloadUrl);
+                      },
+                      icon: const Icon(Icons.download_rounded, size: 18),
+                      label: const Text(
+                        'Direct APK Download (.apk)',
+                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: const Color(0xFF030A18),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 6,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Installation Tips
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF030A18),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0x1AFFFFFF)),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 16),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'If your browser prompts "File might be harmful", tap "Download anyway" -> Open file -> Tap "Install".',
+                            style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11.5, height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close', style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   // Curated fallback vehicle list
@@ -494,33 +601,44 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   ],
                 ),
 
-              // Login / Sign Up Actions
+              // Download APK & Auth Actions
               Row(
                 children: [
+                  OutlinedButton.icon(
+                    onPressed: _showDownloadApkDialog,
+                    icon: const Icon(Icons.android_rounded, size: 16, color: AppColors.primary),
+                    label: const Text('Download APK', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0x44FFD740)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
                   OutlinedButton(
                     onPressed: _goToLogin,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Color(0x33FFFFFF)),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: const Text('Log In', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   ElevatedButton(
                     onPressed: _goToSignup,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: const Color(0xFF030A18),
-                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                       elevation: 4,
                       shadowColor: AppColors.primary.withValues(alpha: 0.4),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: const Row(
                       children: [
-                        Text('Book / Register', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                        Text('Register', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
                         SizedBox(width: 6),
                         Icon(Icons.arrow_forward_rounded, size: 16),
                       ],
@@ -636,24 +754,38 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   ElevatedButton.icon(
                     onPressed: () => _scrollToSection(_vehiclesKey),
                     icon: const Icon(Icons.directions_car_rounded, size: 18),
-                    label: const Text('Browse Available Vehicles', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+                    label: const Text('Browse Vehicles', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: const Color(0xFF030A18),
-                      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+                      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 18),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       elevation: 8,
                       shadowColor: AppColors.primary.withValues(alpha: 0.45),
                     ),
                   ),
+                  ElevatedButton.icon(
+                    onPressed: _showDownloadApkDialog,
+                    icon: const Icon(Icons.android_rounded, size: 18, color: Colors.white),
+                    label: const Text('Download Android APK', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0F2B5C),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        side: const BorderSide(color: Color(0x55FFD740)),
+                      ),
+                    ),
+                  ),
                   OutlinedButton.icon(
                     onPressed: () => _scrollToSection(_hubKey),
                     icon: const Icon(Icons.location_city_rounded, size: 18, color: AppColors.primary),
-                    label: const Text('Our Urdaneta Hub & Contacts', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                    label: const Text('Urdaneta Hub & Contacts', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Color(0x33FFFFFF)),
-                      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 18),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
                   ),
@@ -2161,6 +2293,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 Wrap(
                   spacing: 16,
                   runSpacing: 12,
+                  alignment: WrapAlignment.center,
                   children: [
                     ElevatedButton(
                       onPressed: _goToSignup,
@@ -2171,6 +2304,20 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                       child: const Text('Create Free Account', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _showDownloadApkDialog,
+                      icon: const Icon(Icons.android_rounded, size: 18, color: Colors.white),
+                      label: const Text('Download Android APK', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Colors.white)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0F2B5C),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: const BorderSide(color: Color(0x55FFD740)),
+                        ),
+                      ),
                     ),
                     OutlinedButton(
                       onPressed: _goToLogin,
@@ -2294,6 +2441,8 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                         children: [
                           const Text('QUICK ACCESS', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
                           const SizedBox(height: 12),
+                          InkWell(onTap: _showDownloadApkDialog, child: const Text('📲 Download Android App (.apk)', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700))),
+                          const SizedBox(height: 6),
                           InkWell(onTap: _goToLogin, child: const Text('Renter / Driver / Partner Login', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
                           const SizedBox(height: 6),
                           InkWell(onTap: _goToSignup, child: const Text('Register Account', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
