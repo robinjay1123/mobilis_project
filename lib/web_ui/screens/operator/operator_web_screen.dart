@@ -16214,7 +16214,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   : () async {
                                       final ref = referenceController.text.trim();
                                       if (ref.isEmpty && receiptFile == null) {
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
                                         setDialogState(() => dialogError = 'Please provide a reference number or upload a receipt.');
                                         return;
                                       }

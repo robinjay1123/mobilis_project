@@ -99,7 +99,7 @@ class BookingService {
               RegExp(r"Could not find the '([^']+)' column").firstMatch(e.message) ??
               RegExp(r"'([^']+)' column of 'bookings'").firstMatch(e.message) ??
               RegExp(r"column '([^']+)'").firstMatch(e.message) ??
-              RegExp(r#"column "([^"]+)""#).firstMatch(e.message);
+              RegExp(r'column "([^"]+)"').firstMatch(e.message);
           if (match != null && match.groupCount >= 1) {
             final missingCol = match.group(1)!;
             debugPrint(
