@@ -80,6 +80,78 @@ class GpsService {
       throw Exception('GPS password is required.');
     }
 
+    // Resolve and validate target entity IDs dynamically to prevent foreign key errors
+    String? resolvedVehicleId = (vehicleId != null && vehicleId.trim().isNotEmpty) ? vehicleId.trim() : null;
+    String? resolvedPartnerVehicleId = (partnerVehicleId != null && partnerVehicleId.trim().isNotEmpty) ? partnerVehicleId.trim() : null;
+    String? resolvedApplicationId = (vehicleApplicationId != null && vehicleApplicationId.trim().isNotEmpty) ? vehicleApplicationId.trim() : null;
+
+    if (resolvedVehicleId != null) {
+      try {
+        final inVehicles = await _supabase
+            .from('vehicles')
+            .select('id')
+            .eq('id', resolvedVehicleId)
+            .maybeSingle();
+
+        if (inVehicles == null) {
+          // Check if ID belongs to partner_vehicles
+          final inPV = await _supabase
+              .from('partner_vehicles')
+              .select('id')
+              .eq('id', resolvedVehicleId)
+              .maybeSingle();
+
+          if (inPV != null) {
+            resolvedPartnerVehicleId = resolvedVehicleId;
+            resolvedVehicleId = null;
+          } else {
+            // Check if ID belongs to partner_vehicle_applications
+            final inApp = await _supabase
+                .from('partner_vehicle_applications')
+                .select('id')
+                .eq('id', resolvedVehicleId)
+                .maybeSingle();
+
+            if (inApp != null) {
+              resolvedApplicationId = resolvedVehicleId;
+              resolvedVehicleId = null;
+            } else {
+              // Default to partner_vehicles when not found in vehicles table
+              resolvedPartnerVehicleId = resolvedVehicleId;
+              resolvedVehicleId = null;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Dynamic vehicle ID resolution note: $e');
+      }
+    }
+
+    if (resolvedPartnerVehicleId != null) {
+      try {
+        final inPV = await _supabase
+            .from('partner_vehicles')
+            .select('id')
+            .eq('id', resolvedPartnerVehicleId)
+            .maybeSingle();
+
+        if (inPV == null) {
+          final inApp = await _supabase
+              .from('partner_vehicle_applications')
+              .select('id')
+              .eq('id', resolvedPartnerVehicleId)
+              .maybeSingle();
+
+          if (inApp != null) {
+            resolvedApplicationId = resolvedPartnerVehicleId;
+            resolvedPartnerVehicleId = null;
+          }
+        }
+      } catch (e) {
+        debugPrint('Dynamic partner vehicle ID resolution note: $e');
+      }
+    }
+
     // 1. Duplicate active tracker check
     final existingTrackers = await _supabase
         .from('vehicle_trackers')
@@ -90,10 +162,16 @@ class GpsService {
     final existingList = List<Map<String, dynamic>>.from(existingTrackers);
     if (existingList.isNotEmpty) {
       final existing = existingList.first;
-      final existingVid = existing['vehicle_id'] ?? existing['partner_vehicle_id'] ?? existing['vehicle_application_id'];
-      final targetVid = vehicleId ?? partnerVehicleId ?? vehicleApplicationId;
-      if (existingVid != null && existingVid != targetVid) {
-        throw Exception('This GPS tracker is already connected to another vehicle.');
+      final isSameTarget = (resolvedVehicleId != null && existing['vehicle_id'] == resolvedVehicleId) ||
+          (resolvedPartnerVehicleId != null && existing['partner_vehicle_id'] == resolvedPartnerVehicleId) ||
+          (resolvedApplicationId != null && existing['vehicle_application_id'] == resolvedApplicationId);
+
+      if (!isSameTarget) {
+        final existingVid = existing['vehicle_id'] ?? existing['partner_vehicle_id'] ?? existing['vehicle_application_id'];
+        final targetVid = resolvedVehicleId ?? resolvedPartnerVehicleId ?? resolvedApplicationId;
+        if (existingVid != null && existingVid != targetVid) {
+          throw Exception('This GPS tracker is already connected to another vehicle.');
+        }
       }
     }
 
@@ -121,14 +199,14 @@ class GpsService {
       'updated_at': now,
     };
 
-    if (vehicleId != null && vehicleId.isNotEmpty) {
-      insertPayload['vehicle_id'] = vehicleId;
+    if (resolvedVehicleId != null && resolvedVehicleId.isNotEmpty) {
+      insertPayload['vehicle_id'] = resolvedVehicleId;
     }
-    if (partnerVehicleId != null && partnerVehicleId.isNotEmpty) {
-      insertPayload['partner_vehicle_id'] = partnerVehicleId;
+    if (resolvedPartnerVehicleId != null && resolvedPartnerVehicleId.isNotEmpty) {
+      insertPayload['partner_vehicle_id'] = resolvedPartnerVehicleId;
     }
-    if (vehicleApplicationId != null && vehicleApplicationId.isNotEmpty) {
-      insertPayload['vehicle_application_id'] = vehicleApplicationId;
+    if (resolvedApplicationId != null && resolvedApplicationId.isNotEmpty) {
+      insertPayload['vehicle_application_id'] = resolvedApplicationId;
     }
     if (currentUser != null) {
       insertPayload['partner_id'] = currentUser.id;
@@ -136,29 +214,29 @@ class GpsService {
     }
 
     // Upsert if existing tracker record for vehicle/application
-    if (vehicleId != null && vehicleId.isNotEmpty) {
+    if (resolvedVehicleId != null && resolvedVehicleId.isNotEmpty) {
       final existingForVeh = await _supabase
           .from('vehicle_trackers')
           .select('id')
-          .eq('vehicle_id', vehicleId)
+          .eq('vehicle_id', resolvedVehicleId)
           .maybeSingle();
       if (existingForVeh != null) {
         insertPayload['id'] = existingForVeh['id'];
       }
-    } else if (partnerVehicleId != null && partnerVehicleId.isNotEmpty) {
+    } else if (resolvedPartnerVehicleId != null && resolvedPartnerVehicleId.isNotEmpty) {
       final existingForPVeh = await _supabase
           .from('vehicle_trackers')
           .select('id')
-          .eq('partner_vehicle_id', partnerVehicleId)
+          .eq('partner_vehicle_id', resolvedPartnerVehicleId)
           .maybeSingle();
       if (existingForPVeh != null) {
         insertPayload['id'] = existingForPVeh['id'];
       }
-    } else if (vehicleApplicationId != null && vehicleApplicationId.isNotEmpty) {
+    } else if (resolvedApplicationId != null && resolvedApplicationId.isNotEmpty) {
       final existingForApp = await _supabase
           .from('vehicle_trackers')
           .select('id')
-          .eq('vehicle_application_id', vehicleApplicationId)
+          .eq('vehicle_application_id', resolvedApplicationId)
           .maybeSingle();
       if (existingForApp != null) {
         insertPayload['id'] = existingForApp['id'];

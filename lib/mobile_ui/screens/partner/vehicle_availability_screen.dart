@@ -1513,14 +1513,18 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: () async {
+                      final createdVehicleId = application['created_vehicle_id']?.toString().trim();
+                      final partnerVehicleId = application['partner_vehicle_id']?.toString().trim();
+                      final isPartnerVeh = partnerVehicleId != null && partnerVehicleId.isNotEmpty;
+                      final isVehicle = createdVehicleId != null && createdVehicleId.isNotEmpty;
+
                       final newTracker = await Navigator.push<VehicleTracker>(
                         context,
                         MaterialPageRoute(
                           builder: (_) => ConnectGpsTrackerScreen(
-                            vehicleId: vehicleId.isNotEmpty ? vehicleId : null,
-                            vehicleApplicationId: appId.isNotEmpty
-                                ? appId
-                                : null,
+                            vehicleId: isVehicle ? createdVehicleId : (isPartnerVeh ? null : (vehicleId.isNotEmpty ? vehicleId : null)),
+                            partnerVehicleId: isPartnerVeh ? partnerVehicleId : (isVehicle ? null : (vehicleId.isNotEmpty ? vehicleId : null)),
+                            vehicleApplicationId: appId.isNotEmpty ? appId : null,
                           ),
                         ),
                       );
