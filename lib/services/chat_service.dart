@@ -33,17 +33,23 @@ class ChatService {
       final bookingId = conversation?['booking_id']?.toString().trim() ?? '';
       if (bookingId.isEmpty) return null;
 
+      Map<String, dynamic>? bookingMap;
+
       try {
         final booking = await supabase
             .from('bookings')
             .select(
               'id, status, start_at, end_at, start_date, end_date, vehicle_id, '
-              'vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name)',
+              'vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order))',
             )
             .eq('id', bookingId)
             .maybeSingle();
-        if (booking != null) return Map<String, dynamic>.from(booking);
-      } catch (_) {
+        if (booking != null) {
+          bookingMap = Map<String, dynamic>.from(booking);
+        }
+      } catch (_) {}
+
+      if (bookingMap == null) {
         // Fallback without embed
         final booking = await supabase
             .from('bookings')
@@ -51,23 +57,59 @@ class ChatService {
             .eq('id', bookingId)
             .maybeSingle();
         if (booking == null) return null;
-        final bookingMap = Map<String, dynamic>.from(booking);
+        bookingMap = Map<String, dynamic>.from(booking);
         final vehicleId = bookingMap['vehicle_id']?.toString().trim() ?? '';
         if (vehicleId.isNotEmpty) {
           try {
             final vehicle = await supabase
                 .from('vehicles')
-                .select('id, brand, model, vehicle_name')
+                .select(
+                  'id, brand, model, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order)',
+                )
                 .eq('id', vehicleId)
                 .maybeSingle();
             if (vehicle != null) {
               bookingMap['vehicles'] = Map<String, dynamic>.from(vehicle);
+            } else {
+              final pv = await supabase
+                  .from('partner_vehicles')
+                  .select(
+                    'id, brand, model, vehicle_name, plate_number, image_url',
+                  )
+                  .eq('id', vehicleId)
+                  .maybeSingle();
+              if (pv != null) {
+                bookingMap['vehicles'] = Map<String, dynamic>.from(pv);
+              }
             }
           } catch (_) {}
         }
-        return bookingMap;
       }
-      return null;
+
+      final vehicle = bookingMap['vehicles'] as Map<String, dynamic>?;
+      if (vehicle != null) {
+          final imgUrl = _normalizeVehicleImageUrl(vehicle['image_url']);
+          if (imgUrl.isNotEmpty) {
+            bookingMap['vehicle_image_url'] = imgUrl;
+          } else {
+            final images =
+                List<Map<String, dynamic>>.from(
+                  vehicle['vehicle_images'] as List? ?? const [],
+                )..sort((a, b) {
+                  final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
+                  final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
+                  return aOrder.compareTo(bOrder);
+                });
+            if (images.isNotEmpty) {
+              bookingMap['vehicle_image_url'] = _normalizeVehicleImageUrl(
+                images.first['image_url'],
+              );
+            }
+          }
+        }
+      }
+
+      return bookingMap;
     } catch (error) {
       debugPrint('Could not load conversation booking context: $error');
       return null;
@@ -397,13 +439,29 @@ class ChatService {
               debugPrint('Vehicle lookup note: $vErr');
             }
           }
+
+          final missingVehicleIds = vehicleIds
+              .where((id) => !vehiclesById.containsKey(id))
+              .toList();
+          if (missingVehicleIds.isNotEmpty) {
+            try {
+              final pvRows = await supabase
+                  .from('partner_vehicles')
+                  .select('id, brand, model, vehicle_name, image_url')
+                  .inFilter('id', missingVehicleIds);
+              for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
+                final vid = pv['id']?.toString() ?? '';
+                if (vid.isNotEmpty) vehiclesById[vid] = pv;
+              }
+            } catch (_) {}
+          }
         }
 
         for (final booking in bookingsList) {
           final id = booking['id']?.toString() ?? '';
           if (id.isEmpty) continue;
           final renterId = booking['renter_id']?.toString() ?? '';
-          final vehicleId = booking['vehicle_id']?.toString() ?? '';
+          final vehicleId = (booking['vehicle_id'] ?? booking['partner_vehicle_id'])?.toString() ?? '';
           if (renterId.isNotEmpty && usersById.containsKey(renterId)) {
             booking['renter'] = usersById[renterId];
           }
@@ -601,31 +659,50 @@ class ChatService {
 
   String _conversationVehicleImageUrl(Map<String, dynamic> conversation) {
     final booking = conversation['bookings'];
-    if (booking is! Map) return '';
-    final vehicle = booking['vehicles'];
-    if (vehicle is! Map) return '';
+    if (booking is Map) {
+      final bDirect = _normalizeVehicleImageUrl(booking['vehicle_image_url']);
+      if (bDirect.isNotEmpty) return bDirect;
 
-    final direct = _normalizeVehicleImageUrl(vehicle['image_url']);
-    if (direct.isNotEmpty) return direct;
+      final vehicle = booking['vehicles'];
+      if (vehicle is Map) {
+        final direct = _normalizeVehicleImageUrl(
+          vehicle['image_url'] ??
+              vehicle['imageUrl'] ??
+              vehicle['image'] ??
+              vehicle['thumbnail_url'],
+        );
+        if (direct.isNotEmpty) return direct;
 
-    final images =
-        List<Map<String, dynamic>>.from(
-          vehicle['vehicle_images'] as List? ?? const [],
-        )..sort((a, b) {
-          final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
-          final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
-          return aOrder.compareTo(bOrder);
-        });
-    for (final image in images) {
-      final url = _normalizeVehicleImageUrl(image['image_url']);
-      if (url.isNotEmpty) return url;
+        final images =
+            List<Map<String, dynamic>>.from(
+              (vehicle['vehicle_images'] ?? vehicle['images'] ?? vehicle['photos']) as List? ??
+                  const [],
+            )..sort((a, b) {
+              final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
+              final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
+              return aOrder.compareTo(bOrder);
+            });
+        for (final image in images) {
+          final url = _normalizeVehicleImageUrl(
+            image['image_url'] ?? image['url'] ?? image['image'],
+          );
+          if (url.isNotEmpty) return url;
+        }
+      }
     }
+
+    final convDirect = _normalizeVehicleImageUrl(conversation['vehicle_image_url']);
+    if (convDirect.isNotEmpty) return convDirect;
+
     return '';
   }
 
   String _normalizeVehicleImageUrl(dynamic value) {
+    if (value is List && value.isNotEmpty) {
+      return _normalizeVehicleImageUrl(value.first);
+    }
     final raw = value?.toString().trim() ?? '';
-    if (raw.isEmpty) return '';
+    if (raw.isEmpty || raw == 'null') return '';
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
     final path = raw.startsWith('/') ? raw.substring(1) : raw;
     return path.isEmpty
