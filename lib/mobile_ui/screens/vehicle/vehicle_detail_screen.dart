@@ -1383,7 +1383,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   double get _deliveryFee {
-    if (!_requiresPickupMap || _deliveryDistanceKm == null) return 0;
+    if (_withDriver || !_vehicleDelivery || _deliveryDistanceKm == null) return 0.0;
     return _deliveryDistanceKm! * PricingPolicy.deliveryRatePerKm;
   }
 
@@ -1604,7 +1604,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Future<void> _refreshDeliveryEstimate() async {
-    if (!_requiresPickupMap) {
+    if (!_vehicleDelivery || _withDriver) {
       setState(() {
         _deliveryDistanceKm = null;
       });
@@ -1862,19 +1862,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    if (_requiresPickupMap &&
+    if ((_withDriver || _vehicleDelivery) &&
         _pickupMapPin == null &&
         _pickupFreetextController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter or pin the delivery location.'),
+        SnackBar(
+          content: Text(_withDriver
+              ? 'Please enter or pin your pick-up location.'
+              : 'Please enter or pin the delivery location.'),
           backgroundColor: AppColors.warning,
         ),
       );
       return;
     }
 
-    if (_requiresPickupMap && _deliveryDistanceKm == null) {
+    if (_vehicleDelivery && !_withDriver && _deliveryDistanceKm == null) {
       await _refreshDeliveryEstimate();
       if (_deliveryDistanceKm == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2115,9 +2117,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 discountAmount: _discountAmount,
                 appliedVoucher:
                     _selectedVoucher?.code ?? _selectedVoucher?.title,
-                deliveryDistanceKm: _deliveryDistanceKm,
-                deliveryRatePerKm: PricingPolicy.deliveryRatePerKm,
-                deliveryFee: _deliveryFee,
+                deliveryDistanceKm: (_vehicleDelivery && !_withDriver) ? _deliveryDistanceKm : null,
+                deliveryRatePerKm: (_vehicleDelivery && !_withDriver) ? PricingPolicy.deliveryRatePerKm : null,
+                deliveryFee: (_vehicleDelivery && !_withDriver) ? _deliveryFee : 0.0,
                 withDriver: _withDriver,
                 driverFee: _driverFee,
                 pickupLocation: _getPickupLocation(),
@@ -2677,7 +2679,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 'Rental subtotal',
                                 'PHP ${formatAmount(_rentalSubtotal)}',
                               ),
-                              if (_requiresPickupMap)
+                              if (_withDriver && _driverFee > 0)
+                                MapEntry(
+                                  'Driver fee',
+                                  'PHP ${formatAmount(_driverFee)}',
+                                ),
+                              if (_vehicleDelivery && !_withDriver && _deliveryFee > 0)
                                 MapEntry(
                                   'Delivery fee',
                                   'PHP ${formatAmount(_deliveryFee)}',
@@ -3661,9 +3668,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
                   if (_requiresPickupMap) ...[
                     const SizedBox(height: 24),
-                    const Text(
-                      'Delivery / Pick-up Location',
-                      style: TextStyle(
+                    Text(
+                      _withDriver
+                          ? 'Pick-up Location'
+                          : 'Delivery / Pick-up Location',
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textPrimary,
@@ -3671,8 +3680,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ),
                     const SizedBox(height: 12),
                     _buildMapLocationField(
-                      label: 'Exact delivery / pickup address',
-                      hint: 'Search or pin the pickup location',
+                      label: _withDriver
+                          ? 'Exact pick-up address'
+                          : 'Exact delivery / pickup address',
+                      hint: _withDriver
+                          ? 'Search or pin your pick-up location'
+                          : 'Search or pin the pickup location',
                       controller: _pickupFreetextController,
                       pin: _pickupMapPin,
                       onChanged: (value) {
@@ -3719,7 +3732,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     onMapTap: () => _openLocationPicker(isPickup: false),
                   ),
 
-                  if (_requiresPickupMap) ...[
+                  if (_vehicleDelivery && !_withDriver) ...[
                     const SizedBox(height: 24),
                     _buildDeliverySafetyNote(),
                   ],
@@ -3766,7 +3779,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             'Rental subtotal',
                             'PHP ${formatAmount(_rentalSubtotal)}',
                           ),
-                          if (_requiresPickupMap) ...[
+                          if (_withDriver && _driverFee > 0) ...[
+                            const SizedBox(height: 8),
+                            _buildSummaryRow(
+                              'Driver fee ($_billableDays day${_billableDays == 1 ? '' : 's'})',
+                              'PHP ${formatAmount(_driverFee)}',
+                            ),
+                          ],
+                          if (_vehicleDelivery && !_withDriver && _deliveryFee > 0) ...[
                             const SizedBox(height: 8),
                             _buildSummaryRow(
                               'Delivery fee',
@@ -4608,7 +4628,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     height: 1.4,
                   ),
                 ),
-                if (_requiresPickupMap) ...[
+                if (_vehicleDelivery && !_withDriver) ...[
                   const SizedBox(height: 12),
                   if (_isCalculatingDeliveryFee)
                     const LinearProgressIndicator(color: AppColors.primary)
