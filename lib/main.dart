@@ -783,7 +783,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
         return const ResponsiveLoginScreen();
       }
 
-      // Check if onboarding was already completed
+      // On Web, visitors accessing the root URL see the rich public landing page
+      if (kIsWeb) {
+        return const ResponsiveWelcomeScreen();
+      }
+
+      // Check if onboarding was already completed on mobile
       final prefs = await SharedPreferences.getInstance().timeout(
         const Duration(seconds: 3),
         onTimeout: () => throw TimeoutException('Prefs timeout'),
@@ -791,14 +796,14 @@ class _AuthWrapperState extends State<AuthWrapper> {
       final onboardingCompleted =
           prefs.getBool('onboarding_completed') ?? false;
 
-      // If onboarding was completed, go to login screen
+      // If onboarding was completed on mobile, go to login screen
       // Otherwise show welcome screen
       return onboardingCompleted
           ? const ResponsiveLoginScreen()
           : const ResponsiveWelcomeScreen();
     } catch (e) {
       debugPrint('⚠️ Error determining initial screen: $e');
-      return const ResponsiveLoginScreen();
+      return const ResponsiveWelcomeScreen();
     }
   }
 
