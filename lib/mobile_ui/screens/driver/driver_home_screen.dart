@@ -1171,7 +1171,17 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   Map<String, dynamic>? _activeBooking(List<Map<String, dynamic>> bookings) {
     if (bookings.isEmpty) return null;
-    final preferredStatuses = {'active', 'ongoing', 'approved', 'confirmed'};
+    final preferredStatuses = {
+      'active',
+      'ongoing',
+      'approved',
+      'confirmed',
+      'driver_accepted',
+      'pending_inspection',
+      'return_pending_inspection',
+      'awaiting_completion',
+      'pending',
+    };
     for (final booking in bookings) {
       final status = booking['status']?.toString().toLowerCase();
       if (preferredStatuses.contains(status)) return booking;
@@ -2429,6 +2439,14 @@ class __JobsTabState extends State<_JobsTab> {
     _jobsChannel = Supabase.instance.client.realtime.channel(
       'driver-bookings-tab-$userId',
     );
+    void handleRefresh(PostgresChangePayload payload) {
+      if (!mounted) return;
+      _jobsRefreshDebounce?.cancel();
+      _jobsRefreshDebounce = Timer(const Duration(milliseconds: 350), () {
+        if (mounted) setState(_loadJobs);
+      });
+    }
+
     _jobsChannel!
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
@@ -2439,13 +2457,18 @@ class __JobsTabState extends State<_JobsTab> {
             column: 'driver_id',
             value: userId,
           ),
-          callback: (payload) {
-            if (!mounted) return;
-            _jobsRefreshDebounce?.cancel();
-            _jobsRefreshDebounce = Timer(const Duration(milliseconds: 350), () {
-              if (mounted) setState(_loadJobs);
-            });
-          },
+          callback: handleRefresh,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'driver_job_assignments',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'driver_id',
+            value: userId,
+          ),
+          callback: handleRefresh,
         )
         .subscribe();
   }

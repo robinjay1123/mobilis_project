@@ -655,12 +655,15 @@ class DriverService {
           : 'Assigned Vehicle';
 
       // 5. Notify Operator & Partner to finalize the booking
+      final vehicleOwnerId = vehicle?['owner_id']?.toString() ?? booking['partner_id']?.toString();
       await NotificationService().notifyOperatorDriverResponse(
         bookingId: bookingId,
         driverId: currentUserId,
         driverName: driverName,
         accepted: true,
         operatorId: booking['operator_id']?.toString(),
+        partnerId: booking['partner_id']?.toString(),
+        ownerId: vehicleOwnerId,
       );
 
       // 6. Notify Renter
@@ -1659,148 +1662,263 @@ class DriverService {
         filterDriverIds.add(driverProfileId);
       }
 
-      final response = await supabase
-          .from('bookings')
-          .select('''
-            id,
-            renter_id,
-            vehicle_id,
-            driver_id,
-            status,
-            start_at,
-            end_at,
-            start_date,
-            end_date,
-            total_price,
-            total_cost,
-            pickup_location,
-            dropoff_location,
-            pickup_latitude,
-            pickup_longitude,
-            dropoff_latitude,
-            dropoff_longitude,
-            picked_up_at,
-            returned_at,
-            vehicles:vehicle_id (
-              id,
-              brand,
-              model,
-              year,
-              vehicle_name,
-              plate_number,
-              owner_id,
-              is_partner_vehicle,
-              partner_id,
-              owner:owner_id (
-                role
-              )
-            ),
-            renter:renter_id (
-              id,
-              full_name,
-              email,
-              phone
-            ),
-            job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (
-              id,
-              driver_id,
-              status,
-              trip_fee,
-              created_at
-            )
-          ''')
-          .inFilter('driver_id', filterDriverIds.toList())
-          .order('start_date', ascending: false);
+      List<Map<String, dynamic>> bookingsList = [];
 
-      final bookingsList = List<Map<String, dynamic>>.from(response);
-
-      // Also query driver_job_assignments in case booking.driver_id is pending
       try {
-        final pendingAssignmentOffers = await supabase
-            .from('driver_job_assignments')
+        final response = await supabase
+            .from('bookings')
             .select('''
               id,
-              booking_id,
+              renter_id,
+              vehicle_id,
               driver_id,
               status,
-              trip_fee,
-              created_at,
-              bookings:booking_id (
+              start_at,
+              end_at,
+              start_date,
+              end_date,
+              total_price,
+              total_cost,
+              pickup_location,
+              dropoff_location,
+              pickup_latitude,
+              pickup_longitude,
+              dropoff_latitude,
+              dropoff_longitude,
+              picked_up_at,
+              returned_at,
+              vehicles:vehicle_id (
                 id,
-                renter_id,
-                vehicle_id,
+                brand,
+                model,
+                year,
+                vehicle_name,
+                plate_number,
+                owner_id,
+                is_partner_vehicle,
+                partner_id,
+                owner:owner_id (
+                  role
+                )
+              ),
+              renter:renter_id (
+                id,
+                full_name,
+                email,
+                phone
+              ),
+              job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (
+                id,
                 driver_id,
                 status,
-                start_at,
-                end_at,
-                start_date,
-                end_date,
-                total_price,
-                total_cost,
-                pickup_location,
-                dropoff_location,
-                pickup_latitude,
-                pickup_longitude,
-                dropoff_latitude,
-                dropoff_longitude,
-                picked_up_at,
-                returned_at,
-                vehicles:vehicle_id (
-                  id,
-                  brand,
-                  model,
-                  year,
-                  vehicle_name,
-                  plate_number,
-                  owner_id,
-                  is_partner_vehicle,
-                  partner_id,
-                  owner:owner_id (
-                    role
-                  )
-                ),
-                renter:renter_id (
-                  id,
-                  full_name,
-                  email,
-                  phone
-                )
+                trip_fee,
+                created_at
               )
             ''')
+            .inFilter('driver_id', filterDriverIds.toList())
+            .order('start_date', ascending: false);
+
+        bookingsList = List<Map<String, dynamic>>.from(response);
+      } catch (embedError) {
+        debugPrint('Assigned bookings complex embed note: $embedError');
+        bookingsList = await _getAssignedBookingsFallback(filterDriverIds);
+      }
+
+      // Also merge any bookings from driver_job_assignments that might not have booking.driver_id set yet
+      try {
+        final existingBookingIds =
+            bookingsList.map((b) => b['id']?.toString()).toSet();
+
+        final assignmentsResponse = await supabase
+            .from('driver_job_assignments')
+            .select('id, booking_id, driver_id, status, trip_fee, created_at')
             .inFilter('driver_id', filterDriverIds.toList())
             .inFilter('status', ['pending_offer', 'assigned', 'accepted'])
             .order('created_at', ascending: false);
 
-        final existingBookingIds =
-            bookingsList.map((b) => b['id']?.toString()).toSet();
+        final assignmentRows =
+            List<Map<String, dynamic>>.from(assignmentsResponse);
+        final missingBookingIds = assignmentRows
+            .map((a) => a['booking_id']?.toString().trim())
+            .whereType<String>()
+            .where((id) => id.isNotEmpty && !existingBookingIds.contains(id))
+            .toSet()
+            .toList();
 
-        for (final item in pendingAssignmentOffers) {
-          final b = item['bookings'] as Map<String, dynamic>?;
-          if (b != null && !existingBookingIds.contains(b['id']?.toString())) {
-            final merged = Map<String, dynamic>.from(b);
-            merged['job_assignments'] = [
-              {
-                'id': item['id'],
-                'driver_id': item['driver_id'],
-                'status': item['status'],
-                'trip_fee': item['trip_fee'],
-                'created_at': item['created_at'],
-              }
-            ];
-            bookingsList.add(merged);
-            existingBookingIds.add(b['id']?.toString());
+        if (missingBookingIds.isNotEmpty) {
+          final missingBookings =
+              await _fetchAndHydrateBookingsByIds(missingBookingIds);
+          for (final b in missingBookings) {
+            final bId = b['id']?.toString();
+            if (bId != null && !existingBookingIds.contains(bId)) {
+              final matchingAssignments = assignmentRows
+                  .where((a) => a['booking_id']?.toString() == bId)
+                  .toList();
+              b['job_assignments'] = matchingAssignments;
+              bookingsList.add(b);
+              existingBookingIds.add(bId);
+            }
           }
         }
-      } catch (e) {
-        debugPrint('Pending assignments merge fallback: $e');
+      } catch (assignmentsErr) {
+        debugPrint(
+          'Assignments lookup note in getAssignedBookings: $assignmentsErr',
+        );
       }
 
+      // Ensure every booking has its job_assignments populated if empty
+      final allBookingIds = bookingsList
+          .map((b) => b['id']?.toString())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList();
+
+      if (allBookingIds.isNotEmpty) {
+        try {
+          final allAssignments = await supabase
+              .from('driver_job_assignments')
+              .select('id, booking_id, driver_id, status, trip_fee, created_at')
+              .inFilter('booking_id', allBookingIds)
+              .inFilter('driver_id', filterDriverIds.toList())
+              .order('created_at', ascending: true);
+
+          final assignmentsByBooking = <String, List<Map<String, dynamic>>>{};
+          for (final item in List<Map<String, dynamic>>.from(allAssignments)) {
+            final bId = item['booking_id']?.toString() ?? '';
+            if (bId.isNotEmpty) {
+              assignmentsByBooking.putIfAbsent(bId, () => []).add(item);
+            }
+          }
+
+          for (final booking in bookingsList) {
+            final bId = booking['id']?.toString() ?? '';
+            final existing = booking['job_assignments'];
+            if (existing is! List || existing.isEmpty) {
+              if (assignmentsByBooking.containsKey(bId)) {
+                booking['job_assignments'] = assignmentsByBooking[bId];
+              }
+            }
+          }
+        } catch (jobAttachErr) {
+          debugPrint('Job assignments attachment note: $jobAttachErr');
+        }
+      }
+
+      // Sort by start_date / start_at / created_at descending
+      bookingsList.sort((a, b) {
+        final aDate = DateTime.tryParse(
+          (a['start_at'] ?? a['start_date'] ?? a['created_at'])?.toString() ??
+              '',
+        );
+        final bDate = DateTime.tryParse(
+          (b['start_at'] ?? b['start_date'] ?? b['created_at'])?.toString() ??
+              '',
+        );
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return bDate.compareTo(aDate);
+      });
+
       return bookingsList;
-    } on PostgrestException catch (e) {
-      debugPrint('Database error fetching assigned bookings: ${e.message}');
-      return [];
     } catch (e) {
       debugPrint('Error fetching assigned bookings: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _getAssignedBookingsFallback(
+    Set<String> filterDriverIds,
+  ) async {
+    try {
+      final rows = await supabase
+          .from('bookings')
+          .select()
+          .inFilter('driver_id', filterDriverIds.toList())
+          .order('start_date', ascending: false);
+
+      final bookingIds = List<Map<String, dynamic>>.from(rows)
+          .map((b) => b['id']?.toString().trim())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList();
+
+      if (bookingIds.isEmpty) return [];
+      return await _fetchAndHydrateBookingsByIds(bookingIds);
+    } catch (e) {
+      debugPrint('Fallback assigned bookings error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchAndHydrateBookingsByIds(
+    List<String> bookingIds,
+  ) async {
+    if (bookingIds.isEmpty) return [];
+    try {
+      final rows = await supabase
+          .from('bookings')
+          .select()
+          .inFilter('id', bookingIds);
+
+      final bookings = List<Map<String, dynamic>>.from(rows);
+      final vehicleIds = bookings
+          .map((b) => b['vehicle_id']?.toString().trim())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+      final renterIds = bookings
+          .map((b) => b['renter_id']?.toString().trim())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+
+      final vehiclesById = <String, Map<String, dynamic>>{};
+      if (vehicleIds.isNotEmpty) {
+        try {
+          final vRows = await supabase
+              .from('vehicles')
+              .select(
+                'id, brand, model, year, vehicle_name, plate_number, owner_id, is_partner_vehicle, partner_id',
+              )
+              .inFilter('id', vehicleIds);
+          for (final v in List<Map<String, dynamic>>.from(vRows)) {
+            final id = v['id']?.toString();
+            if (id != null) vehiclesById[id] = v;
+          }
+        } catch (_) {}
+      }
+
+      final rentersById = <String, Map<String, dynamic>>{};
+      if (renterIds.isNotEmpty) {
+        try {
+          final rRows = await supabase
+              .from('users')
+              .select('id, full_name, email, phone')
+              .inFilter('id', renterIds);
+          for (final r in List<Map<String, dynamic>>.from(rRows)) {
+            final id = r['id']?.toString();
+            if (id != null) rentersById[id] = r;
+          }
+        } catch (_) {}
+      }
+
+      for (final booking in bookings) {
+        final vId = booking['vehicle_id']?.toString();
+        if (vId != null && vehiclesById.containsKey(vId)) {
+          booking['vehicles'] = vehiclesById[vId];
+        }
+        final rId = booking['renter_id']?.toString();
+        if (rId != null && rentersById.containsKey(rId)) {
+          booking['renter'] = rentersById[rId];
+        }
+      }
+
+      return bookings;
+    } catch (e) {
+      debugPrint('Error hydrating bookings by IDs: $e');
       return [];
     }
   }

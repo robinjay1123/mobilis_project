@@ -342,20 +342,103 @@ class NotificationService {
     required String vehicleTitle,
     required String renterName,
     required bool withDriver,
-  }) {
-    return _notifyRoles(
+    String? partnerId,
+    String? ownerId,
+    String? vehicleId,
+  }) async {
+    final data = {
+      'booking_id': bookingId,
+      'status': 'pending',
+      'with_driver': withDriver,
+      'event': 'operator_new_booking_request',
+    };
+
+    int notifiedCount = await _notifyRoles(
       roles: const ['operator'],
       title: 'New Booking Request',
       message:
           '$renterName requested $vehicleTitle${withDriver ? ' with a driver' : ''}. Review the booking to continue.',
       type: 'booking',
-      data: {
-        'booking_id': bookingId,
-        'status': 'pending',
-        'with_driver': withDriver,
-        'event': 'operator_new_booking_request',
-      },
+      data: data,
     );
+
+    // Resolve partner / vehicle owner user IDs
+    final targetPartnerUserIds = <String>{};
+
+    void addCandidateId(String? id) {
+      if (id != null && id.trim().isNotEmpty) {
+        targetPartnerUserIds.add(id.trim());
+      }
+    }
+
+    addCandidateId(partnerId);
+    addCandidateId(ownerId);
+
+    // If vehicleId is provided, also check vehicle record
+    if (vehicleId != null && vehicleId.trim().isNotEmpty) {
+      try {
+        final v = await supabase
+            .from('vehicles')
+            .select('owner_id, partner_id')
+            .eq('id', vehicleId.trim())
+            .maybeSingle();
+        if (v != null) {
+          addCandidateId(v['owner_id']?.toString());
+          addCandidateId(v['partner_id']?.toString());
+        }
+      } catch (_) {}
+
+      try {
+        final pv = await supabase
+            .from('partner_vehicles')
+            .select('partner_id')
+            .eq('id', vehicleId.trim())
+            .maybeSingle();
+        if (pv != null) {
+          addCandidateId(pv['partner_id']?.toString());
+        }
+      } catch (_) {}
+    }
+
+    // Expand any partner table PKs to users.id
+    final resolvedPartnerUserIds = <String>{};
+    for (final rawId in targetPartnerUserIds) {
+      try {
+        final partnerDoc = await supabase
+            .from('partners')
+            .select('user_id')
+            .eq('id', rawId)
+            .maybeSingle();
+        final uId = partnerDoc?['user_id']?.toString().trim();
+        if (uId != null && uId.isNotEmpty) {
+          resolvedPartnerUserIds.add(uId);
+        } else {
+          resolvedPartnerUserIds.add(rawId);
+        }
+      } catch (_) {
+        resolvedPartnerUserIds.add(rawId);
+      }
+    }
+
+    // Notify the partner(s)
+    for (final pUserId in resolvedPartnerUserIds) {
+      final sent = await _safeCreate(
+        userId: pUserId,
+        title: 'New Booking for Your Vehicle',
+        message:
+            '$renterName placed a new booking for your vehicle $vehicleTitle${withDriver ? ' with a driver' : ''}. Review the booking details in your partner portal.',
+        type: 'booking',
+        data: {
+          'booking_id': bookingId,
+          'status': 'pending',
+          'with_driver': withDriver,
+          'event': 'partner_new_booking_request',
+        },
+      );
+      if (sent) notifiedCount++;
+    }
+
+    return notifiedCount;
   }
 
   Future<int> notifyOperatorsVehicleReturned({
@@ -385,8 +468,21 @@ class NotificationService {
     );
 
     if (partnerId != null && partnerId.trim().isNotEmpty) {
+      String targetPartnerUserId = partnerId.trim();
+      try {
+        final partnerDoc = await supabase
+            .from('partners')
+            .select('user_id')
+            .eq('id', targetPartnerUserId)
+            .maybeSingle();
+        final uId = partnerDoc?['user_id']?.toString().trim();
+        if (uId != null && uId.isNotEmpty) {
+          targetPartnerUserId = uId;
+        }
+      } catch (_) {}
+
       final sent = await _safeCreate(
-        userId: partnerId.trim(),
+        userId: targetPartnerUserId,
         title: 'Partner Vehicle Returned & Payment Submitted',
         message: message,
         type: 'booking_return',
@@ -404,6 +500,8 @@ class NotificationService {
     required String driverName,
     required bool accepted,
     String? operatorId,
+    String? partnerId,
+    String? ownerId,
   }) async {
     final title = accepted ? 'Driver Accepted Job' : 'Driver Declined Job';
     final message = accepted
@@ -419,24 +517,70 @@ class NotificationService {
           : 'operator_driver_job_declined',
     };
 
+    int notified = 0;
+
     if (operatorId != null && operatorId.trim().isNotEmpty) {
-      await createNotification(
+      final sent = await _safeCreate(
         userId: operatorId.trim(),
         title: title,
         message: message,
         type: 'driver_assignment',
         data: data,
       );
-      return 1;
+      if (sent) notified++;
+    } else {
+      notified += await _notifyRoles(
+        roles: const ['operator'],
+        title: title,
+        message: message,
+        type: 'driver_assignment',
+        data: data,
+      );
     }
 
-    return _notifyRoles(
-      roles: const ['operator'],
-      title: title,
-      message: message,
-      type: 'driver_assignment',
-      data: data,
-    );
+    // Also notify partner if associated with vehicle
+    final partnerCandidates = <String>{};
+    if (partnerId != null && partnerId.trim().isNotEmpty) {
+      partnerCandidates.add(partnerId.trim());
+    }
+    if (ownerId != null && ownerId.trim().isNotEmpty) {
+      partnerCandidates.add(ownerId.trim());
+    }
+
+    for (final rawId in partnerCandidates) {
+      String targetUserId = rawId;
+      try {
+        final partnerDoc = await supabase
+            .from('partners')
+            .select('user_id')
+            .eq('id', rawId)
+            .maybeSingle();
+        final uId = partnerDoc?['user_id']?.toString().trim();
+        if (uId != null && uId.isNotEmpty) {
+          targetUserId = uId;
+        }
+      } catch (_) {}
+
+      final sent = await _safeCreate(
+        userId: targetUserId,
+        title: accepted ? 'Driver Accepted Vehicle Trip' : 'Driver Declined Vehicle Trip',
+        message: accepted
+            ? '$driverName accepted the trip assignment for your vehicle booking.'
+            : '$driverName declined the trip assignment. The operator will reassign another driver.',
+        type: 'driver_assignment',
+        data: {
+          'booking_id': bookingId,
+          'driver_id': driverId,
+          'status': accepted ? 'accepted' : 'rejected',
+          'event': accepted
+              ? 'partner_driver_job_accepted'
+              : 'partner_driver_job_declined',
+        },
+      );
+      if (sent) notified++;
+    }
+
+    return notified;
   }
 
   Future<bool> notifyBookingFinalized({

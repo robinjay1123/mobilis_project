@@ -1350,6 +1350,9 @@ class BookingService {
               vehicleTitle: vehicleTitle,
               renterName: renterName,
               withDriver: withDriver,
+              partnerId: partnerId ?? createdBooking['partner_id']?.toString() ?? vehicle?['partner_id']?.toString(),
+              ownerId: ownerId ?? vehicle?['owner_id']?.toString(),
+              vehicleId: vehicleId,
             );
           }).timeout(const Duration(seconds: 8)).catchError((e) {
             debugPrint(
@@ -3844,6 +3847,33 @@ class BookingService {
       }
     }
 
+    // Also include partner/owner if this vehicle is owned by a partner
+    final partnerIds = <String>{};
+    final bPartnerId = booking['partner_id']?.toString();
+    if (bPartnerId != null && bPartnerId.isNotEmpty) partnerIds.add(bPartnerId);
+    final vPartnerId = vehicle?['partner_id']?.toString();
+    if (vPartnerId != null && vPartnerId.isNotEmpty) partnerIds.add(vPartnerId);
+    final vOwnerId = vehicle?['owner_id']?.toString();
+    if (vOwnerId != null && vOwnerId.isNotEmpty) partnerIds.add(vOwnerId);
+
+    for (final rawId in partnerIds) {
+      try {
+        final partnerDoc = await supabase
+            .from('partners')
+            .select('user_id')
+            .eq('id', rawId)
+            .maybeSingle();
+        final uId = partnerDoc?['user_id']?.toString().trim();
+        if (uId != null && uId.isNotEmpty) {
+          operatorIds.add(uId);
+        } else {
+          operatorIds.add(rawId);
+        }
+      } catch (_) {
+        operatorIds.add(rawId);
+      }
+    }
+
     for (final id in operatorIds) {
       try {
         await NotificationService().createNotification(
@@ -3859,7 +3889,7 @@ class BookingService {
           },
         );
       } catch (e) {
-        debugPrint('Could not notify operator $id: $e');
+        debugPrint('Could not notify operator/partner $id: $e');
       }
     }
   }
@@ -4618,13 +4648,16 @@ class BookingService {
         }
       }
 
-      // Send push notification to operators
+      // Send push notification to operators & partner
       unawaited(
         NotificationService().notifyOperatorsNewBooking(
           bookingId: bookingId,
           vehicleTitle: vehicleTitle,
           renterName: renterName,
           withDriver: false,
+          partnerId: booking['partner_id']?.toString() ?? vehicle['partner_id']?.toString(),
+          ownerId: vehicle['owner_id']?.toString(),
+          vehicleId: (booking['vehicle_id'] ?? booking['partner_id'] ?? vehicle['id'])?.toString(),
         ).catchError((_) => 0),
       );
     } catch (e) {
@@ -4798,6 +4831,9 @@ class BookingService {
             vehicleTitle: vehicleTitle,
             renterName: renterName,
             withDriver: false,
+            partnerId: booking['partner_id']?.toString() ?? vehicle['partner_id']?.toString(),
+            ownerId: vehicle['owner_id']?.toString(),
+            vehicleId: (booking['vehicle_id'] ?? booking['partner_id'] ?? vehicle['id'])?.toString(),
           )
           .catchError((_) => 0),
     );
