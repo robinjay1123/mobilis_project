@@ -362,6 +362,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   List<Map<String, dynamic>> _allVehicles = [];
   List<Map<String, dynamic>> _verificationRecords = [];
   List<Map<String, dynamic>> _pendingPartnerVehicleApplications = [];
+  List<Map<String, dynamic>> _pendingDriverApplications = [];
   List<Map<String, dynamic>> _trackingLocations = [];
   String? _focusedTrackingBookingId;
   Timer? _trackingRefreshTimer;
@@ -462,6 +463,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   Timer? _verificationsAndApplicationsRefreshTimer;
   RealtimeChannel? _verificationsSubscription;
   RealtimeChannel? _applicationsSubscription;
+  RealtimeChannel? _driversSubscription;
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -616,6 +618,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _bookingsSubscription?.unsubscribe();
     _verificationsSubscription?.unsubscribe();
     _applicationsSubscription?.unsubscribe();
+    _driversSubscription?.unsubscribe();
     _trackingRefreshTimer?.cancel();
     _notificationsRefreshTimer?.cancel();
     _actionLogsRefreshTimer?.cancel();
@@ -688,6 +691,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           },
         )
         .subscribe();
+
+    _driversSubscription = _supabase
+        .channel('admin-drivers-realtime')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'drivers',
+          callback: (payload) {
+            if (mounted) {
+              _refreshVerificationsAndApplicationsSilently();
+            }
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _refreshVerificationsAndApplicationsSilently() async {
@@ -696,6 +713,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       await Future.wait([
         _loadPendingVerifications(),
         _loadPendingPartnerVehicleApplications(),
+        _loadPendingDriverApplications(),
       ]);
       if (mounted) {
         setState(() {
@@ -704,11 +722,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   (v['verification_status'] ?? '').toString().toLowerCase() ==
                   'pending')
               .length;
-          _pendingApplicationsCount = _pendingPartnerVehicleApplications
-              .where((a) =>
-                  (a['application_status'] ?? '').toString().toLowerCase() ==
-                  'pending')
-              .length;
+          _pendingApplicationsCount = _pendingPartnerVehicleApplications.length +
+              _pendingDriverApplications.length;
         });
       }
     } catch (e) {
@@ -897,6 +912,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           _loadAllVehicles(),
           _loadPendingVerifications(),
           _loadPendingPartnerVehicleApplications(),
+          _loadPendingDriverApplications(),
           _loadNotifications(showLoading: false),
           _loadTrackingLocationsFast(),
           _loadAnnouncements(),
@@ -904,7 +920,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           if (mounted) {
             setState(() {
               _pendingApplicationsCount =
-                  _pendingPartnerVehicleApplications.length;
+                  _pendingPartnerVehicleApplications.length +
+                      _pendingDriverApplications.length;
               _computeStatsFromMemory();
             });
           }
@@ -2776,52 +2793,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .from('user_verifications')
           .select('''
             *,
-            users:user_id (id, full_name, email, role, verification_status)
+            users:user_id (id, full_name, email, role, verification_status, application_status, id_verified)
           ''')
           .order('created_at', ascending: false);
 
       final records = List<Map<String, dynamic>>.from(response);
-
-      // Collect existing user IDs
-      final existingUserIds = records
-          .map((r) => r['user_id']?.toString() ?? (r['users'] as Map?)?['id']?.toString() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toSet();
-
-      // Query any applicants or users with pending status directly as fallback
-      try {
-        final pendingUsers = await _supabase
-            .from('users')
-            .select('id, full_name, email, phone, role, verification_status, application_status, created_at')
-            .or('application_status.eq.pending,verification_status.eq.pending');
-
-        for (final u in List<Map<String, dynamic>>.from(pendingUsers)) {
-          final uid = u['id']?.toString() ?? '';
-          final role = u['role']?.toString().toLowerCase().trim() ?? '';
-          final vStatus = u['verification_status']?.toString().toLowerCase().trim() ?? '';
-          final aStatus = u['application_status']?.toString().toLowerCase().trim() ?? '';
-          final isPending = vStatus == 'pending' || aStatus == 'pending';
-          
-          if (uid.isNotEmpty && !existingUserIds.contains(uid) && isPending) {
-            records.add({
-              'id': 'fallback_$uid',
-              'user_id': uid,
-              'full_name': u['full_name'] ?? 'Driver Applicant',
-              'email': u['email'],
-              'phone': u['phone'],
-              'role': role.isNotEmpty ? role : 'driver',
-              'verification_status': 'pending',
-              'application_status': 'pending',
-              'created_at': u['created_at'] ?? DateTime.now().toIso8601String(),
-              'id_type': 'Driver License / Identity Document',
-              'users': u,
-            });
-            existingUserIds.add(uid);
-          }
-        }
-      } catch (fallbackError) {
-        debugPrint('Fallback loading pending users error: $fallbackError');
-      }
 
       await Future.wait(
         records.map((record) async {
@@ -2829,20 +2805,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           final userId =
               record['user_id']?.toString() ?? user?['id']?.toString();
 
-          // Ensure driver role is set if record contains driver details or is driver record
-          final currentRole = (user?['role']?.toString() ?? record['role']?.toString() ?? '').toLowerCase().trim();
-          final isDriverRecord = currentRole == 'driver' ||
-              record['driver_years_experience'] != null ||
-              record['driver_license_expiry'] != null ||
-              record['driver_previous_companies'] != null ||
-              (record['id_type']?.toString().toLowerCase().contains('license') ?? false);
-
-          if (isDriverRecord) {
-            if (user != null) user['role'] = 'driver';
-            record['role'] = 'driver';
+          final userRole = (user?['role']?.toString() ?? record['role']?.toString() ?? '')
+              .toLowerCase()
+              .trim();
+          if (userRole.isNotEmpty) {
+            record['role'] = userRole;
+            if (user != null) user['role'] = userRole;
           }
 
-          if (userId != null && userId.isNotEmpty) {
+          if (userId != null && userId.isNotEmpty && userRole == 'driver') {
             final docs = await Future.wait([
               _loadDriverSignatureUrl(userId),
               _loadDriverNbiUrl(userId),
@@ -2855,8 +2826,131 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       _verificationRecords = records;
     } catch (e) {
-      debugPrint('Error loading applications: $e');
+      debugPrint('Error loading verifications: $e');
       _verificationRecords = [];
+    }
+  }
+
+  Future<void> _loadPendingDriverApplications() async {
+    try {
+      // 1. Fetch drivers with joined user profiles
+      final driversResponse = await _supabase
+          .from('drivers')
+          .select('''
+            *,
+            users:user_id (id, full_name, email, phone, role, avatar_url, location, is_active, verification_status, application_status, id_verified, created_at)
+          ''');
+
+      // 2. Fetch user verifications for ID documents and application metrics
+      final verificationsResponse = await _supabase
+          .from('user_verifications')
+          .select('*')
+          .order('created_at', ascending: false);
+
+      final verificationsMap = <String, Map<String, dynamic>>{};
+      for (final v in List<Map<String, dynamic>>.from(verificationsResponse)) {
+        final uid = v['user_id']?.toString() ?? '';
+        if (uid.isNotEmpty && !verificationsMap.containsKey(uid)) {
+          verificationsMap[uid] = v;
+        }
+      }
+
+      final applications = <Map<String, dynamic>>[];
+
+      for (final d in List<Map<String, dynamic>>.from(driversResponse)) {
+        final user = d['users'] as Map<String, dynamic>?;
+        if (user == null || user['is_active'] == false) continue;
+
+        final userId = user['id']?.toString() ?? d['user_id']?.toString() ?? '';
+        if (userId.isEmpty) continue;
+
+        // Partner or staff accounts must never be treated as driver applicants
+        final role = (user['role']?.toString() ?? '').toLowerCase().trim();
+        if (role == 'partner' || role == 'admin' || role == 'operator' || role == 'superadmin') {
+          continue;
+        }
+
+        final verRecord = verificationsMap[userId];
+
+        // 1. User must be identity verified (in users table or in user_verifications)
+        final userVerStatus = (user['verification_status']?.toString() ?? '').toLowerCase().trim();
+        final isIdVerified = user['id_verified'] == true ||
+            userVerStatus == 'verified' ||
+            userVerStatus == 'approved' ||
+            (verRecord?['verification_status']?.toString().toLowerCase() == 'verified');
+
+        if (!isIdVerified) {
+          continue;
+        }
+
+        // 2. Application status must be strictly pending (not approved / already verified in DB)
+        final userAppStatus = (user['application_status']?.toString() ?? '').toLowerCase().trim();
+        final driverVerStatus = (d['verification_status']?.toString() ?? '').toLowerCase().trim();
+
+        // If driver is already verified/approved in database (e.g. bypassed in DB), they are not pending
+        if (driverVerStatus == 'verified' ||
+            driverVerStatus == 'approved' ||
+            userAppStatus == 'approved' ||
+            userAppStatus == 'rejected') {
+          continue;
+        }
+
+        final isPending = userAppStatus == 'pending' ||
+            userAppStatus == 'submitted' ||
+            userAppStatus == 'under_review' ||
+            driverVerStatus == 'pending' ||
+            driverVerStatus == 'submitted' ||
+            driverVerStatus.isEmpty;
+
+        if (isPending) {
+          final idParts = (verRecord?['id_document_url'] as String? ?? '').split('|');
+          final legacyIdUrls = idParts
+              .where((part) => part.trim().isNotEmpty)
+              .map((part) => part.trim())
+              .toList();
+
+          final appMap = <String, dynamic>{
+            'id': verRecord?['id'] ?? d['id'],
+            'driver_id': d['id'],
+            'user_id': userId,
+            'full_name': user['full_name'] ?? verRecord?['full_name'] ?? 'Driver Applicant',
+            'email': user['email'] ?? verRecord?['email'],
+            'phone': user['phone'] ?? verRecord?['phone'],
+            'location': user['location'] ?? verRecord?['location'],
+            'avatar_url': user['avatar_url'],
+            'created_at': d['created_at'] ?? verRecord?['created_at'] ?? user['created_at'],
+            'application_status': userAppStatus.isNotEmpty ? userAppStatus : 'pending',
+            'verification_status': 'verified',
+            'id_type': verRecord?['id_type'] ?? 'Driver License',
+            'id_number': verRecord?['id_number'],
+            'id_document_url': verRecord?['id_document_url'],
+            'id_front_url': verRecord?['id_front_url'] ?? (legacyIdUrls.isNotEmpty ? legacyIdUrls.first : ''),
+            'id_back_url': verRecord?['id_back_url'] ?? (legacyIdUrls.length > 1 ? legacyIdUrls[1] : ''),
+            'face_selfie_url': verRecord?['face_selfie_url'] ?? '',
+            'selfie_with_id_url': verRecord?['selfie_with_id_url'] ?? '',
+            'driver_years_experience': verRecord?['driver_years_experience'] ?? d['years_experience']?.toString(),
+            'driver_previous_companies': verRecord?['driver_previous_companies'] ?? d['previous_companies']?.toString(),
+            'driver_license_expiry': verRecord?['driver_license_expiry'] ?? d['license_expiry']?.toString(),
+            'rejection_reason': verRecord?['rejection_reason'] ?? d['rejection_reason'],
+            'users': user,
+            'driver': d,
+          };
+
+          final docs = await Future.wait([
+            _loadDriverSignatureUrl(userId),
+            _loadDriverNbiUrl(userId),
+          ]);
+          appMap['driver_signature_url'] = docs[0];
+          appMap['driver_nbi_url'] = docs[1];
+
+          applications.add(appMap);
+        }
+      }
+
+      _pendingDriverApplications = applications;
+    } catch (e) {
+      debugPrint('Error loading pending driver applications: $e');
+      _pendingDriverApplications = [];
     }
   }
 
@@ -3871,6 +3965,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       setState(() {
         driverApp['application_status'] = 'approved';
         if (user != null) user['application_status'] = 'approved';
+        _pendingDriverApplications.removeWhere(
+          (app) =>
+              (app['user_id']?.toString() == userId) ||
+              (app['id']?.toString() == driverApp['id']?.toString()) ||
+              (app['driver_id']?.toString() == driverApp['driver_id']?.toString()),
+        );
+        _pendingApplicationsCount = _pendingPartnerVehicleApplications.length +
+            _pendingDriverApplications.length;
       });
     }
 
@@ -3917,15 +4019,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }
 
       // 3. If there is a user_verifications record, mark it verified
-      final verRecId = driverApp['id']?.toString();
-      if (verRecId != null && verRecId.isNotEmpty && !verRecId.startsWith('fallback_')) {
-        try {
-          await _supabase.from('user_verifications').update({
-            'verification_status': 'verified',
-            'verified_at': DateTime.now().toIso8601String(),
-          }).eq('id', verRecId);
-        } catch (_) {}
-      }
+      try {
+        await _supabase.from('user_verifications').update({
+          'verification_status': 'verified',
+          'verified_at': DateTime.now().toIso8601String(),
+        }).eq('user_id', userId);
+      } catch (_) {}
 
       // 4. Send real-time notification to the driver
       try {
@@ -3989,6 +4088,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         driverApp['application_status'] = 'rejected';
         driverApp['rejection_reason'] = reason;
         if (user != null) user['application_status'] = 'rejected';
+        _pendingDriverApplications.removeWhere(
+          (app) =>
+              (app['user_id']?.toString() == userId) ||
+              (app['id']?.toString() == driverApp['id']?.toString()) ||
+              (app['driver_id']?.toString() == driverApp['driver_id']?.toString()),
+        );
+        _pendingApplicationsCount = _pendingPartnerVehicleApplications.length +
+            _pendingDriverApplications.length;
       });
     }
 
@@ -3997,16 +4104,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         'application_status': 'rejected',
       }).eq('id', userId);
 
-      final verRecId = driverApp['id']?.toString();
-      if (verRecId != null && verRecId.isNotEmpty && !verRecId.startsWith('fallback_')) {
-        try {
-          await _supabase.from('user_verifications').update({
-            'verification_status': 'rejected',
-            'rejection_reason': reason,
-            'verified_at': DateTime.now().toIso8601String(),
-          }).eq('id', verRecId);
-        } catch (_) {}
-      }
+      try {
+        await _supabase.from('drivers').update({
+          'verification_status': 'rejected',
+          'is_available': false,
+        }).eq('user_id', userId);
+      } catch (_) {}
+
+      try {
+        await _supabase.from('user_verifications').update({
+          'verification_status': 'rejected',
+          'rejection_reason': reason,
+          'verified_at': DateTime.now().toIso8601String(),
+        }).eq('user_id', userId);
+      } catch (_) {}
 
       try {
         await NotificationService().createNotification(
@@ -12132,21 +12243,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Widget _buildApplicationsContentEnhanced(bool isDark) {
     var vehicleRecords = _pendingPartnerVehicleApplications;
-    var driverRecords = _verificationRecords.where((r) {
-      final user = r['users'] as Map<String, dynamic>?;
-      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
-          .toLowerCase()
-          .trim();
-      final appStatus = (r['application_status']?.toString() ??
-              user?['application_status']?.toString() ??
-              'pending')
-          .toLowerCase()
-          .trim();
-      final isPending = appStatus == 'pending' ||
-          appStatus == 'submitted' ||
-          appStatus == 'under_review';
-      return role == 'driver' && isPending;
-    }).toList();
+    var driverRecords = _pendingDriverApplications;
 
     if (_applicationSearchQuery.trim().isNotEmpty) {
       final q = _applicationSearchQuery.toLowerCase().trim();

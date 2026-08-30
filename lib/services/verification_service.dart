@@ -773,16 +773,22 @@ class VerificationService {
         };
       }
 
-      final isDriver = driverDetailsPayload.isNotEmpty ||
-          idType.toLowerCase().contains('driver') ||
-          idType.toLowerCase().contains('license');
+      final existingUser = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+      final existingRole = (existingUser?['role']?.toString() ?? '').toLowerCase().trim();
+      final isDriver = driverDetailsPayload.isNotEmpty || existingRole == 'driver';
 
       final userUpdate = <String, dynamic>{
         'verification_status': 'pending',
-        'application_status': 'pending',
         'full_name': normalizedFullName,
         if (normalizedPhone.isNotEmpty) 'phone': normalizedPhone,
-        if (isDriver) 'role': 'driver',
+        if (isDriver) ...{
+          'application_status': 'pending',
+          'role': 'driver',
+        },
       };
       try {
         await supabase.from('users').update(userUpdate).eq('id', userId);
@@ -815,7 +821,7 @@ class VerificationService {
         'face_selfie_url': faceSelfieUrl,
         'selfie_with_id_url': selfieWithIdUrl,
         'verification_status': 'pending',
-        if (isDriver) 'role': 'driver',
+        'role': isDriver ? 'driver' : (existingRole.isNotEmpty ? existingRole : 'renter'),
         'created_at': DateTime.now().toIso8601String(),
       }, driverDetailsPayload);
 
