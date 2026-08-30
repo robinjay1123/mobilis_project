@@ -64,10 +64,12 @@ class BookingInspectionService {
     required String bookingId,
     required Uint8List bytes,
     String extension = 'jpg',
+    String? customFileName,
   }) async {
     final safeExtension = extension.replaceAll('.', '').toLowerCase();
-    final objectPath =
-        '$userId/$bookingId/${DateTime.now().millisecondsSinceEpoch}.$safeExtension';
+    final fileName = customFileName ??
+        '${DateTime.now().millisecondsSinceEpoch}_${DateTime.now().microsecondsSinceEpoch % 1000}';
+    final objectPath = '$userId/$bookingId/$fileName.$safeExtension';
 
     final optimizedBytes = await ImageOptimizationService.optimizeForUpload(
       bytes,
@@ -86,6 +88,29 @@ class BookingInspectionService {
         );
 
     return supabase.storage.from('booking_evidence').getPublicUrl(objectPath);
+  }
+
+  Future<List<String>> uploadMultipleEvidenceBytes({
+    required String userId,
+    required String bookingId,
+    required List<({Uint8List bytes, String extension})> files,
+  }) async {
+    if (files.isEmpty) return [];
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final futures = files.asMap().entries.map((entry) {
+      final index = entry.key;
+      final file = entry.value;
+      return uploadEvidenceBytes(
+        userId: userId,
+        bookingId: bookingId,
+        bytes: file.bytes,
+        extension: file.extension,
+        customFileName: '${now}_${index}_${DateTime.now().microsecondsSinceEpoch % 10000}',
+      );
+    }).toList();
+
+    return await Future.wait(futures);
   }
 
   Future<Map<String, dynamic>> saveInspection({

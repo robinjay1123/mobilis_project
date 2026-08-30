@@ -25,6 +25,11 @@ class ImageOptimizationService {
       UploadImagePreset.standard => (maxDimension: 1600, targetBytes: 500000),
     };
 
+    // Fast-path: If the image is already below or near the target byte size, skip heavy compute
+    if (bytes.lengthInBytes <= limits.targetBytes) {
+      return bytes;
+    }
+
     try {
       return await compute(_optimizeImage, {
         'bytes': bytes,
@@ -49,6 +54,11 @@ Uint8List _optimizeImage(Map<String, dynamic> request) {
   final fileName = request['fileName'] as String;
   final maxDimension = request['maxDimension'] as int;
   final targetBytes = request['targetBytes'] as int;
+
+  if (original.lengthInBytes <= targetBytes) {
+    return original;
+  }
+
   final decoded = img.decodeImage(original);
   if (decoded == null) return original;
 
@@ -61,26 +71,21 @@ Uint8List _optimizeImage(Map<String, dynamic> request) {
             ? img.copyResize(
                 oriented,
                 width: maxDimension,
-                interpolation: img.Interpolation.average,
+                interpolation: img.Interpolation.linear,
               )
             : img.copyResize(
                 oriented,
                 height: maxDimension,
-                interpolation: img.Interpolation.average,
+                interpolation: img.Interpolation.linear,
               ))
       : oriented;
 
   final extension = fileName.split('.').last.toLowerCase();
   Uint8List optimized;
   if (extension == 'png') {
-    optimized = img.encodePng(resized, level: 7);
+    optimized = img.encodePng(resized, level: 4);
   } else {
-    var quality = 82;
-    optimized = img.encodeJpg(resized, quality: quality);
-    while (optimized.lengthInBytes > targetBytes && quality > 52) {
-      quality -= 8;
-      optimized = img.encodeJpg(resized, quality: quality);
-    }
+    optimized = img.encodeJpg(resized, quality: 78);
   }
 
   return optimized.lengthInBytes < original.lengthInBytes

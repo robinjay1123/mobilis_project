@@ -7397,19 +7397,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       if (selectedEvidence.isNotEmpty) {
         _showSuccessSnackBar('Uploading checklist evidence...');
       }
-      final evidenceUrls = <String>[];
-      for (final file in selectedEvidence) {
-        final bytes = file.bytes;
-        if (bytes == null) continue;
-        evidenceUrls.add(
-          await BookingInspectionService().uploadEvidenceBytes(
+      final filesToUpload = selectedEvidence
+          .where((file) => file.bytes != null)
+          .map((file) => (bytes: file.bytes!, extension: file.extension ?? 'jpg'))
+          .toList();
+      final evidenceUrls = await BookingInspectionService()
+          .uploadMultipleEvidenceBytes(
             userId: currentUserId,
             bookingId: bookingId,
-            bytes: bytes,
-            extension: file.extension ?? 'jpg',
-          ),
-        );
-      }
+            files: filesToUpload,
+          );
       await BookingInspectionService().saveInspection(
         bookingId: bookingId,
         inspectionType: inspectionType,
