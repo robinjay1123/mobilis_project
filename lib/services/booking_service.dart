@@ -85,7 +85,7 @@ class BookingService {
     final payload = Map<String, dynamic>.from(updateData);
     final supabase = Supabase.instance.client;
 
-    for (int attempt = 0; attempt < 10; attempt++) {
+    for (int attempt = 0; attempt < 20; attempt++) {
       if (payload.isEmpty) return;
       try {
         await supabase.from('bookings').update(payload).eq('id', bookingId);
@@ -93,9 +93,13 @@ class BookingService {
       } on PostgrestException catch (e) {
         if (e.code == 'PGRST204' ||
             e.message.contains('Could not find the') ||
-            e.message.contains('column of \'bookings\' in the schema cache')) {
+            e.message.contains('column of \'bookings\' in the schema cache') ||
+            e.message.toLowerCase().contains('column')) {
           final match =
-              RegExp(r"Could not find the '([^']+)' column").firstMatch(e.message);
+              RegExp(r"Could not find the '([^']+)' column").firstMatch(e.message) ??
+              RegExp(r"'([^']+)' column of 'bookings'").firstMatch(e.message) ??
+              RegExp(r"column '([^']+)'").firstMatch(e.message) ??
+              RegExp(r#"column "([^"]+)""#).firstMatch(e.message);
           if (match != null && match.groupCount >= 1) {
             final missingCol = match.group(1)!;
             debugPrint(
@@ -5655,7 +5659,7 @@ class BookingService {
       updatePayload['security_deposit_refunded_by'] = operatorId.trim();
     }
 
-    await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
+    await safeUpdateBooking(bookingId, updatePayload);
 
     // Fetch booking to notify renter
     try {
@@ -5693,11 +5697,11 @@ class BookingService {
     required bool isEligible,
     String? ineligibilityReason,
   }) async {
-    await supabase.from('bookings').update({
+    await safeUpdateBooking(bookingId, {
       'security_deposit_return_eligible': isEligible,
       if (ineligibilityReason != null)
         'security_deposit_ineligibility_reason': ineligibilityReason,
-    }).eq('id', bookingId);
+    });
   }
 
   /// Disburse partner net earnings / commission for a completed partner booking.
@@ -5727,7 +5731,7 @@ class BookingService {
       updatePayload['partner_payout_disbursed_by'] = operatorId.trim();
     }
 
-    await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
+    await safeUpdateBooking(bookingId, updatePayload);
 
     if (partnerUserId != null && partnerUserId.isNotEmpty) {
       try {
@@ -5816,7 +5820,7 @@ class BookingService {
       updatePayload['driver_payout_disbursed_by'] = operatorId.trim();
     }
 
-    await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
+    await safeUpdateBooking(bookingId, updatePayload);
 
     // Resolve driver user ID if not explicitly passed
     String? resolvedDriverUserId = driverUserId;

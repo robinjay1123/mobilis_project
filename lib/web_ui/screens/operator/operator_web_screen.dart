@@ -15550,6 +15550,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             : 'GCash');
     PlatformFile? receiptFile;
     bool isSubmitting = false;
+    String? dialogError;
 
     await showDialog<void>(
       context: context,
@@ -16170,6 +16171,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       ),
                     ),
 
+                    if (dialogError != null)
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline_rounded, color: Colors.red, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                dialogError!,
+                                style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
                     // Actions
                     Padding(
                       padding: const EdgeInsets.all(20),
@@ -16191,24 +16215,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       final ref = referenceController.text.trim();
                                       if (ref.isEmpty && receiptFile == null) {
                                         ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Please provide a reference number or upload a receipt.'),
-                                            backgroundColor: Colors.orange,
-                                          ),
-                                        );
+                                        setDialogState(() => dialogError = 'Please provide a reference number or upload a receipt.');
                                         return;
                                       }
                                       if (ref.isNotEmpty && ref.length > 13) {
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
-                                            backgroundColor: Colors.orange,
-                                          ),
-                                        );
+                                        setDialogState(() => dialogError = 'Transaction ID / Reference Number cannot exceed 13 digits.');
                                         return;
                                       }
 
-                                      setDialogState(() => isSubmitting = true);
+                                      setDialogState(() {
+                                        dialogError = null;
+                                        isSubmitting = true;
+                                      });
 
                                       try {
                                         String uploadedReceiptUrl = '';
@@ -16274,13 +16292,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           );
                                         }
                                       } catch (e) {
-                                        setDialogState(() => isSubmitting = false);
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Failed to submit refund: $e'),
-                                            backgroundColor: Colors.red,
-                                          ),
-                                        );
+                                        setDialogState(() {
+                                          isSubmitting = false;
+                                          dialogError = 'Failed to submit refund: ${e.toString().replaceAll('Exception:', '').trim()}';
+                                        });
                                       }
                                     },
                               style: ElevatedButton.styleFrom(
@@ -16369,6 +16384,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         : 'GCash';
     PlatformFile? receiptFile;
     bool isSubmitting = false;
+    String? dialogError;
 
     // Load registered payout methods
     List<PayoutMethod> registeredMethods = [];
@@ -16773,6 +16789,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       ),
                     ),
 
+                    if (dialogError != null)
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline_rounded, color: Colors.red, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                dialogError!,
+                                style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
                     // Actions
                     Padding(
                       padding: const EdgeInsets.all(20),
@@ -16793,25 +16832,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   : () async {
                                       final ref = referenceController.text.trim();
                                       if (ref.isEmpty && receiptFile == null) {
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Please provide a reference number or upload a receipt.'),
-                                            backgroundColor: Colors.orange,
-                                          ),
-                                        );
+                                        setDialogState(() => dialogError = 'Please provide a reference number or upload a receipt.');
                                         return;
                                       }
                                       if (ref.isNotEmpty && ref.length > 13) {
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
-                                            backgroundColor: Colors.orange,
-                                          ),
-                                        );
+                                        setDialogState(() => dialogError = 'Transaction ID / Reference Number cannot exceed 13 digits.');
                                         return;
                                       }
 
-                                      setDialogState(() => isSubmitting = true);
+                                      setDialogState(() {
+                                        dialogError = null;
+                                        isSubmitting = true;
+                                      });
 
                                       try {
                                         String uploadedReceiptUrl = '';
@@ -16877,13 +16909,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           );
                                         }
                                       } catch (e) {
-                                        setDialogState(() => isSubmitting = false);
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Failed to disburse partner payout: $e'),
-                                            backgroundColor: Colors.red,
-                                          ),
-                                        );
+                                        setDialogState(() {
+                                          isSubmitting = false;
+                                          dialogError = 'Failed to disburse partner payout: ${e.toString().replaceAll('Exception:', '').trim()}';
+                                        });
                                       }
                                     },
                               style: ElevatedButton.styleFrom(
@@ -16982,6 +17011,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         : 'GCash';
     PlatformFile? receiptFile;
     bool isSubmitting = false;
+    String? dialogError;
 
     // Load registered payout methods
     List<PayoutMethod> registeredMethods = [];
@@ -17386,6 +17416,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       ),
                     ),
 
+                    if (dialogError != null)
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline_rounded, color: Colors.red, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                dialogError!,
+                                style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
                     // Actions
                     Padding(
                       padding: const EdgeInsets.all(20),
@@ -17406,25 +17459,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   : () async {
                                       final ref = referenceController.text.trim();
                                       if (ref.isEmpty && receiptFile == null) {
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Please provide a reference number or upload a receipt.'),
-                                            backgroundColor: Colors.orange,
-                                          ),
-                                        );
+                                        setDialogState(() => dialogError = 'Please provide a reference number or upload a receipt.');
                                         return;
                                       }
                                       if (ref.isNotEmpty && ref.length > 13) {
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Transaction ID / Reference Number cannot exceed 13 digits.'),
-                                            backgroundColor: Colors.orange,
-                                          ),
-                                        );
+                                        setDialogState(() => dialogError = 'Transaction ID / Reference Number cannot exceed 13 digits.');
                                         return;
                                       }
 
-                                      setDialogState(() => isSubmitting = true);
+                                      setDialogState(() {
+                                        dialogError = null;
+                                        isSubmitting = true;
+                                      });
 
                                       try {
                                         String uploadedReceiptUrl = '';
@@ -17490,13 +17536,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           );
                                         }
                                       } catch (e) {
-                                        setDialogState(() => isSubmitting = false);
-                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Failed to disburse driver payout: $e'),
-                                            backgroundColor: Colors.red,
-                                          ),
-                                        );
+                                        setDialogState(() {
+                                          isSubmitting = false;
+                                          dialogError = 'Failed to disburse driver payout: ${e.toString().replaceAll('Exception:', '').trim()}';
+                                        });
                                       }
                                     },
                               style: ElevatedButton.styleFrom(
