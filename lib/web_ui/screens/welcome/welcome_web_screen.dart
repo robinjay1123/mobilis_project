@@ -48,7 +48,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   static const String facebookUrl = 'https://www.facebook.com/psdc.dagupan';
   static const String mainOfficeLocation = 'Urdaneta City, Pangasinan, Philippines';
   static const String apkDownloadUrl =
-      'https://github.com/robinjay1123/mobilis_project/releases/latest/download/mobilis-app.apk';
+      'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app.apk';
   static const String githubReleasesUrl =
       'https://github.com/robinjay1123/mobilis_project/releases';
 
