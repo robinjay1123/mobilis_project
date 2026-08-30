@@ -88,23 +88,22 @@ class ChatService {
 
       final vehicle = bookingMap['vehicles'] as Map<String, dynamic>?;
       if (vehicle != null) {
-          final imgUrl = _normalizeVehicleImageUrl(vehicle['image_url']);
-          if (imgUrl.isNotEmpty) {
-            bookingMap['vehicle_image_url'] = imgUrl;
-          } else {
-            final images =
-                List<Map<String, dynamic>>.from(
-                  vehicle['vehicle_images'] as List? ?? const [],
-                )..sort((a, b) {
-                  final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
-                  final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
-                  return aOrder.compareTo(bOrder);
-                });
-            if (images.isNotEmpty) {
-              bookingMap['vehicle_image_url'] = _normalizeVehicleImageUrl(
-                images.first['image_url'],
-              );
-            }
+        final imgUrl = _normalizeVehicleImageUrl(vehicle['image_url']);
+        if (imgUrl.isNotEmpty) {
+          bookingMap['vehicle_image_url'] = imgUrl;
+        } else {
+          final images =
+              List<Map<String, dynamic>>.from(
+                vehicle['vehicle_images'] as List? ?? const [],
+              )..sort((a, b) {
+                final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
+                final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
+                return aOrder.compareTo(bOrder);
+              });
+          if (images.isNotEmpty) {
+            bookingMap['vehicle_image_url'] = _normalizeVehicleImageUrl(
+              images.first['image_url'],
+            );
           }
         }
       }
