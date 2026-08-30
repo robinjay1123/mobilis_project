@@ -214,10 +214,15 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
     _showDownloadApkDialog();
   }
 
-  void _showDownloadApkDialog() {
+  void _showDownloadApkDialog({Map<String, dynamic>? selectedVehicle}) {
     showDialog(
       context: context,
       builder: (context) {
+        final vehicleName = selectedVehicle != null
+            ? '${selectedVehicle['brand'] ?? ''} ${selectedVehicle['model'] ?? ''}'.trim()
+            : null;
+        final priceDay = (selectedVehicle?['price_per_day'] as num?)?.toDouble();
+
         return Dialog(
           backgroundColor: const Color(0xFF07142E),
           shape: RoundedRectangleBorder(
@@ -227,37 +232,89 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
             child: Padding(
-              padding: const EdgeInsets.all(28),
+              padding: const EdgeInsets.all(26),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.primary),
+                  if (vehicleName != null && vehicleName.isNotEmpty) ...[
+                    // Selected Vehicle Banner
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF0F2656), Color(0xFF081836)],
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.5)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.directions_car_rounded, color: AppColors.primary, size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  vehicleName,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  priceDay != null ? '₱${priceDay.toStringAsFixed(0)} / day  •  PSDC Verified' : 'PSDC Pangasinan Fleet',
+                                  style: const TextStyle(color: AppColors.primary, fontSize: 11.5, fontWeight: FontWeight.w800),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    child: const Icon(Icons.android_rounded, color: AppColors.primary, size: 36),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Download Mobilis for Android',
+                    const SizedBox(height: 16),
+                  ] else ...[
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.primary),
+                      ),
+                      child: const Icon(Icons.android_rounded, color: AppColors.primary, size: 32),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+
+                  Text(
+                    vehicleName != null ? 'Book in the Mobilis App' : 'Download Mobilis for Android',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 20,
+                      fontSize: 19,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Official release for Renters, Drivers, and Vehicle Partners in Pangasinan.',
+                  const SizedBox(height: 6),
+                  Text(
+                    vehicleName != null
+                        ? 'Download the official Mobilis app to complete real-time reservation, license verification, and digital payment.'
+                        : 'Official release for Renters, Drivers, and Vehicle Partners in Pangasinan.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13, height: 1.5),
+                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12.5, height: 1.45),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   // Direct Download Button
                   SizedBox(
@@ -270,12 +327,12 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                       icon: const Icon(Icons.download_rounded, size: 18),
                       label: const Text(
                         'Direct Download (.apk)',
-                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: const Color(0xFF030A18),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         elevation: 6,
                       ),
@@ -294,20 +351,20 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                       icon: const Icon(Icons.code_rounded, size: 18, color: Colors.white),
                       label: const Text(
                         'View on GitHub Releases',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white),
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: Colors.white),
                       ),
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Color(0x33FFFFFF)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
 
                   // Installation Tips
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: const Color(0xFF030A18),
                       borderRadius: BorderRadius.circular(12),
@@ -316,18 +373,18 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                     child: const Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 16),
+                        Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 15),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'If your browser prompts "File might be harmful", tap "Download anyway" -> Open file -> Tap "Install".',
-                            style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11.5, height: 1.4),
+                            'If prompted "File might be harmful", tap "Download anyway" -> Open file -> Tap "Install".',
+                            style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11, height: 1.4),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
                     child: const Text('Close', style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold)),
@@ -341,11 +398,11 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
     );
   }
 
-  // Curated fallback vehicle list
-  List<Map<String, dynamic>> get _curatedVehicles => [
+  // Curated Fallback Vehicles (4 Strict Categories: Sedan, SUV, Pickup, Van)
+  final List<Map<String, dynamic>> _curatedVehicles = [
     {
       'brand': 'Toyota',
-      'model': 'Vios 1.3 XLE Dual VVT-i',
+      'model': 'Vios 1.3 Dual VVT-i',
       'year': 2024,
       'category': 'Sedan',
       'seats': 5,
@@ -354,7 +411,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       'price_per_day': 1800.0,
       'price_per_hour': 180.0,
       'image_url': 'https://images.unsplash.com/photo-1590362891991-f776e747a588?auto=format&fit=crop&w=800&q=80',
-      'tag': 'Best Seller',
+      'tag': 'PSDC Fleet • Urdaneta',
     },
     {
       'brand': 'Toyota',
@@ -367,20 +424,20 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       'price_per_day': 3500.0,
       'price_per_hour': 380.0,
       'image_url': 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=800&q=80',
-      'tag': 'Premium 7-Seater',
+      'tag': 'PSDC Fleet • Urdaneta',
     },
     {
       'brand': 'Toyota',
-      'model': 'Innova 2.8 E Diesel AT',
-      'year': 2023,
-      'category': 'MPV',
-      'seats': 8,
+      'model': 'Hilux Conquest 2.8 4x4',
+      'year': 2024,
+      'category': 'Pickup',
+      'seats': 5,
       'transmission': 'Automatic',
       'fuel_type': 'Diesel',
-      'price_per_day': 2800.0,
-      'price_per_hour': 300.0,
-      'image_url': 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80',
-      'tag': 'Family Favorite',
+      'price_per_day': 3200.0,
+      'price_per_hour': 340.0,
+      'image_url': 'https://images.unsplash.com/photo-1559416523-140ddc3d238c?auto=format&fit=crop&w=800&q=80',
+      'tag': 'PSDC Fleet • Urdaneta',
     },
     {
       'brand': 'Toyota',
@@ -393,33 +450,33 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       'price_per_day': 3800.0,
       'price_per_hour': 420.0,
       'image_url': 'https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&w=800&q=80',
-      'tag': 'Group & Tour Van',
-    },
-    {
-      'brand': 'Mitsubishi',
-      'model': 'Xpander Cross 1.5 AT',
-      'year': 2024,
-      'category': 'MPV',
-      'seats': 7,
-      'transmission': 'Automatic',
-      'fuel_type': 'Gasoline',
-      'price_per_day': 2600.0,
-      'price_per_hour': 280.0,
-      'image_url': 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=800&q=80',
-      'tag': 'Comfort Cruiser',
+      'tag': 'PSDC Fleet • Urdaneta',
     },
     {
       'brand': 'Toyota',
       'model': 'Wigo 1.0G VVT-i',
       'year': 2024,
-      'category': 'Compact',
+      'category': 'Sedan',
       'seats': 5,
       'transmission': 'Automatic',
       'fuel_type': 'Gasoline',
       'price_per_day': 1500.0,
       'price_per_hour': 160.0,
       'image_url': 'https://images.unsplash.com/photo-1541899481282-d53bffe3c35d?auto=format&fit=crop&w=800&q=80',
-      'tag': 'Fuel Efficient',
+      'tag': 'PSDC Fleet • Urdaneta',
+    },
+    {
+      'brand': 'Mitsubishi',
+      'model': 'Xpander Cross 1.5 AT',
+      'year': 2024,
+      'category': 'SUV',
+      'seats': 7,
+      'transmission': 'Automatic',
+      'fuel_type': 'Gasoline',
+      'price_per_day': 2600.0,
+      'price_per_hour': 280.0,
+      'image_url': 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=800&q=80',
+      'tag': 'PSDC Fleet • Urdaneta',
     },
   ];
 
@@ -435,15 +492,43 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
 
       switch (_selectedCategory) {
         case 'sedan':
-          return combined.contains('sedan') || combined.contains('vios') || combined.contains('camry') || (v['seats'] == 4 || v['seats'] == 5);
+          return combined.contains('sedan') ||
+              combined.contains('vios') ||
+              combined.contains('wigo') ||
+              combined.contains('camry') ||
+              combined.contains('altis') ||
+              combined.contains('city') ||
+              combined.contains('hatchback') ||
+              ((v['seats'] == null || (v['seats'] as int) <= 5) &&
+                  !combined.contains('pickup') &&
+                  !combined.contains('hilux') &&
+                  !combined.contains('suv') &&
+                  !combined.contains('van'));
         case 'suv':
-          return combined.contains('suv') || combined.contains('fortuner') || combined.contains('montero') || combined.contains('garcia');
-        case 'mpv':
-          return combined.contains('mpv') || combined.contains('innova') || combined.contains('xpander') || (v['seats'] != null && (v['seats'] as int) >= 7);
+          return combined.contains('suv') ||
+              combined.contains('fortuner') ||
+              combined.contains('montero') ||
+              combined.contains('innova') ||
+              combined.contains('xpander') ||
+              combined.contains('rush') ||
+              combined.contains('everest') ||
+              combined.contains('cr-v') ||
+              combined.contains('mpv');
+        case 'pickup':
+          return combined.contains('pickup') ||
+              combined.contains('hilux') ||
+              combined.contains('ranger') ||
+              combined.contains('navara') ||
+              combined.contains('d-max') ||
+              combined.contains('strada') ||
+              combined.contains('triton');
         case 'van':
-          return combined.contains('van') || combined.contains('hiace') || combined.contains('commuter') || (v['seats'] != null && (v['seats'] as int) >= 10);
-        case 'compact':
-          return combined.contains('compact') || combined.contains('wigo') || combined.contains('hatchback') || combined.contains('byd');
+          return combined.contains('van') ||
+              combined.contains('hiace') ||
+              combined.contains('commuter') ||
+              combined.contains('urvan') ||
+              combined.contains('grandia') ||
+              (v['seats'] != null && (v['seats'] as int) >= 10);
         default:
           return combined.contains(_selectedCategory.toLowerCase());
       }
@@ -1315,23 +1400,22 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
               ),
               const SizedBox(height: 28),
 
-              // Category Filter Tabs
+              // 4 Category Filter Tabs + All
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _buildCategoryFilterTab('all', 'All Vehicles'),
-                    _buildCategoryFilterTab('sedan', 'Sedans (5-Seats)'),
-                    _buildCategoryFilterTab('suv', 'SUVs (7-Seats)'),
-                    _buildCategoryFilterTab('mpv', 'MPVs (7-8 Seats)'),
-                    _buildCategoryFilterTab('van', 'Tour Vans (15-Seats)'),
-                    _buildCategoryFilterTab('compact', 'Compact Hatchbacks'),
+                    _buildCategoryFilterTab('all', 'All Vehicles', Icons.directions_car_filled_rounded),
+                    _buildCategoryFilterTab('sedan', 'Sedans', Icons.directions_car_rounded),
+                    _buildCategoryFilterTab('suv', 'SUVs', Icons.car_rental_rounded),
+                    _buildCategoryFilterTab('pickup', 'Pickups', Icons.local_shipping_rounded),
+                    _buildCategoryFilterTab('van', 'Vans', Icons.airport_shuttle_rounded),
                   ],
                 ),
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
               // Vehicle Grid
               if (_isLoadingVehicles)
@@ -1343,13 +1427,13 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 LayoutBuilder(
                   builder: (context, constraints) {
                     int crossAxisCount = 3;
-                    double childAspectRatio = 0.82;
+                    double childAspectRatio = 1.18;
                     if (constraints.maxWidth < 680) {
                       crossAxisCount = 1;
-                      childAspectRatio = 0.92;
+                      childAspectRatio = 1.12;
                     } else if (constraints.maxWidth < 1050) {
                       crossAxisCount = 2;
-                      childAspectRatio = 0.85;
+                      childAspectRatio = 1.16;
                     }
 
                     return GridView.builder(
@@ -1358,14 +1442,15 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                       itemCount: vehicles.length,
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: crossAxisCount,
-                        crossAxisSpacing: 20,
-                        mainAxisSpacing: 20,
+                        crossAxisSpacing: 18,
+                        mainAxisSpacing: 18,
                         childAspectRatio: childAspectRatio,
                       ),
                       itemBuilder: (context, index) {
+                        final v = vehicles[index];
                         return _HoverVehicleCard(
-                          vehicle: vehicles[index],
-                          onBook: _goToLogin,
+                          vehicle: v,
+                          onBook: () => _showDownloadApkDialog(selectedVehicle: v),
                         );
                       },
                     );
@@ -1378,29 +1463,52 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
     );
   }
 
-  Widget _buildCategoryFilterTab(String key, String label) {
+  Widget _buildCategoryFilterTab(String key, String label, IconData icon) {
     final isSelected = _selectedCategory == key;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 5),
       child: InkWell(
         onTap: () => setState(() => _selectedCategory = key),
         borderRadius: BorderRadius.circular(30),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: isSelected ? AppColors.primary : const Color(0xFF0A1733),
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
               color: isSelected ? AppColors.primary : const Color(0x22FFFFFF),
+              width: isSelected ? 1.5 : 1,
             ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.35),
+                      blurRadius: 14,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? const Color(0xFF030A18) : const Color(0xFFCBD5E1),
-              fontSize: 12.5,
-              fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 15,
+                color: isSelected ? const Color(0xFF030A18) : const Color(0xFF94A3B8),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? const Color(0xFF030A18) : const Color(0xFFCBD5E1),
+                  fontSize: 12.5,
+                  fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1947,7 +2055,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
-                            children: ['Sedan', 'SUV', 'MPV', 'Van', 'Compact'].map((type) {
+                            children: ['Sedan', 'SUV', 'Pickup', 'Van'].map((type) {
                               final isSel = _estimatorVehicleType == type;
                               return InkWell(
                                 onTap: () => setState(() => _estimatorVehicleType = type),
@@ -2717,7 +2825,7 @@ class _HoverVehicleCard extends StatefulWidget {
   State<_HoverVehicleCard> createState() => _HoverVehicleCardState();
 }
 
-class _HoverVehicleCardState extends State<_HoverVehicleCard> {
+class _HoverVehicleCardState extends State<_HoverVehicleCard> with SingleTickerProviderStateMixin {
   bool _isHovered = false;
 
   @override
@@ -2731,8 +2839,7 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
     final fuel = vehicle['fuel_type']?.toString() ?? 'Gasoline';
     final priceDay = (vehicle['price_per_day'] as num?)?.toDouble() ?? 1800.0;
     final priceHour = (vehicle['price_per_hour'] as num?)?.toDouble() ?? (priceDay / 10).roundToDouble();
-    final tag = vehicle['tag']?.toString() ?? 'PSDC Verified';
-    final isPartner = vehicle['is_partner'] == true;
+    final tag = vehicle['tag']?.toString() ?? 'PSDC Fleet • Urdaneta';
     final plate = vehicle['plate_number']?.toString().trim() ?? '';
     
     String? imageUrl = vehicle['image_url']?.toString();
@@ -2745,42 +2852,43 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 240),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        transform: Matrix4.translationValues(0, _isHovered ? -8 : 0, 0),
+        transform: Matrix4.translationValues(0, _isHovered ? -6 : 0, 0),
         decoration: BoxDecoration(
-          color: _isHovered ? const Color(0xFF0D204A) : const Color(0xFF0A1838),
-          borderRadius: BorderRadius.circular(22),
+          color: _isHovered ? const Color(0xFF0D2048) : const Color(0xFF091636),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: _isHovered ? AppColors.primary : const Color(0x22FFFFFF),
-            width: _isHovered ? 1.8 : 1,
+            width: _isHovered ? 1.6 : 1,
           ),
           boxShadow: [
             BoxShadow(
               color: _isHovered
                   ? AppColors.primary.withValues(alpha: 0.35)
-                  : Colors.black.withValues(alpha: 0.3),
-              blurRadius: _isHovered ? 28 : 16,
-              offset: Offset(0, _isHovered ? 12 : 6),
+                  : Colors.black.withValues(alpha: 0.35),
+              blurRadius: _isHovered ? 24 : 14,
+              offset: Offset(0, _isHovered ? 10 : 5),
             ),
           ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Vehicle Image Container with Zoom Effect on Hover
             Stack(
               children: [
                 ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(19)),
                   child: Container(
-                    height: 185,
+                    height: 165,
                     width: double.infinity,
                     color: const Color(0xFF061026),
                     child: AnimatedScale(
                       scale: _isHovered ? 1.06 : 1.0,
-                      duration: const Duration(milliseconds: 280),
+                      duration: const Duration(milliseconds: 260),
                       curve: Curves.easeOutCubic,
                       child: imageUrl != null && imageUrl.isNotEmpty
                           ? Image.network(
@@ -2797,7 +2905,7 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  height: 48,
+                  height: 40,
                   child: Container(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -2805,51 +2913,49 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
                         end: Alignment.bottomCenter,
                         colors: [
                           Colors.transparent,
-                          Colors.black.withValues(alpha: 0.7),
+                          Colors.black.withValues(alpha: 0.65),
                         ],
                       ),
                     ),
                   ),
                 ),
-                // Fleet / Partner Tag
+                // PSDC Fleet Tag
                 Positioned(
-                  top: 12,
-                  left: 12,
+                  top: 10,
+                  left: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                     decoration: BoxDecoration(
-                      gradient: isPartner
-                          ? const LinearGradient(colors: [Color(0xFF38BDF8), Color(0xFF0284C7)])
-                          : const LinearGradient(colors: [Color(0xFFFFD740), Color(0xFFFFB300)]),
-                      borderRadius: BorderRadius.circular(8),
+                      gradient: const LinearGradient(colors: [Color(0xFFFFD740), Color(0xFFFFB300)]),
+                      borderRadius: BorderRadius.circular(6),
                       boxShadow: [
                         BoxShadow(
-                          color: (isPartner ? const Color(0xFF38BDF8) : AppColors.primary).withValues(alpha: 0.4),
-                          blurRadius: 8,
+                          color: AppColors.primary.withValues(alpha: 0.35),
+                          blurRadius: 6,
                         ),
                       ],
                     ),
                     child: Text(
                       tag,
-                      style: TextStyle(
-                        color: isPartner ? Colors.white : const Color(0xFF030A18),
-                        fontSize: 10.5,
+                      style: const TextStyle(
+                        color: Color(0xFF030A18),
+                        fontSize: 10,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
                 ),
-                // 100% GPS Monitored Indicator Badge
+                // GPS Monitored Indicator Badge
                 Positioned(
-                  top: 12,
-                  right: 12,
+                  top: 10,
+                  right: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
                     decoration: BoxDecoration(
-                      color: const Color(0xCC000000),
+                      color: const Color(0xDD000000),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: _isHovered ? AppColors.primary : const Color(0x44FFFFFF),
+                        color: _isHovered ? AppColors.primary : const Color(0x33FFFFFF),
                         width: 1,
                       ),
                     ),
@@ -2864,12 +2970,12 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
                             color: _isHovered ? AppColors.primary : const Color(0xFF10B981),
                           ),
                         ),
-                        const SizedBox(width: 5),
+                        const SizedBox(width: 4.5),
                         const Text(
                           'GPS LIVE',
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 9.5,
+                            fontSize: 9,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.5,
                           ),
@@ -2881,130 +2987,122 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
               ],
             ),
 
-            // Details Section
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '$brand $model',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16.5,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
+            // Compact Details Section (Snug fit, no giant empty space)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '$brand $model',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (plate.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0x22FFFFFF),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            plate,
+                            style: const TextStyle(
+                              color: Color(0xFF94A3B8),
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
                             ),
-                            if (plate.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0x22FFFFFF),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  plate,
-                                  style: const TextStyle(
-                                    color: Color(0xFF94A3B8),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '$year Model  •  Exclusively in Pangasinan',
+                    style: const TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Specs Chips
+                  Wrap(
+                    spacing: 5,
+                    runSpacing: 5,
+                    children: [
+                      _buildSpecBadge(Icons.people_alt_outlined, '$seats Seats'),
+                      _buildSpecBadge(Icons.settings_outlined, transmission),
+                      _buildSpecBadge(Icons.local_gas_station_outlined, fuel),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+                  const Divider(color: Color(0x1AFFFFFF), height: 1),
+                  const SizedBox(height: 10),
+
+                  // Pricing & Action Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '₱${priceDay.toStringAsFixed(0)} / day',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            '₱${priceHour.toStringAsFixed(0)}/hr (12h min)',
+                            style: const TextStyle(
+                              color: Color(0xFF94A3B8),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      ElevatedButton(
+                        onPressed: widget.onBook,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isHovered ? AppColors.primary : const Color(0xFFFFD740),
+                          foregroundColor: const Color(0xFF030A18),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
+                          elevation: _isHovered ? 5 : 2,
+                          shadowColor: AppColors.primary.withValues(alpha: 0.5),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('Book Now', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5)),
+                            if (_isHovered) ...[
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_forward_rounded, size: 13),
                             ],
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '$year Model  •  Exclusively in Pangasinan',
-                          style: const TextStyle(
-                            color: Color(0xFF64748B),
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // Specs Chips
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            _buildSpecBadge(Icons.people_alt_outlined, '$seats Seats'),
-                            _buildSpecBadge(Icons.settings_outlined, transmission),
-                            _buildSpecBadge(Icons.local_gas_station_outlined, fuel),
-                          ],
-                        ),
-                      ],
-                    ),
-
-                    // Pricing & Action Row
-                    Column(
-                      children: [
-                        const Divider(color: Color(0x1AFFFFFF), height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '₱${priceDay.toStringAsFixed(0)} / day',
-                                  style: const TextStyle(
-                                    color: AppColors.primary,
-                                    fontSize: 16.5,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                Text(
-                                  '₱${priceHour.toStringAsFixed(0)}/hr (12h min)',
-                                  style: const TextStyle(
-                                    color: Color(0xFF94A3B8),
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            ElevatedButton(
-                              onPressed: widget.onBook,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _isHovered ? AppColors.primary : const Color(0xFFFFD740),
-                                foregroundColor: const Color(0xFF030A18),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                elevation: _isHovered ? 6 : 2,
-                                shadowColor: AppColors.primary.withValues(alpha: 0.5),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Text('Book Now', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
-                                  if (_isHovered) ...[
-                                    const SizedBox(width: 4),
-                                    const Icon(Icons.arrow_forward_rounded, size: 14),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
@@ -3018,14 +3116,14 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.directions_car_rounded, size: 54, color: AppColors.primary.withValues(alpha: 0.7)),
-          const SizedBox(height: 6),
+          Icon(Icons.directions_car_rounded, size: 48, color: AppColors.primary.withValues(alpha: 0.7)),
+          const SizedBox(height: 4),
           Text(
             '$brand $model',
             style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 2),
-          const Text('Mobilis Verified Vehicle', style: TextStyle(color: Color(0xFF64748B), fontSize: 10.5)),
+          const Text('Mobilis Verified Vehicle', style: TextStyle(color: Color(0xFF64748B), fontSize: 10)),
         ],
       ),
     );
@@ -3033,7 +3131,7 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
 
   Widget _buildSpecBadge(IconData icon, String label) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
       decoration: BoxDecoration(
         color: const Color(0xFF061229),
         borderRadius: BorderRadius.circular(6),
@@ -3042,13 +3140,13 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: AppColors.primary),
-          const SizedBox(width: 4),
+          Icon(icon, size: 11.5, color: AppColors.primary),
+          const SizedBox(width: 3.5),
           Text(
             label,
             style: const TextStyle(
               color: Color(0xFFCBD5E1),
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: FontWeight.w600,
             ),
           ),
