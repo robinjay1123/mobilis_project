@@ -48,7 +48,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   static const String mainOfficeLocation = 'Urdaneta City, Pangasinan, Philippines';
   static const String mainOfficePlusCode = 'XGFW+JQ Urdaneta City, Pangasinan';
   static const String googleMapsLocationUrl =
-      'https://www.google.com/maps/search/?api=1&query=XGFW%2BJQ+Urdaneta+City%2C+Pangasinan';
+      'https://maps.app.goo.gl/5YNiPsuy2GTGxdUy7';
   static const String apkDownloadUrl =
       'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app.apk';
   static const String githubReleasesUrl =
