@@ -17997,6 +17997,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     var currentBookingData = Map<String, dynamic>.from(booking);
 
+    // Determine if the current user is the vehicle owner.
+    // Only the vehicle owner may submit — everyone else gets a read-only view.
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final vehicleOwnerId = vehicle?['owner_id']?.toString() ?? '';
+    final isViewOnly = vehicleOwnerId.isNotEmpty && currentUserId != vehicleOwnerId;
+
     final fuelController = TextEditingController();
     final tiresController = TextEditingController();
     final magsController = TextEditingController();
@@ -18033,7 +18039,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool returnDepositEligible = true;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // If view-only, show a simpler read-only dialog and exit early
+    if (isViewOnly) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          title: const Row(
+            children: [
+              Icon(Icons.fact_check_outlined, color: AppColors.primary),
+              SizedBox(width: 10),
+              Text('Inspection Checklist (View Only)'),
+            ],
+          ),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock_outline_rounded, size: 48, color: Colors.grey),
+              SizedBox(height: 14),
+              Text(
+                'Only the vehicle owner can submit the inspection checklist.\n\nYou can view the submitted checklist once the owner has completed it.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+      for (final c in inspectionControllers) c.dispose();
+      return;
+    }
+
     final shouldSave = await showDialog<bool>(
+
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => PopScope(

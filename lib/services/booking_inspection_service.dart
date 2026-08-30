@@ -198,16 +198,10 @@ class BookingInspectionService {
     required String inspectorId,
   }) async {
     final booking = await _getInspectionBooking(bookingId);
-    final expectedInspectorId = await _requiredInspectorId(
-      booking,
-      fallbackInspectorId: inspectorId,
-    );
+    final expectedInspectorId = await _requiredInspectorId(booking);
     if (expectedInspectorId != inspectorId) {
-      final isPartnerVehicle = _isPartnerVehicle(booking);
       throw Exception(
-        isPartnerVehicle
-            ? 'Only the partner who owns this vehicle can submit its checklist'
-            : 'Only the operator assigned to this PSDC booking can submit its checklist',
+        'Only the vehicle owner can submit the inspection checklist.',
       );
     }
   }
@@ -341,37 +335,22 @@ class BookingInspectionService {
         vehicle?['partner_vehicle_id'] != null;
   }
 
+  /// Returns the vehicle owner's user ID — the ONLY person allowed to submit
+  /// an inspection checklist for this booking.
   Future<String> _requiredInspectorId(
     Map<String, dynamic> booking, {
     String? fallbackInspectorId,
   }) async {
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-    final owner = vehicle?['owner'] as Map<String, dynamic>?;
     final ownerId = vehicle?['owner_id']?.toString();
-    if (_isPartnerVehicle(booking) && ownerId?.isNotEmpty == true) {
-      return ownerId!;
-    }
 
-    final operatorId = booking['operator_id']?.toString();
-    if (operatorId?.isNotEmpty == true) return operatorId!;
+    if (ownerId != null && ownerId.isNotEmpty) return ownerId;
 
-    final ownerRole = owner?['role']?.toString().trim().toLowerCase();
-    if ((ownerRole == 'operator' || ownerRole == 'admin') &&
-        ownerId?.isNotEmpty == true) {
-      return ownerId!;
-    }
-
-    if (fallbackInspectorId != null && fallbackInspectorId.isNotEmpty) {
-      final user = await supabase
-          .from('users')
-          .select('role')
-          .eq('id', fallbackInspectorId)
-          .maybeSingle();
-      final role = user?['role']?.toString().trim().toLowerCase();
-      if (role == 'operator' || role == 'admin') return fallbackInspectorId;
-    }
-    throw Exception('No responsible operator is assigned to this PSDC booking');
+    throw Exception(
+      'This vehicle has no registered owner. The checklist cannot be submitted.',
+    );
   }
+
 
   bool _isCompleteInspection(Map<String, dynamic> row) {
     final evidence = row['evidence_urls'];

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'image_optimization_service.dart';
 import 'package:flutter/foundation.dart';
@@ -552,48 +553,53 @@ class DriverService {
         throw Exception('Driver is not authenticated');
       }
 
-      String? driverProfileId;
-      try {
-        final profile = await supabase
+      // Phase 1: fetch driver profile + assignment in parallel
+      final prefetchResults = await Future.wait([
+        supabase
             .from('drivers')
             .select('id')
             .eq('user_id', currentUserId)
-            .maybeSingle();
-        driverProfileId = profile?['id']?.toString();
-      } catch (_) {}
+            .maybeSingle()
+            .catchError((_) => null),
+        supabase
+            .from('driver_job_assignments')
+            .select('''
+              id,
+              booking_id,
+              driver_id,
+              trip_fee,
+              status,
+              bookings:booking_id (
+                id,
+                driver_id,
+                operator_id,
+                renter_id,
+                partner_id,
+                status,
+                vehicle_id,
+                start_date,
+                end_date,
+                vehicles:vehicle_id (
+                  id,
+                  brand,
+                  model,
+                  owner_id
+                )
+              )
+            ''')
+            .eq('id', jobAssignmentId)
+            .maybeSingle(),
+      ]);
+
+      final driverProfile = prefetchResults[0] as Map<String, dynamic>?;
+      final driverProfileId = driverProfile?['id']?.toString();
 
       final validDriverIds = {currentUserId};
       if (driverProfileId != null) validDriverIds.add(driverProfileId);
 
-      final assignment = await supabase
-          .from('driver_job_assignments')
-          .select('''
-            id,
-            booking_id,
-            driver_id,
-            trip_fee,
-            status,
-            bookings:booking_id (
-              id,
-              driver_id,
-              operator_id,
-              renter_id,
-              status,
-              vehicle_id,
-              start_date,
-              end_date,
-              vehicles:vehicle_id (
-                id,
-                brand,
-                model,
-                owner_id
-              )
-            )
-          ''')
-          .eq('id', jobAssignmentId)
-          .maybeSingle();
-
+      final assignment = prefetchResults[1] as Map<String, dynamic>?;
       if (assignment == null) throw Exception('Job offer not found');
+
       final assignedDriverId = assignment['driver_id']?.toString() ?? '';
       if (!validDriverIds.contains(assignedDriverId)) {
         throw Exception('This job offer belongs to another driver');
@@ -613,37 +619,42 @@ class DriverService {
 
       final now = DateTime.now().toIso8601String();
 
-      // 1. Update assignment
-      await supabase
-          .from('driver_job_assignments')
-          .update({'status': 'accepted', 'replied_at': now, 'updated_at': now})
-          .eq('id', jobAssignmentId);
+      // Phase 2: run all 4 critical operations simultaneously
+      final writeResults = await Future.wait([
+        // 1. Accept assignment
+        supabase
+            .from('driver_job_assignments')
+            .update({'status': 'accepted', 'replied_at': now, 'updated_at': now})
+            .eq('id', jobAssignmentId),
 
-      // 2. Update booking to driver_accepted (waiting for operator/partner to finalize)
-      await supabase
-          .from('bookings')
-          .update({
-            'driver_id': currentUserId,
-            'with_driver': true,
-            'status': 'driver_accepted',
-            'updated_at': now,
-          })
-          .eq('id', bookingId);
+        // 2. Update booking to driver_accepted
+        supabase
+            .from('bookings')
+            .update({
+              'driver_id': currentUserId,
+              'with_driver': true,
+              'status': 'driver_accepted',
+              'updated_at': now,
+            })
+            .eq('id', bookingId),
 
-      // 3. Mark driver busy during active job
-      try {
-        await supabase
+        // 3. Mark driver busy
+        supabase
             .from('users')
             .update({'is_available': false})
-            .eq('id', currentUserId);
-      } catch (_) {}
+            .eq('id', currentUserId)
+            .catchError((_) => null),
 
-      // 4. Resolve driver and vehicle details for notifications
-      final driverUser = await supabase
-          .from('users')
-          .select('full_name, phone')
-          .eq('id', currentUserId)
-          .maybeSingle();
+        // 4. Fetch driver name for notifications
+        supabase
+            .from('users')
+            .select('full_name, phone')
+            .eq('id', currentUserId)
+            .maybeSingle()
+            .catchError((_) => null),
+      ]);
+
+      final driverUser = writeResults[3] as Map<String, dynamic>?;
       final driverName =
           driverUser?['full_name']?.toString().trim().isNotEmpty == true
           ? driverUser!['full_name'].toString().trim()
@@ -653,56 +664,61 @@ class DriverService {
       final vehicleTitle = vehicle != null
           ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
           : 'Assigned Vehicle';
+      final vehicleOwnerId =
+          vehicle?['owner_id']?.toString() ?? booking['partner_id']?.toString();
+      final renterId = booking['renter_id']?.toString();
 
-      // 5. Notify Operator & Partner to finalize the booking
-      final vehicleOwnerId = vehicle?['owner_id']?.toString() ?? booking['partner_id']?.toString();
-      await NotificationService().notifyOperatorDriverResponse(
-        bookingId: bookingId,
-        driverId: currentUserId,
-        driverName: driverName,
-        accepted: true,
-        operatorId: booking['operator_id']?.toString(),
-        partnerId: booking['partner_id']?.toString(),
-        ownerId: vehicleOwnerId,
+      // Fire-and-forget all side effects — driver's UI updates immediately
+      unawaited(
+        NotificationService().notifyOperatorDriverResponse(
+          bookingId: bookingId,
+          driverId: currentUserId,
+          driverName: driverName,
+          accepted: true,
+          operatorId: booking['operator_id']?.toString(),
+          partnerId: booking['partner_id']?.toString(),
+          ownerId: vehicleOwnerId,
+        ).catchError((_) => 0),
       );
 
-      // 6. Notify Renter
-      final renterId = booking['renter_id']?.toString();
       if (renterId != null && renterId.isNotEmpty) {
-        try {
-          await supabase.from('notifications').insert({
+        unawaited(
+          supabase.from('notifications').insert({
             'user_id': renterId,
             'title': '🚗 Driver Accepted Job Offer!',
-            'message': '$driverName has accepted the trip assignment for $vehicleTitle. Waiting for operator/partner to finalize the booking.',
+            'message':
+                '$driverName has accepted the trip assignment for $vehicleTitle. Waiting for operator/partner to finalize the booking.',
             'type': 'booking',
             'data': {'booking_id': bookingId, 'status': 'driver_accepted'},
             'created_at': now,
-          });
-        } catch (_) {}
+          }).then<void>((_) {}).catchError((_) {}),
+        );
       }
 
-      // 7. Add driver to booking group conversation
-      try {
-        final conversation = await ChatService().getConversationBookingContext(bookingId);
-        if (conversation != null) {
-          final conversationId = conversation['id']?.toString();
-          if (conversationId != null) {
-            await ChatService().sendMessage(
-              conversationId: conversationId,
-              senderId: currentUserId,
-              content: '👋 Hello! I ($driverName) have accepted this trip assignment and will be your certified driver.',
-            );
-          }
-        }
-      } catch (_) {}
+      unawaited(
+        ChatService()
+            .getConversationBookingContext(bookingId)
+            .then<void>((conversation) async {
+              final conversationId = conversation?['id']?.toString();
+              if (conversationId != null) {
+                await ChatService().sendMessage(
+                  conversationId: conversationId,
+                  senderId: currentUserId,
+                  content:
+                      '👋 Hello! I ($driverName) have accepted this trip assignment and will be your certified driver.',
+                );
+              }
+            })
+            .catchError((_) {}),
+      );
 
-      // 8. Log in admin_audit_logs
-      try {
-        await supabase.from('admin_audit_logs').insert({
+      unawaited(
+        supabase.from('admin_audit_logs').insert({
           'entity_id': bookingId,
           'entity_type': 'booking',
           'action': 'driver_accepted_assignment',
-          'notes': '$driverName accepted the driver job assignment for booking #$bookingId.',
+          'notes':
+              '$driverName accepted the driver job assignment for booking #$bookingId.',
           'booking_id': bookingId,
           'created_at': now,
           'metadata': {
@@ -711,8 +727,8 @@ class DriverService {
             'job_assignment_id': jobAssignmentId,
             'trip_fee': assignment['trip_fee'],
           },
-        });
-      } catch (_) {}
+        }).then<void>((_) {}).catchError((_) {}),
+      );
 
       debugPrint('Job offer accepted successfully');
     } on PostgrestException catch (e) {
@@ -724,6 +740,7 @@ class DriverService {
     }
   }
 
+
   /// Decline job offer
   Future<void> declineJobOffer(String jobAssignmentId, {String? reason}) async {
     try {
@@ -734,38 +751,44 @@ class DriverService {
         throw Exception('Driver is not authenticated');
       }
 
-      String? driverProfileId;
-      try {
-        final profile = await supabase
+      // Fetch driver profile ID and assignment in parallel
+      final prefetchResults = await Future.wait([
+        supabase
             .from('drivers')
             .select('id')
             .eq('user_id', currentUserId)
-            .maybeSingle();
-        driverProfileId = profile?['id']?.toString();
-      } catch (_) {}
+            .maybeSingle()
+            .catchError((_) => null),
+        supabase
+            .from('driver_job_assignments')
+            .select('''
+              id,
+              booking_id,
+              driver_id,
+              status,
+              bookings:booking_id (
+                id,
+                driver_id,
+                operator_id,
+                renter_id,
+                status,
+                partner_id,
+                vehicles:vehicle_id (owner_id)
+              )
+            ''')
+            .eq('id', jobAssignmentId)
+            .maybeSingle(),
+      ]);
+
+      final driverProfile = prefetchResults[0] as Map<String, dynamic>?;
+      final driverProfileId = driverProfile?['id']?.toString();
 
       final validDriverIds = {currentUserId};
       if (driverProfileId != null) validDriverIds.add(driverProfileId);
 
-      final assignment = await supabase
-          .from('driver_job_assignments')
-          .select('''
-            id,
-            booking_id,
-            driver_id,
-            status,
-            bookings:booking_id (
-              id,
-              driver_id,
-              operator_id,
-              renter_id,
-              status
-            )
-          ''')
-          .eq('id', jobAssignmentId)
-          .maybeSingle();
-
+      final assignment = prefetchResults[1] as Map<String, dynamic>?;
       if (assignment == null) throw Exception('Job offer not found');
+
       final assignedDriverId = assignment['driver_id']?.toString() ?? '';
       if (!validDriverIds.contains(assignedDriverId)) {
         throw Exception('This job offer belongs to another driver');
@@ -781,56 +804,65 @@ class DriverService {
       final bookingId = assignment['booking_id']?.toString() ?? '';
       final now = DateTime.now().toIso8601String();
 
-      // 1. Update assignment to rejected/declined
-      await supabase
-          .from('driver_job_assignments')
-          .update({
-            'status': 'rejected',
-            'rejection_reason': reason ?? 'Driver declined offer',
-            'replied_at': now,
-            'updated_at': now,
-          })
-          .eq('id', jobAssignmentId);
-
-      // 2. Reset booking driver allocation so operator/partner can reassign
-      if (bookingId.isNotEmpty) {
-        await supabase
-            .from('bookings')
+      // Run all 4 operations in parallel — reject, reset booking, mark available, fetch name
+      final writeResults = await Future.wait([
+        // 1. Reject assignment
+        supabase
+            .from('driver_job_assignments')
             .update({
-              'driver_id': null,
-              'driver_assigned_at': null,
-              'status': 'pending',
+              'status': 'rejected',
+              'rejection_reason': reason ?? 'Driver declined offer',
+              'replied_at': now,
               'updated_at': now,
             })
-            .eq('id', bookingId);
-      }
+            .eq('id', jobAssignmentId),
 
-      // 3. Mark driver available
-      try {
-        await supabase
+        // 2. Reset booking so operator/partner can reassign immediately
+        if (bookingId.isNotEmpty)
+          supabase
+              .from('bookings')
+              .update({
+                'driver_id': null,
+                'driver_assigned_at': null,
+                'status': 'pending',
+                'updated_at': now,
+              })
+              .eq('id', bookingId)
+        else
+          Future<dynamic>.value(null),
+
+        // 3. Mark driver available
+        supabase
             .from('users')
             .update({'is_available': true})
-            .eq('id', currentUserId);
-      } catch (_) {}
+            .eq('id', currentUserId)
+            .catchError((_) => null),
 
-      final driverUser = await supabase
-          .from('users')
-          .select('full_name')
-          .eq('id', currentUserId)
-          .maybeSingle();
+        // 4. Fetch driver name (needed for notifications)
+        supabase
+            .from('users')
+            .select('full_name')
+            .eq('id', currentUserId)
+            .maybeSingle()
+            .catchError((_) => null),
+      ]);
+
+      final driverUserData = writeResults[3] as Map<String, dynamic>?;
       final driverName =
-          driverUser?['full_name']?.toString().trim().isNotEmpty == true
-          ? driverUser!['full_name'].toString().trim()
+          driverUserData?['full_name']?.toString().trim().isNotEmpty == true
+          ? driverUserData!['full_name'].toString().trim()
           : 'The driver';
 
-      // 4. Notify Operator & Partner
+      // Fire-and-forget: notifications and audit log — don't block the driver's UI
       if (bookingId.isNotEmpty) {
-        await NotificationService().notifyOperatorDriverResponse(
-          bookingId: bookingId,
-          driverId: currentUserId,
-          driverName: driverName,
-          accepted: false,
-          operatorId: booking?['operator_id']?.toString(),
+        unawaited(
+          NotificationService().notifyOperatorDriverResponse(
+            bookingId: bookingId,
+            driverId: currentUserId,
+            driverName: driverName,
+            accepted: false,
+            operatorId: booking?['operator_id']?.toString(),
+          ).catchError((_) => 0),
         );
 
         final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
@@ -839,8 +871,8 @@ class DriverService {
         if (ownerId != null &&
             ownerId.isNotEmpty &&
             ownerId != booking?['operator_id']?.toString()) {
-          try {
-            await supabase.from('notifications').insert({
+          unawaited(
+            supabase.from('notifications').insert({
               'user_id': ownerId,
               'title': 'Driver Offer Declined',
               'message':
@@ -848,28 +880,27 @@ class DriverService {
               'type': 'booking',
               'data': {'booking_id': bookingId, 'event': 'driver_declined'},
               'created_at': now,
-            });
-          } catch (_) {}
+            }).then<void>((_) {}).catchError((_) {}),
+          );
         }
-      }
 
-      // 5. Log in admin_audit_logs
-      try {
-        await supabase.from('admin_audit_logs').insert({
-          'entity_id': bookingId,
-          'entity_type': 'booking',
-          'action': 'driver_declined_assignment',
-          'notes': '$driverName declined driver job assignment for booking #$bookingId. Reason: ${reason ?? 'Unavailable'}',
-          'booking_id': bookingId,
-          'created_at': now,
-          'metadata': {
-            'driver_id': currentUserId,
-            'driver_name': driverName,
-            'job_assignment_id': jobAssignmentId,
-            'reason': reason,
-          },
-        });
-      } catch (_) {}
+        unawaited(
+          supabase.from('admin_audit_logs').insert({
+            'entity_id': bookingId,
+            'entity_type': 'booking',
+            'action': 'driver_declined_assignment',
+            'notes': '$driverName declined driver job assignment for booking #$bookingId. Reason: ${reason ?? 'Unavailable'}',
+            'booking_id': bookingId,
+            'created_at': now,
+            'metadata': {
+              'driver_id': currentUserId,
+              'driver_name': driverName,
+              'job_assignment_id': jobAssignmentId,
+              'reason': reason,
+            },
+          }).then<void>((_) {}).catchError((_) {}),
+        );
+      }
 
       debugPrint('Job offer declined successfully');
     } on PostgrestException catch (e) {
@@ -1712,7 +1743,8 @@ class DriverService {
                 driver_id,
                 status,
                 trip_fee,
-                created_at
+                created_at,
+                offered_at
               )
             ''')
             .inFilter('driver_id', filterDriverIds.toList())
@@ -1792,11 +1824,11 @@ class DriverService {
 
           for (final booking in bookingsList) {
             final bId = booking['id']?.toString() ?? '';
-            final existing = booking['job_assignments'];
-            if (existing is! List || existing.isEmpty) {
-              if (assignmentsByBooking.containsKey(bId)) {
-                booking['job_assignments'] = assignmentsByBooking[bId];
-              }
+            // Always replace embedded assignments with driver-filtered ones.
+            // The Supabase join fetches ALL drivers' assignments for the booking,
+            // so we must overwrite with the current-driver-only filtered set.
+            if (assignmentsByBooking.containsKey(bId)) {
+              booking['job_assignments'] = assignmentsByBooking[bId];
             }
           }
         } catch (jobAttachErr) {

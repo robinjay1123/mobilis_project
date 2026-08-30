@@ -2499,12 +2499,19 @@ class __JobsTabState extends State<_JobsTab> {
     final latestAssignment = assignments.isNotEmpty ? assignments.last : null;
     final assignmentStatus = latestAssignment?['status']?.toString().toLowerCase();
 
+    // If any assignment is still pending/accepted, never mark as cancelled
+    final hasPendingOrAccepted = assignments.any((a) {
+      final s = a['status']?.toString().toLowerCase();
+      return s == 'pending_offer' || s == 'assigned' || s == 'accepted';
+    });
+
     if (['completed', 'returned', 'successful', 'success'].contains(status)) {
       return 'completed';
     }
-    if (['cancelled', 'canceled', 'rejected', 'declined'].contains(status) ||
-        assignmentStatus == 'rejected' ||
-        assignmentStatus == 'declined') {
+    if (!hasPendingOrAccepted &&
+        (['cancelled', 'canceled', 'rejected', 'declined'].contains(status) ||
+            assignmentStatus == 'rejected' ||
+            assignmentStatus == 'declined')) {
       return 'cancelled';
     }
     if ([
@@ -2732,8 +2739,19 @@ class _TripCardState extends State<_TripCard> {
         ?.whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList() ?? [];
-    final latestAssignment = assignments.isNotEmpty ? assignments.last : null;
-    final assignmentId = latestAssignment?['id']?.toString() ?? '';
+    // Use the most recent pending_offer/assigned assignment so we don't try
+    // to accept an already-rejected/expired one when a newer offer exists.
+    Map<String, dynamic>? pendingAssignment;
+    for (final a in assignments.reversed) {
+      final s = a['status']?.toString().toLowerCase();
+      if (s == 'pending_offer' || s == 'assigned') {
+        pendingAssignment = a;
+        break;
+      }
+    }
+    pendingAssignment ??= assignments.isNotEmpty ? assignments.last : null;
+    final assignmentId = pendingAssignment?['id']?.toString() ?? '';
+
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -3055,9 +3073,10 @@ class _TripCardState extends State<_TripCard> {
             status == 'awaiting_driver' ||
             status == 'driver_assigned' ||
             status == 'pending_driver_confirmation') &&
-        (assignmentStatus == 'pending_offer' ||
-            assignmentStatus == 'assigned' ||
-            assignmentStatus == null);
+        assignments.any((a) {
+          final s = a['status']?.toString().toLowerCase();
+          return s == 'pending_offer' || s == 'assigned';
+        });
 
     final isDriverAcceptedWaitingFinalize = status == 'driver_accepted' ||
         (assignmentStatus == 'accepted' &&
