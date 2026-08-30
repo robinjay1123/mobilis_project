@@ -1290,7 +1290,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
         description:
             'Join our elite pool of accredited drivers. Receive assigned rental trips across Pangasinan and neighboring regions with clear route waypoints, guaranteed daily driver rates, and transparent payout settlements.',
         features: [
-          'Fixed PHP 600.00 / day driver fee guaranteed',
+          'Fixed PHP 1,500.00 / day driver fee guaranteed',
           'Digital itinerary & GPS route guidance in-app',
           'Protected by Mobilis verification & safety guidelines',
           'Instant driver settlement & trip rating records',
@@ -1740,7 +1740,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
                             title: const Text('Hire a Professional Driver', style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
-                            subtitle: const Text('PHP 600.00 / day. (Doorstep delivery is included free with driver)', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                            subtitle: const Text('PHP 1,500.00 / day. (Doorstep delivery is included free with driver)', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
                             value: _estimatorWithDriver,
                             activeColor: AppColors.primary,
                             onChanged: (val) => setState(() => _estimatorWithDriver = val),
@@ -1984,7 +1984,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       },
       {
         'q': 'Can I hire a professional driver?',
-        'a': 'Yes! You can hire an accredited professional driver for just PHP 600.00 / day. When hiring a driver, doorstep pick-up is already included in your booking.',
+        'a': 'Yes! You can hire an accredited professional driver for PHP 1,500.00 / day. When hiring a driver, doorstep pick-up is already included in your booking.',
       },
       {
         'q': 'What is the minimum hourly rental duration?',
