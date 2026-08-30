@@ -3881,7 +3881,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         'application_status': 'approved',
         'verification_status': 'verified',
         'id_verified': true,
-        'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', userId);
 
       // 2. Sync / activate driver profile in drivers table
@@ -3994,7 +3993,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     try {
       await _supabase.from('users').update({
         'application_status': 'rejected',
-        'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', userId);
 
       final verRecId = driverApp['id']?.toString();

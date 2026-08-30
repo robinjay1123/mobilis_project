@@ -28124,17 +28124,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 'is_posted': isPosted,
                 'is_available': isPosted,
                 'status': isPosted ? 'active' : 'hidden',
-                'updated_at': DateTime.now().toIso8601String(),
               })
               .eq('id', vehicleId);
         } catch (e) {
-          await _supabase
-              .from('vehicles')
-              .update({
-                'is_posted': isPosted,
-                'is_available': isPosted,
-              })
-              .eq('id', vehicleId);
+          try {
+            await _supabase
+                .from('vehicles')
+                .update({
+                  'is_available': isPosted,
+                  'status': isPosted ? 'active' : 'hidden',
+                })
+                .eq('id', vehicleId);
+          } catch (_) {
+            await _supabase
+                .from('vehicles')
+                .update({
+                  'is_available': isPosted,
+                })
+                .eq('id', vehicleId);
+          }
         }
       }
 
@@ -30030,14 +30038,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             'price_per_hour': reqHourly,
             'daily_rate': reqDaily,
             'hourly_rate': reqHourly,
-            'updated_at': DateTime.now().toIso8601String(),
           }).eq('id', vehicleId);
         } catch (_) {
           try {
             await _supabase.from('vehicles').update({
               'price_per_day': reqDaily,
               'price_per_hour': reqHourly,
-              'updated_at': DateTime.now().toIso8601String(),
             }).eq('id', vehicleId);
           } catch (err) {
             debugPrint('Error updating vehicles table: $err');
@@ -30107,7 +30113,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             await _supabase.from('vehicles').update({
               'price_per_day': reqDaily,
               'price_per_hour': reqHourly,
-              'updated_at': DateTime.now().toIso8601String(),
             }).eq('id', vehicle['id'].toString());
           } catch (_) {}
         }

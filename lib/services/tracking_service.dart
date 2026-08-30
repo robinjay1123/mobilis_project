@@ -1154,7 +1154,6 @@ class TrackingService {
                 await supabase.from('vehicles').update({
                   'latitude': position.latitude,
                   'longitude': position.longitude,
-                  'updated_at': DateTime.now().toIso8601String(),
                 }).eq('id', tracker.vehicleId!);
               }
               if (tracker.partnerVehicleId != null &&
