@@ -3829,7 +3829,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ? submittedName!
         : (profileName?.isNotEmpty == true ? profileName! : 'Driver Applicant');
 
-    final isDark = isDarkTheme(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -3967,7 +3967,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ? submittedName!
         : (profileName?.isNotEmpty == true ? profileName! : 'Driver Applicant');
 
-    final isDark = isDarkTheme(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final reason = await _showRejectionReasonDialog(
       context,
       displayName,
@@ -12639,7 +12639,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               children: [
                                 Icon(roleIcon, size: 13, color: roleText),
                                 const SizedBox(width: 4),
-                                const Text(
+                                Text(
                                   roleTag,
                                   style: TextStyle(
                                     color: roleText,
@@ -13637,7 +13637,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           backgroundColor: isDark
                               ? AppColors.darkBgSecondary
                               : Colors.white,
-                          title: const Text(
+                          title: Text(
                             'Approve Verification?',
                             style: TextStyle(
                               color: isDark ? Colors.white : Colors.black,

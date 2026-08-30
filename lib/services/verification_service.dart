@@ -503,10 +503,15 @@ class VerificationService {
               .select('role')
               .eq('id', userId)
               .maybeSingle();
-          await NotificationService().notifyVerificationRejected(
+          await NotificationService().createNotification(
             userId: userId,
-            role: userRecord?['role']?.toString() ?? 'account',
-            rejectionReason: rejectionReason,
+            title: 'Verification Request Update',
+            message: 'Your verification submission was not approved. Reason: $rejectionReason',
+            type: 'verification_rejected',
+            data: {
+              'rejection_reason': rejectionReason,
+              'role': userRecord?['role']?.toString() ?? 'account',
+            },
           );
         }
       } catch (notificationError) {
