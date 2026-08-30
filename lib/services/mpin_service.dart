@@ -185,32 +185,31 @@ class MpinService {
           .limit(20);
 
       for (final log in logs) {
-          final meta = log['metadata'];
-          if (meta is Map) {
-            final salt = meta['mpin_salt']?.toString() ?? '';
-            final hash = meta['mpin_hash']?.toString() ?? '';
-            if (salt.isNotEmpty && hash.isNotEmpty) {
-              if (_hash(cleanMpin, salt) == hash) {
-                final opId = (meta['operator_id'] ?? log['entity_id'])?.toString() ?? '';
-                final name = meta['operator_name']?.toString() ?? 'Desk Operator';
-                final email = meta['operator_email']?.toString() ?? '';
+        final meta = log['metadata'];
+        if (meta is Map) {
+          final salt = meta['mpin_salt']?.toString() ?? '';
+          final hash = meta['mpin_hash']?.toString() ?? '';
+          if (salt.isNotEmpty && hash.isNotEmpty) {
+            if (_hash(cleanMpin, salt) == hash) {
+              final opId = (meta['operator_id'] ?? log['entity_id'])?.toString() ?? '';
+              final name = meta['operator_name']?.toString() ?? 'Desk Operator';
+              final email = meta['operator_email']?.toString() ?? '';
 
-                await _logMpinAuthorization(
-                  operatorId: opId,
-                  operatorName: name,
-                  operatorEmail: email,
-                  bookingId: bookingId,
-                  amount: amount,
-                  contextDescription: contextDescription,
-                );
+              await _logMpinAuthorization(
+                operatorId: opId,
+                operatorName: name,
+                operatorEmail: email,
+                bookingId: bookingId,
+                amount: amount,
+                contextDescription: contextDescription,
+              );
 
-                return MpinVerificationResult(
-                  success: true,
-                  operatorId: opId,
-                  operatorName: name,
-                  operatorEmail: email,
-                );
-              }
+              return MpinVerificationResult(
+                success: true,
+                operatorId: opId,
+                operatorName: name,
+                operatorEmail: email,
+              );
             }
           }
         }
