@@ -6137,27 +6137,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   bool _isBookingWithDriver(Map<String, dynamic> booking) {
+    final rentalType = (booking['rental_type'] ?? booking['rentalType'] ?? '').toString().toLowerCase().trim();
+    if (rentalType == 'self_drive' || rentalType == 'self drive' || rentalType == 'selfdrive') {
+      return false;
+    }
     final withDriver = booking['withDriver'] == true ||
         booking['with_driver'] == true ||
         booking['with_driver'] == 1 ||
         booking['with_driver']?.toString().toLowerCase() == 'true';
-    final driverId = booking['driver_id']?.toString().trim();
-    final driverName = booking['driverName']?.toString().trim() ??
-        booking['driver_name']?.toString().trim();
-    final hasDriverAssigned = (driverId != null && driverId.isNotEmpty && driverId != 'null') ||
-        (driverName != null &&
-            driverName.isNotEmpty &&
-            driverName != 'To be assigned' &&
-            driverName != 'Not requested');
-    return withDriver || hasDriverAssigned;
+    if (!withDriver) return false;
+    return true;
   }
 
   // ---------------------------------------------------------------------------
   // Booking detail modal
   // ---------------------------------------------------------------------------
   void _showBookingDetails(Map<String, dynamic> booking) {
-    final isApprovedTrip = booking['statusGroup'] == 'Ongoing';
-    final isPendingTrip = booking['statusGroup'] == 'Pending';
+    final rawStatus = (booking['rawStatus'] ?? booking['status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final statusGroup = booking['statusGroup']?.toString() ?? '';
+    final isOngoingTrip = statusGroup == 'Ongoing' ||
+        {'active', 'ongoing', 'picked_up', 'in_progress'}.contains(rawStatus);
+    final isApprovedTrip = statusGroup == 'Approved' ||
+        {'approved', 'confirmed', 'pending_release', 'assigned'}.contains(rawStatus) ||
+        isOngoingTrip;
+    final canExtendTrip = (statusGroup == 'Ongoing' ||
+            statusGroup == 'Approved' ||
+            {
+              'active',
+              'ongoing',
+              'picked_up',
+              'in_progress',
+              'approved',
+              'confirmed',
+              'pending_release',
+            }.contains(rawStatus)) &&
+        !_isBookingWithDriver(booking);
+
+    final isPendingTrip = statusGroup == 'Pending';
     final completionState = BookingService().getTripCompletionState(booking);
     final pendingRoles =
         (completionState['pendingRoles'] as List<dynamic>? ?? const [])
@@ -6165,10 +6184,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .toList();
     final completionStage =
         completionState['completionStage']?.toString() ?? 'not_started';
-    final rawStatus = (booking['rawStatus'] ?? booking['status'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
     const completedStatuses = {
       'completed',
       'returned',
@@ -6193,7 +6208,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final isPaidInFull = BookingService().isBookingFullyPaid(booking) ||
         BookingService().getBookingRemainingBalance(booking) <= 0.01;
-    final isApprovedOrReady = booking['statusGroup'] == 'Approved' ||
+    final isApprovedOrReady = statusGroup == 'Approved' ||
         rawStatus == 'approved' ||
         rawStatus == 'confirmed' ||
         rawStatus == 'pending_release';
@@ -6233,10 +6248,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onCancel: _isCancellableStatusForUi(booking)
               ? () => _handleBookingCancellation(booking)
               : null,
-          onExtend: (isApprovedTrip && !_isBookingWithDriver(booking))
+          onExtend: canExtendTrip
               ? () => _showTripExtensionDialog(booking)
               : null,
-          onReturn: isApprovedTrip
+          onReturn: isOngoingTrip
               ? () => _handleRenterReturnVehicle(booking)
               : null,
           onSuccessfulTrip:

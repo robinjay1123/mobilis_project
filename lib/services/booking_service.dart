@@ -4408,13 +4408,12 @@ class BookingService {
         );
       }
 
-      final withDriver = booking['with_driver'] == true ||
+      final rentalType = (booking['rental_type'] ?? booking['rentalType'] ?? '').toString().toLowerCase().trim();
+      final isExplicitSelfDrive = rentalType == 'self_drive' || rentalType == 'self drive' || rentalType == 'selfdrive';
+      final withDriver = !isExplicitSelfDrive && (booking['with_driver'] == true ||
           booking['with_driver'] == 1 ||
           booking['with_driver']?.toString().toLowerCase() == 'true' ||
-          booking['withDriver'] == true ||
-          (booking['driver_id'] != null &&
-              booking['driver_id']?.toString().trim().isNotEmpty == true &&
-              booking['driver_id']?.toString().trim() != 'null');
+          booking['withDriver'] == true);
 
       if (withDriver) {
         return (
@@ -4535,13 +4534,12 @@ class BookingService {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
 
-      final withDriver = booking['with_driver'] == true ||
+      final rentalType = (booking['rental_type'] ?? booking['rentalType'] ?? '').toString().toLowerCase().trim();
+      final isExplicitSelfDrive = rentalType == 'self_drive' || rentalType == 'self drive' || rentalType == 'selfdrive';
+      final withDriver = !isExplicitSelfDrive && (booking['with_driver'] == true ||
           booking['with_driver'] == 1 ||
           booking['with_driver']?.toString().toLowerCase() == 'true' ||
-          booking['withDriver'] == true ||
-          (booking['driver_id'] != null &&
-              booking['driver_id']?.toString().trim().isNotEmpty == true &&
-              booking['driver_id']?.toString().trim() != 'null');
+          booking['withDriver'] == true);
 
       if (withDriver) {
         throw Exception(
@@ -4609,21 +4607,18 @@ class BookingService {
       final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
       final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
 
-      await supabase
-          .from('bookings')
-          .update({
-            'extension_requested_end_at': newEndAt.toIso8601String(),
-            if (newDestination != null && newDestination.trim().isNotEmpty)
-              'extension_requested_destination': newDestination.trim(),
-            'extension_additional_price': additionalPrice,
-            'extension_days': extensionDays,
-            'extension_status': 'pending',
-            'extension_payment_status': 'unpaid',
-            'extension_requested_at': DateTime.now().toIso8601String(),
-            'principal_total_price': principalPrice,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'extension_requested_end_at': newEndAt.toIso8601String(),
+        if (newDestination != null && newDestination.trim().isNotEmpty)
+          'extension_requested_destination': newDestination.trim(),
+        'extension_additional_price': additionalPrice,
+        'extension_days': extensionDays,
+        'extension_status': 'pending',
+        'extension_payment_status': 'unpaid',
+        'extension_requested_at': DateTime.now().toIso8601String(),
+        'principal_total_price': principalPrice,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       // Create or locate conversation for this booking
       final conversation = await ChatService().getConversationBookingContext(
@@ -4686,13 +4681,12 @@ class BookingService {
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
 
-    final withDriver = booking['with_driver'] == true ||
+    final rentalType = (booking['rental_type'] ?? booking['rentalType'] ?? '').toString().toLowerCase().trim();
+    final isExplicitSelfDrive = rentalType == 'self_drive' || rentalType == 'self drive' || rentalType == 'selfdrive';
+    final withDriver = !isExplicitSelfDrive && (booking['with_driver'] == true ||
         booking['with_driver'] == 1 ||
         booking['with_driver']?.toString().toLowerCase() == 'true' ||
-        booking['withDriver'] == true ||
-        (booking['driver_id'] != null &&
-            booking['driver_id']?.toString().trim().isNotEmpty == true &&
-            booking['driver_id']?.toString().trim() != 'null');
+        booking['withDriver'] == true);
 
     if (withDriver) {
       throw Exception(
@@ -4774,33 +4768,29 @@ class BookingService {
     final totalDays = currentDays + extensionDays;
     final now = DateTime.now().toUtc().toIso8601String();
 
-    await supabase
-        .from('bookings')
-        .update({
-          'end_at': newEndAt.toIso8601String(),
-          'end_date': newEndAt.toIso8601String(),
-          'total_price': newTotal,
-          'totalCost': newTotal,
-          'days': totalDays,
-          if (newDestination != null && newDestination.trim().isNotEmpty)
-            'dropoff_location': newDestination.trim(),
-          'extension_requested_end_at': newEndAt.toIso8601String(),
-          if (newDestination != null && newDestination.trim().isNotEmpty)
-            'extension_requested_destination': newDestination.trim(),
-          'extension_additional_price': additionalPrice,
-          'extension_days': extensionDays,
-          'extension_status': 'finalized',
-          'extension_payment_status': 'paid',
-          'extension_payment_method': paymentMethod.trim(),
-          'extension_payment_reference': paymentReference.trim(),
-          if (proofUrl != null && proofUrl.isNotEmpty)
-            'extension_payment_proof_url': proofUrl.trim(),
-          'extension_payment_submitted_at': now,
-          'extension_finalized_at': now,
-          'extension_finalized_by': effectiveRenterId,
-          'updated_at': now,
-        })
-        .eq('id', bookingId);
+    await safeUpdateBooking(bookingId, {
+      'end_at': newEndAt.toIso8601String(),
+      'end_date': newEndAt.toIso8601String(),
+      'total_price': newTotal,
+      'days': totalDays,
+      if (newDestination != null && newDestination.trim().isNotEmpty)
+        'dropoff_location': newDestination.trim(),
+      'extension_requested_end_at': newEndAt.toIso8601String(),
+      if (newDestination != null && newDestination.trim().isNotEmpty)
+        'extension_requested_destination': newDestination.trim(),
+      'extension_additional_price': additionalPrice,
+      'extension_days': extensionDays,
+      'extension_status': 'finalized',
+      'extension_payment_status': 'paid',
+      'extension_payment_method': paymentMethod.trim(),
+      'extension_payment_reference': paymentReference.trim(),
+      if (proofUrl != null && proofUrl.isNotEmpty)
+        'extension_payment_proof_url': proofUrl.trim(),
+      'extension_payment_submitted_at': now,
+      'extension_finalized_at': now,
+      'extension_finalized_by': effectiveRenterId,
+      'updated_at': now,
+    });
 
     // Send conversation message & push notifications
     final conversation =
