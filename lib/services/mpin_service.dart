@@ -184,8 +184,7 @@ class MpinService {
           .order('created_at', ascending: false)
           .limit(20);
 
-      if (logs is List) {
-        for (final log in logs) {
+      for (final log in logs) {
           final meta = log['metadata'];
           if (meta is Map) {
             final salt = meta['mpin_salt']?.toString() ?? '';

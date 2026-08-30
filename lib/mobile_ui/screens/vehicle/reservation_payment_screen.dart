@@ -226,65 +226,76 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         '${widget.vehicleData['brand'] ?? ''} ${widget.vehicleData['model'] ?? ''}'.trim();
     final vehicleId = widget.vehicleData['id']?.toString();
 
-    final result = await MpinService().verifyOperatorMpin(
-      pin,
-      amount: payableAmount,
-      contextDescription:
-          'Desk counter settlement for $vehicleTitle (User: ${widget.userId})',
-      bookingId: vehicleId,
-    );
-
-    if (!mounted) return;
-
-    if (result.success) {
-      setState(() {
-        _isDeskMpinVerifying = false;
-        _isDeskMpinApproved = true;
-        _deskApprovedOperatorName = result.operatorName ?? 'PSDC Desk Operator';
-        _deskApprovedOperatorId = result.operatorId;
-        _deskMpinError = null;
-        _errorText = null;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'MPIN accepted! Authorized by ${_deskApprovedOperatorName ?? 'Operator'}. You can now confirm payment.',
-          ),
-          backgroundColor: const Color(0xFF10B981),
-        ),
+    try {
+      final result = await MpinService().verifyOperatorMpin(
+        pin,
+        amount: payableAmount,
+        contextDescription:
+            'Desk counter settlement for $vehicleTitle (User: ${widget.userId})',
+        bookingId: vehicleId,
       );
-    } else {
-      _deskMpinFailedAttempts++;
-      if (_deskMpinFailedAttempts >= 3) {
+
+      if (!mounted) return;
+
+      if (result.success) {
         setState(() {
           _isDeskMpinVerifying = false;
-          _isDeskPaymentLocked = true;
-          _selectedPaymentChannel = 'qr';
-          _isDeskMpinApproved = false;
-          _deskApprovedOperatorName = null;
-          _deskApprovedOperatorId = null;
-          _deskMpinController.clear();
+          _isDeskMpinApproved = true;
+          _deskApprovedOperatorName = result.operatorName ?? 'PSDC Desk Operator';
+          _deskApprovedOperatorId = result.operatorId;
           _deskMpinError = null;
-          _errorText =
-              'PSDC Desk Payment is now unavailable after 3 failed MPIN attempts. Please proceed with Online QR Payment.';
+          _errorText = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'PSDC Desk Payment is unavailable due to 3 failed MPIN attempts. Switching to Online QR Payment.',
+              'MPIN accepted! Authorized by ${_deskApprovedOperatorName ?? 'Operator'}. You can now confirm payment.',
             ),
-            backgroundColor: AppColors.error,
-            duration: Duration(seconds: 4),
+            backgroundColor: const Color(0xFF10B981),
           ),
         );
       } else {
-        final remaining = 3 - _deskMpinFailedAttempts;
-        setState(() {
-          _isDeskMpinVerifying = false;
-          _deskMpinError =
-              '${result.errorMessage ?? 'Invalid Operator MPIN.'} ($remaining attempt${remaining == 1 ? '' : 's'} remaining)';
-        });
+        _deskMpinFailedAttempts++;
+        if (_deskMpinFailedAttempts >= 3) {
+          setState(() {
+            _isDeskMpinVerifying = false;
+            _isDeskPaymentLocked = true;
+            _selectedPaymentChannel = 'qr';
+            _isDeskMpinApproved = false;
+            _deskApprovedOperatorName = null;
+            _deskApprovedOperatorId = null;
+            _deskMpinController.clear();
+            _deskMpinError = null;
+            _errorText =
+                'PSDC Desk Payment is now unavailable after 3 failed MPIN attempts. Please proceed with Online QR Payment.';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'PSDC Desk Payment is unavailable due to 3 failed MPIN attempts. Switching to Online QR Payment.',
+              ),
+              backgroundColor: AppColors.error,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        } else {
+          final remaining = 3 - _deskMpinFailedAttempts;
+          setState(() {
+            _isDeskMpinVerifying = false;
+            _deskMpinError =
+                '${result.errorMessage ?? 'Invalid Operator MPIN.'} ($remaining attempt${remaining == 1 ? '' : 's'} remaining)';
+          });
+        }
       }
+    } catch (e) {
+      if (!mounted) return;
+      _deskMpinFailedAttempts++;
+      final remaining = (3 - _deskMpinFailedAttempts).clamp(0, 3);
+      setState(() {
+        _isDeskMpinVerifying = false;
+        _deskMpinError =
+            'Invalid Operator MPIN. ($remaining attempt${remaining == 1 ? '' : 's'} remaining)';
+      });
     }
   }
 
