@@ -3383,45 +3383,102 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Future<void> _handleBookingAction(String bookingId, String status) async {
+    final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+    final bookingIndex =
+        bookings.indexWhere((b) => b['id']?.toString() == bookingId);
+    final originalBooking = bookingIndex != -1
+        ? Map<String, dynamic>.from(bookings[bookingIndex])
+        : null;
+
+    if (status == 'return_confirmed' && currentPartnerId != null) {
+      final booking = originalBooking ?? <String, dynamic>{'id': bookingId};
+      await _showPartnerInspectionDialog(booking, inspectionType: 'after');
+      _loadPartnerData(silent: true);
+      return;
+    }
+
+    // ⚡ Optimistic UI update: instantly update local list and counts
+    if (bookingIndex != -1) {
+      setState(() {
+        final target = Map<String, dynamic>.from(bookings[bookingIndex]);
+        if (status == 'confirmed') {
+          target['status'] = 'confirmed';
+          target['partner_booking_confirmed_at'] =
+              DateTime.now().toIso8601String();
+          target['partner_booking_confirmed_by'] = currentPartnerId;
+        } else if (status == 'cancelled' || status == 'rejected') {
+          target['status'] = 'rejected';
+          target['partner_booking_rejected_at'] =
+              DateTime.now().toIso8601String();
+          target['rejection_reason'] = 'Declined by vehicle owner';
+        } else {
+          target['status'] = status;
+        }
+        bookings[bookingIndex] = target;
+
+        if (status == 'cancelled' || status == 'rejected') {
+          bookingCounts['pending'] =
+              ((bookingCounts['pending'] ?? 1) - 1).clamp(0, 999999);
+          bookingCounts['cancelled'] =
+              (bookingCounts['cancelled'] ?? 0) + 1;
+        } else if (status == 'confirmed') {
+          bookingCounts['pending'] =
+              ((bookingCounts['pending'] ?? 1) - 1).clamp(0, 999999);
+          bookingCounts['active'] =
+              (bookingCounts['active'] ?? 0) + 1;
+        }
+      });
+    }
+
+    _showSuccessSnackBar(
+      status == 'confirmed'
+          ? 'Booking confirmed!'
+          : status == 'return_confirmed'
+          ? 'Vehicle return confirmed!'
+          : 'Booking declined',
+    );
+
     try {
       final bookingService = BookingService();
-      final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
 
       if (status == 'confirmed' && currentPartnerId != null) {
         await bookingService.confirmPartnerBooking(
           bookingId: bookingId,
           partnerId: currentPartnerId,
+          cachedBooking: originalBooking,
         );
-      } else if (status == 'return_confirmed' && currentPartnerId != null) {
-        final booking = bookings.firstWhere(
-          (b) => b['id']?.toString() == bookingId,
-          orElse: () => <String, dynamic>{'id': bookingId},
-        );
-        await _showPartnerInspectionDialog(booking, inspectionType: 'after');
-        _loadPartnerData();
-        return;
       } else if ((status == 'cancelled' || status == 'rejected') &&
           currentPartnerId != null) {
         await bookingService.rejectPartnerBooking(
           bookingId: bookingId,
           partnerId: currentPartnerId,
           reason: 'Declined by vehicle owner',
+          cachedBooking: originalBooking,
         );
       } else {
         await bookingService.updateBookingStatus(bookingId, status);
       }
 
-      _showSuccessSnackBar(
-        status == 'confirmed'
-            ? 'Booking confirmed!'
-            : status == 'return_confirmed'
-            ? 'Vehicle return confirmed!'
-            : 'Booking declined',
-      );
-
-      _loadPartnerData();
+      // Silent sync in the background so local changes aren't interrupted
+      _loadPartnerData(silent: true);
     } catch (e) {
       debugPrint('Partner booking action error: $e');
+      if (originalBooking != null && bookingIndex != -1 && mounted) {
+        setState(() {
+          bookings[bookingIndex] = originalBooking;
+          if (status == 'cancelled' || status == 'rejected') {
+            bookingCounts['pending'] =
+                (bookingCounts['pending'] ?? 0) + 1;
+            bookingCounts['cancelled'] =
+                ((bookingCounts['cancelled'] ?? 1) - 1).clamp(0, 999999);
+          } else if (status == 'confirmed') {
+            bookingCounts['pending'] =
+                (bookingCounts['pending'] ?? 0) + 1;
+            bookingCounts['active'] =
+                ((bookingCounts['active'] ?? 1) - 1).clamp(0, 999999);
+          }
+        });
+      }
       _showErrorSnackBar('Failed to update booking: $e');
     }
   }
@@ -5329,21 +5386,45 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       ),
     );
 
-    if (confirmed == true) {
+    if (confirmed == true && mounted) {
+      final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+      final bookingId = booking['id']?.toString() ?? '';
+      final reason = reasonController.text.trim().isNotEmpty
+          ? reasonController.text.trim()
+          : 'Declined by vehicle owner';
+
+      // ⚡ Optimistic UI update
+      final bookingIndex =
+          bookings.indexWhere((b) => b['id']?.toString() == bookingId);
+      final originalBooking = bookingIndex != -1
+          ? Map<String, dynamic>.from(bookings[bookingIndex])
+          : null;
+      if (bookingIndex != -1) {
+        setState(() {
+          final target = Map<String, dynamic>.from(bookings[bookingIndex]);
+          target['extension_status'] = 'rejected';
+          target['extension_rejection_reason'] = reason;
+          bookings[bookingIndex] = target;
+        });
+      }
+
+      _showSuccessSnackBar('Trip extension request declined');
+
       try {
-        final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
-        final bookingId = booking['id']?.toString() ?? '';
         await BookingService().rejectTripExtension(
           bookingId: bookingId,
           reviewerId: currentPartnerId,
           reviewerRole: 'partner',
-          reason: reasonController.text.trim().isNotEmpty
-              ? reasonController.text.trim()
-              : 'Declined by vehicle owner',
+          reason: reason,
+          cachedBooking: booking,
         );
-        _showSuccessSnackBar('Trip extension request declined');
         await _loadPartnerData(silent: true);
       } catch (e) {
+        if (originalBooking != null && bookingIndex != -1 && mounted) {
+          setState(() {
+            bookings[bookingIndex] = originalBooking;
+          });
+        }
         _showErrorSnackBar('Failed to decline extension: $e');
       }
     }
@@ -8197,71 +8278,116 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     BuildContext context,
     Map<String, dynamic> booking,
   ) async {
-    final bookingService = BookingService();
-
-    // Show reason dialog
     final reasonController = TextEditingController();
 
-    showDialog(
+    final confirmedReason = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reject Booking'),
-        content: TextField(
-          controller: reasonController,
-          decoration: const InputDecoration(
-            hintText: 'Reason for rejection',
-            border: OutlineInputBorder(),
-          ),
-          maxLines: 3,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Decline Booking', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Please provide a reason for declining this booking request.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                hintText: 'e.g., Vehicle unavailable for scheduled dates',
+                hintStyle: TextStyle(color: AppColors.textTertiary),
+                border: OutlineInputBorder(),
+              ),
+              style: const TextStyle(color: Colors.white),
+              maxLines: 3,
+            ),
+          ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(dialogCtx, null),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
           ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (context) =>
-                    const Center(child: CircularProgressIndicator()),
-              );
-
-              try {
-                await bookingService.rejectBooking(
-                  booking['id'],
-                  reasonController.text,
-                );
-
-                Navigator.pop(context); // Close loading dialog
-
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('✅ Booking rejected')),
-                  );
-
-                  // Reload bookings
-                  _loadPartnerData();
-                  Navigator.pop(context); // Close modal
-                }
-              } catch (e) {
-                Navigator.pop(context); // Close loading dialog
-
-                if (mounted) {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
-                }
-              }
+          ElevatedButton(
+            onPressed: () {
+              final r = reasonController.text.trim();
+              Navigator.pop(dialogCtx, r.isNotEmpty ? r : 'Declined by vehicle owner');
             },
-            child: const Text('Reject'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Decline'),
           ),
         ],
       ),
     );
+
+    if (confirmedReason == null || !mounted) return;
+    final reason = confirmedReason;
+    final bookingId = booking['id']?.toString() ?? '';
+    final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+
+    // Pop the booking detail modal immediately so the user returns to the list with 0 latency
+    Navigator.of(context).pop();
+
+    // ⚡ Optimistic UI update in the list
+    final bookingIndex =
+        bookings.indexWhere((b) => b['id']?.toString() == bookingId);
+    final originalBooking = bookingIndex != -1
+        ? Map<String, dynamic>.from(bookings[bookingIndex])
+        : null;
+
+    if (bookingIndex != -1) {
+      setState(() {
+        final target = Map<String, dynamic>.from(bookings[bookingIndex]);
+        target['status'] = 'rejected';
+        target['rejection_reason'] = reason;
+        target['partner_booking_rejected_at'] = DateTime.now().toIso8601String();
+        bookings[bookingIndex] = target;
+
+        bookingCounts['pending'] =
+            ((bookingCounts['pending'] ?? 1) - 1).clamp(0, 999999);
+        bookingCounts['cancelled'] =
+            (bookingCounts['cancelled'] ?? 0) + 1;
+      });
+    }
+
+    _showSuccessSnackBar('Booking declined');
+
+    try {
+      if (currentPartnerId != null) {
+        await BookingService().rejectPartnerBooking(
+          bookingId: bookingId,
+          partnerId: currentPartnerId,
+          reason: reason,
+          cachedBooking: booking,
+        );
+      } else {
+        await BookingService().rejectBooking(
+          bookingId,
+          reason,
+          cachedBooking: booking,
+        );
+      }
+
+      _loadPartnerData(silent: true);
+    } catch (e) {
+      debugPrint('Partner booking rejection error: $e');
+      if (originalBooking != null && bookingIndex != -1 && mounted) {
+        setState(() {
+          bookings[bookingIndex] = originalBooking;
+          bookingCounts['pending'] = (bookingCounts['pending'] ?? 0) + 1;
+          bookingCounts['cancelled'] =
+              ((bookingCounts['cancelled'] ?? 1) - 1).clamp(0, 999999);
+        });
+      }
+      _showErrorSnackBar('Failed to decline booking: $e');
+    }
   }
 
   int _calculateDays(String? startStr, String? endStr) {

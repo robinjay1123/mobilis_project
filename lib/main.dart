@@ -552,8 +552,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
         unawaited(PushNotificationService().syncTokenForCurrentUser());
         _setupUserProfileListener();
 
-        // On mobile, or when opening fresh without a synced route, navigate to the user dashboard
-        if (!kIsWeb || _lastSyncedRoute == null) {
+        // On mobile, navigate to the user dashboard
+        if (!kIsWeb) {
           _syncRouteForCurrentUser(force: false);
         }
       }
@@ -620,7 +620,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
     if (role == null || role.isEmpty) {
       debugPrint('⚠️ Default route blocked: role is null');
-      if (mounted) {
+      if (mounted && !kIsWeb) {
         Navigator.of(
           context,
           rootNavigator: true,
@@ -700,7 +700,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
       return route;
     }
     debugPrint('⚠️ Default route: UNAUTHENTICATED (role was: "$role")');
-    return '/login';
+    return kIsWeb ? '/welcome' : '/login';
   }
 
   @override
@@ -723,6 +723,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
     try {
       final authService = AuthService();
 
+      // On Web, unauthenticated visitors accessing root always see the rich public landing page
+      if (kIsWeb && !authService.isAuthenticated) {
+        return const ResponsiveWelcomeScreen();
+      }
+
       // If user is already logged in, check role and go to appropriate dashboard
       if (authService.isAuthenticated) {
         final role = await authService.getUserRole().timeout(
@@ -731,7 +736,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
         );
         debugPrint('🔐 Initial screen - User authenticated with role: $role');
         if (role == null || role.isEmpty) {
-          return const ResponsiveLoginScreen();
+          return kIsWeb
+              ? const ResponsiveWelcomeScreen()
+              : const ResponsiveLoginScreen();
         }
         final applicationApproved = role == 'partner' || role == 'driver'
             ? await authService.isApplicationApproved().timeout(
@@ -799,7 +806,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
           );
         }
 
-        return const ResponsiveLoginScreen();
+        return kIsWeb
+            ? const ResponsiveWelcomeScreen()
+            : const ResponsiveLoginScreen();
       }
 
       // On Web, visitors accessing the root URL see the rich public landing page
@@ -871,7 +880,7 @@ class WebOnlyAccessScreen extends StatelessWidget {
                   width: 100,
                   height: 100,
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.2),
+                    color: AppColors.primary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Icon(

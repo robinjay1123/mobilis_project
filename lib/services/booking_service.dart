@@ -2058,20 +2058,36 @@ class BookingService {
   Future<void> confirmPartnerBooking({
     required String bookingId,
     required String partnerId,
+    Map<String, dynamic>? cachedBooking,
   }) async {
-    final booking = await getBookingById(bookingId);
+    Map<String, dynamic>? booking = cachedBooking;
+    if (booking == null) {
+      final response = await supabase
+          .from('bookings')
+          .select(
+            'id, status, renter_id, vehicle_id, driver_id, partner_id, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+          )
+          .eq('id', bookingId)
+          .maybeSingle();
+      if (response != null) {
+        booking = Map<String, dynamic>.from(response);
+      }
+    }
     if (booking == null) throw Exception('Booking not found');
 
     final vehicle = booking['vehicles'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(booking['vehicles'])
         : <String, dynamic>{};
-    final ownerId = vehicle['owner_id']?.toString();
-    if (ownerId == null || ownerId.isEmpty || ownerId != partnerId) {
+    final ownerId = (vehicle['owner_id'] ??
+            booking['partner_id'] ??
+            vehicle['partner_id'])
+        ?.toString();
+    if (ownerId != null && ownerId.isNotEmpty && ownerId != partnerId) {
       throw Exception('Only the vehicle owner can confirm this booking');
     }
 
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
-    if (status != 'pending') {
+    if (status.isNotEmpty && status != 'pending') {
       throw Exception(
         'This booking cannot be confirmed in its current state ($status)',
       );
@@ -2087,26 +2103,36 @@ class BookingService {
         })
         .eq('id', bookingId);
 
-    // Notify operators that partner has confirmed.
-    await _notifyOperatorsForBooking(
-      booking,
-      title: 'Partner Confirmed Booking',
-      message:
-          'The vehicle partner confirmed availability. You can now approve the booking.',
-      action: 'partner_booking_confirmed',
+    // Notify operators and renter asynchronously in background
+    unawaited(
+      _notifyOperatorsForBooking(
+        booking,
+        title: 'Partner Confirmed Booking',
+        message:
+            'The vehicle partner confirmed availability. You can now approve the booking.',
+        action: 'partner_booking_confirmed',
+      ).catchError(
+        (e) => debugPrint('Error notifying operators on partner confirm: $e'),
+      ),
     );
 
-    // Notify renter.
     final renterId = booking['renter_id']?.toString();
     if (renterId != null && renterId.isNotEmpty) {
       final vehicleTitle = _vehicleTitle(vehicle);
-      await NotificationService().createNotification(
-        userId: renterId,
-        title: 'Partner Confirmed Your Booking',
-        message:
-            'The vehicle owner confirmed availability for $vehicleTitle. Awaiting final operator approval.',
-        type: 'booking',
-        data: {'booking_id': bookingId, 'event': 'partner_confirmed'},
+      unawaited(
+        NotificationService()
+            .createNotification(
+              userId: renterId,
+              title: 'Partner Confirmed Your Booking',
+              message:
+                  'The vehicle owner confirmed availability for $vehicleTitle. Awaiting final operator approval.',
+              type: 'booking',
+              data: {'booking_id': bookingId, 'event': 'partner_confirmed'},
+            )
+            .then<void>((_) {})
+            .catchError(
+              (e) => debugPrint('Error creating confirmation notification: $e'),
+            ),
       );
     }
   }
@@ -2116,20 +2142,43 @@ class BookingService {
     required String bookingId,
     required String partnerId,
     required String reason,
+    Map<String, dynamic>? cachedBooking,
   }) async {
-    final booking = await getBookingById(bookingId);
+    Map<String, dynamic>? booking = cachedBooking;
+    if (booking == null) {
+      final response = await supabase
+          .from('bookings')
+          .select(
+            'id, status, renter_id, vehicle_id, driver_id, partner_id, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+          )
+          .eq('id', bookingId)
+          .maybeSingle();
+      if (response != null) {
+        booking = Map<String, dynamic>.from(response);
+      }
+    }
     if (booking == null) throw Exception('Booking not found');
 
     final vehicle = booking['vehicles'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(booking['vehicles'])
         : <String, dynamic>{};
-    final ownerId = vehicle['owner_id']?.toString();
-    if (ownerId == null || ownerId.isEmpty || ownerId != partnerId) {
+    final ownerId = (vehicle['owner_id'] ??
+            booking['partner_id'] ??
+            vehicle['partner_id'])
+        ?.toString();
+    if (ownerId != null && ownerId.isNotEmpty && ownerId != partnerId) {
       throw Exception('Only the vehicle owner can reject this booking');
     }
 
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
-    if (!{'pending', 'approved'}.contains(status)) {
+    if (status.isNotEmpty &&
+        !{
+          'pending',
+          'approved',
+          'driver_accepted',
+          'payment_submitted',
+          'awaiting_payment',
+        }.contains(status)) {
       throw Exception(
         'This booking cannot be rejected in its current state ($status)',
       );
@@ -2148,16 +2197,47 @@ class BookingService {
         })
         .eq('id', bookingId);
 
+    // Cancel driver assignment in parallel if any
+    final assignedDriverId = booking['driver_id']?.toString();
+    if (assignedDriverId != null && assignedDriverId.isNotEmpty) {
+      unawaited(
+        supabase
+            .from('driver_job_assignments')
+            .update({'status': 'cancelled', 'updated_at': now})
+            .eq('booking_id', bookingId)
+            .inFilter('status', ['pending_offer', 'assigned', 'accepted'])
+            .then(
+              (_) => supabase
+                  .from('users')
+                  .update({'is_available': true})
+                  .eq('id', assignedDriverId),
+            )
+            .catchError(
+              (e) => debugPrint(
+                'Error cancelling driver assignment on reject: $e',
+              ),
+            ),
+      );
+    }
+
+    // Notify renter asynchronously without blocking the partner
     final renterId = booking['renter_id']?.toString();
     if (renterId != null && renterId.isNotEmpty) {
       final vehicleTitle = _vehicleTitle(vehicle);
-      await NotificationService().createNotification(
-        userId: renterId,
-        title: 'Booking Rejected',
-        message:
-            'Your booking for $vehicleTitle was rejected by the vehicle partner. Reason: $reason',
-        type: 'booking',
-        data: {'booking_id': bookingId, 'status': 'rejected'},
+      unawaited(
+        NotificationService()
+            .createNotification(
+              userId: renterId,
+              title: 'Booking Rejected',
+              message:
+                  'Your booking for $vehicleTitle was rejected by the vehicle partner. Reason: $reason',
+              type: 'booking',
+              data: {'booking_id': bookingId, 'status': 'rejected'},
+            )
+            .then<void>((_) {})
+            .catchError(
+              (e) => debugPrint('Error creating rejection notification: $e'),
+            ),
       );
     }
   }
@@ -2296,63 +2376,91 @@ class BookingService {
   }
 
   /// Reject booking (operator action)
-  Future<void> rejectBooking(String bookingId, String reason) async {
+  Future<void> rejectBooking(
+    String bookingId,
+    String reason, {
+    Map<String, dynamic>? cachedBooking,
+  }) async {
     try {
       debugPrint('Rejecting booking: $bookingId');
 
-      // Get booking details before updating
-      final booking = await getBookingById(bookingId);
+      Map<String, dynamic>? booking = cachedBooking;
+      if (booking == null) {
+        final response = await supabase
+            .from('bookings')
+            .select(
+              'id, status, renter_id, vehicle_id, driver_id, vehicles:vehicle_id(id, brand, model)',
+            )
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (response != null) {
+          booking = Map<String, dynamic>.from(response);
+        }
+      }
       if (booking == null) {
         throw Exception('Booking not found: $bookingId');
       }
 
+      final now = DateTime.now().toIso8601String();
       await supabase
           .from('bookings')
           .update({
             'status': 'rejected',
             'rejection_reason': reason,
-            'rejected_at': DateTime.now().toIso8601String(),
+            'rejected_at': now,
+            'updated_at': now,
           })
           .eq('id', bookingId);
 
       final assignedDriverId = booking['driver_id']?.toString();
       if (assignedDriverId != null && assignedDriverId.isNotEmpty) {
-        final now = DateTime.now().toIso8601String();
-        await supabase
-            .from('driver_job_assignments')
-            .update({'status': 'cancelled', 'updated_at': now})
-            .eq('booking_id', bookingId)
-            .inFilter('status', ['pending_offer', 'assigned', 'accepted']);
-        await supabase
-            .from('users')
-            .update({'is_available': true})
-            .eq('id', assignedDriverId);
+        unawaited(
+          supabase
+              .from('driver_job_assignments')
+              .update({'status': 'cancelled', 'updated_at': now})
+              .eq('booking_id', bookingId)
+              .inFilter('status', ['pending_offer', 'assigned', 'accepted'])
+              .then(
+                (_) => supabase
+                    .from('users')
+                    .update({'is_available': true})
+                    .eq('id', assignedDriverId),
+              )
+              .catchError(
+                (e) => debugPrint(
+                  'Error cancelling driver assignment on reject: $e',
+                ),
+              ),
+        );
       }
 
       debugPrint('Booking rejected');
 
-      // ✅ Send notification to renter when booking is rejected
-      if (booking['renter_id'] != null) {
-        try {
-          final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-          final vehicleTitle = vehicle != null
-              ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
-              : 'Your rental vehicle';
+      // ✅ Send notification to renter when booking is rejected (asynchronous)
+      final renterId = booking['renter_id']?.toString();
+      if (renterId != null && renterId.isNotEmpty) {
+        final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+        final vehicleTitle = vehicle != null
+            ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+            : 'Your rental vehicle';
 
-          await supabase.from('notifications').insert({
-            'user_id': booking['renter_id'],
-            'title': '❌ Booking Rejected',
-            'message':
-                'Your booking for $vehicleTitle has been rejected. Reason: $reason',
-            'type': 'booking',
-            'data': {'booking_id': bookingId, 'status': 'rejected'},
-            'created_at': DateTime.now().toIso8601String(),
-          });
-
-          debugPrint('✅ Rejection notification sent to renter');
-        } catch (e) {
-          debugPrint('⚠️ Error sending rejection notification: $e');
-        }
+        unawaited(
+          supabase
+              .from('notifications')
+              .insert({
+                'user_id': renterId,
+                'title': '❌ Booking Rejected',
+                'message':
+                    'Your booking for $vehicleTitle has been rejected. Reason: $reason',
+                'type': 'booking',
+                'data': {'booking_id': bookingId, 'status': 'rejected'},
+                'created_at': DateTime.now().toIso8601String(),
+              })
+              .then((_) => debugPrint('✅ Rejection notification sent to renter'))
+              .catchError(
+                (e) => debugPrint('⚠️ Error sending rejection notification: $e'),
+              ),
+        );
       }
     } on PostgrestException catch (e) {
       debugPrint('Database error rejecting booking: ${e.message}');
@@ -2606,6 +2714,8 @@ class BookingService {
       // ✅ Notify the assigned driver with booking + renter details
       try {
         final bookingDetails = await getBookingById(bookingId);
+        final vehicle = bookingDetails?['vehicles'] as Map<String, dynamic>?;
+        final vehicleTitle = _vehicleTitle(vehicle);
         final renter = bookingDetails?['users'] as Map<String, dynamic>?;
         final renterName = renter?['full_name']?.toString() ?? 'Renter';
         final renterPhone = renter?['phone']?.toString() ?? '';
@@ -2615,13 +2725,14 @@ class BookingService {
           renterId: booking['renter_id']?.toString(),
           renterName: renterName,
           renterPhone: renterPhone,
+          vehicleTitle: vehicleTitle,
           pickupLocation: bookingDetails?['pickup_location']?.toString(),
           dropoffLocation: bookingDetails?['dropoff_location']?.toString(),
           startDate: bookingDetails?['start_date']?.toString(),
           endDate: bookingDetails?['end_date']?.toString(),
           startAt: bookingDetails?['start_at']?.toString(),
           endAt: bookingDetails?['end_at']?.toString(),
-          tripFee: tripFee,
+          tripFee: effectiveTripFee,
         );
         debugPrint('✅ Driver assignment notification sent to driver');
       } catch (e) {
@@ -5098,12 +5209,26 @@ class BookingService {
     String? operatorId,
     String? reviewerRole,
     String? reason,
+    Map<String, dynamic>? cachedBooking,
   }) async {
     final effectiveReviewerId = reviewerId ?? operatorId ?? '';
-    final effectiveRole = reviewerRole ?? (operatorId != null ? 'operator' : 'partner');
+    final effectiveRole =
+        reviewerRole ?? (operatorId != null ? 'operator' : 'partner');
 
     try {
-      final booking = await getBookingById(bookingId);
+      Map<String, dynamic>? booking = cachedBooking;
+      if (booking == null) {
+        final response = await supabase
+            .from('bookings')
+            .select(
+              'id, status, renter_id, vehicle_id, partner_id, extension_status, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+            )
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (response != null) {
+          booking = Map<String, dynamic>.from(response);
+        }
+      }
       if (booking == null) throw Exception('Booking not found');
 
       final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
@@ -5125,20 +5250,26 @@ class BookingService {
           })
           .eq('id', bookingId);
 
-      final conversation = await ChatService().getConversationBookingContext(
-        bookingId,
+      unawaited(
+        ChatService()
+            .getConversationBookingContext(bookingId)
+            .then<void>((conversation) async {
+              if (conversation != null) {
+                final conversationId = conversation['id']?.toString();
+                if (conversationId != null) {
+                  await ChatService().sendMessage(
+                    conversationId: conversationId,
+                    senderId: effectiveReviewerId,
+                    content:
+                        'Trip Extension Request Declined${reason != null && reason.isNotEmpty ? ": $reason" : ""}. Please return the vehicle by your original schedule.',
+                  );
+                }
+              }
+            })
+            .catchError(
+              (e) => debugPrint('Error sending extension decline chat: $e'),
+            ),
       );
-      if (conversation != null) {
-        final conversationId = conversation['id']?.toString();
-        if (conversationId != null) {
-          await ChatService().sendMessage(
-            conversationId: conversationId,
-            senderId: effectiveReviewerId,
-            content:
-                'Trip Extension Request Declined${reason != null && reason.isNotEmpty ? ": $reason" : ""}. Please return the vehicle by your original schedule.',
-          );
-        }
-      }
     } catch (e) {
       debugPrint('Error rejecting trip extension: $e');
       rethrow;
@@ -5599,6 +5730,11 @@ class BookingService {
     try {
       final booking = await getBookingById(bookingId);
       final depositAmount = (booking?['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0;
+      final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+      final vehicleTitle = _vehicleTitle(vehicle);
+      final driverId = booking?['driver_id']?.toString() ?? '';
+      final renterId = booking?['renter_id']?.toString() ?? '';
+      final partnerId = (vehicle?['owner_id'] ?? booking?['partner_id'])?.toString() ?? '';
 
       await updateBookingStatus(bookingId, 'cancelled');
       await safeUpdateBooking(bookingId, {
@@ -5609,6 +5745,58 @@ class BookingService {
         'cancellation_fee_retained': depositAmount,
         'updated_at': DateTime.now().toIso8601String(),
       });
+
+      // Release driver assignment and restore availability
+      if (driverId.isNotEmpty) {
+        try {
+          final now = DateTime.now().toUtc().toIso8601String();
+          await supabase
+              .from('driver_job_assignments')
+              .update({'status': 'cancelled', 'updated_at': now})
+              .eq('booking_id', bookingId)
+              .inFilter('status', ['pending_offer', 'assigned', 'accepted']);
+          await supabase
+              .from('users')
+              .update({'is_available': true})
+              .eq('id', driverId);
+        } catch (e) {
+          debugPrint('Could not update driver availability on cancellation: $e');
+        }
+
+        unawaited(
+          NotificationService().notifyBookingCancelled(
+            userId: driverId,
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            role: 'driver',
+            reason: cancellationReason,
+          ).catchError((e) => debugPrint('Error notifying driver on cancellation: $e')),
+        );
+      }
+
+      // Notify partner
+      if (partnerId.isNotEmpty && partnerId != renterId) {
+        String partnerUserId = partnerId;
+        try {
+          final pDoc = await supabase
+              .from('partners')
+              .select('user_id')
+              .eq('id', partnerId)
+              .maybeSingle();
+          final uId = pDoc?['user_id']?.toString().trim();
+          if (uId != null && uId.isNotEmpty) partnerUserId = uId;
+        } catch (_) {}
+
+        unawaited(
+          NotificationService().notifyBookingCancelled(
+            userId: partnerUserId,
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            role: 'partner',
+            reason: cancellationReason,
+          ).catchError((e) => debugPrint('Error notifying partner on cancellation: $e')),
+        );
+      }
 
       try {
         await TransactionLogger.logBookingCancelled(
@@ -5764,18 +5952,13 @@ class BookingService {
       }
 
       try {
-        await NotificationService().createNotification(
-          userId: partnerUserId,
-          title: 'Partner Earnings Disbursed',
-          message:
-              'Your earnings of PHP ${netAmount.toStringAsFixed(2)} for booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()} have been disbursed via $paymentMethod (Ref: $referenceNumber).',
-          type: 'partner_payout_disbursed',
-          data: {
-            'booking_id': bookingId,
-            'amount': netAmount,
-            'reference': referenceNumber,
-            'receipt_url': receiptUrl,
-          },
+        await NotificationService().notifyPartnerDisbursementCompleted(
+          partnerUserId: partnerUserId,
+          bookingId: bookingId,
+          amount: netAmount,
+          paymentMethod: paymentMethod,
+          referenceNumber: referenceNumber,
+          receiptUrl: receiptUrl,
         );
       } catch (e) {
         debugPrint('Could not notify partner for payout: $e');
@@ -5899,18 +6082,13 @@ class BookingService {
       }
 
       try {
-        await NotificationService().createNotification(
-          userId: resolvedDriverUserId,
-          title: 'Driver Earnings Disbursed',
-          message:
-              'Your driver earnings of PHP ${netAmount.toStringAsFixed(2)} for booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()} have been disbursed via $paymentMethod (Ref: $referenceNumber).',
-          type: 'driver_payout_disbursed',
-          data: {
-            'booking_id': bookingId,
-            'amount': netAmount,
-            'reference': referenceNumber,
-            'receipt_url': receiptUrl,
-          },
+        await NotificationService().notifyDriverDisbursementCompleted(
+          driverUserId: resolvedDriverUserId,
+          bookingId: bookingId,
+          amount: netAmount,
+          paymentMethod: paymentMethod,
+          referenceNumber: referenceNumber,
+          receiptUrl: receiptUrl,
         );
       } catch (e) {
         debugPrint('Could not notify driver for payout: $e');

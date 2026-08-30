@@ -312,18 +312,30 @@ class NotificationService {
     String? endDate,
     String? startAt,
     String? endAt,
+    String? vehicleTitle,
     double? tripFee,
   }) {
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+    final feeText = tripFee != null && tripFee > 0
+        ? ' • Trip Fee: PHP ${tripFee.toStringAsFixed(2)}'
+        : '';
+    final vehicleText = vehicleTitle != null && vehicleTitle.trim().isNotEmpty
+        ? ' for $vehicleTitle'
+        : '';
+
     return _safeCreate(
       userId: driverId,
-      title: 'New Driver Job Offer',
+      title: '🚗 You Are Assigned to a Booking',
       message:
-          'Review this booking and accept or decline it. Renter: $renterName${renterPhone != null && renterPhone.trim().isNotEmpty ? " - ${renterPhone.trim()}" : ""}',
+          'You have been assigned to drive for booking #$shortId ($renterName)$vehicleText$feeText. Review the booking and accept or decline it.',
       type: 'driver_assignment',
       data: {
         'booking_id': bookingId,
         if (renterId != null) 'renter_id': renterId,
         'renter_name': renterName,
+        if (vehicleTitle != null) 'vehicle_title': vehicleTitle,
         if (renterPhone != null) 'renter_phone': renterPhone,
         if (pickupLocation != null) 'pickup_location': pickupLocation,
         if (dropoffLocation != null) 'dropoff_location': dropoffLocation,
@@ -424,14 +436,15 @@ class NotificationService {
     for (final pUserId in resolvedPartnerUserIds) {
       final sent = await _safeCreate(
         userId: pUserId,
-        title: 'New Booking for Your Vehicle',
+        title: '🚘 Your Vehicle Has Been Booked!',
         message:
-            '$renterName placed a new booking for your vehicle $vehicleTitle${withDriver ? ' with a driver' : ''}. Review the booking details in your partner portal.',
+            '$renterName booked your vehicle ($vehicleTitle)${withDriver ? ' with a designated driver' : ''}. Review the booking details in your partner portal.',
         type: 'booking',
         data: {
           'booking_id': bookingId,
           'status': 'pending',
           'with_driver': withDriver,
+          if (vehicleId != null) 'vehicle_id': vehicleId,
           'event': 'partner_new_booking_request',
         },
       );
@@ -439,6 +452,76 @@ class NotificationService {
     }
 
     return notifiedCount;
+  }
+
+  /// Notify a partner when their payout disbursement is completed.
+  Future<bool> notifyPartnerDisbursementCompleted({
+    required String partnerUserId,
+    required String bookingId,
+    required double amount,
+    required String paymentMethod,
+    required String referenceNumber,
+    String? vehicleTitle,
+    String? receiptUrl,
+  }) {
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+    final carText = vehicleTitle != null && vehicleTitle.trim().isNotEmpty
+        ? ' for $vehicleTitle'
+        : '';
+
+    return _safeCreate(
+      userId: partnerUserId,
+      title: '💰 Payout Disbursed Successfully',
+      message:
+          'Your earnings of PHP ${amount.toStringAsFixed(2)} for booking #$shortId$carText have been disbursed via $paymentMethod (Ref: $referenceNumber).',
+      type: 'partner_payout_disbursed',
+      data: {
+        'booking_id': bookingId,
+        'amount': amount,
+        'payment_method': paymentMethod,
+        'reference': referenceNumber,
+        if (receiptUrl != null && receiptUrl.isNotEmpty)
+          'receipt_url': receiptUrl,
+        'event': 'disbursement_completed',
+      },
+    );
+  }
+
+  /// Notify a driver when their fee/commission payout is completed.
+  Future<bool> notifyDriverDisbursementCompleted({
+    required String driverUserId,
+    required String bookingId,
+    required double amount,
+    required String paymentMethod,
+    required String referenceNumber,
+    String? vehicleTitle,
+    String? receiptUrl,
+  }) {
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+    final carText = vehicleTitle != null && vehicleTitle.trim().isNotEmpty
+        ? ' ($vehicleTitle)'
+        : '';
+
+    return _safeCreate(
+      userId: driverUserId,
+      title: '💰 Driver Fee Disbursed Successfully',
+      message:
+          'Your driver earnings of PHP ${amount.toStringAsFixed(2)} for booking #$shortId$carText have been disbursed via $paymentMethod (Ref: $referenceNumber).',
+      type: 'driver_payout_disbursed',
+      data: {
+        'booking_id': bookingId,
+        'amount': amount,
+        'payment_method': paymentMethod,
+        'reference': referenceNumber,
+        if (receiptUrl != null && receiptUrl.isNotEmpty)
+          'receipt_url': receiptUrl,
+        'event': 'disbursement_completed',
+      },
+    );
   }
 
   Future<int> notifyOperatorsVehicleReturned({
@@ -590,18 +673,134 @@ class NotificationService {
     required String role,
   }) {
     final isDriver = role.trim().toLowerCase() == 'driver';
+    final isPartner = role.trim().toLowerCase() == 'partner';
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+
+    final title = isDriver
+        ? '✅ Trip Confirmed - Ready to Drive'
+        : isPartner
+            ? '✅ Vehicle Booking Confirmed'
+            : '✅ Booking Confirmed';
+    final message = isDriver
+        ? 'Your assigned trip for $vehicleTitle (Booking #$shortId) is confirmed. You can now communicate with the renter.'
+        : isPartner
+            ? 'The booking for your vehicle $vehicleTitle (#$shortId) has been confirmed and scheduled.'
+            : 'Your booking for $vehicleTitle (#$shortId) is confirmed. The booking conversation is now available.';
+
     return _safeCreate(
       userId: userId,
-      title: 'Booking Finalized',
-      message: isDriver
-          ? 'Your accepted job for $vehicleTitle is finalized. The booking conversation is now available.'
-          : 'Your booking for $vehicleTitle is confirmed. The booking conversation is now available.',
+      title: title,
+      message: message,
       type: 'booking',
       data: {
         'booking_id': bookingId,
         'status': 'confirmed',
         'role': role,
         'event': 'booking_finalized',
+      },
+    );
+  }
+
+  Future<bool> notifyBookingCancelled({
+    required String userId,
+    required String bookingId,
+    required String vehicleTitle,
+    required String role,
+    String? reason,
+  }) {
+    final isDriver = role.trim().toLowerCase() == 'driver';
+    final isPartner = role.trim().toLowerCase() == 'partner';
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+    final reasonText = reason != null && reason.trim().isNotEmpty
+        ? ' Reason: ${reason.trim()}'
+        : '';
+
+    final title = isDriver
+        ? '❌ Assigned Trip Cancelled'
+        : isPartner
+            ? '❌ Vehicle Booking Cancelled'
+            : '❌ Booking Cancelled';
+    final message = isDriver
+        ? 'The assigned trip for booking #$shortId ($vehicleTitle) has been cancelled.$reasonText Your availability has been restored.'
+        : isPartner
+            ? 'The booking #$shortId for your vehicle ($vehicleTitle) has been cancelled.$reasonText'
+            : 'Your booking #$shortId for $vehicleTitle has been cancelled.$reasonText';
+
+    return _safeCreate(
+      userId: userId,
+      title: title,
+      message: message,
+      type: 'booking',
+      data: {
+        'booking_id': bookingId,
+        'status': 'cancelled',
+        'role': role,
+        if (reason != null) 'reason': reason,
+        'event': 'booking_cancelled',
+      },
+    );
+  }
+
+  Future<bool> notifyTripStarted({
+    required String userId,
+    required String bookingId,
+    required String vehicleTitle,
+    required String role,
+  }) {
+    final isDriver = role.trim().toLowerCase() == 'driver';
+    final isPartner = role.trim().toLowerCase() == 'partner';
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+
+    final title = isDriver
+        ? '🚗 Trip In Progress'
+        : isPartner
+            ? '🚗 Vehicle Handed Over - Trip Started'
+            : '🚗 Trip Started';
+    final message = isDriver
+        ? 'Trip for booking #$shortId ($vehicleTitle) is now active. Drive safely!'
+        : isPartner
+            ? 'Your vehicle $vehicleTitle (Booking #$shortId) has been handed over and the trip is underway.'
+            : 'Your trip with $vehicleTitle is now active. Enjoy your ride!';
+
+    return _safeCreate(
+      userId: userId,
+      title: title,
+      message: message,
+      type: 'booking',
+      data: {
+        'booking_id': bookingId,
+        'status': 'active',
+        'role': role,
+        'event': 'trip_started',
+      },
+    );
+  }
+
+  Future<bool> notifyPartnerVehicleRejected({
+    required String partnerId,
+    String? vehicleTitle,
+    required String reason,
+  }) {
+    final vehicleText = vehicleTitle != null && vehicleTitle.trim().isNotEmpty
+        ? ' for ${vehicleTitle.trim()}'
+        : '';
+    return _safeCreate(
+      userId: partnerId,
+      title: 'Vehicle Application Rejected',
+      message:
+          'Your vehicle application$vehicleText was not approved. Reason: $reason',
+      type: 'application',
+      data: {
+        'status': 'rejected',
+        'role': 'partner',
+        'reason': reason,
+        'event': 'partner_application_rejected',
       },
     );
   }

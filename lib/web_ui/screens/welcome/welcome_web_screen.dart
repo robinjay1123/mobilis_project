@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../utils/pricing_policy.dart';
 
@@ -36,7 +35,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   String _estimatorVehicleType = 'Sedan';
   bool _estimatorWithDriver = false;
   bool _estimatorDoorstepDelivery = false;
-  double _estimatorDeliveryKm = 10.0;
+  final double _estimatorDeliveryKm = 10.0;
 
   // Real Database Vehicles + Rich Fallbacks
   List<Map<String, dynamic>> _liveVehicles = [];
@@ -520,20 +519,21 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           // Main Scrollable Body
           SingleChildScrollView(
             controller: _scrollController,
+            physics: const BouncingScrollPhysics(),
             child: Column(
               children: [
-                _buildTopAnnouncementBar(isDesktop),
-                _buildStickyHeader(isDesktop),
-                _buildHeroSection(isDesktop, isTablet),
-                _buildQuickPangasinanPicker(isDesktop),
-                _buildVehicleShowroomSection(isDesktop, isTablet),
-                _buildThreeInOnePlatformSection(isDesktop, isTablet),
-                _buildPangasinanHubSection(isDesktop, isTablet),
-                _buildRateEstimatorSection(isDesktop, isTablet),
-                _buildWhyMobilisSafetySection(isDesktop, isTablet),
-                _buildFaqSection(isDesktop),
-                _buildPreFooterCta(isDesktop),
-                _buildFooterSection(isDesktop),
+                _buildTopAnnouncementBar(isDesktop, width),
+                _buildStickyHeader(isDesktop, width),
+                _buildHeroSection(isDesktop, isTablet, width),
+                _buildQuickPangasinanPicker(isDesktop, width),
+                _buildVehicleShowroomSection(isDesktop, isTablet, width),
+                _buildThreeInOnePlatformSection(isDesktop, isTablet, width),
+                _buildPangasinanHubSection(isDesktop, isTablet, width),
+                _buildRateEstimatorSection(isDesktop, isTablet, width),
+                _buildWhyMobilisSafetySection(isDesktop, isTablet, width),
+                _buildFaqSection(isDesktop, width),
+                _buildPreFooterCta(isDesktop, width),
+                _buildFooterSection(isDesktop, width),
               ],
             ),
           ),
@@ -545,10 +545,12 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 1. TOP ANNOUNCEMENT BAR
   // ==========================================
-  Widget _buildTopAnnouncementBar(bool isDesktop) {
+  Widget _buildTopAnnouncementBar(bool isDesktop, double width) {
+    final isMobile = width < 640;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 24, vertical: 8),
       decoration: const BoxDecoration(
         color: Color(0xFF06142E),
         border: Border(bottom: BorderSide(color: Color(0x20FFD740))),
@@ -559,76 +561,61 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.location_on_rounded, size: 13, color: AppColors.primary),
-                        SizedBox(width: 5),
-                        Text(
-                          'PANGASINAN & NEARBY PROVINCES ONLY',
-                          style: TextStyle(
-                            color: AppColors.primary,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.6,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (isDesktop) ...[
-                    const SizedBox(width: 16),
-                    const Text(
-                      '•   Main Office: Urdaneta City   •   PSDC Fleet & Verified Partners',
-                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
-                    ),
-                  ],
-                ],
-              ),
-              Row(
-                children: [
-                  InkWell(
-                    onTap: () => _callPhone(hotline1),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.phone_in_talk_rounded, size: 13, color: AppColors.primary),
-                        SizedBox(width: 6),
-                        Text(
-                          hotline1,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (isDesktop) ...[
-                    const SizedBox(width: 16),
-                    InkWell(
-                      onTap: () => _openUrl(facebookUrl),
-                      child: const Row(
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          FaIcon(FontAwesomeIcons.facebook, size: 13, color: Color(0xFF1877F2)),
-                          SizedBox(width: 6),
+                          const Icon(Icons.location_on_rounded, size: 12, color: AppColors.primary),
+                          const SizedBox(width: 4),
                           Text(
-                            'fb.com/psdc.dagupan',
-                            style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11.5),
+                            isMobile ? 'PANGASINAN SERVICE' : 'PANGASINAN & NEARBY PROVINCES ONLY',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.6,
+                            ),
                           ),
                         ],
                       ),
                     ),
+                    if (isDesktop) ...[
+                      const SizedBox(width: 16),
+                      const Text(
+                        '•   Main Office: Urdaneta City   •   PSDC Fleet & Verified Partners',
+                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                      ),
+                    ],
                   ],
-                ],
+                ),
+              ),
+              InkWell(
+                onTap: () => _callPhone(hotline1),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.phone_in_talk_rounded, size: 13, color: AppColors.primary),
+                    const SizedBox(width: 5),
+                    Text(
+                      hotline1,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -640,11 +627,13 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 2. STICKY HEADER WITH AUTH BUTTONS
   // ==========================================
-  Widget _buildStickyHeader(bool isDesktop) {
+  Widget _buildStickyHeader(bool isDesktop, double width) {
+    final isMobile = width < 768;
+
     return Container(
       width: double.infinity,
-      height: 84,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      height: isMobile ? 68 : 84,
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24),
       decoration: BoxDecoration(
         color: const Color(0xE6030A18),
         border: const Border(bottom: BorderSide(color: Color(0x1AFFFFFF))),
@@ -664,46 +653,50 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
             children: [
               // Brand Logo
               InkWell(
-                onTap: () => _scrollController.animateTo(0, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut),
+                onTap: () => _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeInOut,
+                ),
                 child: Row(
                   children: [
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: isMobile ? 38 : 44,
+                      height: isMobile ? 38 : 44,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [Color(0xFFFFD740), Color(0xFFFFB300)],
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                         boxShadow: [
                           BoxShadow(
                             color: AppColors.primary.withValues(alpha: 0.35),
-                            blurRadius: 14,
+                            blurRadius: 12,
                           ),
                         ],
                       ),
-                      padding: const EdgeInsets.all(6),
+                      padding: const EdgeInsets.all(5),
                       child: Image.asset('assets/icon/logo-black.png', fit: BoxFit.contain),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 10),
                     Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            const Text(
+                            Text(
                               'MOBILIS',
                               style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 22,
+                                fontSize: isMobile ? 18 : 22,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 0.5,
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                               decoration: BoxDecoration(
                                 color: AppColors.primary,
                                 borderRadius: BorderRadius.circular(4),
@@ -712,22 +705,23 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                                 'PSDC',
                                 style: TextStyle(
                                   color: Color(0xFF030A18),
-                                  fontSize: 9.5,
+                                  fontSize: 9,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                        const Text(
-                          'PANGASINAN CAR RENTAL HUB',
-                          style: TextStyle(
-                            color: Color(0xFF64748B),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.2,
+                        if (!isMobile)
+                          const Text(
+                            'PANGASINAN CAR RENTAL HUB',
+                            style: TextStyle(
+                              color: Color(0xFF64748B),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.2,
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ],
@@ -747,53 +741,203 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   ],
                 ),
 
-              // Download APK & Auth Actions
-              Row(
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _showDownloadApkDialog,
-                    icon: const Icon(Icons.android_rounded, size: 16, color: AppColors.primary),
-                    label: const Text('Download APK', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0x44FFD740)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              // Desktop Header Actions
+              if (isDesktop)
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _showDownloadApkDialog,
+                      icon: const Icon(Icons.android_rounded, size: 16, color: AppColors.primary),
+                      label: const Text('Download APK', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0x44FFD740)),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  OutlinedButton(
-                    onPressed: _goToLogin,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Color(0x33FFFFFF)),
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    const SizedBox(width: 10),
+                    OutlinedButton(
+                      onPressed: _goToLogin,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Color(0x33FFFFFF)),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Log In', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                     ),
-                    child: const Text('Log In', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                    const SizedBox(width: 10),
+                    ElevatedButton(
+                      onPressed: _goToSignup,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: const Color(0xFF030A18),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        elevation: 4,
+                        shadowColor: AppColors.primary.withValues(alpha: 0.4),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Text('Register', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                          SizedBox(width: 6),
+                          Icon(Icons.arrow_forward_rounded, size: 16),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else
+                // Mobile & Tablet Header Actions
+                Row(
+                  children: [
+                    OutlinedButton(
+                      onPressed: _goToLogin,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Color(0x44FFFFFF)),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('Log In', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                    ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: _showMobileNavSheet,
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0E1F42),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0x33FFFFFF)),
+                        ),
+                        child: const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showMobileNavSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF07142E),
+      barrierColor: Colors.black.withValues(alpha: 0.7),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0x33FFFFFF),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: _goToSignup,
+                ),
+                const SizedBox(height: 20),
+                _buildMobileNavItem('🚗  Vehicles', () {
+                  Navigator.of(context).pop();
+                  _scrollToSection(_vehiclesKey);
+                }),
+                _buildMobileNavItem('🔄  3-in-1 Platform (Renter, Driver, Partner)', () {
+                  Navigator.of(context).pop();
+                  _scrollToSection(_modesKey);
+                }),
+                _buildMobileNavItem('📍  Pangasinan Hub & Coverage', () {
+                  Navigator.of(context).pop();
+                  _scrollToSection(_hubKey);
+                }),
+                _buildMobileNavItem('💰  Rate Estimator', () {
+                  Navigator.of(context).pop();
+                  _scrollToSection(_estimatorKey);
+                }),
+                _buildMobileNavItem('❓  FAQ', () {
+                  Navigator.of(context).pop();
+                  _scrollToSection(_faqKey);
+                }),
+                _buildMobileNavItem('📞  Contact & Support', () {
+                  Navigator.of(context).pop();
+                  _scrollToSection(_contactKey);
+                }),
+                const Divider(color: Color(0x1AFFFFFF), height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _showDownloadApkDialog();
+                    },
+                    icon: const Icon(Icons.android_rounded, size: 18),
+                    label: const Text('Download Android APK', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: const Color(0xFF030A18),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                      elevation: 4,
-                      shadowColor: AppColors.primary.withValues(alpha: 0.4),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Row(
-                      children: [
-                        Text('Register', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
-                        SizedBox(width: 6),
-                        Icon(Icons.arrow_forward_rounded, size: 16),
-                      ],
-                    ),
                   ),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _goToLogin();
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Color(0x33FFFFFF)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Admin & Operator Portal', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                  ),
+                ),
+              ],
+            ),
           ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMobileNavItem(String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B), size: 20),
+          ],
         ),
       ),
     );
@@ -823,12 +967,14 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 3. HERO SECTION
   // ==========================================
-  Widget _buildHeroSection(bool isDesktop, bool isTablet) {
+  Widget _buildHeroSection(bool isDesktop, bool isTablet, double width) {
+    final isMobile = width < 768;
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: isDesktop ? 70 : 40,
+        horizontal: isMobile ? 18 : 24,
+        vertical: isDesktop ? 70 : (isTablet ? 48 : 36),
       ),
       child: Center(
         child: ConstrainedBox(
@@ -837,30 +983,30 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
             children: [
               // Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(30),
                   border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.star_rounded, size: 16, color: AppColors.primary),
-                    SizedBox(width: 8),
+                    const Icon(Icons.star_rounded, size: 15, color: AppColors.primary),
+                    const SizedBox(width: 7),
                     Text(
-                      'PANGASINAN’S PREMIER 100% CAR RENTAL SERVICE',
+                      isMobile ? 'PANGASINAN PREMIER CAR RENTAL' : 'PANGASINAN’S PREMIER 100% CAR RENTAL SERVICE',
                       style: TextStyle(
                         color: AppColors.primary,
-                        fontSize: 12,
+                        fontSize: isMobile ? 10.5 : 12,
                         fontWeight: FontWeight.w900,
-                        letterSpacing: 1,
+                        letterSpacing: 0.8,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
               // Big Catchy Title
               Text(
@@ -868,13 +1014,13 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isDesktop ? 54 : (isTablet ? 40 : 32),
+                  fontSize: isDesktop ? 52 : (isTablet ? 38 : 28),
                   fontWeight: FontWeight.w900,
-                  height: 1.15,
+                  height: 1.18,
                   letterSpacing: -0.5,
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 16),
 
               // Description
               ConstrainedBox(
@@ -884,40 +1030,40 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: const Color(0xFF94A3B8),
-                    fontSize: isDesktop ? 16 : 14.5,
-                    height: 1.6,
+                    fontSize: isDesktop ? 16 : 14,
+                    height: 1.55,
                   ),
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
 
               // Action Buttons
               Wrap(
-                spacing: 16,
-                runSpacing: 14,
+                spacing: 12,
+                runSpacing: 12,
                 alignment: WrapAlignment.center,
                 children: [
                   ElevatedButton.icon(
                     onPressed: () => _scrollToSection(_vehiclesKey),
                     icon: const Icon(Icons.directions_car_rounded, size: 18),
-                    label: const Text('Browse Vehicles', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+                    label: const Text('Browse Vehicles', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: const Color(0xFF030A18),
-                      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 18),
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      elevation: 8,
+                      elevation: 6,
                       shadowColor: AppColors.primary.withValues(alpha: 0.45),
                     ),
                   ),
                   ElevatedButton.icon(
                     onPressed: _showDownloadApkDialog,
                     icon: const Icon(Icons.android_rounded, size: 18, color: Colors.white),
-                    label: const Text('Download Android APK', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Colors.white)),
+                    label: const Text('Download Android APK', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: Colors.white)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0F2B5C),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
                         side: const BorderSide(color: Color(0x55FFD740)),
@@ -927,42 +1073,67 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   OutlinedButton.icon(
                     onPressed: () => _scrollToSection(_hubKey),
                     icon: const Icon(Icons.location_city_rounded, size: 18, color: AppColors.primary),
-                    label: const Text('Urdaneta Hub & Contacts', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                    label: const Text('Urdaneta Hub', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Color(0x33FFFFFF)),
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 36),
 
               // Key Trust Metric Cards
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1000),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 24 : 16,
+                    vertical: isDesktop ? 20 : 16,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF0A1733),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: const Color(0x22FFFFFF)),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildHeroStat('Urdaneta HQ', 'Central Pangasinan Office'),
-                      _buildHeroStatDivider(),
-                      _buildHeroStat('100% GPS', 'Active Satellite Tracking'),
-                      _buildHeroStatDivider(),
-                      _buildHeroStat('Self-Drive / Driver', 'Flexible Rental Options'),
-                      if (isDesktop) ...[
-                        _buildHeroStatDivider(),
-                        _buildHeroStat('12h to Multi-Day', 'Half-day & Daily Rates'),
-                      ],
-                    ],
-                  ),
+                  child: isDesktop
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildHeroStat('Urdaneta HQ', 'Central Pangasinan Office'),
+                            _buildHeroStatDivider(),
+                            _buildHeroStat('100% GPS', 'Active Satellite Tracking'),
+                            _buildHeroStatDivider(),
+                            _buildHeroStat('Self-Drive / Driver', 'Flexible Rental Options'),
+                            _buildHeroStatDivider(),
+                            _buildHeroStat('12h to Multi-Day', 'Half-day & Daily Rates'),
+                          ],
+                        )
+                      : Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          alignment: WrapAlignment.spaceAround,
+                          children: [
+                            SizedBox(
+                              width: width < 400 ? (width - 70) / 2 : 140,
+                              child: _buildHeroStat('Urdaneta HQ', 'Central Hub'),
+                            ),
+                            SizedBox(
+                              width: width < 400 ? (width - 70) / 2 : 140,
+                              child: _buildHeroStat('100% GPS', 'Satellite Tracking'),
+                            ),
+                            SizedBox(
+                              width: width < 400 ? (width - 70) / 2 : 140,
+                              child: _buildHeroStat('Self-Drive/Driver', 'Flexible Options'),
+                            ),
+                            SizedBox(
+                              width: width < 400 ? (width - 70) / 2 : 140,
+                              child: _buildHeroStat('12h to Daily', 'Transparent Rates'),
+                            ),
+                          ],
+                        ),
                 ),
               ),
             ],
@@ -977,15 +1148,17 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       children: [
         Text(
           title,
+          textAlign: TextAlign.center,
           style: const TextStyle(
             color: AppColors.primary,
-            fontSize: 18,
+            fontSize: 16,
             fontWeight: FontWeight.w900,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 3),
         Text(
           subtitle,
+          textAlign: TextAlign.center,
           style: const TextStyle(
             color: Color(0xFF94A3B8),
             fontSize: 11,
@@ -1007,15 +1180,17 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 4. QUICK PANGASINAN PICKER BAR
   // ==========================================
-  Widget _buildQuickPangasinanPicker(bool isDesktop) {
+  Widget _buildQuickPangasinanPicker(bool isDesktop, double width) {
+    final isMobile = width < 768;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
           child: Container(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isMobile ? 16 : 20),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFF0C1D40), Color(0xFF07142D)],
@@ -1032,7 +1207,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
             ),
             child: Wrap(
               spacing: 16,
-              runSpacing: 16,
+              runSpacing: 14,
               crossAxisAlignment: WrapCrossAlignment.center,
               alignment: WrapAlignment.spaceBetween,
               children: [
@@ -1051,15 +1226,18 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   label: 'Driver Option',
                   value: 'Self-Drive or with Driver',
                 ),
-                ElevatedButton.icon(
-                  onPressed: _showDownloadApkDialog,
-                  icon: const Icon(Icons.search_rounded, size: 18),
-                  label: const Text('Check Availability', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: const Color(0xFF030A18),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                SizedBox(
+                  width: isMobile ? double.infinity : null,
+                  child: ElevatedButton.icon(
+                    onPressed: _showDownloadApkDialog,
+                    icon: const Icon(Icons.search_rounded, size: 18),
+                    label: const Text('Check Availability', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: const Color(0xFF030A18),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
                   ),
                 ),
               ],
@@ -1102,15 +1280,16 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 5. VEHICLE SHOWROOM SECTION
   // ==========================================
-  Widget _buildVehicleShowroomSection(bool isDesktop, bool isTablet) {
+  Widget _buildVehicleShowroomSection(bool isDesktop, bool isTablet, double width) {
     final vehicles = _displayVehicles;
+    final isMobile = width < 768;
 
     return Container(
       key: _vehiclesKey,
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: isDesktop ? 80 : 50,
+        horizontal: isMobile ? 16 : 24,
+        vertical: isDesktop ? 80 : 48,
       ),
       child: Center(
         child: ConstrainedBox(
@@ -1133,7 +1312,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isDesktop ? 36 : 26,
+                  fontSize: isDesktop ? 36 : (isTablet ? 28 : 24),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -1143,11 +1322,12 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
 
               // Category Filter Tabs
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -1160,7 +1340,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   ],
                 ),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 36),
 
               // Vehicle Grid
               if (_isLoadingVehicles)
@@ -1172,10 +1352,13 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 LayoutBuilder(
                   builder: (context, constraints) {
                     int crossAxisCount = 3;
-                    if (constraints.maxWidth < 700) {
+                    double childAspectRatio = 0.82;
+                    if (constraints.maxWidth < 680) {
                       crossAxisCount = 1;
+                      childAspectRatio = 0.92;
                     } else if (constraints.maxWidth < 1050) {
                       crossAxisCount = 2;
+                      childAspectRatio = 0.85;
                     }
 
                     return GridView.builder(
@@ -1184,9 +1367,9 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                       itemCount: vehicles.length,
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: crossAxisCount,
-                        crossAxisSpacing: 24,
-                        mainAxisSpacing: 24,
-                        childAspectRatio: 0.82,
+                        crossAxisSpacing: 20,
+                        mainAxisSpacing: 20,
+                        childAspectRatio: childAspectRatio,
                       ),
                       itemBuilder: (context, index) {
                         return _HoverVehicleCard(
@@ -1207,12 +1390,12 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   Widget _buildCategoryFilterTab(String key, String label) {
     final isSelected = _selectedCategory == key;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 5),
       child: InkWell(
         onTap: () => setState(() => _selectedCategory = key),
         borderRadius: BorderRadius.circular(30),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
           decoration: BoxDecoration(
             color: isSelected ? AppColors.primary : const Color(0xFF0A1733),
             borderRadius: BorderRadius.circular(30),
@@ -1224,7 +1407,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
             label,
             style: TextStyle(
               color: isSelected ? const Color(0xFF030A18) : const Color(0xFFCBD5E1),
-              fontSize: 13,
+              fontSize: 12.5,
               fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
             ),
           ),
@@ -1233,18 +1416,18 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
     );
   }
 
-
-
   // ==========================================
   // 6. 3-IN-1 PLATFORM SECTION (RENTER, DRIVER, PARTNER)
   // ==========================================
-  Widget _buildThreeInOnePlatformSection(bool isDesktop, bool isTablet) {
+  Widget _buildThreeInOnePlatformSection(bool isDesktop, bool isTablet, double width) {
+    final isMobile = width < 768;
+
     return Container(
       key: _modesKey,
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: isDesktop ? 80 : 50,
+        horizontal: isMobile ? 16 : 24,
+        vertical: isDesktop ? 80 : 48,
       ),
       decoration: const BoxDecoration(
         color: Color(0xFF061229),
@@ -1270,7 +1453,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isDesktop ? 36 : 26,
+                  fontSize: isDesktop ? 36 : (isTablet ? 28 : 24),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -1280,29 +1463,33 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 32),
 
-              // Role Tabs Switcher
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF030A18),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0x22FFFFFF)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildRoleTabButton(0, '🔑 Rent a Car (Renter)'),
-                    _buildRoleTabButton(1, '🧑‍✈️ Drive as Driver'),
-                    _buildRoleTabButton(2, '🤝 List Your Vehicle (Partner)'),
-                  ],
+              // Role Tabs Switcher (Scrollable horizontally on mobile)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF030A18),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0x22FFFFFF)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildRoleTabButton(0, '🔑 Rent a Car (Renter)'),
+                      _buildRoleTabButton(1, '🧑‍✈️ Drive as Driver'),
+                      _buildRoleTabButton(2, '🤝 List Your Vehicle (Partner)'),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
               // Active Role Tab Details Card
-              _buildActiveRoleContent(isDesktop),
+              _buildActiveRoleContent(isDesktop, isMobile),
             ],
           ),
         ),
@@ -1316,7 +1503,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       onTap: () => setState(() => _activeRoleTab = index),
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: isSelected ? AppColors.primary : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
@@ -1325,7 +1512,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           label,
           style: TextStyle(
             color: isSelected ? const Color(0xFF030A18) : const Color(0xFF94A3B8),
-            fontSize: 13.5,
+            fontSize: 13,
             fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
           ),
         ),
@@ -1333,7 +1520,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
     );
   }
 
-  Widget _buildActiveRoleContent(bool isDesktop) {
+  Widget _buildActiveRoleContent(bool isDesktop, bool isMobile) {
     if (_activeRoleTab == 0) {
       // Renter
       return _buildRoleCardLayout(
@@ -1350,6 +1537,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
         ctaText: 'Sign Up as Renter',
         onCta: _goToSignup,
         icon: Icons.key_rounded,
+        isMobile: isMobile,
       );
     } else if (_activeRoleTab == 1) {
       // Driver
@@ -1367,6 +1555,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
         ctaText: 'Apply as Driver',
         onCta: _goToSignup,
         icon: Icons.airline_seat_recline_extra_rounded,
+        isMobile: isMobile,
       );
     } else {
       // Partner
@@ -1384,6 +1573,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
         ctaText: 'List Your Vehicle',
         onCta: _goToSignup,
         icon: Icons.handshake_rounded,
+        isMobile: isMobile,
       );
     }
   }
@@ -1396,9 +1586,10 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
     required String ctaText,
     required VoidCallback onCta,
     required IconData icon,
+    required bool isMobile,
   }) {
     return Container(
-      padding: const EdgeInsets.all(36),
+      padding: EdgeInsets.all(isMobile ? 20 : 36),
       decoration: BoxDecoration(
         color: const Color(0xFF091636),
         borderRadius: BorderRadius.circular(24),
@@ -1410,71 +1601,68 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              badge,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isMobile ? 20 : 26,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            description,
+            style: const TextStyle(
+              color: Color(0xFF94A3B8),
+              fontSize: 14,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            spacing: 16,
+            runSpacing: 10,
+            children: features.map((f) => Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    badge,
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  description,
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 14,
-                    height: 1.6,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 12,
-                  children: features.map((f) => Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 16),
-                      const SizedBox(width: 8),
-                      Text(f, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, fontWeight: FontWeight.w600)),
-                    ],
-                  )).toList(),
-                ),
-                const SizedBox(height: 28),
-                ElevatedButton.icon(
-                  onPressed: onCta,
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                  label: Text(ctaText, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: const Color(0xFF030A18),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
+                const Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 16),
+                const SizedBox(width: 8),
+                Text(f, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, fontWeight: FontWeight.w600)),
               ],
+            )).toList(),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: isMobile ? double.infinity : null,
+            child: ElevatedButton.icon(
+              onPressed: onCta,
+              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+              label: Text(ctaText, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: const Color(0xFF030A18),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ),
         ],
@@ -1485,13 +1673,15 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 7. PANGASINAN HUB & COVERAGE SECTION
   // ==========================================
-  Widget _buildPangasinanHubSection(bool isDesktop, bool isTablet) {
+  Widget _buildPangasinanHubSection(bool isDesktop, bool isTablet, double width) {
+    final isMobile = width < 768;
+
     return Container(
       key: _hubKey,
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: isDesktop ? 80 : 50,
+        horizontal: isMobile ? 16 : 24,
+        vertical: isDesktop ? 80 : 48,
       ),
       child: Center(
         child: ConstrainedBox(
@@ -1513,7 +1703,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isDesktop ? 36 : 26,
+                  fontSize: isDesktop ? 36 : (isTablet ? 28 : 24),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -1523,12 +1713,12 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 36),
 
               // Hub Info Cards
               Wrap(
-                spacing: 24,
-                runSpacing: 24,
+                spacing: 20,
+                runSpacing: 20,
                 alignment: WrapAlignment.center,
                 children: [
                   _buildHubDetailCard(
@@ -1536,6 +1726,8 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                     title: 'Main Office',
                     value: mainOfficeLocation,
                     subtext: 'Central operations, vehicle dispatch & administrative hub',
+                    isDesktop: isDesktop,
+                    width: width,
                   ),
                   _buildHubDetailCard(
                     icon: Icons.phone_in_talk_rounded,
@@ -1543,6 +1735,8 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                     value: '$hotline1\n$hotline2',
                     subtext: 'Call or SMS for reservations & roadside assistance',
                     onTap: () => _callPhone(hotline1),
+                    isDesktop: isDesktop,
+                    width: width,
                   ),
                   _buildHubDetailCard(
                     icon: Icons.facebook_rounded,
@@ -1550,14 +1744,16 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                     value: 'fb.com/psdc.dagupan',
                     subtext: 'Follow us for promos, announcements & updates',
                     onTap: () => _openUrl(facebookUrl),
+                    isDesktop: isDesktop,
+                    width: width,
                   ),
                 ],
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
               // Pangasinan Towns Badges
               Container(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.all(isMobile ? 18 : 24),
                 decoration: BoxDecoration(
                   color: const Color(0xFF071533),
                   borderRadius: BorderRadius.circular(20),
@@ -1576,8 +1772,8 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                     ),
                     const SizedBox(height: 16),
                     Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
+                      spacing: 8,
+                      runSpacing: 8,
                       alignment: WrapAlignment.center,
                       children: [
                         'Urdaneta City (HQ)',
@@ -1595,7 +1791,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                         'Mangaldan',
                         'Nearby Provinces (La Union / Tarlac / Baguio transit)',
                       ].map((town) => Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: const Color(0xFF0D224E),
                           borderRadius: BorderRadius.circular(20),
@@ -1605,7 +1801,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                           town,
                           style: const TextStyle(
                             color: Color(0xFFE2E8F0),
-                            fontSize: 12,
+                            fontSize: 11.5,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -1626,14 +1822,18 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
     required String title,
     required String value,
     required String subtext,
+    required bool isDesktop,
+    required double width,
     VoidCallback? onTap,
   }) {
+    final cardWidth = isDesktop ? 360.0 : (width < 420 ? double.infinity : 340.0);
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        width: 360,
-        padding: const EdgeInsets.all(24),
+        width: cardWidth,
+        padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
           color: const Color(0xFF0A1838),
           borderRadius: BorderRadius.circular(20),
@@ -1665,13 +1865,15 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 8. INTERACTIVE RENTAL RATE ESTIMATOR
   // ==========================================
-  Widget _buildRateEstimatorSection(bool isDesktop, bool isTablet) {
+  Widget _buildRateEstimatorSection(bool isDesktop, bool isTablet, double width) {
+    final isMobile = width < 768;
+
     return Container(
       key: _estimatorKey,
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: isDesktop ? 80 : 50,
+        horizontal: isMobile ? 16 : 24,
+        vertical: isDesktop ? 80 : 48,
       ),
       decoration: const BoxDecoration(
         color: Color(0xFF061229),
@@ -1697,7 +1899,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isDesktop ? 36 : 26,
+                  fontSize: isDesktop ? 36 : (isTablet ? 28 : 24),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -1707,18 +1909,18 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
               // Interactive Estimator Card
               Container(
-                padding: const EdgeInsets.all(32),
+                padding: EdgeInsets.all(isMobile ? 18 : 32),
                 decoration: BoxDecoration(
                   color: const Color(0xFF0A1838),
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                 ),
                 child: Wrap(
-                  spacing: 32,
+                  spacing: 28,
                   runSpacing: 24,
                   children: [
                     // Left Column: Controls
@@ -1737,7 +1939,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                                 label: '📅 Daily Rental',
                                 onTap: () => setState(() => _estimatorMode = 'daily'),
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 10),
                               _buildEstimatorPill(
                                 selected: _estimatorMode == 'hourly',
                                 label: '⏱️ Hourly (12h Min)',
@@ -1745,7 +1947,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                               ),
                             ],
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 18),
 
                           // Vehicle Type
                           const Text('Vehicle Class', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
@@ -1777,7 +1979,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                               );
                             }).toList(),
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 18),
 
                           // Duration Slider
                           Text(
@@ -1803,27 +2005,27 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                               });
                             },
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 10),
 
                           // Driver Toggle
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
                             title: const Text('Hire a Professional Driver', style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
-                            subtitle: const Text('PHP 1,500.00 / day. (Doorstep delivery is included free with driver)', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                            subtitle: const Text('PHP 1,500.00 / day. (Doorstep delivery included free with driver)', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
                             value: _estimatorWithDriver,
-                            activeColor: AppColors.primary,
+                            activeThumbColor: AppColors.primary,
                             onChanged: (val) => setState(() => _estimatorWithDriver = val),
                           ),
 
                           // Doorstep Delivery Toggle (Self-Drive only)
                           if (!_estimatorWithDriver) ...[
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
                             SwitchListTile(
                               contentPadding: EdgeInsets.zero,
                               title: const Text('Doorstep Delivery (Self-Drive)', style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
                               subtitle: const Text('PHP 75.00 / km anywhere in Pangasinan', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
                               value: _estimatorDoorstepDelivery,
-                              activeColor: AppColors.primary,
+                              activeThumbColor: AppColors.primary,
                               onChanged: (val) => setState(() => _estimatorDoorstepDelivery = val),
                             ),
                           ],
@@ -1835,7 +2037,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                     SizedBox(
                       width: isDesktop ? 380 : double.infinity,
                       child: Container(
-                        padding: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(22),
                         decoration: BoxDecoration(
                           color: const Color(0xFF06142E),
                           borderRadius: BorderRadius.circular(20),
@@ -1904,7 +2106,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: selected ? AppColors.primary : const Color(0xFF06142E),
           borderRadius: BorderRadius.circular(10),
@@ -1915,7 +2117,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           style: TextStyle(
             color: selected ? const Color(0xFF030A18) : Colors.white,
             fontWeight: FontWeight.w700,
-            fontSize: 12.5,
+            fontSize: 12,
           ),
         ),
       ),
@@ -1938,12 +2140,14 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 9. WHY MOBILIS & SAFETY SECTION
   // ==========================================
-  Widget _buildWhyMobilisSafetySection(bool isDesktop, bool isTablet) {
+  Widget _buildWhyMobilisSafetySection(bool isDesktop, bool isTablet, double width) {
+    final isMobile = width < 768;
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: isDesktop ? 80 : 50,
+        horizontal: isMobile ? 16 : 24,
+        vertical: isDesktop ? 80 : 48,
       ),
       child: Center(
         child: ConstrainedBox(
@@ -1965,36 +2169,44 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isDesktop ? 36 : 26,
+                  fontSize: isDesktop ? 36 : (isTablet ? 28 : 24),
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 36),
 
               Wrap(
-                spacing: 24,
-                runSpacing: 24,
+                spacing: 20,
+                runSpacing: 20,
                 alignment: WrapAlignment.center,
                 children: [
                   _buildFeatureHighlightCard(
                     icon: Icons.gps_fixed_rounded,
                     title: '24/7 Satellite GPS Safety',
                     description: 'Every vehicle is paired with live real-time GPS tracking for passenger and fleet security.',
+                    isDesktop: isDesktop,
+                    width: width,
                   ),
                   _buildFeatureHighlightCard(
                     icon: Icons.assignment_turned_in_rounded,
                     title: 'Digital Pre/Post Inspection',
                     description: 'Full damage checklist and timestamped photo verification protects you against disputed charges.',
+                    isDesktop: isDesktop,
+                    width: width,
                   ),
                   _buildFeatureHighlightCard(
                     icon: Icons.price_check_rounded,
                     title: 'Fixed Transparent Rates',
                     description: 'No hidden surge pricing. Clear hourly half-day and daily rates across all vehicle categories.',
+                    isDesktop: isDesktop,
+                    width: width,
                   ),
                   _buildFeatureHighlightCard(
                     icon: Icons.shield_rounded,
                     title: 'Verified Drivers & Renters',
                     description: 'Strict identity, valid government ID & driver license screenings ensure safe travels.',
+                    isDesktop: isDesktop,
+                    width: width,
                   ),
                 ],
               ),
@@ -2009,10 +2221,14 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
     required IconData icon,
     required String title,
     required String description,
+    required bool isDesktop,
+    required double width,
   }) {
+    final cardWidth = isDesktop ? 280.0 : (width < 640 ? double.infinity : 300.0);
+
     return Container(
-      width: 280,
-      padding: const EdgeInsets.all(24),
+      width: cardWidth,
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         color: const Color(0xFF0A1838),
         borderRadius: BorderRadius.circular(20),
@@ -2041,7 +2257,8 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 10. FAQ SECTION
   // ==========================================
-  Widget _buildFaqSection(bool isDesktop) {
+  Widget _buildFaqSection(bool isDesktop, double width) {
+    final isMobile = width < 768;
     final faqs = [
       {
         'q': 'Where is Mobilis exclusively available?',
@@ -2073,8 +2290,8 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       key: _faqKey,
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        horizontal: 24,
-        vertical: isDesktop ? 80 : 50,
+        horizontal: isMobile ? 16 : 24,
+        vertical: isDesktop ? 80 : 48,
       ),
       decoration: const BoxDecoration(
         color: Color(0xFF061229),
@@ -2100,11 +2317,11 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: isDesktop ? 36 : 26,
+                  fontSize: isDesktop ? 36 : (isMobile ? 24 : 28),
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
               Column(
                 children: List.generate(faqs.length, (index) {
@@ -2128,23 +2345,25 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                           },
                           borderRadius: BorderRadius.circular(16),
                           child: Padding(
-                            padding: const EdgeInsets.all(20),
+                            padding: EdgeInsets.all(isMobile ? 16 : 20),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Expanded(
                                   child: Text(
                                     faq['q']!,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       color: Colors.white,
-                                      fontSize: 14.5,
+                                      fontSize: isMobile ? 13.5 : 14.5,
                                       fontWeight: FontWeight.w700,
                                     ),
                                   ),
                                 ),
+                                const SizedBox(width: 8),
                                 Icon(
                                   isExpanded ? Icons.remove_circle_outline_rounded : Icons.add_circle_outline_rounded,
                                   color: isExpanded ? AppColors.primary : const Color(0xFF64748B),
+                                  size: 20,
                                 ),
                               ],
                             ),
@@ -2152,12 +2371,12 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                         ),
                         if (isExpanded)
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                            padding: EdgeInsets.fromLTRB(isMobile ? 16 : 20, 0, isMobile ? 16 : 20, isMobile ? 16 : 20),
                             child: Text(
                               faq['a']!,
                               style: const TextStyle(
                                 color: Color(0xFF94A3B8),
-                                fontSize: 13.5,
+                                fontSize: 13,
                                 height: 1.6,
                               ),
                             ),
@@ -2177,15 +2396,17 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 11. PRE-FOOTER CALL TO ACTION
   // ==========================================
-  Widget _buildPreFooterCta(bool isDesktop) {
+  Widget _buildPreFooterCta(bool isDesktop, double width) {
+    final isMobile = width < 768;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24, vertical: isMobile ? 36 : 60),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1280),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 48),
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 36, vertical: isMobile ? 32 : 48),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFF132854), Color(0xFF0A1733)],
@@ -2216,7 +2437,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: isDesktop ? 36 : 26,
+                    fontSize: isDesktop ? 36 : (isMobile ? 22 : 26),
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -2226,9 +2447,9 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 24),
                 Wrap(
-                  spacing: 16,
+                  spacing: 12,
                   runSpacing: 12,
                   alignment: WrapAlignment.center,
                   children: [
@@ -2237,19 +2458,19 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: const Color(0xFF030A18),
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 15),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: const Text('Create Free Account', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+                      child: const Text('Create Free Account', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5)),
                     ),
                     ElevatedButton.icon(
                       onPressed: _showDownloadApkDialog,
                       icon: const Icon(Icons.android_rounded, size: 18, color: Colors.white),
-                      label: const Text('Download Android APK', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Colors.white)),
+                      label: const Text('Download Android APK', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: Colors.white)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF0F2B5C),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 15),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                           side: const BorderSide(color: Color(0x55FFD740)),
@@ -2261,10 +2482,10 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.white,
                         side: const BorderSide(color: Colors.white),
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: const Text('Admin & Operator Portal', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                      child: const Text('Admin & Operator Portal', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
                     ),
                   ],
                 ),
@@ -2279,11 +2500,13 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   // ==========================================
   // 12. FOOTER SECTION
   // ==========================================
-  Widget _buildFooterSection(bool isDesktop) {
+  Widget _buildFooterSection(bool isDesktop, double width) {
+    final isMobile = width < 768;
+
     return Container(
       key: _contactKey,
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24, vertical: 40),
       decoration: const BoxDecoration(
         color: Color(0xFF020712),
         border: Border(top: BorderSide(color: Color(0x1AFFFFFF))),
@@ -2293,122 +2516,56 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           constraints: const BoxConstraints(maxWidth: 1280),
           child: Column(
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Brand & Address
-                  Expanded(
-                    flex: isDesktop ? 2 : 3,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              padding: const EdgeInsets.all(4),
-                              child: Image.asset('assets/icon/logo-black.png', fit: BoxFit.contain),
-                            ),
-                            const SizedBox(width: 10),
-                            const Text(
-                              'MOBILIS PSDC',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Pangasinan’s premier car rental solutions platform. Verified fleet, accredited drivers, and registered vehicle partners.',
-                          style: TextStyle(color: Color(0xFF64748B), fontSize: 12, height: 1.5),
-                        ),
-                        const SizedBox(height: 14),
-                        const Row(
-                          children: [
-                            Icon(Icons.location_city_rounded, size: 14, color: AppColors.primary),
-                            SizedBox(width: 6),
-                            Text(
-                              mainOfficeLocation,
-                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                      ],
+              if (isDesktop)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Brand & Address
+                    Expanded(
+                      flex: 2,
+                      child: _buildFooterBrandColumn(),
                     ),
-                  ),
-
-                  // Contacts
-                  if (isDesktop) ...[
                     const SizedBox(width: 48),
+                    // Contacts
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('CONTACTS & SUPPORT', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-                          const SizedBox(height: 12),
-                          InkWell(
-                            onTap: () => _callPhone(hotline1),
-                            child: const Text('📞 $hotline1', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-                          ),
-                          const SizedBox(height: 6),
-                          InkWell(
-                            onTap: () => _callPhone(hotline2),
-                            child: const Text('📞 $hotline2', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-                          ),
-                          const SizedBox(height: 6),
-                          InkWell(
-                            onTap: () => _openUrl(facebookUrl),
-                            child: const Text('🌐 fb.com/psdc.dagupan', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-                          ),
-                        ],
-                      ),
+                      child: _buildFooterContactsColumn(),
                     ),
+                    // Quick Links
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('QUICK ACCESS', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-                          const SizedBox(height: 12),
-                          InkWell(onTap: _showDownloadApkDialog, child: const Text('📲 Download Android App (.apk)', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700))),
-                          const SizedBox(height: 6),
-                          InkWell(onTap: _goToLogin, child: const Text('Admin & Operator Portal', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
-                          const SizedBox(height: 6),
-                          InkWell(onTap: _showDownloadApkDialog, child: const Text('Register via Mobile App', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
-                          const SizedBox(height: 6),
-                          InkWell(
-                            onTap: () => Navigator.of(context).pushNamed('/terms-and-privacy'),
-                            child: const Text('Legal Terms & Privacy Policy', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
-                          ),
-                        ],
-                      ),
+                      child: _buildFooterQuickLinksColumn(),
                     ),
                   ],
-                ],
-              ),
-              const Divider(color: Color(0x1AFFFFFF), height: 48),
+                )
+              else
+                // Mobile & Tablet Stacked Footer
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFooterBrandColumn(),
+                    const SizedBox(height: 24),
+                    _buildFooterContactsColumn(),
+                    const SizedBox(height: 24),
+                    _buildFooterQuickLinksColumn(),
+                  ],
+                ),
+              const Divider(color: Color(0x1AFFFFFF), height: 40),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    '© 2026 Mobilis PSDC. All rights reserved.',
-                    style: TextStyle(color: Color(0xFF475569), fontSize: 11),
+                  const Flexible(
+                    child: Text(
+                      '© 2026 Mobilis PSDC. All rights reserved.',
+                      style: TextStyle(color: Color(0xFF475569), fontSize: 11),
+                    ),
                   ),
                   Row(
                     children: [
                       const Text(
-                        'Exclusively in Pangasinan, Philippines',
+                        'Pangasinan, PH',
                         style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.w600),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       Container(
                         width: 8,
                         height: 8,
@@ -2425,6 +2582,99 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFooterBrandColumn() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              padding: const EdgeInsets.all(4),
+              child: Image.asset('assets/icon/logo-black.png', fit: BoxFit.contain),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'MOBILIS PSDC',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'Pangasinan’s premier car rental solutions platform. Verified fleet, accredited drivers, and registered vehicle partners.',
+          style: TextStyle(color: Color(0xFF64748B), fontSize: 12, height: 1.5),
+        ),
+        const SizedBox(height: 12),
+        const Row(
+          children: [
+            Icon(Icons.location_city_rounded, size: 14, color: AppColors.primary),
+            SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                mainOfficeLocation,
+                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFooterContactsColumn() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('CONTACTS & SUPPORT', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+        const SizedBox(height: 10),
+        InkWell(
+          onTap: () => _callPhone(hotline1),
+          child: const Text('📞 $hotline1', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        ),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () => _callPhone(hotline2),
+          child: const Text('📞 $hotline2', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        ),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () => _openUrl(facebookUrl),
+          child: const Text('🌐 fb.com/psdc.dagupan', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFooterQuickLinksColumn() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('QUICK ACCESS', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+        const SizedBox(height: 10),
+        InkWell(onTap: _showDownloadApkDialog, child: const Text('📲 Download Android App (.apk)', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700))),
+        const SizedBox(height: 6),
+        InkWell(onTap: _goToLogin, child: const Text('Admin & Operator Portal', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
+        const SizedBox(height: 6),
+        InkWell(onTap: _showDownloadApkDialog, child: const Text('Register via Mobile App', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () => Navigator.of(context).pushNamed('/terms-and-privacy'),
+          child: const Text('Legal Terms & Privacy Policy', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        ),
+      ],
     );
   }
 }
@@ -2531,7 +2781,7 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> {
                           ? Image.network(
                               imageUrl,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _buildFallbackCarGraphic(brand, model),
+                              errorBuilder: (context, error, stackTrace) => _buildFallbackCarGraphic(brand, model),
                             )
                           : _buildFallbackCarGraphic(brand, model),
                     ),
