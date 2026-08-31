@@ -24,7 +24,6 @@ import '../../widgets/notification_item.dart';
 import '../../widgets/restriction_ui.dart';
 import '../../widgets/role_ui.dart';
 import '../../../services/payout_method_service.dart';
-import '../../../models/payout_method.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/relative_time_text.dart';
@@ -2945,42 +2944,40 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 return const SizedBox.shrink();
               },
             ),
-          ],
-            if (status == 'active' ||
-                status == 'ongoing' ||
-                status == 'return_pending_inspection') ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _handleBookingAction(
-                    booking['id']?.toString() ?? '',
-                    'return_confirmed',
-                  ),
-                  icon: const Icon(
-                    Icons.check_circle_outline,
+          ] else if (status == 'active' ||
+              status == 'ongoing' ||
+              status == 'return_pending_inspection') ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _handleBookingAction(
+                  booking['id']?.toString() ?? '',
+                  'return_confirmed',
+                ),
+                icon: const Icon(
+                  Icons.check_circle_outline,
+                  color: Colors.black,
+                  size: 18,
+                ),
+                label: Text(
+                  status == 'return_pending_inspection'
+                      ? 'Confirm Return Inspection'
+                      : 'Confirm Return',
+                  style: const TextStyle(
                     color: Colors.black,
-                    size: 18,
+                    fontWeight: FontWeight.bold,
                   ),
-                  label: Text(
-                    status == 'return_pending_inspection'
-                        ? 'Confirm Return Inspection'
-                        : 'Confirm Return',
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
               ),
-            ],
+            ),
           ],
         ],
       ),
@@ -3668,7 +3665,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     }
   }
 
-  Future<void> _handleBookingAction(String bookingId, String status) async {
+  Future<void> _handleBookingAction(String bookingId, String status, {String? reason}) async {
     final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
     final bookingIndex =
         bookings.indexWhere((b) => b['id']?.toString() == bookingId);
@@ -3683,6 +3680,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       return;
     }
 
+    final effectiveReason = reason ?? 'Declined by vehicle owner';
+
     // ⚡ Optimistic UI update: instantly update local list and counts
     if (bookingIndex != -1) {
       setState(() {
@@ -3696,7 +3695,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           target['status'] = 'rejected';
           target['partner_booking_rejected_at'] =
               DateTime.now().toIso8601String();
-          target['rejection_reason'] = 'Declined by vehicle owner';
+          target['rejection_reason'] = effectiveReason;
         } else {
           target['status'] = status;
         }
@@ -3738,11 +3737,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         await bookingService.rejectPartnerBooking(
           bookingId: bookingId,
           partnerId: currentPartnerId,
-          reason: 'Declined by vehicle owner',
+          reason: effectiveReason,
           cachedBooking: originalBooking,
         );
       } else {
-        await bookingService.updateBookingStatus(bookingId, status);
+        await bookingService.updateBookingStatus(
+          bookingId,
+          status,
+        );
       }
 
       // Silent sync in the background so local changes aren't interrupted
