@@ -1829,6 +1829,95 @@ class BookingService {
     }).eq('id', bookingId);
   }
 
+  /// Verify renter reservation payment proof (Operator action)
+  Future<void> verifyRenterReservationPayment(
+    String bookingId, {
+    String? notes,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final operatorId = supabase.auth.currentUser?.id;
+
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    await supabase.from('bookings').update({
+      'reservation_payment_status': 'verified',
+      'payment_verified': true,
+      'payment_verified_at': now,
+      if (operatorId != null && operatorId.isNotEmpty) 'payment_verified_by': operatorId,
+      if (notes != null && notes.isNotEmpty) 'payment_verification_notes': notes,
+      'updated_at': now,
+    }).eq('id', bookingId);
+
+    // Notify renter that payment was verified
+    final renterId = booking['renter_id']?.toString();
+    if (renterId != null && renterId.isNotEmpty) {
+      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+      final vehicleTitle = _vehicleTitle(vehicle);
+      unawaited(
+        supabase.from('notifications').insert({
+          'user_id': renterId,
+          'title': '✅ Payment Verified',
+          'message': 'Your payment for $vehicleTitle has been verified! Awaiting operator final booking confirmation.',
+          'type': 'booking',
+          'data': {'booking_id': bookingId, 'status': 'payment_verified'},
+          'created_at': now,
+        }).catchError((e) => debugPrint('Error notifying renter: $e')),
+      );
+    }
+  }
+
+  /// Settle refund for a cancelled/rejected booking (Operator action)
+  Future<void> settleBookingRefund({
+    required String bookingId,
+    required double amount,
+    required String method,
+    required String reference,
+    String? receiptUrl,
+    String? notes,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final operatorId = supabase.auth.currentUser?.id;
+
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    await supabase.from('bookings').update({
+      'refund_status': 'refunded',
+      'refund_completed': true,
+      'refund_amount': amount,
+      'refund_method': method,
+      'refund_ref': reference,
+      if (receiptUrl != null && receiptUrl.isNotEmpty) 'refund_receipt_url': receiptUrl,
+      if (notes != null && notes.isNotEmpty) 'refund_notes': notes,
+      if (operatorId != null && operatorId.isNotEmpty) 'refunded_by': operatorId,
+      'refunded_at': now,
+      'updated_at': now,
+    }).eq('id', bookingId);
+
+    // Notify renter that refund is disbursed
+    final renterId = booking['renter_id']?.toString();
+    if (renterId != null && renterId.isNotEmpty) {
+      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+      final vehicleTitle = _vehicleTitle(vehicle);
+      unawaited(
+        supabase.from('notifications').insert({
+          'user_id': renterId,
+          'title': '💸 Refund Disbursed',
+          'message': 'Your refund of PHP ${amount.toStringAsFixed(2)} for $vehicleTitle has been disbursed ($method, Ref: $reference).',
+          'type': 'booking_refund',
+          'data': {
+            'booking_id': bookingId,
+            'refund_status': 'refunded',
+            'refund_ref': reference,
+            'amount': amount,
+          },
+          'created_at': now,
+        }).catchError((e) => debugPrint('Error notifying renter of refund: $e')),
+      );
+    }
+  }
+
   /// Confirms that the final rental balance and late-return charges have been
   /// settled. The responsible operator handles PSDC vehicles, while the
   /// vehicle owner handles partner vehicles.
@@ -2402,6 +2491,22 @@ class BookingService {
         throw Exception('Booking not found: $bookingId');
       }
 
+      final payState = resolveBookingPaymentState(booking);
+      final hasPaidOrVerified = payState == BookingPaymentState.paid ||
+          payState == BookingPaymentState.pendingConfirmation ||
+          payState == BookingPaymentState.paymentReview ||
+          isBookingFullyPaid(booking) ||
+          (booking['reservation_payment_reference']?.toString().trim().isNotEmpty == true) ||
+          (booking['final_payment_reference']?.toString().trim().isNotEmpty == true) ||
+          ((booking['paid_amount'] as num?)?.toDouble() ?? 0) > 0 ||
+          ((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 0) > 0;
+
+      final paidAmount = ((booking['paid_amount'] as num?)?.toDouble() ??
+          (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+          (booking['total_price'] as num?)?.toDouble() ??
+          (booking['total_cost'] as num?)?.toDouble() ??
+          0.0);
+
       final now = DateTime.now().toIso8601String();
       await supabase
           .from('bookings')
@@ -2410,6 +2515,15 @@ class BookingService {
             'rejection_reason': reason,
             'rejected_at': now,
             'updated_at': now,
+            if (hasPaidOrVerified) ...{
+              'refund_status': 'refund_needed',
+              'refund_required': true,
+              'refund_amount': paidAmount,
+              'refund_reason': 'Booking rejected by operator: $reason',
+            } else ...{
+              'refund_status': null,
+              'refund_required': false,
+            },
           })
           .eq('id', bookingId);
 
@@ -2439,11 +2553,15 @@ class BookingService {
 
       // ✅ Send notification to renter when booking is rejected (asynchronous)
       final renterId = booking['renter_id']?.toString();
+      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+      final vehicleTitle = vehicle != null
+          ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+          : 'Your rental vehicle';
+
       if (renterId != null && renterId.isNotEmpty) {
-        final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-        final vehicleTitle = vehicle != null
-            ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
-            : 'Your rental vehicle';
+        final refundMsg = hasPaidOrVerified
+            ? ' Reason: $reason. Since your payment was received/verified, a refund of PHP ${paidAmount.toStringAsFixed(2)} has been queued for disbursement.'
+            : ' Reason: $reason';
 
         unawaited(
           supabase
@@ -2451,10 +2569,14 @@ class BookingService {
               .insert({
                 'user_id': renterId,
                 'title': '❌ Booking Rejected',
-                'message':
-                    'Your booking for $vehicleTitle has been rejected. Reason: $reason',
+                'message': 'Your booking for $vehicleTitle has been rejected.$refundMsg',
                 'type': 'booking',
-                'data': {'booking_id': bookingId, 'status': 'rejected'},
+                'data': {
+                  'booking_id': bookingId,
+                  'status': 'rejected',
+                  'refund_needed': hasPaidOrVerified,
+                  if (hasPaidOrVerified) 'refund_amount': paidAmount,
+                },
                 'created_at': DateTime.now().toIso8601String(),
               })
               .then((_) => debugPrint('✅ Rejection notification sent to renter'))
@@ -2462,6 +2584,38 @@ class BookingService {
                 (e) => debugPrint('⚠️ Error sending rejection notification: $e'),
               ),
         );
+      }
+
+      if (hasPaidOrVerified) {
+        try {
+          final operators = await supabase
+              .from('users')
+              .select('id')
+              .eq('role', 'operator');
+
+          final opNotifications = List<Map<String, dynamic>>.from(operators)
+              .map(
+                (op) => {
+                  'user_id': op['id'],
+                  'title': '💸 Refund Required for Rejected Booking',
+                  'message':
+                      'A refund of PHP ${paidAmount.toStringAsFixed(2)} is required for rejected booking of $vehicleTitle.',
+                  'type': 'booking_refund',
+                  'data': {
+                    'booking_id': bookingId,
+                    'status': 'rejected',
+                    'refund_status': 'refund_needed',
+                    'refund_amount': paidAmount,
+                  },
+                  'created_at': DateTime.now().toIso8601String(),
+                },
+              )
+              .toList();
+
+          if (opNotifications.isNotEmpty) {
+            unawaited(supabase.from('notifications').insert(opNotifications));
+          }
+        } catch (_) {}
       }
     } on PostgrestException catch (e) {
       debugPrint('Database error rejecting booking: ${e.message}');
@@ -2800,6 +2954,11 @@ class BookingService {
       }
     }
 
+    final wasPaymentVerified = booking['reservation_payment_status'] == 'verified' ||
+        booking['reservation_payment_status'] == 'paid' ||
+        booking['payment_verified'] == true ||
+        isBookingFullyPaid(booking);
+
     final now = DateTime.now().toIso8601String();
     if (currentStatus != 'confirmed') {
       await supabase
@@ -2809,12 +2968,25 @@ class BookingService {
             'operator_id': operatorId,
             'approved_at': now,
             'updated_at': now,
+            if (wasPaymentVerified) ...{
+              'reservation_payment_status': 'verified',
+              'final_payment_status': 'paid',
+              'payment_status': 'paid',
+            },
           })
           .eq('id', bookingId);
     } else if (booking['operator_id']?.toString() != operatorId) {
       await supabase
           .from('bookings')
-          .update({'operator_id': operatorId, 'updated_at': now})
+          .update({
+            'operator_id': operatorId,
+            'updated_at': now,
+            if (wasPaymentVerified) ...{
+              'reservation_payment_status': 'verified',
+              'final_payment_status': 'paid',
+              'payment_status': 'paid',
+            },
+          })
           .eq('id', bookingId);
     }
 

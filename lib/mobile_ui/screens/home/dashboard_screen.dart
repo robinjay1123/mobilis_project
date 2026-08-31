@@ -2361,20 +2361,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final driverName = driverUser?['full_name']?.toString().trim();
       final driverPhone = driverUser?['phone']?.toString().trim() ?? '';
       final driverEmail = driverUser?['email']?.toString().trim() ?? '';
-      final isFullyPaidBooking =
-          booking['reservation_payment_covers_total'] == true ||
-          booking['reservation_payment_type'] == 'full_payment' ||
-          booking['final_payment_status'] == 'paid' ||
-          BookingService().isBookingFullyPaid(booking);
-      final paymentStatus = isFullyPaidBooking
-          ? 'Paid in full'
-          : booking['reservation_payment_status']
-                    ?.toString()
-                    .trim()
-                    .isNotEmpty ==
-                true
-          ? booking['reservation_payment_status'].toString().trim()
-          : 'Reservation pending';
+      final payState = resolveBookingPaymentState(booking);
+      final isFullyPaidBooking = payState == BookingPaymentState.paid;
+      final paymentStatus = bookingPaymentStateLabel(payState);
       final tripRatings = (booking['trip_ratings'] as List? ?? const [])
           .whereType<Map>()
           .map((row) => (row['rating'] as num?)?.toDouble())
