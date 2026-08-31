@@ -234,7 +234,7 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
               if (mounted) {
                 Navigator.of(
                   context,
-                ).pushReplacementNamed('/driver-availability');
+                ).pushReplacementNamed('/account-verification');
               }
             });
           }

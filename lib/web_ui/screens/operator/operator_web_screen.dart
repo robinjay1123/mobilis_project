@@ -12947,7 +12947,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   _buildStatusBadge(status),
                   const SizedBox(height: 7),
                   Text(
-                    'PHP ${total.toStringAsFixed(2)}',
+                    'PHP ${_formatCurrency(total)}',
                     style: TextStyle(
                       color: _operatorGold,
                       fontSize: 18,
@@ -13253,11 +13253,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       children: [
                         _buildOperatorSafetyLine(
                           'Vehicle Daily Rate',
-                          'PHP ${dailyRate.toStringAsFixed(2)} / day',
+                          'PHP ${_formatCurrency(dailyRate)} / day',
                         ),
                         _buildOperatorSafetyLine(
                           'Rental Duration',
-                          '$durationLabel (Subtotal: PHP ${subtotal.toStringAsFixed(2)})',
+                          '$durationLabel (Subtotal: PHP ${_formatCurrency(subtotal)})',
                         ),
                       ],
                     );
@@ -13271,13 +13271,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ((booking['delivery_fee'] as num).toDouble() > 0))
                   _buildOperatorSafetyLine(
                     'Delivery Fee',
-                    'PHP ${(booking['delivery_fee'] as num).toDouble().toStringAsFixed(2)}',
+                    'PHP ${_formatCurrency((booking['delivery_fee'] as num).toDouble())}',
                   ),
                 if ((booking['driver_fee'] as num?)?.toDouble() != null &&
                     ((booking['driver_fee'] as num).toDouble() > 0))
                   _buildOperatorSafetyLine(
                     'Driver Fee',
-                    'PHP ${(booking['driver_fee'] as num).toDouble().toStringAsFixed(2)}',
+                    'PHP ${_formatCurrency((booking['driver_fee'] as num).toDouble())}',
                   ),
                 if (((booking['extension_additional_price'] as num?)
                                 ?.toDouble() ??
@@ -13287,7 +13287,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         0) ...[
                   _buildOperatorSafetyLine(
                     'Trip Extension Fee',
-                    'PHP ${((booking['extension_additional_price'] as num?)?.toDouble() ?? (booking['extension_fee'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
+                    'PHP ${_formatCurrency(((booking['extension_additional_price'] as num?)?.toDouble() ?? (booking['extension_fee'] as num?)?.toDouble() ?? 0.0))}',
                   ),
                 ],
                 () {
@@ -13308,25 +13308,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         : (actualLateFee / 300.0).ceil();
                     return _buildOperatorSafetyLine(
                       'Late Return Penalty (${displayHours}h @ ₱300/hr)',
-                      'PHP ${actualLateFee > 0 ? actualLateFee.toStringAsFixed(2) : (displayHours * 300.0).toStringAsFixed(2)}',
+                      'PHP ${_formatCurrency(actualLateFee > 0 ? actualLateFee : (displayHours * 300.0))}',
                     );
                   }
                   return const SizedBox.shrink();
                 }(),
                 _buildOperatorSafetyLine(
                   'Reservation Deposit Paid',
-                  'PHP ${((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0).toStringAsFixed(2)} (${booking['reservation_payment_method'] ?? 'E-Wallet'} ref: ${booking['reservation_payment_reference'] ?? 'N/A'})',
+                  'PHP ${_formatCurrency(((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0))} (${booking['reservation_payment_method'] ?? 'E-Wallet'} ref: ${booking['reservation_payment_reference'] ?? 'N/A'})',
                 ),
                 if (booking['final_payment_reference'] != null ||
                     booking['renter_return_payment_amount'] != null ||
                     booking['final_payment_method'] != null)
                   _buildOperatorSafetyLine(
                     'Final Return Settlement',
-                    'PHP ${((booking['renter_return_payment_amount'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)} (${booking['final_payment_method'] ?? 'E-Wallet'} ref: ${booking['final_payment_reference'] ?? 'N/A'})',
+                    'PHP ${_formatCurrency(((booking['renter_return_payment_amount'] as num?)?.toDouble() ?? 0.0))} (${booking['final_payment_method'] ?? 'E-Wallet'} ref: ${booking['final_payment_reference'] ?? 'N/A'})',
                   ),
                 _buildOperatorSafetyLine(
                   'Total Final Trip Cost',
-                  'PHP ${((booking['total_price'] as num?)?.toDouble() ?? (booking['total_cost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
+                  'PHP ${_formatCurrency(((booking['total_price'] as num?)?.toDouble() ?? (booking['total_cost'] as num?)?.toDouble() ?? 0.0))}',
                 ),
                 const SizedBox(height: 10),
                 SizedBox(
@@ -15316,7 +15316,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             children: [
               _buildPaymentInfoTile(
                 'Amount paid',
-                amount == null ? 'N/A' : 'PHP ${amount.toStringAsFixed(0)}',
+                amount == null ? 'N/A' : 'PHP ${_formatCurrency(amount, decimals: 0)}',
                 isDark,
               ),
               _buildPaymentInfoTile(
@@ -15778,7 +15778,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
-                                        'Security Deposit Refund Completed: PHP ${((booking["security_deposit_refund_amount"] ?? depositAmount) as num).toStringAsFixed(0)} was already refunded for this booking.',
+                                        'Security Deposit Refund Completed: PHP ${_formatCurrency(((booking["security_deposit_refund_amount"] ?? depositAmount) as num), decimals: 0)} was already refunded for this booking.',
                                         style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: Color(0xFF10B981)),
                                       ),
                                     ),
@@ -16034,7 +16034,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Admin Policy: ${seats} Seater → PHP ${defaultSecurityDeposit.toStringAsFixed(0)} (4-5 Seater: PHP ${adminSettings.deposit4to5Seater.toStringAsFixed(0)} | 6+ Seater: PHP ${adminSettings.deposit6PlusSeater.toStringAsFixed(0)})',
+                                        'Admin Policy: ${seats} Seater → PHP ${_formatCurrency(defaultSecurityDeposit, decimals: 0)} (4-5 Seater: PHP ${_formatCurrency(adminSettings.deposit4to5Seater, decimals: 0)} | 6+ Seater: PHP ${_formatCurrency(adminSettings.deposit6PlusSeater, decimals: 0)})',
                                         style: TextStyle(
                                           fontSize: 10.5,
                                           fontWeight: FontWeight.w600,
@@ -16110,7 +16110,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                                   ),
                                   Text(
-                                    'PHP ${netRefund.toStringAsFixed(0)}',
+                                    'PHP ${_formatCurrency(netRefund, decimals: 0)}',
                                     style: const TextStyle(
                                       color: Color(0xFF10B981),
                                       fontWeight: FontWeight.w900,
@@ -16388,7 +16388,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(
                                               content: Text(
-                                                'Security deposit of PHP ${netRefund.toStringAsFixed(0)} refunded to $renterName successfully.',
+                                                'Security deposit of PHP ${_formatCurrency(netRefund, decimals: 0)} refunded to $renterName successfully.',
                                               ),
                                               backgroundColor: const Color(0xFF10B981),
                                             ),
@@ -16712,7 +16712,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text('Rental Gross (Subtotal + Fees)', style: TextStyle(fontSize: 12)),
-                                      Text('PHP ${rentalSubtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      Text('PHP ${_formatCurrency(rentalSubtotal)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                                     ],
                                   ),
                                   const SizedBox(height: 6),
@@ -16720,7 +16720,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text('PSDC Platform Commission (5%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
-                                      Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
+                                      Text('- PHP ${_formatCurrency(commission)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
                                     ],
                                   ),
                                   const Divider(height: 16),
@@ -16729,7 +16729,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     children: [
                                       const Text('Net Payout to Partner (95%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                                       Text(
-                                        'PHP ${netPayout.toStringAsFixed(2)}',
+                                        'PHP ${_formatCurrency(netPayout)}',
                                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.purpleAccent),
                                       ),
                                     ],
@@ -17005,7 +17005,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(
                                               content: Text(
-                                                'Partner payout of PHP ${effectiveNet.toStringAsFixed(2)} disbursed to $partnerName successfully.',
+                                                'Partner payout of PHP ${_formatCurrency(effectiveNet)} disbursed to $partnerName successfully.',
                                               ),
                                               backgroundColor: Colors.purple,
                                             ),
@@ -17339,7 +17339,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text('Driver Gross Fee', style: TextStyle(fontSize: 12)),
-                                      Text('PHP ${driverGross.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      Text('PHP ${_formatCurrency(driverGross)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                                     ],
                                   ),
                                   const SizedBox(height: 6),
@@ -17347,7 +17347,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text('PSDC Platform Commission (5%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
-                                      Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
+                                      Text('- PHP ${_formatCurrency(commission)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
                                     ],
                                   ),
                                   const Divider(height: 16),
@@ -17356,7 +17356,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     children: [
                                       const Text('Net Payout to Driver (95%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                                       Text(
-                                        'PHP ${netPayout.toStringAsFixed(2)}',
+                                        'PHP ${_formatCurrency(netPayout)}',
                                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF38BDF8)),
                                       ),
                                     ],
@@ -17632,7 +17632,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(
                                               content: Text(
-                                                'Driver payout of PHP ${effectiveNet.toStringAsFixed(2)} disbursed to $driverName successfully.',
+                                                'Driver payout of PHP ${_formatCurrency(effectiveNet)} disbursed to $driverName successfully.',
                                               ),
                                               backgroundColor: const Color(0xFF0284C7),
                                             ),
@@ -17908,7 +17908,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     children: [
                       const Text('Balance to Settle:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                       Text(
-                        'PHP ${remainingBalance.toStringAsFixed(2)}',
+                        'PHP ${_formatCurrency(remainingBalance)}',
                         style: const TextStyle(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w900,
@@ -18206,7 +18206,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'Unpaid Balance: PHP ${remainingBalance.toStringAsFixed(2)}',
+                                      'Unpaid Balance: PHP ${_formatCurrency(remainingBalance)}',
                                       style: const TextStyle(
                                         color: Color(0xFFF59E0B),
                                         fontWeight: FontWeight.w800,
@@ -18456,7 +18456,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       SnackBar(
                         content: Text(
-                          'Cannot release vehicle keys: Full payment of PHP ${remainingBalance.toStringAsFixed(2)} is required before handover. Please settle balance first.',
+                          'Cannot release vehicle keys: Full payment of PHP ${_formatCurrency(remainingBalance)} is required before handover. Please settle balance first.',
                         ),
                         backgroundColor: AppColors.error,
                       ),
@@ -18636,7 +18636,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ),
                           ),
                           Text(
-                            'PHP ${lateReturnFee.toStringAsFixed(2)}',
+                            'PHP ${_formatCurrency(lateReturnFee)}',
                             style: const TextStyle(
                               color: Color(0xFFFF5C5C),
                               fontWeight: FontWeight.w900,
@@ -18670,7 +18670,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ),
                           ),
                           Text(
-                            'PHP ${remainingBalance.toStringAsFixed(2)}',
+                            'PHP ${_formatCurrency(remainingBalance)}',
                             style: const TextStyle(
                               color: Color(0xFFF59E0B),
                               fontWeight: FontWeight.w900,
@@ -19523,6 +19523,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         debugPrint('[Messages] Error fetching flags: $flagErr');
       }
 
+      // Deduplicate loaded messages by ID and collapse redundant auto-generated booking messages
+      final seenIds = <String>{};
+      final uniqueMessages = <Map<String, dynamic>>[];
+      var hasSeenAutoSummary = false;
+
+      for (final msg in loadedMessages) {
+        final id = msg['id']?.toString() ?? '';
+        if (id.isNotEmpty && seenIds.contains(id)) continue;
+        if (id.isNotEmpty) seenIds.add(id);
+
+        final contentStr =
+            (msg['content'] ?? msg['message'])?.toString().toLowerCase().trim() ??
+                '';
+        final isAuto = msg['is_auto_generated'] == true ||
+            contentStr.startsWith('booking details') ||
+            contentStr.startsWith('booking confirmed') ||
+            contentStr.startsWith('booking request created') ||
+            contentStr.startsWith('📋');
+
+        if (isAuto) {
+          if (hasSeenAutoSummary) {
+            continue; // Skip redundant duplicate automated booking summary
+          }
+          hasSeenAutoSummary = true;
+        }
+
+        uniqueMessages.add(msg);
+      }
+      loadedMessages = uniqueMessages;
+
       loadedMessages.sort((first, second) {
         final firstTime =
             parseMessageTimestamp(first['created_at']) ?? DateTime(1970);
@@ -19595,6 +19625,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final messages = _messages.putIfAbsent(conversationId, () => []);
     final messageId = message['id']?.toString();
     if (messageId == null || messageId.isEmpty) return;
+
+    final contentStr =
+        (message['content'] ?? message['message'])?.toString().toLowerCase().trim() ??
+            '';
+    final isAuto = message['is_auto_generated'] == true ||
+        contentStr.startsWith('booking details') ||
+        contentStr.startsWith('booking confirmed') ||
+        contentStr.startsWith('booking request created') ||
+        contentStr.startsWith('📋');
+
+    if (isAuto &&
+        messages.any((m) {
+          if (m['id']?.toString() == messageId) return false;
+          final mContent =
+              (m['content'] ?? m['message'])?.toString().toLowerCase().trim() ??
+                  '';
+          return m['is_auto_generated'] == true ||
+              mContent.startsWith('booking details') ||
+              mContent.startsWith('booking confirmed') ||
+              mContent.startsWith('booking request created') ||
+              mContent.startsWith('📋');
+        })) {
+      return; // Prevent adding duplicate realtime automated booking summary
+    }
+
     var enrichedMessage = message;
     if (message['sender'] == null) {
       final senderId = message['sender_id']?.toString();

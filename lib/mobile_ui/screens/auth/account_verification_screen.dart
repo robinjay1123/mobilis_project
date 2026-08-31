@@ -76,7 +76,7 @@ class _AccountVerificationScreenState extends State<AccountVerificationScreen> {
     if (role == 'partner') {
       Navigator.of(context).pushNamedAndRemoveUntil('/partner-home', (r) => false);
     } else if (role == 'driver') {
-      Navigator.of(context).pushNamedAndRemoveUntil('/driver-availability', (r) => false);
+      Navigator.of(context).pushNamedAndRemoveUntil('/driver-home', (r) => false);
     } else {
       Navigator.of(context).pushNamedAndRemoveUntil('/dashboard', (r) => false);
     }

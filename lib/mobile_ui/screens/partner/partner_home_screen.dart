@@ -43,6 +43,7 @@ import 'partner_revenue_screen.dart';
 import 'partner_safety_review_screen.dart';
 import '../../widgets/leaflet_map.dart';
 import '../../../utils/philippine_geocoding.dart';
+import '../../../utils/currency_formatter.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -1277,7 +1278,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               children: [
                 _buildStatCard(
                   label: 'EARNINGS',
-                  value: '₱${totalEarnings.toStringAsFixed(0)}',
+                  value: '₱${formatAmount(totalEarnings, decimalDigits: 0)}',
                   subtext: '+12%',
                   subtextColor: AppColors.success,
                 ),
@@ -3352,9 +3353,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   String _formatMoney(double value) {
     if (value == value.roundToDouble()) {
-      return value.toStringAsFixed(0);
+      return formatAmount(value, decimalDigits: 0);
     }
-    return value.toStringAsFixed(2);
+    return formatAmount(value, decimalDigits: 2);
   }
 
   String _formatDateRange(String? startStr, String? endStr) {
@@ -6002,7 +6003,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
               ),
               Text(
-                '+₱${additionalPrice.toStringAsFixed(2)}',
+                '+₱${formatAmount(additionalPrice, decimalDigits: 2)}',
                 style: const TextStyle(
                   color: Colors.greenAccent,
                   fontWeight: FontWeight.w900,
@@ -6958,7 +6959,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     children: [
                       const Text('Balance to Settle:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.white70)),
                       Text(
-                        'PHP ${remainingBalance.toStringAsFixed(2)}',
+                        'PHP ${formatAmount(remainingBalance, decimalDigits: 2)}',
                         style: const TextStyle(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w900,
@@ -7225,7 +7226,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Unpaid Balance: PHP ${remainingBalance.toStringAsFixed(2)}',
+                                    'Unpaid Balance: PHP ${formatAmount(remainingBalance, decimalDigits: 2)}',
                                     style: const TextStyle(
                                       color: Color(0xFFF59E0B),
                                       fontWeight: FontWeight.w800,
@@ -7401,7 +7402,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           ScaffoldMessenger.of(sheetContext).showSnackBar(
                             SnackBar(
                               content: Text(
-                                'Cannot release vehicle keys: Full payment of PHP ${remainingBalance.toStringAsFixed(2)} is required before handover. Please settle balance first.',
+                                'Cannot release vehicle keys: Full payment of PHP ${formatAmount(remainingBalance, decimalDigits: 2)} is required before handover. Please settle balance first.',
                               ),
                               backgroundColor: AppColors.error,
                             ),
@@ -7592,7 +7593,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             ),
                           ),
                           Text(
-                            'PHP ${lateReturnFee.toStringAsFixed(2)}',
+                            'PHP ${formatAmount(lateReturnFee, decimalDigits: 2)}',
                             style: const TextStyle(
                               color: Color(0xFFFF5C5C),
                               fontWeight: FontWeight.w900,
@@ -7626,7 +7627,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             ),
                           ),
                           Text(
-                            'PHP ${remainingBalance.toStringAsFixed(2)}',
+                            'PHP ${formatAmount(remainingBalance, decimalDigits: 2)}',
                             style: const TextStyle(
                               color: Color(0xFFF59E0B),
                               fontWeight: FontWeight.w900,
@@ -9658,7 +9659,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                     ],
                   ),
                   Text(
-                    '₱${totalPrice.toStringAsFixed(2)}',
+                    '₱${formatAmount(totalPrice, decimalDigits: 2)}',
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w900,

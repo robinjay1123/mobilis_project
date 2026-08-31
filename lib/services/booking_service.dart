@@ -15,6 +15,7 @@ import 'transaction_logger.dart';
 import '../utils/pricing_policy.dart';
 import '../utils/philippine_geocoding.dart';
 import '../utils/booking_status.dart';
+import '../utils/currency_formatter.dart';
 
 class BookingService {
   static final BookingService _instance = BookingService._internal();
@@ -4271,7 +4272,7 @@ class BookingService {
       'Booking ID: $bookingId',
       'Status: ${booking['status'] ?? 'pending'}',
       'Schedule: $startLabel -> $endLabel',
-      'Total: PHP ${total.toStringAsFixed(0)}',
+      'Total: PHP ${formatAmount(total, decimalDigits: 0)}',
       'With Driver: $withDriver',
       'Renter: $renterLabel',
       'Partner/Owner: $partnerLabel',
@@ -4302,20 +4303,25 @@ class BookingService {
     try {
       final existingMessages = await supabase
           .from('messages')
-          .select('content, message')
+          .select('id, content, message, is_auto_generated')
           .eq('conversation_id', conversationId)
           .order('created_at', ascending: true)
-          .limit(20);
+          .limit(30);
       return List<Map<String, dynamic>>.from(existingMessages).any((message) {
+        if (message['is_auto_generated'] == true) return true;
         final content =
             (message['content'] ?? message['message'])
                 ?.toString()
-                .toLowerCase() ??
+                .toLowerCase()
+                .trim() ??
             '';
         return content.startsWith('booking request created') ||
             content.startsWith('booking details') ||
             content.startsWith('booking confirmed') ||
-            content.startsWith('booking approved');
+            content.startsWith('booking approved') ||
+            content.startsWith('📋') ||
+            content.contains('booking id:') ||
+            content.contains('booking confirmed');
       });
     } catch (e) {
       debugPrint('Could not check existing booking summary: $e');

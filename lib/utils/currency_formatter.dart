@@ -17,3 +17,12 @@ String formatAmount(num value, {int decimalDigits = 2}) {
   final decimals = parts.length > 1 ? parts[1] : ''.padRight(safeDigits, '0');
   return '$sign$grouped.$decimals';
 }
+
+String formatCurrency(num value, {String symbol = 'PHP ', int decimalDigits = 2}) {
+  return '$symbol${formatAmount(value, decimalDigits: decimalDigits)}';
+}
+
+String formatPeso(num value, {int decimalDigits = 2}) {
+  return '₱${formatAmount(value, decimalDigits: decimalDigits)}';
+}
+

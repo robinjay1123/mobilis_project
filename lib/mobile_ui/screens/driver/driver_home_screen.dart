@@ -36,6 +36,7 @@ import '../../widgets/inspection_damage_comparison_dialog.dart';
 import '../../widgets/trip_route_history_dialog.dart';
 import '../../widgets/trip_location_map_dialog.dart';
 import '../../../utils/booking_status.dart';
+import '../../../utils/currency_formatter.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -975,14 +976,145 @@ class __DashboardTabState extends State<_DashboardTab> {
     return stats;
   }
 
+  bool _hasCheckedAvailabilityPrompt = false;
+
   void _showVerificationPopupIfNeeded() {
-    // Only show popup if not yet verified and skip count is less than 3
-    // (shows popup every 3 times they skip)
+    // 1. Only show popup if not yet verified and skip count is less than 3
     if (!_isVerified &&
         !hasPendingVerification &&
         verificationSkipCount % 3 == 0) {
       _showVerificationPopup();
+      return;
     }
+
+    // 2. If already verified, prompt to set availability if not yet configured
+    if (_isVerified && !_hasCheckedAvailabilityPrompt) {
+      _hasCheckedAvailabilityPrompt = true;
+      _checkAndShowAvailabilityPrompt();
+    }
+  }
+
+  Future<void> _checkAndShowAvailabilityPrompt() async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null || !mounted) return;
+
+    try {
+      final schedule = await DriverService().getSchedule(userId);
+      if (!mounted) return;
+      if (schedule.isEmpty) {
+        _showVerifiedSetAvailabilityDialog();
+      }
+    } catch (e) {
+      debugPrint('Error checking driver schedule for prompt: $e');
+    }
+  }
+
+  void _showVerifiedSetAvailabilityDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.calendar_month_rounded,
+                color: AppColors.primary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Set Your Availability',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '🎉 Congratulations! Your driver account has been verified.',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isDark
+                    ? AppColors.textPrimary
+                    : AppColors.lightTextPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Set your available working dates and hours so operators and partners can assign upcoming trips to you.',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark
+                    ? AppColors.textSecondary
+                    : AppColors.lightTextSecondary,
+              ),
+            ),
+            const SizedBox(height: 14),
+            _buildVerificationBenefit(
+              icon: Icons.event_available,
+              text: 'Choose the exact dates you want to work',
+              isDark: isDark,
+            ),
+            const SizedBox(height: 8),
+            _buildVerificationBenefit(
+              icon: Icons.notifications_active_outlined,
+              text: 'Receive trip offers directly on your active dates',
+              isDark: isDark,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Later',
+              style: TextStyle(
+                color: isDark ? Colors.grey : Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              widget.onOpenAvailability();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              'Set Availability',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _normalizeStatus(dynamic value, {String fallback = 'pending'}) {
@@ -1338,7 +1470,7 @@ class __DashboardTabState extends State<_DashboardTab> {
         Expanded(
           child: _DriverMetricCard(
             label: 'Earnings',
-            value: earnings.toStringAsFixed(0),
+            value: formatAmount(earnings, decimalDigits: 0),
             footer: 'EARNED',
             footerColor: const Color(0xFF48E0B5),
             icon: Icons.trending_up,
@@ -2957,7 +3089,7 @@ class _TripCardState extends State<_TripCard> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Vehicle return recorded. Final total: PHP ${total.toStringAsFixed(0)}. Waiting for the after checklist, payment, and required ratings.',
+              'Vehicle return recorded. Final total: PHP ${formatAmount(total, decimalDigits: 0)}. Waiting for the after checklist, payment, and required ratings.',
             ),
             backgroundColor: AppColors.success,
           ),
@@ -3325,7 +3457,7 @@ class _TripCardState extends State<_TripCard> {
                 if (total != null) ...[
                   const SizedBox(width: 8),
                   Text(
-                    'Total: PHP ${total.toStringAsFixed(0)}',
+                    'Total: PHP ${formatAmount(total, decimalDigits: 0)}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
@@ -3341,7 +3473,7 @@ class _TripCardState extends State<_TripCard> {
             Padding(
               padding: const EdgeInsets.only(left: 20),
               child: Text(
-                'Driver Fee: PHP ${tripFee.toStringAsFixed(0)}',
+                'Driver Fee: PHP ${formatAmount(tripFee, decimalDigits: 0)}',
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -4017,7 +4149,7 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
                 if (total != null) ...[
                   const SizedBox(width: 8),
                   Text(
-                    'Total: PHP ${total.toStringAsFixed(0)}',
+                    'Total: PHP ${formatAmount(total, decimalDigits: 0)}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
@@ -4033,7 +4165,7 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
             Padding(
               padding: const EdgeInsets.only(left: 20),
               child: Text(
-                'Driver Fee: PHP ${tripFee.toStringAsFixed(0)}',
+                'Driver Fee: PHP ${formatAmount(tripFee, decimalDigits: 0)}',
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -4583,7 +4715,7 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                         children: [
                           _buildDriverDetailRow(
                             label: 'Total Booking Amount',
-                            value: 'PHP ${total.toStringAsFixed(2)}',
+                            value: 'PHP ${formatAmount(total, decimalDigits: 2)}',
                             isDark: isDark,
                             isEmphasized: true,
                           ),
@@ -4591,7 +4723,7 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                             const SizedBox(height: 8),
                             _buildDriverDetailRow(
                               label: 'Driver Assigned Fee / Payout',
-                              value: 'PHP ${tripFee.toStringAsFixed(2)}',
+                              value: 'PHP ${formatAmount(tripFee, decimalDigits: 2)}',
                               isDark: isDark,
                               isEmphasized: true,
                               valueColor: Colors.green,
@@ -5504,7 +5636,7 @@ class __EarningsTabState extends State<_EarningsTab> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      '₱${earnings.toStringAsFixed(2)}',
+                      '₱${formatAmount(earnings, decimalDigits: 2)}',
                       style: const TextStyle(
                         fontSize: 36,
                         fontWeight: FontWeight.w700,
@@ -6542,7 +6674,7 @@ class __EarningsTabState extends State<_EarningsTab> {
     );
   }
 
-  String _currency(num value) => 'PHP ${value.toStringAsFixed(2)}';
+  String _currency(num value) => 'PHP ${formatAmount(value, decimalDigits: 2)}';
 }
 
 // AVAILABILITY TAB
