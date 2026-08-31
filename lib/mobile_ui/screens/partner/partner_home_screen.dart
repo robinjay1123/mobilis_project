@@ -21,7 +21,8 @@ import '../../theme/app_colors.dart';
 import '../../widgets/conversation_tile.dart';
 import '../../widgets/notification_item.dart';
 import '../../widgets/restriction_ui.dart';
-import '../../widgets/role_ui.dart';
+import '../../../services/payout_method_service.dart';
+import '../../../models/payout_method.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/relative_time_text.dart';
@@ -2692,16 +2693,39 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildPaymentStateBadge(booking),
+            ],
+          ),
+          if (resolveBookingPaymentState(booking) == BookingPaymentState.paymentReview) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _showVerifyPaymentProofDialog(booking),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF38BDF8),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.verified_user_rounded, size: 16),
+                label: const Text('Verify Renter Payment Proof', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              ),
+            ),
+          ],
           if (status == 'pending') ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () =>
-                        _handleBookingAction(booking['id'], 'cancelled'),
+                    onPressed: () => _showPartnerDeclineDialog(booking),
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.textSecondary),
+                      side: const BorderSide(color: AppColors.error),
+                      foregroundColor: AppColors.error,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -2710,7 +2734,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     child: const Text(
                       'Decline',
                       style: TextStyle(
-                        color: AppColors.textSecondary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -2728,9 +2751,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    child: const Text(
-                      'Accept',
-                      style: TextStyle(
+                    child: Text(
+                      resolveBookingPaymentState(booking) == BookingPaymentState.pendingConfirmation
+                          ? 'Confirm & Accept'
+                          : 'Accept',
+                      style: const TextStyle(
                         color: Colors.black,
                         fontWeight: FontWeight.w600,
                       ),
@@ -2739,6 +2764,59 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 ),
               ],
             ),
+          ] else if (status == 'cancelled' || status == 'rejected') ...[
+            Builder(
+              builder: (_) {
+                final payState = resolveBookingPaymentState(booking);
+                final refundNeeded = payState == BookingPaymentState.refundRequired ||
+                    booking['refund_status'] == 'refund_needed' ||
+                    booking['refund_status'] == 'refund_required' ||
+                    booking['refund_required'] == true;
+                final refundComplete = payState == BookingPaymentState.refunded ||
+                    booking['refund_status'] == 'refunded' ||
+                    booking['refund_completed'] == true;
+
+                if (refundNeeded && !refundComplete) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _showPartnerBookingRefundDialog(booking),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEF4444),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: const Icon(Icons.currency_exchange_rounded, size: 16),
+                        label: const Text('Process Booking Refund', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ),
+                  );
+                } else if (refundComplete) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showPartnerBookingRefundDialog(booking),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFA855F7),
+                          side: const BorderSide(color: Color(0xFFA855F7)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                        label: const Text('Refund Completed ✓', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ],
             if (status == 'active' ||
                 status == 'ongoing' ||
                 status == 'return_pending_inspection') ...[
@@ -2844,23 +2922,31 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            statusLabel,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: statusColor,
-                              fontWeight: FontWeight.w700,
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            _buildPaymentStateBadge(booking),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: statusColor.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                statusLabel,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: statusColor,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ],
                     ),
@@ -3087,6 +3173,23 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
             ),
           ],
+          if (resolveBookingPaymentState(booking) == BookingPaymentState.paymentReview) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _showVerifyPaymentProofDialog(booking),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF38BDF8),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.verified_user_rounded, size: 16),
+                label: const Text('Verify Renter Payment Proof', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              ),
+            ),
+          ],
           if (status == 'pending') ...[
             const SizedBox(height: 16),
             Row(
@@ -3106,17 +3209,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
-                    child: const Text(
-                      'Accept',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                    child: Text(
+                      resolveBookingPaymentState(booking) == BookingPaymentState.pendingConfirmation
+                          ? 'Confirm & Accept'
+                          : 'Accept',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () =>
-                        _handleBookingAction(booking['id'], 'cancelled'),
+                    onPressed: () => _showPartnerDeclineDialog(booking),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFFD96B8A),
                       side: const BorderSide(color: Color(0xFF7B3146)),
@@ -3132,6 +3236,58 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ),
                 ),
               ],
+            ),
+          ] else if (status == 'cancelled' || status == 'rejected') ...[
+            Builder(
+              builder: (_) {
+                final payState = resolveBookingPaymentState(booking);
+                final refundNeeded = payState == BookingPaymentState.refundRequired ||
+                    booking['refund_status'] == 'refund_needed' ||
+                    booking['refund_status'] == 'refund_required' ||
+                    booking['refund_required'] == true;
+                final refundComplete = payState == BookingPaymentState.refunded ||
+                    booking['refund_status'] == 'refunded' ||
+                    booking['refund_completed'] == true;
+
+                if (refundNeeded && !refundComplete) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _showPartnerBookingRefundDialog(booking),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEF4444),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.currency_exchange_rounded, size: 16),
+                        label: const Text('Process Booking Refund', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      ),
+                    ),
+                  );
+                } else if (refundComplete) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showPartnerBookingRefundDialog(booking),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFA855F7),
+                          side: const BorderSide(color: Color(0xFFA855F7)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                        label: const Text('Refund Completed ✓', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
             ),
           ],
         ],
@@ -3482,6 +3638,953 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       }
       _showErrorSnackBar('Failed to update booking: $e');
     }
+  }
+
+  Widget _buildPaymentStateBadge(Map<String, dynamic> booking) {
+    final state = resolveBookingPaymentState(booking);
+    final color = bookingPaymentStateColor(state);
+    final label = bookingPaymentStateLabel(state);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.4), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showVerifyPaymentProofDialog(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final renter = booking['users'] as Map<String, dynamic>? ?? booking['renter'] as Map<String, dynamic>? ?? {};
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renterName = renter['full_name']?.toString() ?? 'Renter';
+    final vehicleTitle = '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+    final proofUrl = (booking['reservation_payment_proof_url'] ??
+            booking['final_payment_proof_url'] ??
+            booking['payment_proof_url'] ??
+            booking['payment_receipt_url'] ??
+            booking['proof_url'])
+        ?.toString()
+        .trim();
+    final reference = (booking['reservation_payment_reference'] ??
+            booking['final_payment_reference'] ??
+            booking['payment_reference'])
+        ?.toString()
+        .trim();
+    final totalAmount = (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_amount'] as num?)?.toDouble() ??
+        0.0;
+    final notesController = TextEditingController();
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          return Dialog(
+            backgroundColor: isDark ? const Color(0xFF1B2638) : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 720),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF38BDF8).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.verified_user_rounded,
+                            color: Color(0xFF38BDF8),
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Verify Renter Payment',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '$renterName • $vehicleTitle',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(dialogContext),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Booking Amount', style: TextStyle(fontSize: 10, color: isDark ? Colors.grey : Colors.grey.shade600)),
+                                      const SizedBox(height: 4),
+                                      Text('PHP ${totalAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF10B981))),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Reference No.', style: TextStyle(fontSize: 10, color: isDark ? Colors.grey : Colors.grey.shade600)),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        reference != null && reference.isNotEmpty ? reference : 'N/A',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Receipt Preview
+                          const Text('Uploaded Receipt / Proof', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 8),
+                          if (proofUrl != null && proofUrl.isNotEmpty)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Image.network(
+                                  proofUrl,
+                                  height: 200,
+                                  width: double.infinity,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    height: 120,
+                                    alignment: Alignment.center,
+                                    child: const Text('Failed to load image preview'),
+                                  ),
+                                ),
+                              ),
+                            )
+                          else
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: isDark ? Colors.white.withOpacity(0.02) : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                              ),
+                              child: const Center(
+                                child: Text('No receipt image attached. Reference provided above.', style: TextStyle(fontSize: 11, color: Colors.amber)),
+                              ),
+                            ),
+                          const SizedBox(height: 14),
+
+                          // Notes
+                          const Text('Verification Notes (Optional)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: notesController,
+                            maxLines: 2,
+                            decoration: InputDecoration(
+                              hintText: 'e.g., GCash payment confirmed',
+                              filled: true,
+                              fillColor: isDark ? const Color(0xFF263247) : const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton.icon(
+                            onPressed: isSubmitting
+                                ? null
+                                : () async {
+                                    setDialogState(() => isSubmitting = true);
+                                    try {
+                                      await BookingService().verifyRenterReservationPayment(
+                                        bookingId,
+                                        notes: notesController.text.trim(),
+                                      );
+                                      booking['reservation_payment_status'] = 'verified';
+                                      booking['payment_verified'] = true;
+                                      final idx = bookings.indexWhere((b) => b['id']?.toString() == bookingId);
+                                      if (idx != -1) {
+                                        bookings[idx]['reservation_payment_status'] = 'verified';
+                                        bookings[idx]['payment_verified'] = true;
+                                      }
+                                      if (dialogContext.mounted) Navigator.pop(dialogContext);
+                                      _loadPartnerData(silent: true);
+                                      _showSuccessSnackBar('✅ Payment verified! Booking is ready for acceptance.');
+                                    } catch (e) {
+                                      setDialogState(() => isSubmitting = false);
+                                      _showErrorSnackBar('Failed to verify payment: $e');
+                                    }
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                            label: Text(
+                              isSubmitting ? 'Verifying...' : 'Verify & Accept Payment',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    notesController.dispose();
+  }
+
+  Future<void> _showPartnerDeclineDialog(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final payState = resolveBookingPaymentState(booking);
+    final hasPaidFunds = payState == BookingPaymentState.paid ||
+        payState == BookingPaymentState.pendingConfirmation ||
+        payState == BookingPaymentState.paymentReview;
+
+    final reasonController = TextEditingController();
+    const reasons = [
+      'Vehicle unavailable for the selected dates',
+      'Scheduled maintenance / repair',
+      'Distance / Location issue',
+      'Safety policy violation',
+      'Other',
+    ];
+    String selectedReason = reasons.first;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          return Dialog(
+            backgroundColor: isDark ? const Color(0xFF1B2638) : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 680),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.14),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.close_rounded, color: Colors.redAccent, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Decline Booking Request',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(dialogContext),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (hasPaidFunds) ...[
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 14),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.info_outline_rounded, color: Colors.amber, size: 18),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Payment Alert: The renter has submitted or completed payment. Declining will initiate a refund requirement for reimbursement.',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const Text('Reason for decline', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 10),
+                          ...reasons.map((reason) {
+                            final selected = selectedReason == reason;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: InkWell(
+                                onTap: () => setDialogState(() => selectedReason = reason),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: selected ? AppColors.primary.withOpacity(0.1) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: selected ? AppColors.primary : (isDark ? Colors.white12 : Colors.grey.shade300),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                                        size: 18,
+                                        color: selected ? AppColors.primary : Colors.grey,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          reason,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                          if (selectedReason == 'Other') ...[
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: reasonController,
+                              maxLines: 2,
+                              decoration: InputDecoration(
+                                hintText: 'Please specify the reason...',
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF263247) : const Color(0xFFF8FAFC),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              final finalReason = selectedReason == 'Other' && reasonController.text.trim().isNotEmpty
+                                  ? reasonController.text.trim()
+                                  : selectedReason;
+                              Navigator.pop(dialogContext);
+                              _handleBookingAction(bookingId, 'cancelled', reason: finalReason);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade600,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: const Text('Decline Booking', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    reasonController.dispose();
+  }
+
+  Future<void> _showPartnerBookingRefundDialog(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final renter = booking['users'] as Map<String, dynamic>? ?? booking['renter'] as Map<String, dynamic>? ?? {};
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renterName = renter['full_name']?.toString() ?? 'Renter';
+    final renterPhone = renter['phone_number']?.toString() ?? renter['phone']?.toString() ?? '';
+    final vehicleTitle = '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+
+    final renterUserId = (booking['renter_id'] ?? renter['id'] ?? renter['user_id'])?.toString();
+    List<PayoutMethod> renterPayoutMethods = [];
+    String? discoveredQrUrl;
+
+    if (renterUserId != null && renterUserId.isNotEmpty) {
+      try {
+        renterPayoutMethods = await PayoutMethodService().getPayoutMethods(renterUserId);
+      } catch (_) {}
+      try {
+        discoveredQrUrl = await PayoutMethodService().getRenterQrCodeUrl(renterUserId);
+      } catch (_) {}
+    }
+
+    final directQrUrl = (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty)
+        ? discoveredQrUrl
+        : (renter['qr_code_url']?.toString() ?? renter['gcash_qr_url']?.toString() ?? renter['payout_qr_url']?.toString());
+
+    final isAlreadyRefunded = booking['refund_status'] == 'refunded' || booking['refund_completed'] == true;
+    final defaultRefundAmount = ((booking['refund_amount'] as num?)?.toDouble() ??
+        (booking['paid_amount'] as num?)?.toDouble() ??
+        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+        (booking['total_price'] as num?)?.toDouble() ??
+        0.0);
+
+    final refundAmountController = TextEditingController(text: defaultRefundAmount.toStringAsFixed(2));
+    final referenceController = TextEditingController(text: booking['refund_ref']?.toString() ?? '');
+    final notesController = TextEditingController(text: booking['refund_notes']?.toString() ?? '');
+    String selectedMethod = booking['refund_method']?.toString() ?? (renterPayoutMethods.isNotEmpty ? renterPayoutMethods.first.provider : 'GCash');
+    PlatformFile? receiptFile;
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final refundAmount = double.tryParse(refundAmountController.text) ?? defaultRefundAmount;
+
+          final activeMethod = renterPayoutMethods.firstWhere(
+            (m) => m.provider.toLowerCase() == selectedMethod.toLowerCase(),
+            orElse: () => renterPayoutMethods.isNotEmpty
+                ? renterPayoutMethods.first
+                : PayoutMethod(
+                    id: '',
+                    provider: selectedMethod,
+                    accountName: renterName,
+                    accountNumber: renterPhone,
+                    qrCodeUrl: directQrUrl,
+                    createdAt: DateTime.now(),
+                  ),
+          );
+
+          return Dialog(
+            backgroundColor: isDark ? const Color(0xFF1B2638) : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 760),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isAlreadyRefunded
+                                ? const Color(0xFFA855F7).withOpacity(0.15)
+                                : const Color(0xFFEF4444).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            isAlreadyRefunded ? Icons.check_circle_rounded : Icons.currency_exchange_rounded,
+                            color: isAlreadyRefunded ? const Color(0xFFA855F7) : const Color(0xFFEF4444),
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isAlreadyRefunded ? 'Refund Details' : 'Process Booking Refund',
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '$renterName • $vehicleTitle',
+                                style: TextStyle(fontSize: 11, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(dialogContext),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isAlreadyRefunded
+                                  ? const Color(0xFFA855F7).withOpacity(0.12)
+                                  : const Color(0xFFEF4444).withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isAlreadyRefunded
+                                    ? const Color(0xFFA855F7).withOpacity(0.35)
+                                    : const Color(0xFFEF4444).withOpacity(0.35),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isAlreadyRefunded ? Icons.check_circle_outline_rounded : Icons.warning_amber_rounded,
+                                  color: isAlreadyRefunded ? const Color(0xFFA855F7) : const Color(0xFFEF4444),
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    isAlreadyRefunded
+                                        ? 'Refund completed: PHP ${refundAmount.toStringAsFixed(2)} was disbursed to renter.'
+                                        : 'Booking was declined after payment. Please disburse the refund to the renter.',
+                                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Payout Method Card
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF101928) : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Renter Payout Destination', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    if (activeMethod.qrCodeUrl != null && activeMethod.qrCodeUrl!.isNotEmpty)
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.network(
+                                          activeMethod.qrCodeUrl!,
+                                          width: 60,
+                                          height: 60,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      )
+                                    else
+                                      Container(
+                                        width: 60,
+                                        height: 60,
+                                        decoration: BoxDecoration(
+                                          color: isDark ? Colors.white10 : Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(Icons.account_balance_wallet_outlined, size: 24),
+                                      ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            activeMethod.accountName.isNotEmpty ? activeMethod.accountName : renterName,
+                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${activeMethod.provider}: ${activeMethod.accountNumber.isNotEmpty ? activeMethod.accountNumber : renterPhone}',
+                                            style: TextStyle(fontSize: 11, color: isDark ? Colors.grey : Colors.grey.shade700),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Refund Amount
+                          const Text('Refund Amount (PHP)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: refundAmountController,
+                            readOnly: isAlreadyRefunded,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              prefixText: 'PHP ',
+                              filled: true,
+                              fillColor: isDark ? const Color(0xFF263247) : const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Method & Ref
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Payout Method', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                    const SizedBox(height: 6),
+                                    DropdownButtonFormField<String>(
+                                      value: selectedMethod,
+                                      isDense: true,
+                                      decoration: InputDecoration(
+                                        filled: true,
+                                        fillColor: isDark ? const Color(0xFF263247) : const Color(0xFFF8FAFC),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      items: ['GCash', 'Maya', 'Bank Transfer', 'Cash']
+                                          .map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 11))))
+                                          .toList(),
+                                      onChanged: isAlreadyRefunded ? null : (v) => setDialogState(() => selectedMethod = v ?? 'GCash'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Reference No.', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                    const SizedBox(height: 6),
+                                    TextField(
+                                      controller: referenceController,
+                                      readOnly: isAlreadyRefunded,
+                                      decoration: InputDecoration(
+                                        hintText: 'e.g. 1002345892',
+                                        filled: true,
+                                        fillColor: isDark ? const Color(0xFF263247) : const Color(0xFFF8FAFC),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Screenshot upload
+                          const Text('Transfer Screenshot / Receipt', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 6),
+                          if (isAlreadyRefunded)
+                            Builder(
+                              builder: (_) {
+                                final receipt = booking['refund_receipt_url']?.toString();
+                                if (receipt != null && receipt.isNotEmpty) {
+                                  return Text('Proof URL: $receipt', style: const TextStyle(fontSize: 11, color: AppColors.primary));
+                                }
+                                return const Text('No receipt attached.', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic));
+                              },
+                            )
+                          else if (receiptFile == null)
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final result = await FilePicker.platform.pickFiles(
+                                  type: FileType.custom,
+                                  allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+                                  withData: true,
+                                );
+                                if (result != null && result.files.isNotEmpty) {
+                                  setDialogState(() => receiptFile = result.files.first);
+                                }
+                              },
+                              icon: const Icon(Icons.upload_file_rounded, size: 16),
+                              label: const Text('Upload Transfer Receipt', style: TextStyle(fontSize: 12)),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(40),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(receiptFile!.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close_rounded, size: 16),
+                                    onPressed: () => setDialogState(() => receiptFile = null),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: const Text('Close'),
+                          ),
+                        ),
+                        if (!isAlreadyRefunded) ...[
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 2,
+                            child: ElevatedButton.icon(
+                              onPressed: isSubmitting
+                                  ? null
+                                  : () async {
+                                      final ref = referenceController.text.trim();
+                                      if (ref.isEmpty) {
+                                        _showErrorSnackBar('Please provide a reference number for the refund transfer.');
+                                        return;
+                                      }
+                                      setDialogState(() => isSubmitting = true);
+                                      try {
+                                        String uploadedReceiptUrl = '';
+                                        if (receiptFile?.bytes != null) {
+                                          final currentUserId = AuthService().currentUser?.id ?? '';
+                                          uploadedReceiptUrl = await BookingInspectionService().uploadEvidenceBytes(
+                                            userId: currentUserId,
+                                            bookingId: bookingId,
+                                            bytes: receiptFile!.bytes!,
+                                            extension: receiptFile!.extension ?? 'jpg',
+                                          );
+                                        }
+
+                                        await BookingService().settleBookingRefund(
+                                          bookingId: bookingId,
+                                          amount: refundAmount,
+                                          method: selectedMethod,
+                                          reference: ref,
+                                          receiptUrl: uploadedReceiptUrl,
+                                          notes: notesController.text.trim(),
+                                        );
+
+                                        booking['refund_status'] = 'refunded';
+                                        booking['refund_completed'] = true;
+                                        booking['refund_amount'] = refundAmount;
+                                        booking['refund_ref'] = ref;
+                                        booking['refund_method'] = selectedMethod;
+                                        booking['refund_receipt_url'] = uploadedReceiptUrl;
+
+                                        final idx = bookings.indexWhere((b) => b['id']?.toString() == bookingId);
+                                        if (idx != -1) {
+                                          bookings[idx]['refund_status'] = 'refunded';
+                                          bookings[idx]['refund_completed'] = true;
+                                          bookings[idx]['refund_amount'] = refundAmount;
+                                          bookings[idx]['refund_ref'] = ref;
+                                          bookings[idx]['refund_method'] = selectedMethod;
+                                          bookings[idx]['refund_receipt_url'] = uploadedReceiptUrl;
+                                        }
+
+                                        if (dialogContext.mounted) Navigator.pop(dialogContext);
+                                        _loadPartnerData(silent: true);
+                                        _showSuccessSnackBar('✅ Refund of PHP ${refundAmount.toStringAsFixed(2)} recorded successfully.');
+                                      } catch (e) {
+                                        setDialogState(() => isSubmitting = false);
+                                        _showErrorSnackBar('Failed to complete refund: $e');
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                              label: Text(
+                                isSubmitting ? 'Recording...' : 'Confirm & Complete Refund',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    refundAmountController.dispose();
+    referenceController.dispose();
+    notesController.dispose();
   }
 
   // ===================== NOTIFICATIONS TAB =====================
@@ -8281,6 +9384,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   ) async {
     final reasonController = TextEditingController();
 
+    final payState = resolveBookingPaymentState(booking);
+    final hasPaidFunds = payState == BookingPaymentState.paid ||
+        payState == BookingPaymentState.pendingConfirmation ||
+        payState == BookingPaymentState.paymentReview;
+
     final confirmedReason = await showDialog<String>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
@@ -8291,6 +9399,33 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (hasPaidFunds) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded, color: Colors.amber, size: 16),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Payment Alert: The renter has submitted or completed payment. Declining will initiate a refund requirement.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.amber,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const Text(
               'Please provide a reason for declining this booking request.',
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
@@ -8712,6 +9847,44 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
     return days == 1 ? '1 Day' : '$days Days';
   }
 
+  Widget _buildPaymentStateBadge(Map<String, dynamic> b) {
+    final state = resolveBookingPaymentState(b);
+    final color = bookingPaymentStateColor(state);
+    final label = bookingPaymentStateLabel(state);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.4), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Color _statusColor(String status, {String? assignmentStatus}) {
     final s = status.trim().toLowerCase();
     final a = assignmentStatus?.trim().toLowerCase();
@@ -8906,22 +10079,30 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                       ),
                     ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: badgeColor.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: badgeColor.withValues(alpha: 0.5)),
-                    ),
-                    child: Text(
-                      badgeText,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.4,
-                        color: badgeColor,
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _buildPaymentStateBadge(booking),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: badgeColor.withValues(alpha: 0.5)),
+                        ),
+                        child: Text(
+                          badgeText,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.4,
+                            color: badgeColor,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -9793,7 +10974,11 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                     child: ElevatedButton.icon(
                       onPressed: widget.onApprove,
                       icon: const Icon(Icons.check_rounded, size: 16),
-                      label: const Text('Approve'),
+                      label: Text(
+                        resolveBookingPaymentState(booking) == BookingPaymentState.pendingConfirmation
+                            ? 'Confirm & Accept'
+                            : 'Approve',
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.success,
                         foregroundColor: Colors.white,

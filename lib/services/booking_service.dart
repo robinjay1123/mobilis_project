@@ -2172,7 +2172,31 @@ class BookingService {
             booking['partner_id'] ??
             vehicle['partner_id'])
         ?.toString();
-    if (ownerId != null && ownerId.isNotEmpty && ownerId != partnerId) {
+    final bookingConfirmedBy = booking['partner_booking_confirmed_by']?.toString();
+    final bookingPartnerId = booking['partner_id']?.toString();
+
+    bool isAuthorized = (ownerId == null || ownerId.isEmpty || ownerId == partnerId) ||
+        (bookingPartnerId != null && bookingPartnerId == partnerId) ||
+        (bookingConfirmedBy != null && bookingConfirmedBy == partnerId);
+
+    if (!isAuthorized) {
+      try {
+        final vehicleId = booking['vehicle_id']?.toString() ?? vehicle['id']?.toString();
+        if (vehicleId != null && vehicleId.isNotEmpty) {
+          final pv = await supabase
+              .from('partner_vehicles')
+              .select('partner_id')
+              .or('id.eq.$vehicleId,vehicle_id.eq.$vehicleId')
+              .limit(1)
+              .maybeSingle();
+          if (pv != null && pv['partner_id']?.toString() == partnerId) {
+            isAuthorized = true;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!isAuthorized) {
       throw Exception('Only the vehicle owner can confirm this booking');
     }
 
@@ -2184,13 +2208,21 @@ class BookingService {
     }
 
     final now = DateTime.now().toUtc().toIso8601String();
+    final updatePayload = <String, dynamic>{
+      'partner_booking_confirmed_at': now,
+      'partner_booking_confirmed_by': partnerId,
+      'updated_at': now,
+    };
+
+    // If reservation payment was already verified, lock it
+    if (booking['reservation_payment_status'] == 'verified') {
+      updatePayload['reservation_payment_status'] = 'verified';
+      updatePayload['payment_verified'] = true;
+    }
+
     await supabase
         .from('bookings')
-        .update({
-          'partner_booking_confirmed_at': now,
-          'partner_booking_confirmed_by': partnerId,
-          'updated_at': now,
-        })
+        .update(updatePayload)
         .eq('id', bookingId);
 
     // Notify operators and renter asynchronously in background
@@ -2215,7 +2247,7 @@ class BookingService {
               userId: renterId,
               title: 'Partner Confirmed Your Booking',
               message:
-                  'The vehicle owner confirmed availability for $vehicleTitle. Awaiting final operator approval.',
+                  'The vehicle owner confirmed availability for $vehicleTitle. Awaiting final operator confirmation.',
               type: 'booking',
               data: {'booking_id': bookingId, 'event': 'partner_confirmed'},
             )
@@ -2239,7 +2271,7 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, status, renter_id, vehicle_id, driver_id, partner_id, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+            'id, status, renter_id, vehicle_id, driver_id, partner_id, paid_amount, reservation_fee_amount, total_price, total_amount, reservation_payment_status, final_payment_status, payment_verified, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
           )
           .eq('id', bookingId)
           .maybeSingle();
@@ -2256,7 +2288,31 @@ class BookingService {
             booking['partner_id'] ??
             vehicle['partner_id'])
         ?.toString();
-    if (ownerId != null && ownerId.isNotEmpty && ownerId != partnerId) {
+    final bookingConfirmedBy = booking['partner_booking_confirmed_by']?.toString();
+    final bookingPartnerId = booking['partner_id']?.toString();
+
+    bool isAuthorized = (ownerId == null || ownerId.isEmpty || ownerId == partnerId) ||
+        (bookingPartnerId != null && bookingPartnerId == partnerId) ||
+        (bookingConfirmedBy != null && bookingConfirmedBy == partnerId);
+
+    if (!isAuthorized) {
+      try {
+        final vehicleId = booking['vehicle_id']?.toString() ?? vehicle['id']?.toString();
+        if (vehicleId != null && vehicleId.isNotEmpty) {
+          final pv = await supabase
+              .from('partner_vehicles')
+              .select('partner_id')
+              .or('id.eq.$vehicleId,vehicle_id.eq.$vehicleId')
+              .limit(1)
+              .maybeSingle();
+          if (pv != null && pv['partner_id']?.toString() == partnerId) {
+            isAuthorized = true;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!isAuthorized) {
       throw Exception('Only the vehicle owner can reject this booking');
     }
 
@@ -2274,17 +2330,40 @@ class BookingService {
       );
     }
 
+    final payState = resolveBookingPaymentState(booking);
+    final isAlreadyPaid = payState == BookingPaymentState.paid ||
+        payState == BookingPaymentState.pendingConfirmation ||
+        payState == BookingPaymentState.paymentReview ||
+        booking['payment_verified'] == true ||
+        booking['reservation_payment_status'] == 'verified' ||
+        booking['reservation_payment_status'] == 'paid' ||
+        booking['final_payment_status'] == 'paid';
+
+    final paidAmount = ((booking['paid_amount'] as num?)?.toDouble() ??
+        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+        (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_amount'] as num?)?.toDouble() ??
+        0.0);
+
     final now = DateTime.now().toUtc().toIso8601String();
+    final updatePayload = <String, dynamic>{
+      'status': 'rejected',
+      'partner_booking_rejected_at': now,
+      'partner_booking_rejection_reason': reason,
+      'rejection_reason': reason,
+      'rejected_at': now,
+      'updated_at': now,
+    };
+
+    if (isAlreadyPaid && paidAmount > 0) {
+      updatePayload['refund_status'] = 'refund_needed';
+      updatePayload['refund_required'] = true;
+      updatePayload['refund_amount'] = paidAmount;
+    }
+
     await supabase
         .from('bookings')
-        .update({
-          'status': 'rejected',
-          'partner_booking_rejected_at': now,
-          'partner_booking_rejection_reason': reason,
-          'rejection_reason': reason,
-          'rejected_at': now,
-          'updated_at': now,
-        })
+        .update(updatePayload)
         .eq('id', bookingId);
 
     // Cancel driver assignment in parallel if any
@@ -2310,24 +2389,41 @@ class BookingService {
       );
     }
 
-    // Notify renter asynchronously without blocking the partner
+    // Notify renter and operators
     final renterId = booking['renter_id']?.toString();
+    final vehicleTitle = _vehicleTitle(vehicle);
     if (renterId != null && renterId.isNotEmpty) {
-      final vehicleTitle = _vehicleTitle(vehicle);
+      final refundMsg = (isAlreadyPaid && paidAmount > 0)
+          ? ' Your payment of PHP ${paidAmount.toStringAsFixed(2)} has been queued for a refund.'
+          : '';
       unawaited(
         NotificationService()
             .createNotification(
               userId: renterId,
-              title: 'Booking Rejected',
+              title: isAlreadyPaid ? 'Booking Declined - Refund Processing' : 'Booking Declined',
               message:
-                  'Your booking for $vehicleTitle was rejected by the vehicle partner. Reason: $reason',
+                  'Your booking for $vehicleTitle was declined by the vehicle partner. Reason: $reason.$refundMsg',
               type: 'booking',
-              data: {'booking_id': bookingId, 'status': 'rejected'},
+              data: {'booking_id': bookingId, 'status': 'rejected', 'refund_required': isAlreadyPaid},
             )
             .then<void>((_) {})
             .catchError(
               (e) => debugPrint('Error creating rejection notification: $e'),
             ),
+      );
+    }
+
+    if (isAlreadyPaid && paidAmount > 0) {
+      unawaited(
+        _notifyOperatorsForBooking(
+          booking,
+          title: 'Partner Declined Paid Booking',
+          message:
+              'Partner declined booking #$bookingId for $vehicleTitle. A refund of PHP ${paidAmount.toStringAsFixed(2)} is required.',
+          action: 'refund_needed',
+        ).catchError(
+          (e) => debugPrint('Error notifying operators on partner decline refund: $e'),
+        ),
       );
     }
   }
