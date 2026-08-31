@@ -574,7 +574,6 @@ class DriverService {
                 driver_id,
                 operator_id,
                 renter_id,
-                partner_id,
                 status,
                 vehicle_id,
                 start_date,
@@ -772,7 +771,6 @@ class DriverService {
                 operator_id,
                 renter_id,
                 status,
-                partner_id,
                 vehicles:vehicle_id (owner_id)
               )
             ''')
@@ -1726,8 +1724,6 @@ class DriverService {
                 vehicle_name,
                 plate_number,
                 owner_id,
-                is_partner_vehicle,
-                partner_id,
                 owner:owner_id (
                   role
                 )
@@ -1913,7 +1909,7 @@ class DriverService {
           final vRows = await supabase
               .from('vehicles')
               .select(
-                'id, brand, model, year, vehicle_name, plate_number, owner_id, is_partner_vehicle, partner_id',
+                'id, brand, model, year, vehicle_name, plate_number, owner_id',
               )
               .inFilter('id', vehicleIds);
           for (final v in List<Map<String, dynamic>>.from(vRows)) {
