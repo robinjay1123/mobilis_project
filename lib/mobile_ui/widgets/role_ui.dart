@@ -233,12 +233,14 @@ class RoleBottomNavigation extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
   final Map<int, int> badgeCounts;
+  final List<BottomNavigationBarItem>? customItems;
 
   const RoleBottomNavigation({
     super.key,
     required this.currentIndex,
     required this.onTap,
     this.badgeCounts = const {},
+    this.customItems,
   });
 
   @override
@@ -246,6 +248,52 @@ class RoleBottomNavigation extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final background = isDark ? const Color(0xFF07111D) : Colors.white;
     final border = isDark ? const Color(0xFF1B3047) : const Color(0xFFD8E0EA);
+
+    final navItems = customItems ?? [
+      BottomNavigationBarItem(
+        icon: RoleBottomNavigationIcon(
+          icon: Icons.home,
+          count: badgeCounts[0] ?? 0,
+          backgroundColor: background,
+        ),
+        label: 'Home',
+      ),
+      BottomNavigationBarItem(
+        icon: RoleBottomNavigationIcon(
+          icon: Icons.calendar_month_outlined,
+          count: badgeCounts[1] ?? 0,
+          backgroundColor: background,
+        ),
+        label: 'Bookings',
+      ),
+      BottomNavigationBarItem(
+        icon: RoleBottomNavigationIcon(
+          icon: Icons.chat_bubble_outline,
+          count: badgeCounts[2] ?? 0,
+          backgroundColor: background,
+        ),
+        label: 'Messages',
+      ),
+      BottomNavigationBarItem(
+        icon: RoleBottomNavigationIcon(
+          icon: Icons.notifications_outlined,
+          count: badgeCounts[3] ?? 0,
+          backgroundColor: background,
+        ),
+        label: 'Notifications',
+      ),
+      BottomNavigationBarItem(
+        icon: RoleBottomNavigationIcon(
+          icon: Icons.person_outline,
+          count: badgeCounts[4] ?? 0,
+          backgroundColor: background,
+        ),
+        label: 'Profile',
+      ),
+    ];
+
+    final maxIndex = navItems.length - 1;
+
     return Container(
       decoration: BoxDecoration(
         color: background,
@@ -254,8 +302,8 @@ class RoleBottomNavigation extends StatelessWidget {
       child: BottomNavigationBar(
         currentIndex: currentIndex < 0
             ? 0
-            : currentIndex > 4
-            ? 4
+            : currentIndex > maxIndex
+            ? maxIndex
             : currentIndex,
         backgroundColor: background,
         type: BottomNavigationBarType.fixed,
@@ -266,55 +314,15 @@ class RoleBottomNavigation extends StatelessWidget {
         selectedFontSize: 12,
         unselectedFontSize: 11,
         onTap: onTap,
-        items: [
-          BottomNavigationBarItem(
-            icon: _RoleBottomNavigationIcon(
-              icon: Icons.home,
-              count: badgeCounts[0] ?? 0,
-              backgroundColor: background,
-            ),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: _RoleBottomNavigationIcon(
-              icon: Icons.calendar_month_outlined,
-              count: badgeCounts[1] ?? 0,
-              backgroundColor: background,
-            ),
-            label: 'Bookings',
-          ),
-          BottomNavigationBarItem(
-            icon: _RoleBottomNavigationIcon(
-              icon: Icons.chat_bubble_outline,
-              count: badgeCounts[2] ?? 0,
-              backgroundColor: background,
-            ),
-            label: 'Messages',
-          ),
-          BottomNavigationBarItem(
-            icon: _RoleBottomNavigationIcon(
-              icon: Icons.notifications_outlined,
-              count: badgeCounts[3] ?? 0,
-              backgroundColor: background,
-            ),
-            label: 'Notifications',
-          ),
-          BottomNavigationBarItem(
-            icon: _RoleBottomNavigationIcon(
-              icon: Icons.person_outline,
-              count: badgeCounts[4] ?? 0,
-              backgroundColor: background,
-            ),
-            label: 'Profile',
-          ),
-        ],
+        items: navItems,
       ),
     );
   }
 }
 
-class _RoleBottomNavigationIcon extends StatelessWidget {
-  const _RoleBottomNavigationIcon({
+class RoleBottomNavigationIcon extends StatelessWidget {
+  const RoleBottomNavigationIcon({
+    super.key,
     required this.icon,
     required this.count,
     required this.backgroundColor,

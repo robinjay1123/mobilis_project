@@ -877,6 +877,278 @@ class TrackingService {
     }
   }
 
+  /// 🔒 Partner-isolated live tracking: strictly fetches positions ONLY for vehicles
+  /// owned by [partnerId] (excluding PSDC fleet and other partners).
+  Future<List<Map<String, dynamic>>> getPartnerActiveTrackingLocations(String partnerId) async {
+    try {
+      if (partnerId.trim().isEmpty) return [];
+
+      final partnerVehicleIds = <String>{};
+      final vehiclesMap = <String, Map<String, dynamic>>{};
+
+      // 1. Discover all vehicle IDs belonging to this partner
+      try {
+        final pv = await supabase
+            .from('partner_vehicles')
+            .select('id, brand, model, plate_number, partner_id, status, latitude, longitude')
+            .eq('partner_id', partnerId);
+        for (final row in List<Map<String, dynamic>>.from(pv)) {
+          final id = row['id']?.toString() ?? '';
+          if (id.isNotEmpty) {
+            partnerVehicleIds.add(id);
+            final brand = row['brand']?.toString().trim() ?? '';
+            final model = row['model']?.toString().trim() ?? '';
+            final synthesized = [brand, model].where((s) => s.isNotEmpty).join(' ');
+            row['vehicle_name'] = synthesized.isNotEmpty ? synthesized : 'Partner Vehicle';
+            vehiclesMap[id] = row;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final v = await supabase
+            .from('vehicles')
+            .select('id, brand, model, plate_number, owner_id, status, latitude, longitude')
+            .or('owner_id.eq.$partnerId,partner_id.eq.$partnerId');
+        for (final row in List<Map<String, dynamic>>.from(v)) {
+          final id = row['id']?.toString() ?? '';
+          if (id.isNotEmpty) {
+            partnerVehicleIds.add(id);
+            final brand = row['brand']?.toString().trim() ?? '';
+            final model = row['model']?.toString().trim() ?? '';
+            final synthesized = [brand, model].where((s) => s.isNotEmpty).join(' ');
+            row['vehicle_name'] = synthesized.isNotEmpty ? synthesized : 'Partner Vehicle';
+            vehiclesMap[id] = row;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final pva = await supabase
+            .from('partner_vehicle_applications')
+            .select('id, brand, model, plate_number, partner_id, partner_vehicle_id, status, latitude, longitude')
+            .eq('partner_id', partnerId);
+        for (final row in List<Map<String, dynamic>>.from(pva)) {
+          final id = row['id']?.toString() ?? '';
+          if (id.isNotEmpty) {
+            partnerVehicleIds.add(id);
+            final brand = row['brand']?.toString().trim() ?? '';
+            final model = row['model']?.toString().trim() ?? '';
+            final synthesized = [brand, model].where((s) => s.isNotEmpty).join(' ');
+            row['vehicle_name'] = synthesized.isNotEmpty ? synthesized : 'Partner Vehicle';
+            vehiclesMap[id] = row;
+          }
+          final pvid = row['partner_vehicle_id']?.toString() ?? '';
+          if (pvid.isNotEmpty) {
+            partnerVehicleIds.add(pvid);
+            vehiclesMap[pvid] = row;
+          }
+        }
+      } catch (_) {}
+
+      if (partnerVehicleIds.isEmpty) {
+        return [];
+      }
+
+      final candidateList = <Map<String, dynamic>>[];
+      final vehiclesWithLiveLoc = <String>{};
+
+      // 2. Fetch tracking_locations filtered to partner vehicles
+      try {
+        final response = await supabase
+            .from('tracking_locations')
+            .select('''
+              *,
+              bookings:booking_id (
+                id,
+                status,
+                partner_id,
+                pickup_location,
+                dropoff_location,
+                pickup_latitude,
+                pickup_longitude,
+                dropoff_latitude,
+                dropoff_longitude,
+                start_at,
+                end_at,
+                vehicles:vehicle_id (
+                  id,
+                  brand,
+                  model,
+                  plate_number,
+                  owner_id,
+                  owner:owner_id (id, role)
+                ),
+                renter:renter_id (id, full_name, email),
+                drivers:drivers!bookings_driver_id_fkey (
+                  id,
+                  user_id,
+                  users:users!drivers_user_id_fkey (id, full_name, email)
+                )
+              )
+            ''')
+            .inFilter('vehicle_id', partnerVehicleIds.toList())
+            .order('recorded_at', ascending: false)
+            .limit(40);
+
+        const onTripStatuses = {
+          'ongoing',
+          'active',
+          'picked_up',
+          'in_progress',
+        };
+
+        for (final loc in List<Map<String, dynamic>>.from(response)) {
+          final vid = loc['vehicle_id']?.toString() ?? '';
+          if (!partnerVehicleIds.contains(vid)) continue;
+
+          final booking = loc['bookings'] as Map<String, dynamic>?;
+          final status = booking?['status']?.toString().toLowerCase() ?? '';
+          final isReturnedOrCompleted = booking?['returned_at'] != null ||
+              booking?['completed_at'] != null ||
+              {'completed', 'returned', 'cancelled', 'rejected'}.contains(status);
+
+          final isTripActive = onTripStatuses.contains(status) && !isReturnedOrCompleted;
+
+          final enriched = Map<String, dynamic>.from(loc);
+          enriched['has_active_booking'] = isTripActive;
+          enriched['is_active_booking'] = isTripActive;
+          enriched['vehicle'] = booking?['vehicles'] ?? vehiclesMap[vid];
+
+          if (!isTripActive) {
+            enriched['bookings'] = null;
+            enriched['status'] = 'Available (Idle)';
+          }
+
+          candidateList.add(enriched);
+          if (vid.isNotEmpty) vehiclesWithLiveLoc.add(vid);
+        }
+      } catch (e) {
+        debugPrint('Error loading partner tracking_locations: $e');
+      }
+
+      // 3. Check connected GPS trackers for partner's idle vehicles
+      try {
+        final trackerRows = await supabase
+            .from('vehicle_trackers')
+            .select('*')
+            .neq('connection_status', 'disconnected');
+
+        for (final t in List<Map<String, dynamic>>.from(trackerRows)) {
+          final vid = (t['vehicle_id'] ?? t['partner_vehicle_id'] ?? t['vehicle_application_id'])?.toString() ?? '';
+          if (!partnerVehicleIds.contains(vid) || vehiclesWithLiveLoc.contains(vid)) {
+            continue;
+          }
+
+          final veh = vehiclesMap[vid] ?? {
+            'id': vid,
+            'brand': 'GPS Tracker',
+            'model': t['device_identifier']?.toString() ?? 'Partner Vehicle',
+            'plate_number': t['device_identifier']?.toString() ?? '',
+          };
+
+          var lat = (t['last_latitude'] as num?)?.toDouble() ?? _asDouble(veh['latitude']);
+          var lng = (t['last_longitude'] as num?)?.toDouble() ?? _asDouble(veh['longitude']);
+
+          if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+            continue;
+          }
+
+          final lastSpeed = (t['last_speed'] as num?)?.toDouble() ?? 0.0;
+
+          candidateList.add({
+            'id': 'partner_tracker_${t['id']}',
+            'vehicle_id': vid,
+            'latitude': lat,
+            'longitude': lng,
+            'speed_mps': lastSpeed / 3.6,
+            'heading_degrees': 0.0,
+            'source': 'gps_tracker',
+            'recorded_at': t['last_sync_at'] ?? t['last_location_at'] ?? DateTime.now().toUtc().toIso8601String(),
+            'updated_at': t['last_sync_at'] ?? DateTime.now().toUtc().toIso8601String(),
+            'has_active_booking': false,
+            'is_active_booking': false,
+            'bookings': null,
+            'vehicle': veh,
+            'tracker': t,
+            'status': 'Available (Idle)',
+          });
+
+          vehiclesWithLiveLoc.add(vid);
+        }
+      } catch (e) {
+        debugPrint('Error fetching partner idle vehicle trackers: $e');
+      }
+
+      // 4. Fallback for partner vehicles with registered coordinates but no tracking pings yet
+      for (final vid in partnerVehicleIds) {
+        if (!vehiclesWithLiveLoc.contains(vid)) {
+          final veh = vehiclesMap[vid];
+          if (veh != null) {
+            final lat = _asDouble(veh['latitude']);
+            final lng = _asDouble(veh['longitude']);
+            if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+              candidateList.add({
+                'id': 'partner_idle_$vid',
+                'vehicle_id': vid,
+                'latitude': lat,
+                'longitude': lng,
+                'speed_mps': 0.0,
+                'heading_degrees': 0.0,
+                'source': 'registered_location',
+                'recorded_at': DateTime.now().toUtc().toIso8601String(),
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+                'has_active_booking': false,
+                'is_active_booking': false,
+                'bookings': null,
+                'vehicle': veh,
+                'status': 'Available (Idle)',
+              });
+            }
+          }
+        }
+      }
+
+      // Deduplicate by plate/id
+      final dedupedMap = <String, Map<String, dynamic>>{};
+      for (final loc in candidateList) {
+        final veh = (loc['vehicle'] ?? loc['bookings']?['vehicles']) as Map?;
+        final rawPlate = veh?['plate_number']?.toString() ??
+            loc['tracker']?['device_identifier']?.toString() ??
+            '';
+        final plate = rawPlate.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+        final vid = loc['vehicle_id']?.toString() ?? veh?['id']?.toString() ?? '';
+        final dedupKey = plate.isNotEmpty
+            ? 'plate_$plate'
+            : (vid.isNotEmpty ? 'vid_$vid' : 'id_${loc['id']}');
+
+        if (!dedupedMap.containsKey(dedupKey)) {
+          dedupedMap[dedupKey] = loc;
+          continue;
+        }
+
+        final existing = dedupedMap[dedupKey]!;
+        final existingIsActive = existing['has_active_booking'] == true;
+        final newIsActive = loc['has_active_booking'] == true;
+
+        if (newIsActive && !existingIsActive) {
+          dedupedMap[dedupKey] = loc;
+        } else if (newIsActive == existingIsActive) {
+          final existingDate = DateTime.tryParse(existing['recorded_at']?.toString() ?? '');
+          final newDate = DateTime.tryParse(loc['recorded_at']?.toString() ?? '');
+          if (newDate != null && (existingDate == null || newDate.isAfter(existingDate))) {
+            dedupedMap[dedupKey] = loc;
+          }
+        }
+      }
+
+      return dedupedMap.values.toList();
+    } catch (e) {
+      debugPrint('Error loading partner tracking locations: $e');
+      return [];
+    }
+  }
+
   Future<Map<String, dynamic>?> getTrackingLocationForBooking(
     String bookingId,
   ) async {
