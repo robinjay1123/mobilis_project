@@ -198,10 +198,28 @@ class BookingInspectionService {
     required String inspectorId,
   }) async {
     final booking = await _getInspectionBooking(bookingId);
-    final expectedInspectorId = await _requiredInspectorId(booking);
-    if (expectedInspectorId != inspectorId) {
+    final authorizedIds = await getAuthorizedInspectorIds(booking);
+
+    // Expand candidate IDs for the inspector (in case inspectorId is a user_id or partner_id)
+    final trimmedInspector = inspectorId.trim();
+    final inspectorCandidateIds = <String>{trimmedInspector};
+    try {
+      final pRows = await supabase
+          .from('partners')
+          .select('id, user_id')
+          .or('id.eq.$trimmedInspector,user_id.eq.$trimmedInspector');
+      for (final p in List<Map<String, dynamic>>.from(pRows)) {
+        final pId = p['id']?.toString().trim();
+        final uId = p['user_id']?.toString().trim();
+        if (pId != null && pId.isNotEmpty) inspectorCandidateIds.add(pId);
+        if (uId != null && uId.isNotEmpty) inspectorCandidateIds.add(uId);
+      }
+    } catch (_) {}
+
+    final isAuthorized = authorizedIds.any((id) => inspectorCandidateIds.contains(id));
+    if (!isAuthorized && authorizedIds.isNotEmpty) {
       throw Exception(
-        'Only the vehicle owner can submit the inspection checklist.',
+        'Only the vehicle owner, partner, or operator can submit the inspection checklist.',
       );
     }
   }
@@ -296,16 +314,28 @@ class BookingInspectionService {
     required String inspectionType,
   }) async {
     final booking = await _getInspectionBooking(bookingId);
-    final expectedInspectorId = await _requiredInspectorId(booking);
-    final row = await supabase
+    final authorizedIds = await getAuthorizedInspectorIds(booking);
+
+    final rows = await supabase
         .from('booking_vehicle_inspections')
         .select()
         .eq('booking_id', bookingId)
         .eq('inspection_type', inspectionType.trim().toLowerCase())
-        .eq('inspector_id', expectedInspectorId)
-        .maybeSingle();
+        .order('created_at', ascending: false);
 
-    if (row == null || !_isCompleteInspection(row)) {
+    final list = List<Map<String, dynamic>>.from(rows);
+    final row = list.firstWhere(
+      (r) {
+        final inspId = r['inspector_id']?.toString().trim();
+        return (authorizedIds.isEmpty || authorizedIds.contains(inspId)) && _isCompleteInspection(r);
+      },
+      orElse: () => list.firstWhere(
+        (r) => _isCompleteInspection(r),
+        orElse: () => list.isNotEmpty ? list.first : <String, dynamic>{},
+      ),
+    );
+
+    if (row.isEmpty || !_isCompleteInspection(row)) {
       final label = inspectionType.trim().toLowerCase() == 'after'
           ? 'after-return'
           : 'before-release';
@@ -323,32 +353,112 @@ class BookingInspectionService {
         .eq('id', bookingId)
         .maybeSingle();
     if (response == null) throw Exception('Booking not found');
-    return Map<String, dynamic>.from(response);
+    final booking = Map<String, dynamic>.from(response);
+
+    if (booking['vehicles'] == null && booking['vehicle_id'] != null) {
+      final vehicleId = booking['vehicle_id'].toString().trim();
+      try {
+        final pv = await supabase
+            .from('partner_vehicles')
+            .select()
+            .eq('id', vehicleId)
+            .maybeSingle();
+        if (pv != null) {
+          booking['vehicles'] = Map<String, dynamic>.from(pv);
+        }
+      } catch (_) {}
+    }
+    return booking;
   }
 
-  bool _isPartnerVehicle(Map<String, dynamic> booking) {
+
+  /// Resolves all authorized inspector user IDs (vehicle owners, partners, and operators)
+  /// who have permission to submit an inspection checklist for this booking.
+  Future<Set<String>> getAuthorizedInspectorIds(Map<String, dynamic> booking) async {
+    final ids = <String>{};
+
+    // 1. Direct fields on booking
+    final bookingPartnerId = booking['partner_id']?.toString().trim();
+    final bookingConfirmedBy = booking['partner_booking_confirmed_by']?.toString().trim();
+    final bookingOperatorId = booking['operator_id']?.toString().trim();
+    if (bookingPartnerId != null && bookingPartnerId.isNotEmpty) ids.add(bookingPartnerId);
+    if (bookingConfirmedBy != null && bookingConfirmedBy.isNotEmpty) ids.add(bookingConfirmedBy);
+    if (bookingOperatorId != null && bookingOperatorId.isNotEmpty) ids.add(bookingOperatorId);
+
+    // 2. Fields on vehicle
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-    final owner = vehicle?['owner'] as Map<String, dynamic>?;
-    final ownerRole = owner?['role']?.toString().trim().toLowerCase();
-    return ownerRole == 'partner' ||
-        vehicle?['is_partner_vehicle'] == true ||
-        vehicle?['partner_vehicle_id'] != null;
-  }
+    final vehicleOwnerId = vehicle?['owner_id']?.toString().trim();
+    final vehiclePartnerId = vehicle?['partner_id']?.toString().trim();
+    final vehiclePartnerVehId = vehicle?['partner_vehicle_id']?.toString().trim();
+    final vehicleOperatorId = vehicle?['operator_id']?.toString().trim();
+    if (vehicleOwnerId != null && vehicleOwnerId.isNotEmpty) ids.add(vehicleOwnerId);
+    if (vehiclePartnerId != null && vehiclePartnerId.isNotEmpty) ids.add(vehiclePartnerId);
+    if (vehiclePartnerVehId != null && vehiclePartnerVehId.isNotEmpty) ids.add(vehiclePartnerVehId);
+    if (vehicleOperatorId != null && vehicleOperatorId.isNotEmpty) ids.add(vehicleOperatorId);
 
-  /// Returns the vehicle owner's user ID — the ONLY person allowed to submit
-  /// an inspection checklist for this booking.
-  Future<String> _requiredInspectorId(
-    Map<String, dynamic> booking, {
-    String? fallbackInspectorId,
-  }) async {
-    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-    final ownerId = vehicle?['owner_id']?.toString();
+    final rawVehicleId = booking['vehicle_id']?.toString().trim() ?? vehicle?['id']?.toString().trim() ?? '';
+    if (rawVehicleId.isNotEmpty) {
+      try {
+        final v = await supabase
+            .from('vehicles')
+            .select('owner_id, partner_id, partner_vehicle_id, operator_id')
+            .eq('id', rawVehicleId)
+            .maybeSingle();
+        if (v != null) {
+          final oId = v['owner_id']?.toString().trim();
+          final pId = v['partner_id']?.toString().trim();
+          final pvId = v['partner_vehicle_id']?.toString().trim();
+          final opId = v['operator_id']?.toString().trim();
+          if (oId != null && oId.isNotEmpty) ids.add(oId);
+          if (pId != null && pId.isNotEmpty) ids.add(pId);
+          if (pvId != null && pvId.isNotEmpty) ids.add(pvId);
+          if (opId != null && opId.isNotEmpty) ids.add(opId);
+        }
+      } catch (_) {}
 
-    if (ownerId != null && ownerId.isNotEmpty) return ownerId;
+      try {
+        final pvRows = await supabase
+            .from('partner_vehicles')
+            .select('partner_id, user_id, vehicle_id')
+            .or('id.eq.$rawVehicleId,vehicle_id.eq.$rawVehicleId');
+        for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
+          final pId = pv['partner_id']?.toString().trim();
+          final uId = pv['user_id']?.toString().trim();
+          if (pId != null && pId.isNotEmpty) ids.add(pId);
+          if (uId != null && uId.isNotEmpty) ids.add(uId);
+        }
+      } catch (_) {}
 
-    throw Exception(
-      'This vehicle has no registered owner. The checklist cannot be submitted.',
-    );
+      try {
+        final appRows = await supabase
+            .from('partner_vehicle_applications')
+            .select('partner_id, created_vehicle_id, partner_vehicle_id')
+            .or('id.eq.$rawVehicleId,created_vehicle_id.eq.$rawVehicleId,partner_vehicle_id.eq.$rawVehicleId');
+        for (final app in List<Map<String, dynamic>>.from(appRows)) {
+          final pId = app['partner_id']?.toString().trim();
+          if (pId != null && pId.isNotEmpty) ids.add(pId);
+        }
+      } catch (_) {}
+    }
+
+    // 3. Resolve partners table mappings (both id -> user_id and user_id -> id)
+    final resolvedIds = Set<String>.from(ids);
+    for (final id in ids) {
+      try {
+        final partnerRows = await supabase
+            .from('partners')
+            .select('id, user_id')
+            .or('id.eq.$id,user_id.eq.$id');
+        for (final p in List<Map<String, dynamic>>.from(partnerRows)) {
+          final pId = p['id']?.toString().trim();
+          final uId = p['user_id']?.toString().trim();
+          if (pId != null && pId.isNotEmpty) resolvedIds.add(pId);
+          if (uId != null && uId.isNotEmpty) resolvedIds.add(uId);
+        }
+      } catch (_) {}
+    }
+
+    return resolvedIds;
   }
 
 
