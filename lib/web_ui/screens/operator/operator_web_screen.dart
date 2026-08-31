@@ -1501,6 +1501,88 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .inFilter('type', ['price_change_request', 'price_change_request_forwarded'])
           .order('created_at', ascending: false);
       final list = List<Map<String, dynamic>>.from(response);
+
+      // Pre-enrich requests with car images from vehicles & partner applications
+      final missingAppIds = <String>{};
+      final missingPartnerVehIds = <String>{};
+      final missingVehIds = <String>{};
+
+      for (final r in list) {
+        final data = r['data'] is Map<String, dynamic>
+            ? Map<String, dynamic>.from(r['data'])
+            : (r['data'] is Map ? Map<String, dynamic>.from(r['data'] as Map) : <String, dynamic>{});
+        var img = (data['image_url'] ?? data['vehicle_image_url'] ?? data['photo_url'])?.toString().trim() ?? '';
+        final vid = (data['vehicle_id'] ?? data['partner_vehicle_id'] ?? data['application_id'])?.toString().trim() ?? '';
+
+        if (img.isEmpty && vid.isNotEmpty) {
+          for (final v in [..._vehicles, ..._partnerVehicles]) {
+            final vId = v['id']?.toString() ?? '';
+            final pId = (v['partner_vehicle_id'] ?? v['_partner_vehicle_id'] ?? v['application_id'])?.toString() ?? '';
+            if (vId == vid || pId == vid) {
+              img = _primaryVehicleImageUrl(v);
+              if (img.isNotEmpty) {
+                data['vehicle_image_url'] = img;
+                r['data'] = data;
+                break;
+              }
+            }
+          }
+        }
+
+        if (img.isEmpty) {
+          final appId = data['application_id']?.toString() ?? '';
+          final pvId = data['partner_vehicle_id']?.toString() ?? '';
+          final vId = data['vehicle_id']?.toString() ?? '';
+          if (appId.isNotEmpty) missingAppIds.add(appId);
+          if (pvId.isNotEmpty) missingPartnerVehIds.add(pvId);
+          if (vId.isNotEmpty) missingVehIds.add(vId);
+        }
+      }
+
+      if (missingAppIds.isNotEmpty) {
+        try {
+          final appRows = await _supabase
+              .from('partner_vehicle_applications')
+              .select('id, vehicle_photo_url, photo_url, image_url')
+              .inFilter('id', missingAppIds.toList());
+          for (final row in List<Map<String, dynamic>>.from(appRows)) {
+            final id = row['id']?.toString();
+            final img = _normalizeVehicleImageUrl(row['vehicle_photo_url'] ?? row['photo_url'] ?? row['image_url']);
+            if (id != null && img.isNotEmpty) {
+              for (final r in list) {
+                final d = r['data'] is Map ? Map<String, dynamic>.from(r['data'] as Map) : <String, dynamic>{};
+                if (d['application_id']?.toString() == id) {
+                  d['vehicle_image_url'] = img;
+                  r['data'] = d;
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (missingPartnerVehIds.isNotEmpty) {
+        try {
+          final pvRows = await _supabase
+              .from('partner_vehicles')
+              .select('id, vehicle_photo_url, photo_url, image_url')
+              .inFilter('id', missingPartnerVehIds.toList());
+          for (final row in List<Map<String, dynamic>>.from(pvRows)) {
+            final id = row['id']?.toString();
+            final img = _normalizeVehicleImageUrl(row['vehicle_photo_url'] ?? row['photo_url'] ?? row['image_url']);
+            if (id != null && img.isNotEmpty) {
+              for (final r in list) {
+                final d = r['data'] is Map ? Map<String, dynamic>.from(r['data'] as Map) : <String, dynamic>{};
+                if (d['partner_vehicle_id']?.toString() == id) {
+                  d['vehicle_image_url'] = img;
+                  r['data'] = d;
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       _priceChangeRequests = list;
       _pendingPriceRequestsCount = list.where((r) {
         final data = r['data'] is Map<String, dynamic>
@@ -30814,10 +30896,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       } catch (_) {}
     }
 
-    // 4. Fallback object from payload data
+    // 4. Fetch from partner_vehicle_applications table in Supabase
+    final applicationId = data['application_id']?.toString() ?? '';
+    if (applicationId.isNotEmpty) {
+      try {
+        final res = await _supabase
+            .from('partner_vehicle_applications')
+            .select('*')
+            .eq('id', applicationId)
+            .maybeSingle();
+        if (res != null) {
+          final mapped = Map<String, dynamic>.from(res);
+          mapped['_source'] = 'partner_application';
+          mapped['is_partner_vehicle'] = true;
+          return mapped;
+        }
+      } catch (_) {}
+    }
+
+    // 5. Fallback object from payload data
     return <String, dynamic>{
-      'id': vehicleId.isNotEmpty ? vehicleId : partnerVehicleId,
+      'id': vehicleId.isNotEmpty ? vehicleId : (partnerVehicleId.isNotEmpty ? partnerVehicleId : applicationId),
       'partner_vehicle_id': partnerVehicleId,
+      'application_id': applicationId,
+      'image_url': data['image_url'] ?? data['vehicle_image_url'] ?? data['photo_url'],
       'brand': vehicleTitle.split(' ').first,
       'model': vehicleTitle.split(' ').skip(1).join(' '),
       'price_per_day': data['current_price_per_day'] ?? 0,
@@ -31638,6 +31740,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     final dailyDiff = reqDaily - currentDaily;
 
+    // Resolve vehicle image from all possible sources
+    final directImg = (data['image_url'] ?? data['vehicle_image_url'] ?? data['photo_url'])?.toString().trim() ?? '';
+    var carImageUrl = _normalizeVehicleImageUrl(directImg);
+    if (carImageUrl.isEmpty) {
+      final vid = (data['vehicle_id'] ?? data['partner_vehicle_id'] ?? data['application_id'])?.toString().trim() ?? '';
+      if (vid.isNotEmpty) {
+        for (final v in [..._vehicles, ..._partnerVehicles]) {
+          final vId = v['id']?.toString() ?? '';
+          final pId = (v['partner_vehicle_id'] ?? v['_partner_vehicle_id'] ?? v['application_id'])?.toString() ?? '';
+          if (vId == vid || pId == vid) {
+            carImageUrl = _primaryVehicleImageUrl(v);
+            if (carImageUrl.isNotEmpty) break;
+          }
+        }
+      }
+    }
+    if (carImageUrl.isEmpty) {
+      final title = vehicleTitle.toLowerCase().trim();
+      for (final v in [..._vehicles, ..._partnerVehicles]) {
+        final b = (v['brand'] ?? '').toString().toLowerCase().trim();
+        final m = (v['model'] ?? '').toString().toLowerCase().trim();
+        final vName = (v['vehicle_name'] ?? '').toString().toLowerCase().trim();
+        if ((title.contains(b) && title.contains(m) && b.isNotEmpty) ||
+            (vName.isNotEmpty && title.contains(vName))) {
+          carImageUrl = _primaryVehicleImageUrl(v);
+          if (carImageUrl.isNotEmpty) break;
+        }
+      }
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : Colors.white,
@@ -31655,20 +31787,125 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top row: Title, status chip, date
+          // Top row: Car Photo (expandable on click), Title, status chip, date
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF22304A) : const Color(0xFFEFF4FA),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.directions_car_filled_rounded,
-                  color: _operatorGold,
-                  size: 26,
+              // Vehicle Photo Thumbnail with Expand on Click Modal
+              Tooltip(
+                message: carImageUrl.isNotEmpty
+                    ? 'Click to expand photo'
+                    : 'Click to view vehicle',
+                child: InkWell(
+                  onTap: () async {
+                    if (carImageUrl.isNotEmpty) {
+                      _showOperatorImageAttachment(carImageUrl, vehicleTitle);
+                    } else {
+                      final v = await _findVehicleForPriceRequest(data);
+                      if (v != null && mounted) {
+                        final img = _primaryVehicleImageUrl(v);
+                        if (img.isNotEmpty) {
+                          _showOperatorImageAttachment(img, vehicleTitle);
+                        } else {
+                          _showEditVehicleDialog(v, isDark);
+                        }
+                      }
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: 76,
+                        height: 76,
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF22304A) : const Color(0xFFEFF4FA),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade300,
+                            width: 1.2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(13),
+                          child: carImageUrl.isNotEmpty
+                              ? Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    OptimizedNetworkImage(
+                                      imageUrl: carImageUrl,
+                                      fit: BoxFit.cover,
+                                      errorWidget: Center(
+                                        child: Icon(
+                                          Icons.directions_car_filled_rounded,
+                                          color: _operatorGold,
+                                          size: 30,
+                                        ),
+                                      ),
+                                    ),
+                                    // Subtle bottom gradient
+                                    Positioned(
+                                      bottom: 0,
+                                      left: 0,
+                                      right: 0,
+                                      height: 28,
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                              Colors.transparent,
+                                              Colors.black.withValues(alpha: 0.6),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Center(
+                                  child: Icon(
+                                    Icons.directions_car_filled_rounded,
+                                    color: _operatorGold,
+                                    size: 32,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      // Expand/Zoom icon badge in corner
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.75),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.5),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.fullscreen_rounded,
+                            color: Colors.white,
+                            size: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 14),
@@ -31743,12 +31980,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      'Requested on $formattedDate',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark ? Colors.grey[400] : Colors.grey[600],
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          'Requested on $formattedDate',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                          ),
+                        ),
+                        if (carImageUrl.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Text('•', style: TextStyle(color: isDark ? Colors.grey[600] : Colors.grey[400])),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () => _showOperatorImageAttachment(carImageUrl, vehicleTitle),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.zoom_in_rounded, size: 14, color: _operatorGold),
+                                const SizedBox(width: 3),
+                                Text(
+                                  'View Photo',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: _operatorGold,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),

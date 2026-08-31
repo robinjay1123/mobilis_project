@@ -601,6 +601,7 @@ class PartnerService {
     required String partnerVehicleId,
     String? vehicleId,
     required String vehicleTitle,
+    String? imageUrl,
     required double currentPricePerDay,
     required double currentPricePerHour,
     required double requestedPricePerDay,
@@ -621,6 +622,8 @@ class PartnerService {
       throw Exception('No operator account is available to receive this request');
     }
 
+    final cleanImgUrl = imageUrl?.trim() ?? '';
+
     for (final operatorId in operatorIds) {
       await NotificationService().createNotification(
         userId: operatorId,
@@ -636,6 +639,10 @@ class PartnerService {
           if (vehicleId != null && vehicleId.isNotEmpty)
             'vehicle_id': vehicleId,
           'vehicle_title': vehicleTitle,
+          if (cleanImgUrl.isNotEmpty) ...{
+            'image_url': cleanImgUrl,
+            'vehicle_image_url': cleanImgUrl,
+          },
           'current_price_per_day': currentPricePerDay,
           'current_price_per_hour': currentPricePerHour,
           'requested_price_per_day': requestedPricePerDay,

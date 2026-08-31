@@ -3560,6 +3560,11 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     }
 
     try {
+      final carPhoto = (application['vehicle_photo_url'] ??
+              application['photo_url'] ??
+              application['image_url'])
+          ?.toString()
+          .trim();
       final count = await PartnerService().requestVehiclePriceChange(
         partnerId: currentUserId,
         applicationId: application['id']?.toString() ?? '',
@@ -3568,6 +3573,7 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
         vehicleTitle:
             '${application['brand'] ?? ''} ${application['model'] ?? ''}'
                 .trim(),
+        imageUrl: carPhoto,
         currentPricePerDay: currentDay,
         currentPricePerHour: currentHour,
         requestedPricePerDay: requestedDay,
