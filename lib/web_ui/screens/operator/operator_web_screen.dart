@@ -27729,8 +27729,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                     'status': status,
                                                     'is_available':
                                                         status == 'active',
-                                                    'updated_at': DateTime.now()
-                                                        .toIso8601String(),
                                                   })
                                                   .eq('id', vehicle['id']);
 
