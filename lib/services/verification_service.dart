@@ -821,7 +821,6 @@ class VerificationService {
         'face_selfie_url': faceSelfieUrl,
         'selfie_with_id_url': selfieWithIdUrl,
         'verification_status': 'pending',
-        'role': isDriver ? 'driver' : (existingRole.isNotEmpty ? existingRole : 'renter'),
         'created_at': DateTime.now().toIso8601String(),
       }, driverDetailsPayload);
 
@@ -865,6 +864,7 @@ class VerificationService {
     Map<String, dynamic> optionalPayload,
   ) async {
     final payload = {...basePayload, ...optionalPayload};
+    payload.remove('role');
     try {
       return await supabase
           .from('user_verifications')
@@ -879,9 +879,10 @@ class VerificationService {
       debugPrint(
         'Driver application detail columns are not available yet; retrying verification without optional details.',
       );
+      final fallbackPayload = Map<String, dynamic>.from(basePayload)..remove('role');
       return await supabase
           .from('user_verifications')
-          .upsert(basePayload, onConflict: 'user_id')
+          .upsert(fallbackPayload, onConflict: 'user_id')
           .select()
           .single();
     }
