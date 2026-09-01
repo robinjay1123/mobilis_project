@@ -95,6 +95,7 @@ class DriverService {
             if (nbiFileUrl != null && nbiFileUrl.isNotEmpty)
               'nbi_file_url': nbiFileUrl,
             'verification_status': 'pending',
+            'is_available': false,
             'driver_tier': 'standard',
             'rating': 0.0,
             'total_trips': 0,
@@ -268,6 +269,15 @@ class DriverService {
           .from('users')
           .update({'is_available': available})
           .eq('id', userId);
+
+      try {
+        await supabase
+            .from('drivers')
+            .update({'is_available': available})
+            .eq('user_id', userId);
+      } catch (err) {
+        debugPrint('Drivers table availability update note: $err');
+      }
 
       debugPrint('Availability updated successfully');
     } on PostgrestException catch (e) {
@@ -1294,6 +1304,10 @@ class DriverService {
 
       final earnings = await getEarnings(driverId);
 
+      final userIsAvailable = user?['is_available'] == true;
+      final driverIsAvailable = profile['is_available'] != false;
+      final isAvailableEffective = userIsAvailable && driverIsAvailable;
+
       return {
         'total_trips': (trips as List).length,
         'rating': profile['rating'] ?? 0.0,
@@ -1305,7 +1319,7 @@ class DriverService {
                   user?['verification_status'] ??
                   'pending'),
         'application_status': derivedApplicationStatus,
-        'is_available': user?['is_available'] ?? false,
+        'is_available': isAvailableEffective,
       };
     } catch (e) {
       debugPrint('Error fetching driver stats: $e');

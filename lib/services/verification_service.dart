@@ -334,7 +334,7 @@ class VerificationService {
               'id_verified': true,
               'verification_status': 'verified',
               if (role == 'driver') 'application_status': 'approved',
-              if (role == 'driver') 'is_available': true,
+              if (role == 'driver') 'is_available': false,
               if (fullName.isNotEmpty) 'full_name': fullName,
             })
             .eq('id', userId);
@@ -610,7 +610,7 @@ class VerificationService {
     final payload = <String, dynamic>{
       'user_id': userId,
       'verification_status': driverStatus,
-      'is_available': isVerified,
+      'is_available': false,
       'license_verified': isVerified,
       'nbi_verified': isVerified,
     };

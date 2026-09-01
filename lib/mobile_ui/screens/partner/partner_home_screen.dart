@@ -73,7 +73,7 @@ class PartnerHomeScreen extends StatefulWidget {
 
 class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   int selectedNavIndex = 0;
-  int selectedBookingTab = 0; // 0: Pending, 1: Active, 2: Past, 3: Cancelled
+  int selectedBookingTab = -1; // -1: All, 0: Pending, 1: Approved, 2: Ongoing, 3: Completed, 4: Cancelled, 5: Extensions
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   // Partner data
@@ -766,8 +766,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           currentIndex: selectedNavIndex,
           badgeCounts: {
             1: _partnerPendingBookingsCount,
-            3: _partnerUnreadMessageCount,
-            4: _partnerUnreadNotificationCount,
+            2: _partnerUnreadMessageCount,
+            3: _partnerUnreadNotificationCount,
           },
           customItems: [
             BottomNavigationBarItem(
@@ -785,14 +785,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 backgroundColor: widget.isDarkMode ? const Color(0xFF07111D) : Colors.white,
               ),
               label: 'Bookings',
-            ),
-            BottomNavigationBarItem(
-              icon: RoleBottomNavigationIcon(
-                icon: Icons.radar_rounded,
-                count: 0,
-                backgroundColor: widget.isDarkMode ? const Color(0xFF07111D) : Colors.white,
-              ),
-              label: 'Tracking',
             ),
             BottomNavigationBarItem(
               icon: RoleBottomNavigationIcon(
@@ -1239,10 +1231,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   _buildDrawerItem(
                     icon: Icons.radar_rounded,
                     label: 'Live Fleet Tracking',
-                    isSelected: selectedNavIndex == 2,
                     onTap: () {
-                      setState(() => selectedNavIndex = 2);
                       Navigator.pop(context);
+                      _openLiveTracking();
                     },
                   ),
                   _buildDrawerItem(
@@ -1250,6 +1241,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     label: 'Revenue & Earnings',
                     onTap: () {
                       Navigator.pop(context);
+                      _openRevenuePayoutScreen();
                     },
                   ),
                   const SizedBox(height: 8),
@@ -1373,12 +1365,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       case 1:
         return _buildBookingsTab();
       case 2:
-        return _buildTrackingTab();
-      case 3:
         return _buildMessagesTab();
-      case 4:
+      case 3:
         return _buildNotificationsTab();
-      case 5:
+      case 4:
         return _buildProfileTab();
       default:
         return _buildDashboardTab();
@@ -1445,33 +1435,49 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _buildQuickAction(
-                      icon: Icons.add_circle_outline,
-                      label: 'Add Vehicle',
-                      onTap: _handleApplyVehicleNavigation,
-                    ),
-                    const SizedBox(width: 12),
-                    _buildQuickAction(
-                      icon: Icons.directions_car,
-                      label: 'Manage Fleet',
-                      onTap: () =>
-                          Navigator.pushNamed(context, '/vehicle-availability'),
-                    ),
-                    const SizedBox(width: 12),
-                    _buildQuickAction(
-                      icon: Icons.bar_chart,
-                      label: 'View Revenue',
-                      onTap: _openRevenuePayoutScreen,
-                    ),
-                    const SizedBox(width: 12),
-                    _buildQuickAction(
-                      icon: Icons.star_rate,
-                      label: 'Rates & Reviews',
-                      onTap: _showRatesReviewsDialog,
-                    ),
-                  ],
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  clipBehavior: Clip.none,
+                  child: Row(
+                    children: [
+                      _buildQuickAction(
+                        icon: Icons.add_circle_outline,
+                        label: 'Add Vehicle',
+                        width: 86,
+                        onTap: _handleApplyVehicleNavigation,
+                      ),
+                      const SizedBox(width: 10),
+                      _buildQuickAction(
+                        icon: Icons.radar_rounded,
+                        label: 'Live Tracking',
+                        width: 86,
+                        onTap: _openLiveTracking,
+                      ),
+                      const SizedBox(width: 10),
+                      _buildQuickAction(
+                        icon: Icons.directions_car,
+                        label: 'Manage Fleet',
+                        width: 86,
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/vehicle-availability'),
+                      ),
+                      const SizedBox(width: 10),
+                      _buildQuickAction(
+                        icon: Icons.bar_chart,
+                        label: 'View Revenue',
+                        width: 86,
+                        onTap: _openRevenuePayoutScreen,
+                      ),
+                      const SizedBox(width: 10),
+                      _buildQuickAction(
+                        icon: Icons.star_rate,
+                        label: 'Rates & Reviews',
+                        width: 86,
+                        onTap: _showRatesReviewsDialog,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1813,52 +1819,57 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
+    double? width,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppColors.darkCard : Colors.white;
     final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
 
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: SizedBox(
-          height: 86,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: border, width: 1.2),
-              boxShadow: isDark ? null : AppColors.cardShadowOf(context),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, color: isDark ? AppColors.primary : AppColors.primaryDark, size: 24),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 14,
-                  width: double.infinity,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
-                      ),
-                      textAlign: TextAlign.center,
+    final card = GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: width,
+        height: 86,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: border, width: 1.2),
+            boxShadow: isDark ? null : AppColors.cardShadowOf(context),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: isDark ? AppColors.primary : AppColors.primaryDark, size: 24),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 14,
+                width: double.infinity,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
+
+    if (width != null) {
+      return card;
+    }
+    return Expanded(child: card);
   }
 
   Widget _buildWhyPartnerWithPsdcSection() {
@@ -2126,10 +2137,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: () => setState(() {
-                  selectedNavIndex = 1;
-                  _partnerBookingStatus = 'ongoing';
-                }),
+                onPressed: () => _openLiveTracking(),
                 child: const Text('View all active trips'),
               ),
             ),
@@ -2205,7 +2213,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           ),
           const SizedBox(width: 8),
           OutlinedButton(
-            onPressed: () => _openTrackingScreen(booking),
+            onPressed: () => _openLiveTracking(
+              focusBookingId: booking['id']?.toString(),
+            ),
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.primary,
               side: const BorderSide(color: AppColors.primary),
@@ -2539,23 +2549,26 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             children: [
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
                 child: Row(
                   children: [
-                    _buildBookingTabButton('Pending', 0),
+                    _buildBookingTabButton('All', -1, badgeCount: _countBookingsForTab(-1)),
+                    const SizedBox(width: 8),
+                    _buildBookingTabButton('Pending', 0, badgeCount: _countBookingsForTab(0)),
                     const SizedBox(width: 8),
                     _buildBookingTabButton(
                       'Extensions',
                       5,
-                      badgeCount: _partnerPendingExtensionRequestsCount,
+                      badgeCount: _countBookingsForTab(5),
                     ),
                     const SizedBox(width: 8),
-                    _buildBookingTabButton('Approved', 1),
+                    _buildBookingTabButton('Ongoing', 2, badgeCount: _countBookingsForTab(2)),
                     const SizedBox(width: 8),
-                    _buildBookingTabButton('Ongoing', 2),
+                    _buildBookingTabButton('Approved', 1, badgeCount: _countBookingsForTab(1)),
                     const SizedBox(width: 8),
-                    _buildBookingTabButton('Completed', 3),
+                    _buildBookingTabButton('Completed', 3, badgeCount: _countBookingsForTab(3)),
                     const SizedBox(width: 8),
-                    _buildBookingTabButton('Cancelled', 4),
+                    _buildBookingTabButton('Cancelled', 4, badgeCount: _countBookingsForTab(4)),
                   ],
                 ),
               ),
@@ -2600,10 +2613,34 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
   }
 
+  int _countBookingsForTab(int tabIndex) {
+    if (tabIndex == -1) return bookings.length;
+    if (tabIndex == 5) return _partnerPendingExtensionRequestsCount;
+    final tabKey = switch (tabIndex) {
+      0 => 'pending',
+      1 => 'approved',
+      2 => 'ongoing',
+      3 => 'completed',
+      _ => 'cancelled',
+    };
+    final fallbackStatuses = switch (tabIndex) {
+      0 => {'pending'},
+      1 => {'approved', 'confirmed'},
+      2 => {'ongoing', 'active', 'in_progress', 'in transit', 'in_transit'},
+      3 => {'completed', 'successful', 'done', 'finished'},
+      _ => {'cancelled', 'canceled', 'declined', 'rejected'},
+    };
+    return bookings.where((b) {
+      if (_matchesBookingTab(b, tabKey)) return true;
+      final s = (b['status'] ?? '').toString().toLowerCase().trim();
+      return fallbackStatuses.contains(s);
+    }).length;
+  }
+
   Widget _buildBookingTabButton(String label, int index, {int badgeCount = 0}) {
     final isSelected = selectedBookingTab == index;
     return SizedBox(
-      width: label.length > 8 ? 104 : (label.length > 6 ? 94 : 84),
+      width: label.length > 8 ? 104 : (label.length > 6 ? 94 : (label.length <= 3 ? 68 : 84)),
       child: GestureDetector(
         onTap: () => setState(() => selectedBookingTab = index),
         child: AnimatedContainer(
@@ -2651,13 +2688,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Widget _buildBookingRequestCard(Map<String, dynamic> booking) {
-    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-    final renter = booking['users'] as Map<String, dynamic>?;
+    final vehicle = (booking['vehicles'] ??
+            booking['partner_vehicles'] ??
+            booking['partner_vehicle'] ??
+            booking['vehicle']) as Map<String, dynamic>?;
+    final renter = (booking['users'] ?? booking['renter']) as Map<String, dynamic>?;
     final status = (booking['status'] ?? 'pending').toString().toLowerCase();
     final statusColor = _dashboardBookingStatusColor(status);
     final statusLabel = _dashboardBookingStatusLabel(status);
-    final vehicleTitle = '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''}'
-        .trim();
+    final brand = vehicle?['brand']?.toString().trim() ?? '';
+    final model = vehicle?['model']?.toString().trim() ?? '';
+    final rawName = vehicle?['vehicle_name']?.toString().trim() ?? '';
+    final combo = [brand, model].where((part) => part.isNotEmpty).join(' ');
+    final vehicleTitle = rawName.isNotEmpty && rawName.toLowerCase() != 'partner vehicle'
+        ? rawName
+        : (combo.isNotEmpty ? combo : (rawName.isNotEmpty ? rawName : 'Vehicle Request'));
     final vehicleYear = vehicle?['year']?.toString().trim();
     final imageUrl = _bookingVehicleImageUrl(vehicle);
     final pricePerDay =
@@ -2700,10 +2745,22 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   color: AppColors.darkBgTertiary,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Image.asset(
-                  'assets/icon/logo1.png',
-                  fit: BoxFit.contain,
-                ),
+                clipBehavior: Clip.antiAlias,
+                child: imageUrl != null && imageUrl.isNotEmpty
+                    ? OptimizedNetworkImage(
+                        imageUrl: imageUrl,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                        errorWidget: Image.asset(
+                          'assets/icon/logo1.png',
+                          fit: BoxFit.contain,
+                        ),
+                      )
+                    : Image.asset(
+                        'assets/icon/logo1.png',
+                        fit: BoxFit.contain,
+                      ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -2985,13 +3042,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Widget _buildRecentRequestShowcaseCard(Map<String, dynamic> booking) {
-    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-    final renter = booking['users'] as Map<String, dynamic>?;
+    final vehicle = (booking['vehicles'] ??
+            booking['partner_vehicles'] ??
+            booking['partner_vehicle'] ??
+            booking['vehicle']) as Map<String, dynamic>?;
+    final renter = (booking['users'] ?? booking['renter']) as Map<String, dynamic>?;
     final status = (booking['status'] ?? 'pending').toString().toLowerCase();
     final statusColor = _dashboardBookingStatusColor(status);
     final statusLabel = _dashboardBookingStatusLabel(status);
-    final vehicleTitle = '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''}'
-        .trim();
+    final brand = vehicle?['brand']?.toString().trim() ?? '';
+    final model = vehicle?['model']?.toString().trim() ?? '';
+    final rawName = vehicle?['vehicle_name']?.toString().trim() ?? '';
+    final combo = [brand, model].where((part) => part.isNotEmpty).join(' ');
+    final vehicleTitle = rawName.isNotEmpty && rawName.toLowerCase() != 'partner vehicle'
+        ? rawName
+        : (combo.isNotEmpty ? combo : (rawName.isNotEmpty ? rawName : 'Vehicle Request'));
     final vehicleYear = vehicle?['year']?.toString().trim();
     final imageUrl = _bookingVehicleImageUrl(vehicle);
     final pricePerDay =
@@ -3472,6 +3537,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   List<Map<String, dynamic>> _filteredBookingsForDashboard() {
+    if (selectedBookingTab == -1) {
+      final list = List<Map<String, dynamic>>.from(bookings);
+      list.sort((a, b) {
+        final aDate = DateTime.tryParse(a['created_at']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = DateTime.tryParse(b['created_at']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        return bDate.compareTo(aDate);
+      });
+      return list;
+    }
+
     if (selectedBookingTab == 5) {
       final extList = bookings.where((booking) {
         final ext =
@@ -3496,7 +3573,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       return extList;
     }
 
-    final statuses = switch (selectedBookingTab) {
+    final tabKey = switch (selectedBookingTab) {
+      0 => 'pending',
+      1 => 'approved',
+      2 => 'ongoing',
+      3 => 'completed',
+      _ => 'cancelled',
+    };
+    final fallbackStatuses = switch (selectedBookingTab) {
       0 => {'pending'},
       1 => {'approved', 'confirmed'},
       2 => {'ongoing', 'active', 'in_progress', 'in transit', 'in_transit'},
@@ -3505,8 +3589,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     };
 
     final filtered = bookings.where((booking) {
+      if (_matchesBookingTab(booking, tabKey)) return true;
       final status = (booking['status'] ?? '').toString().toLowerCase().trim();
-      return statuses.contains(status);
+      return fallbackStatuses.contains(status);
     }).toList();
 
     filtered.sort((a, b) {
@@ -3524,6 +3609,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   String _dashboardTabLabel(int index) {
     switch (index) {
+      case -1:
+        return 'Recent';
       case 0:
         return 'Pending';
       case 1:
@@ -3590,26 +3677,62 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   String? _bookingVehicleImageUrl(Map<String, dynamic>? vehicle) {
     if (vehicle == null) return null;
 
-    for (final key in const [
-      'primary_image_url',
-      'image_url',
-      'photo_url',
-      'vehicle_photo_url',
-    ]) {
-      final value = vehicle[key]?.toString().trim();
-      if (value != null && value.isNotEmpty) {
-        return value;
+    String normalize(dynamic val) {
+      if (val is List && val.isNotEmpty) return normalize(val.first);
+      var raw = val?.toString().trim() ?? '';
+      if (raw.isEmpty || raw == 'null') return '';
+      if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:')) return raw;
+      raw = raw.replaceFirst(RegExp(r'^/+'), '');
+      const knownBuckets = [
+        'vehicle_images',
+        'vehicle-images',
+        'partner_documents',
+        'vehicle_documents',
+        'cars',
+        'vehicles',
+        'avatars',
+        'profiles',
+      ];
+      try {
+        for (final bucket in knownBuckets) {
+          if (raw.startsWith('$bucket/')) {
+            final path = raw.substring(bucket.length + 1);
+            return Supabase.instance.client.storage.from(bucket).getPublicUrl(path);
+          }
+        }
+        return Supabase.instance.client.storage.from('vehicle_images').getPublicUrl(raw);
+      } catch (_) {
+        return raw;
       }
     }
 
-    final images = vehicle['vehicle_images'];
-    if (images is List) {
-      for (final image in images) {
+    for (final key in const [
+      'primary_image_url',
+      'image_url',
+      'imageUrl',
+      'photo_url',
+      'vehicle_photo_url',
+      'vehicle_image_url',
+      'thumbnail_url',
+    ]) {
+      final value = vehicle[key];
+      final norm = normalize(value);
+      if (norm.isNotEmpty) {
+        return norm;
+      }
+    }
+
+    final rawImages = vehicle['vehicle_images'] ?? vehicle['images'] ?? vehicle['photos'];
+    if (rawImages is List) {
+      for (final image in rawImages) {
         if (image is Map<String, dynamic>) {
-          final url = image['image_url']?.toString().trim();
-          if (url != null && url.isNotEmpty) {
-            return url;
+          for (final key in const ['image_url', 'url', 'image', 'photo_url']) {
+            final norm = normalize(image[key]);
+            if (norm.isNotEmpty) return norm;
           }
+        } else {
+          final norm = normalize(image);
+          if (norm.isNotEmpty) return norm;
         }
       }
     }
@@ -4305,11 +4428,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         : (renter['qr_code_url']?.toString() ?? renter['gcash_qr_url']?.toString() ?? renter['payout_qr_url']?.toString());
 
     final isAlreadyRefunded = booking['refund_status'] == 'refunded' || booking['refund_completed'] == true;
-    final defaultRefundAmount = ((booking['refund_amount'] as num?)?.toDouble() ??
-        (booking['paid_amount'] as num?)?.toDouble() ??
-        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
-        (booking['total_price'] as num?)?.toDouble() ??
-        0.0);
+    final defaultRefundAmount = resolveBookingRefundAmount(booking);
 
     final refundAmountController = TextEditingController(text: defaultRefundAmount.toStringAsFixed(2));
     final referenceController = TextEditingController(text: booking['refund_ref']?.toString() ?? '');
@@ -4800,7 +4919,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     if (target.destination == NotificationDestination.messages) {
       final conversationId = target.conversationId;
       if (conversationId == null) {
-        setState(() => selectedNavIndex = 3);
+        setState(() => selectedNavIndex = 2);
       } else {
         Navigator.pushNamed(
           context,
@@ -4819,14 +4938,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     }
 
     if (target.destination == NotificationDestination.tracking) {
-      if (booking.isNotEmpty) {
-        setState(() {
-          selectedNavIndex = 2;
-          _focusedTrackingBookingId = booking['id']?.toString();
-        });
-      } else {
-        setState(() => selectedNavIndex = 2);
-      }
+      _openLiveTracking(
+        focusBookingId: booking.isNotEmpty ? booking['id']?.toString() : null,
+      );
       return;
     }
 
@@ -4864,7 +4978,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         );
         return;
       case NotificationDestination.verification:
-        setState(() => selectedNavIndex = 5);
+        setState(() => selectedNavIndex = 4);
         return;
       case NotificationDestination.application:
       case NotificationDestination.vehicles:
@@ -4874,17 +4988,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         setState(() => selectedNavIndex = 1);
         return;
       case NotificationDestination.tracking:
-        if (booking.isNotEmpty) {
-          setState(() {
-            selectedNavIndex = 2;
-            _focusedTrackingBookingId = booking['id']?.toString();
-          });
-        } else {
-          setState(() => selectedNavIndex = 2);
-        }
+        _openLiveTracking(
+          focusBookingId: booking.isNotEmpty ? booking['id']?.toString() : null,
+        );
         return;
       case NotificationDestination.messages:
-        setState(() => selectedNavIndex = 3);
+        setState(() => selectedNavIndex = 2);
         return;
       case NotificationDestination.announcement:
       case NotificationDestination.general:
@@ -5512,7 +5621,52 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     ];
   }
 
-  Widget _buildTrackingTab() {
+  void _openLiveTracking({String? focusBookingId}) {
+    if (focusBookingId != null && focusBookingId.isNotEmpty) {
+      setState(() {
+        _focusedTrackingBookingId = focusBookingId;
+      });
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: widget.isDarkMode ? AppColors.darkBg : AppColors.lightBg,
+          appBar: AppBar(
+            backgroundColor: widget.isDarkMode ? AppColors.darkBgSecondary : Colors.white,
+            elevation: 0,
+            leading: IconButton(
+              icon: Icon(
+                Icons.arrow_back_rounded,
+                color: widget.isDarkMode ? Colors.white : Colors.black87,
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: Text(
+              'Live Fleet Tracking',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: widget.isDarkMode ? Colors.white : Colors.black87,
+              ),
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded),
+                color: AppColors.primary,
+                tooltip: 'Refresh GPS locations',
+                onPressed: () => _refreshPartnerTracking(silent: false),
+              ),
+            ],
+          ),
+          body: _buildTrackingTab(isStandalonePage: true),
+        ),
+      ),
+    ).then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  Widget _buildTrackingTab({bool isStandalonePage = false}) {
     final isDark = widget.isDarkMode;
     final visibleLocations = _visiblePartnerTrackingLocations();
     final isFocused = _focusedTrackingBookingId != null &&
@@ -5661,11 +5815,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       }
     }
 
-    return Column(
-      children: [
-        _buildCenteredTabHeader('Live Tracking'),
-        Expanded(
-          child: RefreshIndicator(
+    final trackingContent = RefreshIndicator(
             onRefresh: () => _refreshPartnerTracking(silent: false),
             color: AppColors.primary,
             child: ListView(
@@ -6290,6 +6440,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         ),
       ),
     );
+
+    if (isStandalonePage) {
+      return trackingContent;
+    }
+    return Column(
+      children: [
+        _buildCenteredTabHeader('Live Tracking'),
+        Expanded(child: trackingContent),
+      ],
+    );
   }
 
   // ===================== MESSAGES TAB =====================
@@ -6330,7 +6490,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           final conv = conversations[index];
                           final isCustomerService = conv['bookings'] is! Map;
                           final booking = conv['bookings'] as Map?;
-                          final vehicle = booking?['vehicles'] as Map?;
+                          final vehicle = (booking?['vehicles'] ??
+                                  booking?['partner_vehicles'] ??
+                                  booking?['partner_vehicle'] ??
+                                  booking?['vehicle']) as Map?;
                           final vehicleName =
                               [vehicle?['brand'], vehicle?['model']]
                                   .where(
@@ -6339,13 +6502,27 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                                         true,
                                   )
                                   .join(' ');
+                          final carTitle = vehicleName.isNotEmpty
+                              ? vehicleName
+                              : (vehicle?['vehicle_name']?.toString().trim().isNotEmpty == true
+                                  ? vehicle!['vehicle_name'].toString().trim()
+                                  : '');
                           final topicTitle = isCustomerService
                               ? 'Customer Service'
-                              : vehicleName.isNotEmpty
-                              ? '$vehicleName Booking'
+                              : carTitle.isNotEmpty
+                              ? '$carTitle Booking'
                               : 'Booking Conversation';
-                          final imageUrl =
+                          var imageUrl =
                               conv['vehicle_image_url']?.toString() ?? '';
+                          if (imageUrl.isEmpty) {
+                            imageUrl = (booking?['vehicle_image_url'] ??
+                                    vehicle?['image_url'] ??
+                                    vehicle?['imageUrl'] ??
+                                    vehicle?['photo_url'] ??
+                                    vehicle?['vehicle_image_url'])
+                                ?.toString() ??
+                                '';
+                          }
                           final messages =
                               conv['messages'] as List<dynamic>? ?? [];
                           final lastMessage = messages.isNotEmpty

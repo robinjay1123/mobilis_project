@@ -21,7 +21,7 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
   late TextEditingController workEndTimeController;
 
   // Availability settings
-  bool isAvailable = true;
+  bool isAvailable = false;
   Set<String> selectedDays = {};
   Set<DateTime> selectedDates = {};
   List<String> daysOfWeek = [
@@ -44,8 +44,7 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
     workStartTimeController = TextEditingController();
     workEndTimeController = TextEditingController();
 
-    // Default to all days available
-    selectedDays = daysOfWeek.toSet();
+    selectedDays = {};
   }
 
   DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
@@ -438,7 +437,7 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
 
           await driverService.replaceDateSchedule(
             driverId: user.id,
-            dates: isAvailable ? selectedDates : const [],
+            dates: selectedDates,
             startTime: _timeForDatabase(workStartTimeController.text, '08:00'),
             endTime: _timeForDatabase(workEndTimeController.text, '20:00'),
             isAvailable: isAvailable,

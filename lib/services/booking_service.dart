@@ -2330,20 +2330,17 @@ class BookingService {
       );
     }
 
-    final payState = resolveBookingPaymentState(booking);
+    final refundAmount = resolveBookingRefundAmount(booking);
     final isAlreadyPaid = payState == BookingPaymentState.paid ||
         payState == BookingPaymentState.pendingConfirmation ||
         payState == BookingPaymentState.paymentReview ||
         booking['payment_verified'] == true ||
         booking['reservation_payment_status'] == 'verified' ||
         booking['reservation_payment_status'] == 'paid' ||
-        booking['final_payment_status'] == 'paid';
-
-    final paidAmount = ((booking['paid_amount'] as num?)?.toDouble() ??
-        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
-        (booking['total_price'] as num?)?.toDouble() ??
-        (booking['total_amount'] as num?)?.toDouble() ??
-        0.0);
+        booking['final_payment_status'] == 'paid' ||
+        (booking['reservation_payment_reference']?.toString().trim().isNotEmpty == true) ||
+        (booking['reservation_payment_proof_url']?.toString().trim().isNotEmpty == true) ||
+        refundAmount > 0;
 
     final now = DateTime.now().toUtc().toIso8601String();
     final updatePayload = <String, dynamic>{
@@ -2355,10 +2352,9 @@ class BookingService {
       'updated_at': now,
     };
 
-    if (isAlreadyPaid && paidAmount > 0) {
+    if (isAlreadyPaid && refundAmount > 0) {
       updatePayload['refund_status'] = 'refund_needed';
-      updatePayload['refund_required'] = true;
-      updatePayload['refund_amount'] = paidAmount;
+      updatePayload['refund_amount'] = refundAmount;
     }
 
     await supabase
@@ -2571,11 +2567,14 @@ class BookingService {
       debugPrint('Rejecting booking: $bookingId');
 
       Map<String, dynamic>? booking = cachedBooking;
+      if (booking == null || booking['total_price'] == null || booking['reservation_payment_type'] == null) {
+        booking = await getBookingById(bookingId) ?? booking;
+      }
       if (booking == null) {
         final response = await supabase
             .from('bookings')
             .select(
-              'id, status, renter_id, vehicle_id, driver_id, vehicles:vehicle_id(id, brand, model)',
+              'id, status, renter_id, vehicle_id, driver_id, total_price, total_cost, paid_amount, reservation_fee_amount, reservation_payment_type, reservation_payment_covers_total, reservation_payment_reference, reservation_payment_proof_url, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model)',
             )
             .eq('id', bookingId)
             .maybeSingle();
@@ -2588,20 +2587,17 @@ class BookingService {
       }
 
       final payState = resolveBookingPaymentState(booking);
+      final refundAmount = resolveBookingRefundAmount(booking);
       final hasPaidOrVerified = payState == BookingPaymentState.paid ||
           payState == BookingPaymentState.pendingConfirmation ||
           payState == BookingPaymentState.paymentReview ||
           isBookingFullyPaid(booking) ||
           (booking['reservation_payment_reference']?.toString().trim().isNotEmpty == true) ||
           (booking['final_payment_reference']?.toString().trim().isNotEmpty == true) ||
+          (booking['reservation_payment_proof_url']?.toString().trim().isNotEmpty == true) ||
           ((booking['paid_amount'] as num?)?.toDouble() ?? 0) > 0 ||
-          ((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 0) > 0;
-
-      final paidAmount = ((booking['paid_amount'] as num?)?.toDouble() ??
-          (booking['reservation_fee_amount'] as num?)?.toDouble() ??
-          (booking['total_price'] as num?)?.toDouble() ??
-          (booking['total_cost'] as num?)?.toDouble() ??
-          0.0);
+          ((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 0) > 0 ||
+          refundAmount > 0;
 
       final now = DateTime.now().toIso8601String();
       await supabase
@@ -2611,14 +2607,12 @@ class BookingService {
             'rejection_reason': reason,
             'rejected_at': now,
             'updated_at': now,
-            if (hasPaidOrVerified) ...{
+            if (hasPaidOrVerified && refundAmount > 0) ...{
               'refund_status': 'refund_needed',
-              'refund_required': true,
-              'refund_amount': paidAmount,
+              'refund_amount': refundAmount,
               'refund_reason': 'Booking rejected by operator: $reason',
             } else ...{
               'refund_status': null,
-              'refund_required': false,
             },
           })
           .eq('id', bookingId);
@@ -3339,7 +3333,7 @@ class BookingService {
         final response = await supabase
             .from('drivers')
             .select(
-              'id, user_id, verification_status, driver_tier, rating, total_trips, users(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active)',
+              'id, user_id, verification_status, driver_tier, rating, total_trips, is_available, users(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active)',
             )
             .or('verification_status.eq.approved,verification_status.eq.verified');
         for (final row in List<Map<String, dynamic>>.from(response)) {
@@ -3361,8 +3355,12 @@ class BookingService {
             // Reject suspended / inactive users
             if (user['is_active'] == false) return false;
 
-            // Reject drivers who set master availability to false
-            if (user['is_available'] == false) return false;
+            // Reject drivers who have master availability toggled off or not explicitly enabled
+            final userAvail = user['is_available'];
+            final driverAvail = driver['is_available'];
+            if (userAvail == false || driverAvail == false || (userAvail != true && driverAvail != true)) {
+              return false;
+            }
 
             final driverUserId = driver['user_id']?.toString() ?? '';
             final driverProfileId = driver['id']?.toString() ?? '';
@@ -3388,7 +3386,8 @@ class BookingService {
                 ...?driverUnavailableDates[driverProfileId],
               };
 
-              // Every requested date in the booking must be explicitly scheduled as available
+              // If driver has date schedule, every requested date must be explicitly in available dates and not in unavailDates
+              if (availDates.isEmpty) return false;
               for (final dStr in datesToCheck) {
                 if (unavailDates.contains(dStr) || !availDates.contains(dStr)) {
                   return false;
@@ -3400,11 +3399,13 @@ class BookingService {
                 ...?driverDayOfWeekSchedule[driverUserId],
                 ...?driverDayOfWeekSchedule[driverProfileId],
               };
-              if (daySchedule.isNotEmpty) {
-                for (final dName in dayNamesToCheck) {
-                  if (daySchedule[dName] == false) {
-                    return false;
-                  }
+              if (daySchedule.isEmpty) {
+                // Driver has not selected their availability yet; cannot be assigned
+                return false;
+              }
+              for (final dName in dayNamesToCheck) {
+                if (daySchedule[dName] != true) {
+                  return false;
                 }
               }
             }
@@ -5666,6 +5667,7 @@ class BookingService {
     int? lateHours,
     double? lateFee,
     double? settledAmount,
+    Map<String, dynamic>? cachedBooking,
   }) async {
     try {
       final now = DateTime.now();
@@ -5713,29 +5715,36 @@ class BookingService {
             .eq('id', bookingId);
       }
 
-      try {
-        final booking = await getBookingById(bookingId);
-        final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
-        final vehicleTitle = _vehicleTitle(vehicle);
-        final renter = booking?['renter'] as Map<String, dynamic>?;
-        final renterName =
-            renter?['full_name']?.toString().trim().isNotEmpty == true
-            ? renter!['full_name'].toString().trim()
-            : 'Renter';
+      // 🚀 Non-blocking async notification dispatch so the return UI pops up immediately!
+      unawaited(() async {
+        try {
+          final booking = cachedBooking ?? await getBookingById(bookingId);
+          final vehicle = (booking?['vehicles'] ??
+                  booking?['partner_vehicles'] ??
+                  booking?['partner_vehicle'] ??
+                  booking?['vehicle']) as Map<String, dynamic>?;
+          final vehicleTitle = _vehicleTitle(vehicle);
+          final renter = (booking?['renter'] ?? booking?['users']) as Map<String, dynamic>?;
+          final renterName =
+              renter?['full_name']?.toString().trim().isNotEmpty == true
+              ? renter!['full_name'].toString().trim()
+              : 'Renter';
 
-        await NotificationService().notifyOperatorsVehicleReturned(
-          bookingId: bookingId,
-          vehicleTitle: vehicleTitle,
-          renterName: renterName,
-          paymentMethod: paymentMethod,
-          settledAmount: settledAmount,
-          partnerId: vehicle?['owner_id']?.toString(),
-        );
-      } catch (notifError) {
-        debugPrint(
-          'Could not send return notification to operator: $notifError',
-        );
-      }
+          await NotificationService().notifyOperatorsVehicleReturned(
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            renterName: renterName,
+            paymentMethod: paymentMethod,
+            settledAmount: settledAmount,
+            partnerId: vehicle?['owner_id']?.toString() ??
+                booking?['partner_id']?.toString(),
+          );
+        } catch (notifError) {
+          debugPrint(
+            'Could not send return notification to operator: $notifError',
+          );
+        }
+      }());
     } catch (e) {
       debugPrint('Error initiating return: $e');
       rethrow;

@@ -154,3 +154,78 @@ Color bookingPaymentStateColor(BookingPaymentState state) => switch (state) {
   BookingPaymentState.refundRequired => const Color(0xFFEF4444),
   BookingPaymentState.refunded => const Color(0xFFA855F7),
 };
+
+/// Resolves the payment mode description (e.g. 'Full Payment' vs 'Reservation Fee')
+String resolveBookingPaymentTypeLabel(Map<String, dynamic> booking) {
+  final payType = (booking['reservation_payment_type'] ?? '').toString().trim().toLowerCase();
+  final coversTotal = booking['reservation_payment_covers_total'] == true;
+  final finalPaymentStatus = (booking['final_payment_status'] ?? '').toString().trim().toLowerCase();
+  final paymentStatus = (booking['payment_status'] ?? '').toString().trim().toLowerCase();
+  final isFullPayment = payType == 'full_payment' ||
+      coversTotal ||
+      finalPaymentStatus == 'paid' ||
+      paymentStatus == 'paid' ||
+      paymentStatus == 'fully_paid' ||
+      paymentStatus == 'full_paid';
+
+  if (isFullPayment) return 'Full Payment';
+  return 'Reservation Fee';
+}
+
+/// Resolves the exact amount the renter paid that should be refunded.
+/// Accurately differentiates between full payment, custom paid amount, and reservation fee deposit.
+double resolveBookingRefundAmount(Map<String, dynamic> booking) {
+  // 1. If explicit refund_amount is already saved and > 0, return it
+  final explicitRefund = (booking['refund_amount'] as num?)?.toDouble();
+  if (explicitRefund != null && explicitRefund > 0) {
+    return explicitRefund;
+  }
+
+  final payType = (booking['reservation_payment_type'] ?? '').toString().trim().toLowerCase();
+  final coversTotal = booking['reservation_payment_covers_total'] == true;
+  final finalPaymentStatus = (booking['final_payment_status'] ?? '').toString().trim().toLowerCase();
+  final paymentStatus = (booking['payment_status'] ?? '').toString().trim().toLowerCase();
+  final isFullPayment = payType == 'full_payment' ||
+      coversTotal ||
+      finalPaymentStatus == 'paid' ||
+      paymentStatus == 'paid' ||
+      paymentStatus == 'fully_paid' ||
+      paymentStatus == 'full_paid';
+
+  final totalPrice = ((booking['total_price'] as num?)?.toDouble() ??
+      (booking['total_cost'] as num?)?.toDouble() ??
+      (booking['total_amount'] as num?)?.toDouble() ??
+      0.0);
+
+  final explicitPaid = (booking['paid_amount'] as num?)?.toDouble();
+
+  // If paid in full
+  if (isFullPayment) {
+    if (explicitPaid != null && explicitPaid > 0) return explicitPaid;
+    if (totalPrice > 0) return totalPrice;
+  }
+
+  // If explicit paid amount recorded
+  if (explicitPaid != null && explicitPaid > 0) {
+    return explicitPaid;
+  }
+
+  // Reservation fee
+  final resFee = (booking['reservation_fee_amount'] as num?)?.toDouble();
+  if (resFee != null && resFee > 0) {
+    return resFee;
+  }
+
+  // If payment proof/reference exists (renter submitted payment at booking checkout),
+  // assume the standard reservation fee (1000.0 or totalPrice if < 1000)
+  final hasProofOrRef = (booking['reservation_payment_reference']?.toString().trim().isNotEmpty == true) ||
+      (booking['reservation_payment_proof_url']?.toString().trim().isNotEmpty == true);
+  if (hasProofOrRef) {
+    if (totalPrice > 0 && totalPrice < 1000.0) return totalPrice;
+    return 1000.0;
+  }
+
+  if (totalPrice > 0) return totalPrice;
+  return 0.0;
+}
+

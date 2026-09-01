@@ -462,7 +462,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Widget _buildSelectedContent() {
     switch (_selectedTab) {
       case 1:
-        return const _JobsTab();
+        return _JobsTab(
+          onOpenAvailability: () => setState(() => _selectedTab = 6),
+        );
       case 2:
         return const _DriverMessagesTab();
       case 3:
@@ -1826,6 +1828,99 @@ class __DashboardTabState extends State<_DashboardTab> {
     );
   }
 
+  Widget _buildUnavailableNotice(Map<String, dynamic> stats) {
+    final isAvailable = stats['is_available'] == true;
+    if (isAvailable) return const SizedBox.shrink();
+
+    final isVerified = _isVerifiedFromStats(stats) || _isCertifiedFromStats(stats);
+    if (!isVerified) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C1304),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFFFB300),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFFB300).withValues(alpha: 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFB300).withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.pause_circle_filled_rounded,
+              color: Color(0xFFFFB300),
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'YOU ARE UNAVAILABLE',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Set your availability now to receive job assignments!',
+                  style: TextStyle(
+                    color: Color(0xFFFFE082),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          ElevatedButton(
+            onPressed: widget.onOpenAvailability,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFFB300),
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 0,
+            ),
+            child: const Text(
+              'Set Availability',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final secondaryText = _driverSecondaryText(context);
@@ -1846,6 +1941,7 @@ class __DashboardTabState extends State<_DashboardTab> {
               _buildHeader(stats),
               const SizedBox(height: 16),
               _buildStats(stats),
+              _buildUnavailableNotice(stats),
               if (statusLoaded) ...[
                 const SizedBox(height: 24),
                 _buildDriverApplicationCta(stats),
@@ -2533,7 +2629,9 @@ class _DriverConversationCard extends StatelessWidget {
 
 // JOBS TAB
 class _JobsTab extends StatefulWidget {
-  const _JobsTab();
+  final VoidCallback? onOpenAvailability;
+
+  const _JobsTab({this.onOpenAvailability});
 
   @override
   State<_JobsTab> createState() => __JobsTabState();
@@ -2541,6 +2639,7 @@ class _JobsTab extends StatefulWidget {
 
 class __JobsTabState extends State<_JobsTab> {
   late Future<List<Map<String, dynamic>>> jobsFuture;
+  late Future<bool> isAvailableFuture;
   String _selectedStatus = 'pending';
   RealtimeChannel? _jobsChannel;
   Timer? _jobsRefreshDebounce;
@@ -2608,12 +2707,15 @@ class __JobsTabState extends State<_JobsTab> {
   void _loadJobs() {
     final authService = AuthService();
     final driverService = DriverService();
-    if (authService.currentUser != null) {
-      jobsFuture = driverService.getAssignedBookings(
-        authService.currentUser!.id,
-      );
+    final user = authService.currentUser;
+    if (user != null) {
+      jobsFuture = driverService.getAssignedBookings(user.id);
+      isAvailableFuture = driverService.getDriverStats(user.id).then(
+        (s) => s['is_available'] == true,
+      ).catchError((_) => true);
     } else {
       jobsFuture = Future.value([]);
+      isAvailableFuture = Future.value(true);
     }
   }
 
@@ -2750,6 +2852,84 @@ class __JobsTabState extends State<_JobsTab> {
             icon: Icons.calendar_month_outlined,
           ),
           const SizedBox(height: 12),
+          FutureBuilder<bool>(
+            future: isAvailableFuture,
+            builder: (context, availSnapshot) {
+              final isAvailable = availSnapshot.data ?? true;
+              if (isAvailable) return const SizedBox.shrink();
+              return Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1C1304),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFFFFB300),
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.pause_circle_filled_rounded,
+                      color: Color(0xFFFFB300),
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'YOU ARE UNAVAILABLE',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Set your availability now to receive job assignments!',
+                            style: TextStyle(
+                              color: Color(0xFFFFE082),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (widget.onOpenAvailability != null) ...[
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: widget.onOpenAvailability,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFFB300),
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: const Text(
+                          'Set Availability',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
           FutureBuilder<List<Map<String, dynamic>>>(
             future: jobsFuture,
             builder: (context, snapshot) {
@@ -4894,7 +5074,10 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
 
     final booking = conversation['bookings'];
     if (booking is Map) {
-      final vehicle = booking['vehicles'];
+      final vehicle = (booking['vehicles'] ??
+          booking['partner_vehicles'] ??
+          booking['partner_vehicle'] ??
+          booking['vehicle']);
       if (vehicle is Map) {
         final name = vehicle['vehicle_name']?.toString().trim();
         final brand = vehicle['brand']?.toString().trim() ?? '';
@@ -6784,20 +6967,22 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
 
     try {
       await _driverService.setAvailability(userId, value);
-      await _driverService.replaceDateSchedule(
-        driverId: userId,
-        dates: value ? selectedDates : const [],
-        isAvailable: value,
-      );
+      if (selectedDates.isNotEmpty) {
+        await _driverService.replaceDateSchedule(
+          driverId: userId,
+          dates: selectedDates,
+          isAvailable: value,
+        );
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             value
-                ? 'Schedule saved. You will show as available on selected dates.'
-                : 'You are now unavailable for driver assignments',
+                ? 'You are now available for driver assignments on your selected dates.'
+                : 'You are now unavailable for assignments (Emergency / Off-duty).',
           ),
-          backgroundColor: AppColors.success,
+          backgroundColor: value ? AppColors.success : AppColors.warning,
         ),
       );
     } catch (e) {
@@ -6821,7 +7006,7 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
   Future<void> _saveSelectedDates() async {
     final userId = AuthService().currentUser?.id;
     if (userId == null || isSaving) return;
-    if (isAvailable && selectedDates.isEmpty) {
+    if (selectedDates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Pick at least one available date first.'),
@@ -6831,18 +7016,21 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
       return;
     }
 
-    setState(() => isSaving = true);
+    setState(() {
+      isSaving = true;
+      isAvailable = true;
+    });
     try {
       await _driverService.replaceDateSchedule(
         driverId: userId,
-        dates: isAvailable ? selectedDates : const [],
-        isAvailable: isAvailable,
+        dates: selectedDates,
+        isAvailable: true,
       );
-      await _driverService.setAvailability(userId, isAvailable);
+      await _driverService.setAvailability(userId, true);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Availability dates saved'),
+          content: Text('Availability dates saved and activated!'),
           backgroundColor: AppColors.success,
         ),
       );
@@ -7235,8 +7423,25 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
     }
   }
 
-  void _removeAvailabilityDate(DateTime date) {
-    setState(() => selectedDates.remove(_dateOnly(date)));
+  void _removeAvailabilityDate(DateTime date) async {
+    final normalized = _dateOnly(date);
+    setState(() => selectedDates.remove(normalized));
+    final userId = AuthService().currentUser?.id;
+    if (userId != null) {
+      try {
+        await _driverService.replaceDateSchedule(
+          driverId: userId,
+          dates: selectedDates,
+          isAvailable: isAvailable,
+        );
+        if (selectedDates.isEmpty && isAvailable) {
+          setState(() => isAvailable = false);
+          await _driverService.setAvailability(userId, false);
+        }
+      } catch (err) {
+        debugPrint('Error syncing removed date: $err');
+      }
+    }
   }
 
   Widget _buildAvailableDatesSection(bool isDark) {

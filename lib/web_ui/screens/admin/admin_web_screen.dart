@@ -3977,15 +3977,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
 
     try {
-      // 1. Update user record: application_status = 'approved', role = 'driver', verification_status = 'verified', id_verified = true
+      // 1. Update user record: application_status = 'approved', role = 'driver', verification_status = 'verified', id_verified = true, is_available = false
       await _supabase.from('users').update({
         'role': 'driver',
         'application_status': 'approved',
         'verification_status': 'verified',
         'id_verified': true,
+        'is_available': false,
       }).eq('id', userId);
 
-      // 2. Sync / activate driver profile in drivers table
+      // 2. Sync / activate driver profile in drivers table (starts as is_available: false until driver sets schedule)
       try {
         final existingDriver = await _supabase
             .from('drivers')
@@ -4000,7 +4001,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'license_expiry': DateTime.now().add(const Duration(days: 365 * 3)).toIso8601String().split('T').first,
             'license_verified': true,
             'nbi_verified': true,
-            'is_available': true,
+            'is_available': false,
             'verification_status': 'verified',
             'driver_tier': 'standard',
             'rating': 5.0,
@@ -4008,7 +4009,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           });
         } else {
           await _supabase.from('drivers').update({
-            'is_available': true,
+            'is_available': false,
             'verification_status': 'verified',
             'license_verified': true,
             'nbi_verified': true,

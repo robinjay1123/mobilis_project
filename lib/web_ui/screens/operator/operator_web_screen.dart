@@ -2227,6 +2227,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               reservation_payment_submitted_at,
               reservation_payment_proof_url,
               reservation_payment_method,
+              paid_amount,
+              refund_status,
+              refund_amount,
+              refund_completed,
+              refund_ref,
+              refund_notes,
+              refund_method,
+              refund_receipt_url,
+              refund_reason,
+              refunded_at,
               late_return_days,
               late_return_fee,
               emergency_contact_name,
@@ -3213,7 +3223,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }
 
       final bookingService = BookingService();
-      await bookingService.rejectBooking(bookingId, reason);
+      await bookingService.rejectBooking(bookingId, reason, cachedBooking: targetBooking);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3224,7 +3234,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         );
       }
 
-      _loadDashboardData();
+      await _loadDashboardData();
+
+      // Instantly open the refund window if booking has payment / refund is required
+      if (mounted) {
+        final freshBooking = await BookingService().getBookingById(bookingId) ?? targetBooking;
+        if (freshBooking != null) {
+          final refundAmount = resolveBookingRefundAmount(freshBooking);
+          final hasPayment = (freshBooking['reservation_payment_reference']?.toString().trim().isNotEmpty == true) ||
+              (freshBooking['reservation_payment_proof_url']?.toString().trim().isNotEmpty == true) ||
+              (freshBooking['final_payment_reference']?.toString().trim().isNotEmpty == true) ||
+              (freshBooking['paid_amount'] != null && ((freshBooking['paid_amount'] as num).toDouble() > 0)) ||
+              (freshBooking['reservation_fee_amount'] != null && ((freshBooking['reservation_fee_amount'] as num).toDouble() > 0)) ||
+              refundAmount > 0;
+          if (hasPayment) {
+            await _showBookingRefundDialog(freshBooking);
+          }
+        }
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -17035,10 +17062,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           : (renter['qr_code_url']?.toString() ?? renter['gcash_qr_url']?.toString() ?? renter['payout_qr_url']?.toString() ?? booking['renter_qr_url']?.toString());
 
       final isAlreadyRefunded = booking['refund_status'] == 'refunded' || booking['refund_completed'] == true;
-      final defaultRefundAmount = ((booking['refund_amount'] as num?)?.toDouble() ??
-          (booking['paid_amount'] as num?)?.toDouble() ??
-          (booking['reservation_fee_amount'] as num?)?.toDouble() ??
-          _bookingAmount(booking));
+      final defaultRefundAmount = resolveBookingRefundAmount(booking);
+      final paymentTypeLabel = resolveBookingPaymentTypeLabel(booking);
 
       final refundAmountController = TextEditingController(
         text: defaultRefundAmount.toStringAsFixed(2),
@@ -17168,6 +17193,52 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         fontWeight: FontWeight.w600,
                                         color: isDark ? Colors.white : Colors.black87,
                                       ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Payment Mode Breakdown Banner
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF162032) : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: isDark ? const Color(0xFF2E3E58) : const Color(0xFFE2E8F0)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    paymentTypeLabel == 'Full Payment' ? Icons.verified_rounded : Icons.receipt_outlined,
+                                    size: 18,
+                                    color: paymentTypeLabel == 'Full Payment' ? const Color(0xFF10B981) : const Color(0xFF38BDF8),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Renter Payment Mode: ',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  Text(
+                                    paymentTypeLabel,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: paymentTypeLabel == 'Full Payment' ? const Color(0xFF10B981) : const Color(0xFF38BDF8),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    'Amount Paid: PHP ${defaultRefundAmount.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: isDark ? Colors.white : Colors.black87,
                                     ),
                                   ),
                                 ],
@@ -20430,6 +20501,132 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
       }
 
+      // Batch-fetch any missing vehicle or partner vehicle details and images
+      final missingVehicleIds = <String>{};
+      final missingPartnerVehicleIds = <String>{};
+      for (final item in _conversations) {
+        final b = item['bookings'];
+        if (b is Map) {
+          final v = (b['vehicles'] ?? b['partner_vehicles'] ?? b['partner_vehicle']) as Map<String, dynamic>?;
+          final vid = b['vehicle_id']?.toString().trim() ?? '';
+          final pvid = b['partner_vehicle_id']?.toString().trim() ?? '';
+          final vImg = _operatorVehicleImageUrl(v ?? {}, item, b is Map<String, dynamic> ? b : null);
+          if (v == null || vImg.isEmpty) {
+            if (vid.isNotEmpty) missingVehicleIds.add(vid);
+            if (pvid.isNotEmpty) missingPartnerVehicleIds.add(pvid);
+          }
+        }
+      }
+
+      if (missingVehicleIds.isNotEmpty || missingPartnerVehicleIds.isNotEmpty) {
+        try {
+          final vehiclesMap = <String, Map<String, dynamic>>{};
+
+          if (missingVehicleIds.isNotEmpty) {
+            try {
+              final vRows = await _supabase
+                  .from('vehicles')
+                  .select('id, brand, model, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order)')
+                  .inFilter('id', missingVehicleIds.toList());
+              for (final v in List<Map<String, dynamic>>.from(vRows)) {
+                final id = v['id']?.toString() ?? '';
+                if (id.isNotEmpty) vehiclesMap[id] = v;
+              }
+            } catch (_) {
+              try {
+                final vRows = await _supabase
+                    .from('vehicles')
+                    .select('id, brand, model, vehicle_name, plate_number, image_url')
+                    .inFilter('id', missingVehicleIds.toList());
+                for (final v in List<Map<String, dynamic>>.from(vRows)) {
+                  final id = v['id']?.toString() ?? '';
+                  if (id.isNotEmpty) vehiclesMap[id] = v;
+                }
+              } catch (_) {}
+            }
+          }
+
+          final partnerIdsToFetch = {
+            ...missingPartnerVehicleIds,
+            ...missingVehicleIds.where((id) => !vehiclesMap.containsKey(id)),
+          }.toList();
+
+          if (partnerIdsToFetch.isNotEmpty) {
+            try {
+              final pvRows = await _supabase
+                  .from('partner_vehicles')
+                  .select('id, brand, model, vehicle_name, plate_number, image_url')
+                  .inFilter('id', partnerIdsToFetch);
+              for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
+                final id = pv['id']?.toString() ?? '';
+                if (id.isNotEmpty) vehiclesMap[id] = pv;
+              }
+            } catch (pvErr) {
+              debugPrint('[Messages] Partner vehicle query note: $pvErr');
+            }
+          }
+
+          final idsNeedingImages = vehiclesMap.entries
+              .where((e) {
+                final v = e.value;
+                final img = (v['image_url'] ?? v['imageUrl'] ?? v['photo_url'])?.toString().trim() ?? '';
+                final vImgs = v['vehicle_images'] as List?;
+                return img.isEmpty && (vImgs == null || vImgs.isEmpty);
+              })
+              .map((e) => e.key)
+              .toList();
+
+          if (idsNeedingImages.isNotEmpty) {
+            try {
+              final imgRows = await _supabase
+                  .from('vehicle_images')
+                  .select('vehicle_id, partner_vehicle_id, image_url, display_order')
+                  .or('vehicle_id.in.(${idsNeedingImages.join(",")}),partner_vehicle_id.in.(${idsNeedingImages.join(",")})')
+                  .order('display_order', ascending: true);
+              for (final img in List<Map<String, dynamic>>.from(imgRows)) {
+                final vId = (img['vehicle_id'] ?? img['partner_vehicle_id'])?.toString() ?? '';
+                if (vId.isNotEmpty && vehiclesMap.containsKey(vId)) {
+                  final target = vehiclesMap[vId]!;
+                  final currentImgs = (target['vehicle_images'] as List? ?? []).toList();
+                  currentImgs.add(img);
+                  target['vehicle_images'] = currentImgs;
+                  if ((target['image_url']?.toString().trim() ?? '').isEmpty) {
+                    target['image_url'] = img['image_url'];
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+
+          for (final item in _conversations) {
+            final b = item['bookings'];
+            if (b is Map) {
+              final vid = b['vehicle_id']?.toString().trim() ?? '';
+              final pvid = b['partner_vehicle_id']?.toString().trim() ?? '';
+              if (vid.isNotEmpty && vehiclesMap.containsKey(vid)) {
+                b['vehicles'] = vehiclesMap[vid];
+              } else if (pvid.isNotEmpty && vehiclesMap.containsKey(pvid)) {
+                b['vehicles'] = vehiclesMap[pvid];
+              }
+              final resolvedVehicle = b['vehicles'];
+              if (resolvedVehicle is Map<String, dynamic>) {
+                final resolvedUrl = _operatorVehicleImageUrl(
+                  resolvedVehicle,
+                  item,
+                  b is Map<String, dynamic> ? b : null,
+                );
+                if (resolvedUrl.isNotEmpty) {
+                  b['vehicle_image_url'] = resolvedUrl;
+                  item['vehicle_image_url'] = resolvedUrl;
+                }
+              }
+            }
+          }
+        } catch (vErr) {
+          debugPrint('[Messages] Batch-fetch missing vehicles skipped: $vErr');
+        }
+      }
+
       ChatService.sortConversationsByPriority(_conversations);
 
       debugPrint('[Messages] Loaded ${_conversations.length} conversations for operator');
@@ -21519,8 +21716,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         selectedConversation?['bookings'] as Map<String, dynamic>?;
     final selectedRenter =
         selectedBooking?['renter'] as Map<String, dynamic>? ?? {};
-    final selectedVehicle =
-        selectedBooking?['vehicles'] as Map<String, dynamic>? ?? {};
+    final selectedVehicle = (selectedBooking?['vehicles'] ??
+            selectedBooking?['partner_vehicles'] ??
+            selectedBooking?['partner_vehicle'] ??
+            selectedBooking?['vehicle']) as Map<String, dynamic>? ??
+        {};
     final selectedStatus =
         selectedBooking?['status']?.toString().toLowerCase() ?? 'active';
     final conversationStatus =
@@ -21728,7 +21928,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final conversationId = conversation['id']?.toString() ?? '';
     final booking = conversation['bookings'] as Map<String, dynamic>? ?? {};
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
-    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final vehicle = (booking['vehicles'] ??
+            booking['partner_vehicles'] ??
+            booking['partner_vehicle'] ??
+            booking['vehicle']) as Map<String, dynamic>? ??
+        {};
     
     var renterName = renter['full_name']?.toString()?.trim() ?? '';
     if (renterName.isEmpty || renterName.toLowerCase() == 'unknown renter') {
@@ -21763,8 +21967,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       vehicle['brand'],
       vehicle['model'],
     ].where((value) => value?.toString().trim().isNotEmpty == true).join(' ');
+    final vehicleDisplay = vehicleName.isNotEmpty
+        ? vehicleName
+        : (vehicle['vehicle_name']?.toString().trim().isNotEmpty == true
+            ? vehicle['vehicle_name'].toString().trim()
+            : '');
     final status = booking['status']?.toString() ?? 'pending';
-    final imageUrl = _operatorVehicleImageUrl(vehicle);
+    final imageUrl = _operatorVehicleImageUrl(vehicle, conversation, booking);
     final selected = conversationId == _selectedConversationId;
     final shortId = conversation['booking_id']?.toString() ?? conversationId;
     final displayId = shortId.length > 8
@@ -21911,7 +22120,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              vehicleName.isEmpty ? 'Booking conversation' : vehicleName,
+              vehicleDisplay.isEmpty ? 'Booking conversation' : vehicleDisplay,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -21952,21 +22161,61 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  String _operatorVehicleImageUrl(Map<String, dynamic> vehicle) {
-    final direct = vehicle['image_url']?.toString().trim() ?? '';
-    if (direct.isNotEmpty) return direct;
-    final images =
-        List<Map<String, dynamic>>.from(
-          vehicle['vehicle_images'] as List? ?? const [],
-        )..sort((a, b) {
-          final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
-          final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
-          return aOrder.compareTo(bOrder);
-        });
+  String _operatorVehicleImageUrl(
+    Map<String, dynamic> vehicle, [
+    Map<String, dynamic>? conversation,
+    Map<String, dynamic>? booking,
+  ]) {
+    final direct = (vehicle['image_url'] ??
+            vehicle['imageUrl'] ??
+            vehicle['photo_url'] ??
+            vehicle['vehicle_image_url'] ??
+            vehicle['thumbnail_url'])
+        ?.toString()
+        .trim() ?? '';
+    if (direct.isNotEmpty) return _normalizeVehicleImageUrl(direct);
+
+    final rawImages = (vehicle['vehicle_images'] ??
+            vehicle['images'] ??
+            vehicle['photos']) as List? ??
+        const [];
+    final images = List<Map<String, dynamic>>.from(
+      rawImages.whereType<Map<String, dynamic>>(),
+    )..sort((a, b) {
+        final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
+        final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
+        return aOrder.compareTo(bOrder);
+      });
     for (final image in images) {
-      final url = image['image_url']?.toString().trim() ?? '';
-      if (url.isNotEmpty) return url;
+      final url = (image['image_url'] ?? image['url'] ?? image['image'])
+          ?.toString()
+          .trim() ?? '';
+      if (url.isNotEmpty) return _normalizeVehicleImageUrl(url);
     }
+
+    if (booking != null) {
+      final bDirect = (booking['vehicle_image_url'] ??
+              booking['image_url'] ??
+              booking['photo_url'])
+          ?.toString()
+          .trim() ?? '';
+      if (bDirect.isNotEmpty) return _normalizeVehicleImageUrl(bDirect);
+
+      final pv = (booking['partner_vehicles'] ?? booking['partner_vehicle']);
+      if (pv is Map<String, dynamic>) {
+        final pvUrl = _operatorVehicleImageUrl(pv);
+        if (pvUrl.isNotEmpty) return pvUrl;
+      }
+    }
+
+    if (conversation != null) {
+      final cDirect = (conversation['vehicle_image_url'] ??
+              conversation['image_url'])
+          ?.toString()
+          .trim() ?? '';
+      if (cDirect.isNotEmpty) return _normalizeVehicleImageUrl(cDirect);
+    }
+
     return '';
   }
 
@@ -22064,14 +22313,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Text(
-                  '${renter['full_name'] ?? 'Renter'} - ${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                    fontSize: 10,
-                  ),
+                Builder(
+                  builder: (context) {
+                    final brandModel = [
+                      vehicle['brand'],
+                      vehicle['model'],
+                    ].where((value) => value?.toString().trim().isNotEmpty == true).join(' ');
+                    final carName = brandModel.isNotEmpty
+                        ? brandModel
+                        : (vehicle['vehicle_name']?.toString().trim().isNotEmpty == true
+                            ? vehicle['vehicle_name'].toString().trim()
+                            : '');
+                    final suffix = carName.isNotEmpty ? ' - $carName' : '';
+                    return Text(
+                      '${renter['full_name'] ?? 'Renter'}$suffix',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                        fontSize: 10,
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
