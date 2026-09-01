@@ -13152,6 +13152,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? destination
         : pickup;
     final needsDriver = _bookingNeedsDriver(booking['with_driver']);
+    final statusLower = status.trim().toLowerCase();
+    final group = bookingStatusGroup(status);
     final service = needsDriver
         ? driverName == 'Unassigned'
               ? 'Professional driver required'
