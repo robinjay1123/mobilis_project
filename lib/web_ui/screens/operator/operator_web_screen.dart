@@ -12507,6 +12507,39 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               statusLower == 'completed' ||
                               group == BookingStatusGroup.ongoing ||
                               group == BookingStatusGroup.completed) ...[
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            final bId = booking['id']?.toString() ?? '';
+                            if (bId.isNotEmpty) {
+                              TripRouteHistoryDialog.show(
+                                context: context,
+                                bookingId: bId,
+                                vehicleName: booking['vehicles']?['brand'] != null
+                                    ? '${booking['vehicles']['brand']} ${booking['vehicles']['model'] ?? ''}'
+                                    : null,
+                                plateNumber: booking['vehicles']?['plate_number']?.toString(),
+                                renterName: booking['renter']?['full_name']?.toString(),
+                              );
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _operatorGold,
+                            side: BorderSide(
+                              color: _operatorGold.withValues(alpha: 0.8),
+                              width: 1.5,
+                            ),
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          icon: const Icon(Icons.route_rounded, size: 17),
+                          label: const Text(
+                            'Audit Route Playback',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
                         if (booking['security_deposit_refunded'] != true)
                           ElevatedButton.icon(
                             onPressed: () {
@@ -13219,6 +13252,98 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           if (_canTrackBooking(booking)) ...[
             const SizedBox(height: 14),
             BookingReturnCountdown(booking: booking, lightBackground: !isDark),
+          ],
+          if (statusLower == 'active' ||
+              statusLower == 'ongoing' ||
+              statusLower == 'return_pending_inspection' ||
+              statusLower == 'awaiting_completion' ||
+              statusLower == 'completed' ||
+              group == BookingStatusGroup.ongoing ||
+              group == BookingStatusGroup.completed) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: _operatorNavy,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _operatorGold.withValues(alpha: 0.45),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: _operatorGold.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.play_circle_fill_rounded, color: _operatorGold, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Trip Route History & GPS Playback',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Audit vehicle GPS breadcrumb trail, playback route simulation, and check destination deviations.',
+                          style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      final bId = booking['id']?.toString() ?? '';
+                      if (bId.isNotEmpty) {
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: bId,
+                          vehicleName: booking['vehicles']?['brand'] != null
+                              ? '${booking['vehicles']['brand']} ${booking['vehicles']['model'] ?? ''}'
+                              : null,
+                          plateNumber: booking['vehicles']?['plate_number']?.toString(),
+                          renterName: booking['renter']?['full_name']?.toString(),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _operatorGold,
+                      foregroundColor: _operatorNavyDeep,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.route_rounded, size: 16),
+                    label: const Text(
+                      'Audit Route Playback',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
           const SizedBox(height: 18),
           _buildBookingPaymentDetails(booking, isDark),
@@ -13933,6 +14058,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ],
                         ),
                       ),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          final bId = booking['id']?.toString() ?? '';
+                          if (bId.isNotEmpty) {
+                            TripRouteHistoryDialog.show(
+                              context: context,
+                              bookingId: bId,
+                              vehicleName: booking['vehicles']?['brand'] != null
+                                  ? '${booking['vehicles']['brand']} ${booking['vehicles']['model'] ?? ''}'
+                                  : null,
+                              plateNumber:
+                                  booking['vehicles']?['plate_number']?.toString(),
+                              renterName: booking['renter']?['full_name']?.toString(),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
+                        label: const Text(
+                          'Full GPS Playback Audit',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _operatorGold,
+                          side: BorderSide(color: _operatorGold.withValues(alpha: 0.7)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       IconButton(
                         tooltip: 'Close route',
                         onPressed: () => Navigator.pop(dialogContext),
