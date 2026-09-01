@@ -4994,20 +4994,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Partners Near You',
+                'Partners',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: textColor,
                 ),
               ),
-              Text(
-                '${partnerVehicles.length} car${partnerVehicles.length == 1 ? '' : 's'}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: secondaryTextColor,
-                  fontWeight: FontWeight.w600,
-                ),
+              Row(
+                children: [
+                  Text(
+                    '${partnerVehicles.length} car${partnerVehicles.length == 1 ? '' : 's'}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: secondaryTextColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => VehicleSearchScreen(
+                            initialOnlyPartners: true,
+                            initialAvailableFrom: _bookingFilterFrom,
+                            initialAvailableTo: _bookingFilterTo,
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text(
+                      'View All',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

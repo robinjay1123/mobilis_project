@@ -10,12 +10,14 @@ class VehicleSearchScreen extends StatefulWidget {
   final String? initialCategory;
   final DateTime? initialAvailableFrom;
   final DateTime? initialAvailableTo;
+  final bool initialOnlyPartners;
 
   const VehicleSearchScreen({
     super.key,
     this.initialCategory,
     this.initialAvailableFrom,
     this.initialAvailableTo,
+    this.initialOnlyPartners = false,
   });
 
   @override
@@ -100,6 +102,20 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   bool get _hasAvailabilityFilter =>
       _availableFrom != null || _availableTo != null;
 
+  bool _isPartnerVehicle(Map<String, dynamic> vehicle) {
+    final source = vehicle['source']?.toString().toLowerCase();
+    final ownerRole = vehicle['owner_role']?.toString().toLowerCase();
+    final owner = vehicle['owner'];
+    final relatedOwnerRole = owner is Map
+        ? owner['role']?.toString().toLowerCase()
+        : null;
+    return source == 'partner' ||
+        ownerRole == 'partner' ||
+        relatedOwnerRole == 'partner' ||
+        vehicle['is_partner_vehicle'] == true ||
+        vehicle['partner_vehicle_id'] != null;
+  }
+
   Future<void> _loadRecentVehicles() async {
     try {
       setState(() {
@@ -107,11 +123,15 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
         _errorMessage = null;
       });
 
-      final vehicles = await vehicleService.getAvailableVehicles(
+      var vehicles = await vehicleService.getAvailableVehicles(
         category: _selectedCategoryForQuery,
         availableFrom: _availableFrom,
         availableTo: _availableTo,
       );
+
+      if (widget.initialOnlyPartners) {
+        vehicles = vehicles.where(_isPartnerVehicle).toList();
+      }
 
       if (!mounted) return;
       setState(() {
@@ -214,6 +234,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
       );
 
       var filtered = vehicles;
+      if (widget.initialOnlyPartners) {
+        filtered = filtered.where(_isPartnerVehicle).toList();
+      }
       if (_selectedTransmission != null && _selectedTransmission!.isNotEmpty) {
         filtered = filtered.where((v) {
           final trans = v['transmission']?.toString().toLowerCase() ?? '';
@@ -1065,7 +1088,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     return Scaffold(
       backgroundColor: scaffoldBg,
       appBar: AppBar(
-        title: Text('Find Vehicles', style: TextStyle(color: primaryText, fontWeight: FontWeight.w800)),
+        title: Text(widget.initialOnlyPartners ? 'Partner Vehicles' : 'Find Vehicles', style: TextStyle(color: primaryText, fontWeight: FontWeight.w800)),
         elevation: 0,
         backgroundColor: cardBg,
         iconTheme: IconThemeData(color: primaryText),
@@ -1250,9 +1273,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Available Cars',
-                    style: TextStyle(
+                  Text(
+                    widget.initialOnlyPartners ? 'Partner Cars' : 'Available Cars',
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary,

@@ -1180,8 +1180,9 @@ class VehicleService {
         if (selectingEnd && !candidate.isAfter(rentalStart!)) continue;
         if (selectingEnd && rentalStart != null) {
           final diffMinutes = candidate.difference(rentalStart!).inMinutes;
-          // Minimum 12 hours (720 min) and Maximum 23 hours (1380 min) for hourly mode
-          if (diffMinutes < 12 * 60 || diffMinutes > 23 * 60) {
+          // Allow hourly return slots starting from 1 hour up to 23 hours.
+          // Note: When under 12 hours, the minimum 12-hour billing policy applies.
+          if (diffMinutes < 60 || diffMinutes > 23 * 60) {
             continue;
           }
         }

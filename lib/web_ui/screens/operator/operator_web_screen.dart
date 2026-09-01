@@ -11778,12 +11778,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         );
       } else {
-        final r = booking['security_deposit_refund_receipt_url']?.toString();
         buttons.add(
           _buildOperatorBookingActionButton(
-            onPressed: (r != null && r.isNotEmpty)
-                ? () => _showReceiptProofDialog(r, isDark)
-                : null,
+            onPressed: () => ActionGuard.runGuarded(
+              'op_deposit_refund_view_$bookingId',
+              () async => _showSecurityDepositRefundDialog(booking),
+            ),
             icon: Icons.check_circle_rounded,
             label: compact ? 'Refunded ✓' : 'Deposit Refunded ✓',
             foregroundColor: const Color(0xFF10B981),
@@ -12561,10 +12561,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         if (booking['security_deposit_refunded'] == true)
                           OutlinedButton.icon(
                             onPressed: () {
-                              final receiptUrl = booking['security_deposit_refund_receipt_url']?.toString();
-                              if (receiptUrl != null && receiptUrl.isNotEmpty) {
-                                _showReceiptProofDialog(receiptUrl, isDark);
-                              }
+                              _showSecurityDepositRefundDialog(booking);
                             },
                             style: OutlinedButton.styleFrom(
                               foregroundColor: const Color(0xFF10B981),
@@ -15829,6 +15826,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   void _showReceiptProofDialog(String proofUrl, bool isDark) {
+    String resolvedUrl = proofUrl.trim();
+    if (resolvedUrl.isNotEmpty &&
+        !resolvedUrl.startsWith('http://') &&
+        !resolvedUrl.startsWith('https://') &&
+        !resolvedUrl.startsWith('data:')) {
+      resolvedUrl = resolvedUrl.replaceFirst(RegExp(r'^/+'), '');
+      if (resolvedUrl.startsWith('booking_evidence/')) {
+        resolvedUrl = _supabase.storage
+            .from('booking_evidence')
+            .getPublicUrl(resolvedUrl.substring('booking_evidence/'.length));
+      } else if (resolvedUrl.startsWith('partner_documents/')) {
+        resolvedUrl = _supabase.storage
+            .from('partner_documents')
+            .getPublicUrl(resolvedUrl.substring('partner_documents/'.length));
+      } else {
+        resolvedUrl = _supabase.storage
+            .from('booking_evidence')
+            .getPublicUrl(resolvedUrl);
+      }
+    }
+
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -15852,6 +15870,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       ),
                     ),
                     const Spacer(),
+                    if (resolvedUrl.startsWith('http'))
+                      IconButton(
+                        tooltip: 'Open in new tab',
+                        onPressed: () => launchUrl(
+                          Uri.parse(resolvedUrl),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        icon: const Icon(Icons.open_in_new, size: 18),
+                      ),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),
@@ -15859,20 +15886,90 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                Flexible(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: OptimizedNetworkImage(
-                      imageUrl: proofUrl,
-                      fit: BoxFit.contain,
-                      isThumbnail: false,
-                      errorWidget: const Padding(
-                        padding: EdgeInsets.all(40),
-                        child: Icon(Icons.broken_image_outlined, size: 72),
+                if (resolvedUrl.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(32),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.black26 : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.receipt_long_outlined,
+                          size: 48,
+                          color: isDark ? Colors.white54 : Colors.black45,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'No receipt image uploaded.',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Refund was recorded with transaction reference number.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.white38 : Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: OptimizedNetworkImage(
+                        imageUrl: resolvedUrl,
+                        fit: BoxFit.contain,
+                        isThumbnail: false,
+                        errorWidget: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(32),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.black26 : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.broken_image_outlined,
+                                size: 48,
+                                color: isDark ? Colors.white38 : Colors.black45,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Unable to load receipt image.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: isDark ? Colors.white70 : Colors.black87,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              if (resolvedUrl.startsWith('http'))
+                                TextButton.icon(
+                                  onPressed: () => launchUrl(
+                                    Uri.parse(resolvedUrl),
+                                    mode: LaunchMode.externalApplication,
+                                  ),
+                                  icon: const Icon(Icons.open_in_new, size: 14),
+                                  label: const Text('Try opening in browser'),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ),

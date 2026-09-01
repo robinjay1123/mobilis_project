@@ -477,6 +477,94 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
+  void _showHourlyMinimumNotice(int selectedHours) {
+    final pricePerDay =
+        (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
+    final pricePerHour =
+        (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
+    final halfDayPrice = pricePerDay > 0
+        ? pricePerDay / 2
+        : (pricePerHour * PricingPolicy.minHourlyBookingHours);
+
+    showDialog(
+      context: context,
+      builder: (modalContext) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppColors.borderColor),
+        ),
+        title: const Row(
+          children: [
+            Icon(
+              Icons.info_outline_rounded,
+              color: AppColors.primary,
+              size: 24,
+            ),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '12-Hour Minimum Notice',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You selected a duration of $selectedHours hour${selectedHours == 1 ? '' : 's'}.',
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withAlpha(25),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.primary.withAlpha(80)),
+              ),
+              child: Text(
+                'Please note: Our minimum booking for hourly rental is 12 hours (Half-Day rate: PHP ${formatAmount(halfDayPrice)}). Even if you pick under 12 hours (e.g. $selectedHours hr${selectedHours == 1 ? '' : 's'}), you will still be charged the 12-hour minimum rate. Maximum hourly rental is 23 hours.',
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(modalContext),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              'I Understand',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<DateTimeRange?> _showBookingCalendarDialog({
     required DateTime firstDate,
     required DateTime lastDate,
@@ -558,7 +646,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
-                            vertical: 6,
+                            vertical: 8,
                           ),
                           decoration: BoxDecoration(
                             color: AppColors.primary.withAlpha(25),
@@ -568,20 +656,25 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             ),
                           ),
                           child: const Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(
-                                Icons.info_outline_rounded,
-                                size: 14,
-                                color: AppColors.primary,
+                              Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: Icon(
+                                  Icons.info_outline_rounded,
+                                  size: 14,
+                                  color: AppColors.primary,
+                                ),
                               ),
                               SizedBox(width: 6),
                               Expanded(
                                 child: Text(
-                                  'Hourly bookings: select 1 or 2 consecutive dates only.',
+                                  'Hourly bookings: Select 1 or 2 consecutive dates (max 23 hrs). Minimum charge is 12 hours (half-day rate) even if fewer hours are used.',
                                   style: TextStyle(
                                     color: AppColors.primary,
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
+                                    height: 1.3,
                                   ),
                                 ),
                               ),
@@ -3478,7 +3571,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 ),
                                 if (_selectedStartDate != null)
                                   Text(
-                                    '$_billableHours hour${_billableHours == 1 ? '' : 's'}',
+                                    _bookingMode == BookingMode.hourly
+                                        ? ((_rentalDuration.inMinutes / 60.0).ceil() > 0 &&
+                                                (_rentalDuration.inMinutes / 60.0).ceil() <
+                                                    PricingPolicy.minHourlyBookingHours
+                                            ? '${(_rentalDuration.inMinutes / 60.0).ceil()} hrs (Billed as ${PricingPolicy.minHourlyBookingHours} hrs min.)'
+                                            : '$_billableHours hour${_billableHours == 1 ? '' : 's'}')
+                                        : '$_billableHours hour${_billableHours == 1 ? '' : 's'}',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       color: AppColors.primary,
@@ -4553,7 +4652,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   : _availableReturnSlots,
               selectedTime: _returnTime,
               onSelected: (slot) {
-                setState(() => _returnTime = TimeOfDay.fromDateTime(slot));
+                final newReturnTime = TimeOfDay.fromDateTime(slot);
+                setState(() => _returnTime = newReturnTime);
+                if (_bookingMode == BookingMode.hourly && _startAtLocal != null) {
+                  final start = _startAtLocal!;
+                  final end = DateTime(
+                    endDate.year,
+                    endDate.month,
+                    endDate.day,
+                    newReturnTime.hour,
+                    newReturnTime.minute,
+                  );
+                  final diffMinutes = end.difference(start).inMinutes;
+                  final rawHours = (diffMinutes / 60.0).ceil();
+                  if (rawHours > 0 &&
+                      rawHours < PricingPolicy.minHourlyBookingHours) {
+                    _showHourlyMinimumNotice(rawHours);
+                  }
+                }
               },
             ),
           ] else if (_startTime != null) ...[
