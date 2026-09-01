@@ -619,6 +619,9 @@ class TrackingService {
                 brand,
                 model,
                 plate_number,
+                vehicle_name,
+                image_url,
+                vehicle_images,
                 owner_id,
                 owner:owner_id (id, role)
               ),
@@ -713,7 +716,7 @@ class TrackingService {
           try {
             final vehRows = await supabase
                 .from('vehicles')
-                .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude')
+                .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url, vehicle_images')
                 .inFilter('id', filteredIds);
             for (final v in List<Map<String, dynamic>>.from(vehRows)) {
               final brand = v['brand']?.toString().trim() ?? '';
@@ -729,7 +732,7 @@ class TrackingService {
           try {
             final pVehRows = await supabase
                 .from('partner_vehicles')
-                .select('id, brand, model, plate_number, partner_id, status, latitude, longitude')
+                .select('id, brand, model, plate_number, vehicle_name, partner_id, status, latitude, longitude, image_url, vehicle_images')
                 .inFilter('id', filteredIds);
             for (final pv in List<Map<String, dynamic>>.from(pVehRows)) {
               final brand = pv['brand']?.toString().trim() ?? '';
@@ -743,7 +746,7 @@ class TrackingService {
           try {
             final pAppRows = await supabase
                 .from('partner_vehicle_applications')
-                .select('id, brand, model, plate_number, vehicle_name, partner_id, partner_vehicle_id, status, latitude, longitude')
+                .select('id, brand, model, plate_number, vehicle_name, partner_id, partner_vehicle_id, status, latitude, longitude, photo_url, vehicle_images')
                 .inFilter('id', filteredIds);
             for (final pva in List<Map<String, dynamic>>.from(pAppRows)) {
               final brand = pva['brand']?.toString().trim() ?? '';
@@ -771,13 +774,15 @@ class TrackingService {
               (t['vehicle_application_id'] != null ? vehiclesMap[t['vehicle_application_id']?.toString()] : null);
 
           final deviceId = t['device_identifier']?.toString() ?? '';
+          final bool isUnassigned = veh == null;
           if (veh == null) {
             veh = {
               'id': vid.isNotEmpty ? vid : 'tracker_${t['id']}',
               'brand': 'GPS Tracker',
-              'model': deviceId.isNotEmpty ? deviceId : 'Vehicle',
-              'vehicle_name': deviceId.isNotEmpty ? 'GPS Tracker ($deviceId)' : 'GPS Tracked Vehicle',
+              'model': deviceId.isNotEmpty ? deviceId : 'Device',
+              'vehicle_name': deviceId.isNotEmpty ? 'GPS Tracker $deviceId' : 'GPS Tracker (Standby)',
               'plate_number': deviceId,
+              'is_unassigned_tracker': true,
             };
           } else {
             veh = Map<String, dynamic>.from(veh);

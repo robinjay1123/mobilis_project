@@ -10871,6 +10871,41 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  String _adminVehicleImageUrl(Map<String, dynamic>? vehicle, [Map<String, dynamic>? booking]) {
+    if (vehicle == null && booking == null) return '';
+    final direct = (vehicle?['image_url'] ??
+            vehicle?['imageUrl'] ??
+            vehicle?['photo_url'] ??
+            vehicle?['vehicle_image_url'] ??
+            vehicle?['thumbnail_url'] ??
+            booking?['vehicle_image_url'] ??
+            booking?['image_url'] ??
+            booking?['photo_url'])
+        ?.toString()
+        .trim() ??
+        '';
+    if (direct.isNotEmpty) return direct;
+
+    final rawImages = (vehicle?['vehicle_images'] ??
+            vehicle?['images'] ??
+            vehicle?['photos']) as List? ??
+        const [];
+    final images = List<Map<String, dynamic>>.from(
+      rawImages.whereType<Map<String, dynamic>>(),
+    )..sort((a, b) {
+        final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
+        final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
+        return aOrder.compareTo(bOrder);
+      });
+    for (final image in images) {
+      final url = (image['image_url'] ?? image['url'] ?? image['image'])
+          ?.toString()
+          .trim() ?? '';
+      if (url.isNotEmpty) return url;
+    }
+    return '';
+  }
+
   String _resolveTrackingVehicleName(Map<String, dynamic> loc) {
     final booking = loc['bookings'] as Map<String, dynamic>?;
     final vehicle = (booking?['vehicles'] ??
@@ -10879,37 +10914,48 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         as Map<String, dynamic>?;
     final tracker = loc['tracker'] as Map<String, dynamic>?;
 
+    final isUnassigned = loc['is_unassigned_tracker'] == true ||
+        vehicle?['is_unassigned_tracker'] == true;
+
+    final deviceId = tracker?['device_identifier']?.toString().trim() ??
+        loc['device_identifier']?.toString().trim() ??
+        vehicle?['plate_number']?.toString().trim() ??
+        '';
+
+    if (isUnassigned) {
+      return deviceId.isNotEmpty
+          ? 'GPS Tracker $deviceId (Standby)'
+          : 'GPS Tracker (Standby)';
+    }
+
     var title = '';
     final vName = vehicle?['vehicle_name']?.toString().trim() ?? '';
     if (vName.isNotEmpty &&
         vName.toLowerCase() != 'partner vehicle' &&
         vName.toLowerCase() != 'unknown vehicle' &&
-        vName.toLowerCase() != 'vehicle') {
+        vName.toLowerCase() != 'vehicle' &&
+        !vName.toLowerCase().startsWith('gps tracker')) {
       title = vName;
     } else {
       final b = vehicle?['brand']?.toString().trim() ?? '';
       final m = vehicle?['model']?.toString().trim() ?? '';
       final y = vehicle?['year']?.toString().trim() ?? '';
-      final combo = [b, m].where((s) => s.isNotEmpty).join(' ');
+      final combo = [b, m].where((s) => s.isNotEmpty && s.toLowerCase() != 'gps tracker').join(' ');
       if (combo.isNotEmpty) {
         title = y.isEmpty ? combo : '$combo ($y)';
       }
     }
 
-    final deviceId = tracker?['device_identifier']?.toString().trim() ??
-        vehicle?['plate_number']?.toString().trim() ??
-        '';
-
     if (title.isEmpty || title == 'Partner Vehicle' || title == 'Vehicle') {
       if (deviceId.isNotEmpty) {
-        title = 'GPS Tracker ($deviceId)';
+        title = 'GPS Tracker $deviceId (Standby)';
       } else {
         title = loc['has_active_booking'] == true ? 'Tracked Trip' : 'Tracked Vehicle';
       }
     }
 
     final plate = vehicle?['plate_number']?.toString().trim() ?? '';
-    if (plate.isNotEmpty && !title.contains(plate)) {
+    if (plate.isNotEmpty && !title.contains(plate) && !title.startsWith('GPS Tracker')) {
       return '$title ($plate)';
     }
     return title;
@@ -11340,26 +11386,105 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: isFocused
-                            ? AppColors.primary
-                            : (hasActiveBooking
-                                ? AppColors.primary.withValues(alpha: 0.15)
-                                : Colors.teal.withValues(alpha: 0.15)),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        Icons.directions_car_filled_rounded,
-                        color: isFocused
-                            ? Colors.black
-                            : (hasActiveBooking
+                    Builder(
+                      builder: (context) {
+                        final isUnassigned = location['is_unassigned_tracker'] == true ||
+                            (vehicle?['is_unassigned_tracker'] == true) ||
+                            (vehicle?['brand']?.toString().toLowerCase() == 'gps tracker' &&
+                                (vehicle?['model']?.toString().isEmpty != false ||
+                                    vehicle?['model']?.toString() == tracker?['device_identifier']?.toString() ||
+                                    vehicle?['model']?.toString() == location['device_identifier']?.toString() ||
+                                    vehicle?['model']?.toString() == 'Device')) ||
+                            vehicleName.toLowerCase().startsWith('gps tracker');
+
+                        if (isUnassigned) {
+                          return Container(
+                            width: 54,
+                            height: 54,
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withValues(alpha: isDark ? 0.22 : 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.blue.withValues(alpha: 0.45),
+                                width: 1.2,
+                              ),
+                            ),
+                            child: const Center(
+                              child: Icon(
+                                Icons.sensors_rounded,
+                                color: Colors.blueAccent,
+                                size: 26,
+                              ),
+                            ),
+                          );
+                        }
+
+                        final vehicleImageUrl = _adminVehicleImageUrl(vehicle, booking);
+
+                        if (vehicleImageUrl.isNotEmpty) {
+                          return Container(
+                            width: 58,
+                            height: 58,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: isDark ? AppColors.darkCard : Colors.grey.shade200,
+                              border: Border.all(
+                                color: isFocused
+                                    ? AppColors.primary
+                                    : (isDark ? Colors.white12 : Colors.grey.shade300),
+                                width: isFocused ? 2 : 1,
+                              ),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: Image.network(
+                              vehicleImageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 58,
+                                height: 58,
+                                color: isFocused
+                                    ? AppColors.primary
+                                    : (hasActiveBooking
+                                        ? AppColors.primary.withValues(alpha: 0.15)
+                                        : Colors.teal.withValues(alpha: 0.15)),
+                                child: Icon(
+                                  Icons.directions_car_filled_rounded,
+                                  color: isFocused
+                                      ? Colors.black
+                                      : (hasActiveBooking
+                                          ? AppColors.primary
+                                          : Colors.teal),
+                                  size: 26,
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            color: isFocused
                                 ? AppColors.primary
-                                : Colors.teal),
-                        size: 22,
-                      ),
+                                : (hasActiveBooking
+                                    ? AppColors.primary.withValues(alpha: 0.15)
+                                    : Colors.teal.withValues(alpha: 0.15)),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.directions_car_filled_rounded,
+                            color: isFocused
+                                ? Colors.black
+                                : (hasActiveBooking
+                                    ? AppColors.primary
+                                    : Colors.teal),
+                            size: 26,
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -11381,35 +11506,73 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: hasActiveBooking
-                                      ? AppColors.primary.withValues(alpha: 0.15)
-                                      : Colors.green.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(
-                                    color: hasActiveBooking
-                                        ? AppColors.primary.withValues(alpha: 0.5)
-                                        : Colors.green.withValues(alpha: 0.5),
-                                  ),
-                                ),
-                                child: Text(
-                                  hasActiveBooking
-                                      ? 'ON TRIP'
-                                      : 'AVAILABLE • IDLE',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.4,
-                                    color: hasActiveBooking
-                                        ? AppColors.primary
-                                        : Colors.green,
-                                  ),
-                                ),
+                              Builder(
+                                builder: (context) {
+                                  final isUnassigned = location['is_unassigned_tracker'] == true ||
+                                      (vehicle?['is_unassigned_tracker'] == true) ||
+                                      (vehicle?['brand']?.toString().toLowerCase() == 'gps tracker' &&
+                                          (vehicle?['model']?.toString().isEmpty != false ||
+                                              vehicle?['model']?.toString() == tracker?['device_identifier']?.toString() ||
+                                              vehicle?['model']?.toString() == location['device_identifier']?.toString() ||
+                                              vehicle?['model']?.toString() == 'Device')) ||
+                                      vehicleName.toLowerCase().startsWith('gps tracker');
+
+                                  if (isUnassigned) {
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.withValues(alpha: 0.18),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: Colors.amber.withValues(alpha: 0.6),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'STANDBY • UNASSIGNED',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 0.4,
+                                          color: Colors.amber,
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: hasActiveBooking
+                                          ? AppColors.primary.withValues(alpha: 0.15)
+                                          : Colors.green.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: hasActiveBooking
+                                            ? AppColors.primary.withValues(alpha: 0.5)
+                                            : Colors.green.withValues(alpha: 0.5),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      hasActiveBooking
+                                          ? 'ON TRIP'
+                                          : 'AVAILABLE • IDLE',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.4,
+                                        color: hasActiveBooking
+                                            ? AppColors.primary
+                                            : Colors.green,
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                               if (booking?['is_partner_vehicle'] == true ||
                                   booking?['partner_id'] != null ||
@@ -11449,16 +11612,44 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             ],
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            hasActiveBooking
-                                ? 'Booking: ${booking?['id'] ?? 'N/A'} | Driver: ${driverUser?['full_name'] ?? 'N/A (Self-Drive)'} | Renter: ${renter?['full_name'] ?? 'N/A'} • Speed: $speedKph km/h'
-                                : 'Tracker ID: ${tracker?['device_identifier'] ?? location['device_identifier'] ?? 'GPS Connected'} • Speed: $speedKph km/h',
-                            style: TextStyle(
-                              color: isDark
-                                  ? Colors.grey[400]
-                                  : Colors.grey[700],
-                              fontSize: 12,
-                            ),
+                          Builder(
+                            builder: (context) {
+                              final isUnassigned = location['is_unassigned_tracker'] == true ||
+                                  (vehicle?['is_unassigned_tracker'] == true) ||
+                                  (vehicle?['brand']?.toString().toLowerCase() == 'gps tracker' &&
+                                      (vehicle?['model']?.toString().isEmpty != false ||
+                                          vehicle?['model']?.toString() == tracker?['device_identifier']?.toString() ||
+                                          vehicle?['model']?.toString() == location['device_identifier']?.toString() ||
+                                          vehicle?['model']?.toString() == 'Device')) ||
+                                  vehicleName.toLowerCase().startsWith('gps tracker');
+
+                              if (isUnassigned) {
+                                final deviceId = tracker?['device_identifier'] ??
+                                    location['device_identifier'] ??
+                                    'GPS Device';
+                                return Text(
+                                  'Tracker ID: $deviceId • Standby GPS (Not yet assigned to a vehicle) • Speed: $speedKph km/h',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.grey[400]
+                                        : Colors.grey[700],
+                                    fontSize: 12,
+                                  ),
+                                );
+                              }
+
+                              return Text(
+                                hasActiveBooking
+                                    ? 'Booking: ${booking?['id'] ?? 'N/A'} | Driver: ${driverUser?['full_name'] ?? 'N/A (Self-Drive)'} | Renter: ${renter?['full_name'] ?? 'N/A'} • Speed: $speedKph km/h'
+                                    : 'Tracker ID: ${tracker?['device_identifier'] ?? location['device_identifier'] ?? 'GPS Connected'} • Speed: $speedKph km/h',
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.grey[400]
+                                      : Colors.grey[700],
+                                  fontSize: 12,
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
