@@ -1736,18 +1736,16 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   Widget _buildDriverApplicationCta(Map<String, dynamic> stats) {
     final isCertified = _isCertifiedFromStats(stats);
+    if (isCertified) return const SizedBox.shrink();
+
     final isVerified = _isVerifiedFromStats(stats);
-    final title = isCertified
-        ? 'Availability'
-        : isVerified
+    final title = isVerified
         ? 'Apply as a Driver'
         : 'Start Driver Application';
-    final subtitle = isCertified
-        ? 'Set dates to receive trip offers.'
-        : isVerified
+    final subtitle = isVerified
         ? 'Submit your driver requirements and documents for final review.'
         : 'Complete identity verification and submit the documents needed to become a Mobilis driver.';
-    final buttonLabel = isCertified ? 'Set' : 'Apply';
+    final buttonLabel = 'Apply';
 
     return Container(
       width: double.infinity,
@@ -1766,10 +1764,8 @@ class __DashboardTabState extends State<_DashboardTab> {
               color: AppColors.primary.withOpacity(0.18),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(
-              isCertified
-                  ? Icons.handshake_outlined
-                  : Icons.assignment_turned_in_outlined,
+            child: const Icon(
+              Icons.assignment_turned_in_outlined,
               color: AppColors.primary,
             ),
           ),
@@ -1800,9 +1796,7 @@ class __DashboardTabState extends State<_DashboardTab> {
           ),
           const SizedBox(width: 10),
           ElevatedButton(
-            onPressed: isCertified
-                ? widget.onOpenAvailability
-                : widget.onOpenApplication,
+            onPressed: widget.onOpenApplication,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.black,
@@ -1935,6 +1929,7 @@ class __DashboardTabState extends State<_DashboardTab> {
           final statusLoaded =
               snapshot.connectionState == ConnectionState.done &&
               hasLoadedDriverStatus;
+          final isCertified = _isCertifiedFromStats(stats);
           return ListView(
             padding: const EdgeInsets.fromLTRB(22, 0, 22, 24),
             children: [
@@ -1942,7 +1937,7 @@ class __DashboardTabState extends State<_DashboardTab> {
               const SizedBox(height: 16),
               _buildStats(stats),
               _buildUnavailableNotice(stats),
-              if (statusLoaded) ...[
+              if (statusLoaded && !isCertified) ...[
                 const SizedBox(height: 24),
                 _buildDriverApplicationCta(stats),
                 const SizedBox(height: 28),
