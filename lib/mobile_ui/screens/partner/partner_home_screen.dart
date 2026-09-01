@@ -6064,8 +6064,15 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ),
               ],
             ),
-          ),
-        ),
+    );
+
+    if (isStandalonePage) {
+      return trackingContent;
+    }
+    return Column(
+      children: [
+        _buildCenteredTabHeader('Live Tracking'),
+        Expanded(child: trackingContent),
       ],
     );
   }
@@ -6439,16 +6446,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           ),
         ),
       ),
-    );
-
-    if (isStandalonePage) {
-      return trackingContent;
-    }
-    return Column(
-      children: [
-        _buildCenteredTabHeader('Live Tracking'),
-        Expanded(child: trackingContent),
-      ],
     );
   }
 

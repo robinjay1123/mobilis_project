@@ -2330,7 +2330,8 @@ class BookingService {
       );
     }
 
-    final refundAmount = resolveBookingRefundAmount(booking);
+    final payState = resolveBookingPaymentState(booking);
+    final paidAmount = resolveBookingRefundAmount(booking);
     final isAlreadyPaid = payState == BookingPaymentState.paid ||
         payState == BookingPaymentState.pendingConfirmation ||
         payState == BookingPaymentState.paymentReview ||
@@ -2340,7 +2341,7 @@ class BookingService {
         booking['final_payment_status'] == 'paid' ||
         (booking['reservation_payment_reference']?.toString().trim().isNotEmpty == true) ||
         (booking['reservation_payment_proof_url']?.toString().trim().isNotEmpty == true) ||
-        refundAmount > 0;
+        paidAmount > 0;
 
     final now = DateTime.now().toUtc().toIso8601String();
     final updatePayload = <String, dynamic>{
@@ -2352,9 +2353,9 @@ class BookingService {
       'updated_at': now,
     };
 
-    if (isAlreadyPaid && refundAmount > 0) {
+    if (isAlreadyPaid && paidAmount > 0) {
       updatePayload['refund_status'] = 'refund_needed';
-      updatePayload['refund_amount'] = refundAmount;
+      updatePayload['refund_amount'] = paidAmount;
     }
 
     await supabase
@@ -2587,7 +2588,8 @@ class BookingService {
       }
 
       final payState = resolveBookingPaymentState(booking);
-      final refundAmount = resolveBookingRefundAmount(booking);
+      final paidAmount = resolveBookingRefundAmount(booking);
+      final refundAmount = paidAmount;
       final hasPaidOrVerified = payState == BookingPaymentState.paid ||
           payState == BookingPaymentState.pendingConfirmation ||
           payState == BookingPaymentState.paymentReview ||
