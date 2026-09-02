@@ -3285,8 +3285,10 @@ class BookingService {
           'sunday',
         ];
         var cur = DateTime(reqStartDay.year, reqStartDay.month, reqStartDay.day);
+        // Only check up to (but NOT including) the end day — the end date is the
+        // return/drop-off day and the driver is not required to be scheduled then.
         final endCheck = DateTime(reqEndDay.year, reqEndDay.month, reqEndDay.day);
-        while (!cur.isAfter(endCheck)) {
+        while (cur.isBefore(endCheck)) {
           datesToCheck.add(
             '${cur.year.toString().padLeft(4, '0')}-${cur.month.toString().padLeft(2, '0')}-${cur.day.toString().padLeft(2, '0')}',
           );
@@ -3294,6 +3296,15 @@ class BookingService {
             dayNamesToCheck.add(dayNames[cur.weekday - 1]);
           }
           cur = cur.add(const Duration(days: 1));
+        }
+        // If start == end (same-day booking) still add the start date
+        if (datesToCheck.isEmpty) {
+          datesToCheck.add(
+            '${reqStartDay.year.toString().padLeft(4, '0')}-${reqStartDay.month.toString().padLeft(2, '0')}-${reqStartDay.day.toString().padLeft(2, '0')}',
+          );
+          if (reqStartDay.weekday >= 1 && reqStartDay.weekday <= 7) {
+            dayNamesToCheck.add(dayNames[reqStartDay.weekday - 1]);
+          }
         }
 
         final scheduleResponse = await supabase
@@ -3357,10 +3368,11 @@ class BookingService {
             // Reject suspended / inactive users
             if (user['is_active'] == false) return false;
 
-            // Reject drivers who have master availability toggled off or not explicitly enabled
+            // Reject drivers who have master availability explicitly turned off.
+            // A null value means "not yet set" which is fine if the schedule allows it.
             final userAvail = user['is_available'];
             final driverAvail = driver['is_available'];
-            if (userAvail == false || driverAvail == false || (userAvail != true && driverAvail != true)) {
+            if (userAvail == false || driverAvail == false) {
               return false;
             }
 
