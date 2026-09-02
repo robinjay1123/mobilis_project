@@ -201,6 +201,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       .length;
 
   bool _isFetchingPartnerData = false;
+  bool _pendingPartnerDataRefresh = false; // queued refresh if one was skipped while busy
 
   @override
   void initState() {
@@ -291,8 +292,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Future<void> _loadPartnerData({bool silent = false}) async {
-    if (_isFetchingPartnerData) return;
+    if (_isFetchingPartnerData) {
+      // A fetch is already running; queue a follow-up so the next refresh
+      // picks up any bookings/changes that were created in the meantime.
+      _pendingPartnerDataRefresh = true;
+      return;
+    }
     _isFetchingPartnerData = true;
+    _pendingPartnerDataRefresh = false;
 
     try {
       final authService = AuthService();
@@ -380,6 +387,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       debugPrint('Error loading partner data: $e');
     } finally {
       _isFetchingPartnerData = false;
+      // If a realtime event was received while we were fetching, re-run now
+      // so we don't miss any booking that was created during the last fetch.
+      if (_pendingPartnerDataRefresh && mounted) {
+        _pendingPartnerDataRefresh = false;
+        _loadPartnerData(silent: true);
+      }
     }
   }
 
