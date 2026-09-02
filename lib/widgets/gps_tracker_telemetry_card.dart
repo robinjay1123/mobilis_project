@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../core/constants/app_colors.dart';
-import '../models/gps_tracker_model.dart';
+
 
 class GpsTrackerTelemetryCard extends StatelessWidget {
   final String title;
