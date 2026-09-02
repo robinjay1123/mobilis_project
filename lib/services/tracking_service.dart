@@ -598,43 +598,96 @@ class TrackingService {
       if (access == null || {'renter', 'driver'}.contains(access.role)) {
         return [];
       }
-      final response = await supabase
-          .from('tracking_locations')
-          .select('''
-            *,
-            tracked_user:tracked_user_id (
-              id,
-              full_name,
-              email
-            ),
-            bookings:booking_id (
-              id,
-              status,
-              operator_id,
-              pickup_location,
-              dropoff_location,
-              pickup_latitude,
-              pickup_longitude,
-              dropoff_latitude,
-              dropoff_longitude,
-              start_at,
-              end_at,
-              vehicles:vehicle_id (
+
+      // 1. Fetch tracking_locations with resilient fallback
+      List<Map<String, dynamic>> rawLocations = const [];
+      try {
+        final res = await supabase
+            .from('tracking_locations')
+            .select('''
+              *,
+              bookings:booking_id (
                 id,
-                brand,
-                model,
-                plate_number,
-                vehicle_name,
-                image_url,
-                vehicle_images,
-                owner_id,
-                owner:owner_id (id, role)
-              ),
-              renter:renter_id (id, full_name, email)
-            )
-          ''')
-          .order('recorded_at', ascending: false)
-          .limit(60);
+                status,
+                operator_id,
+                pickup_location,
+                dropoff_location,
+                pickup_latitude,
+                pickup_longitude,
+                dropoff_latitude,
+                dropoff_longitude,
+                start_at,
+                end_at,
+                vehicles:vehicle_id (
+                  id,
+                  brand,
+                  model,
+                  plate_number,
+                  vehicle_name,
+                  image_url,
+                  vehicle_images,
+                  owner_id,
+                  owner:owner_id (id, role)
+                ),
+                renter:renter_id (id, full_name, email),
+                drivers:drivers!bookings_driver_id_fkey (
+                  id,
+                  user_id,
+                  users:users!drivers_user_id_fkey (id, full_name, email)
+                )
+              )
+            ''')
+            .order('recorded_at', ascending: false)
+            .limit(60);
+        rawLocations = List<Map<String, dynamic>>.from(res);
+      } catch (e) {
+        debugPrint('Rich tracking_locations query failed ($e), falling back to simple join:');
+        try {
+          final res = await supabase
+              .from('tracking_locations')
+              .select('''
+                *,
+                bookings:booking_id (
+                  id,
+                  status,
+                  operator_id,
+                  pickup_location,
+                  dropoff_location,
+                  pickup_latitude,
+                  pickup_longitude,
+                  dropoff_latitude,
+                  dropoff_longitude,
+                  start_at,
+                  end_at,
+                  vehicles:vehicle_id (
+                    id,
+                    brand,
+                    model,
+                    plate_number,
+                    vehicle_name,
+                    image_url,
+                    owner_id
+                  ),
+                  renter:renter_id (id, full_name, email)
+                )
+              ''')
+              .order('recorded_at', ascending: false)
+              .limit(60);
+          rawLocations = List<Map<String, dynamic>>.from(res);
+        } catch (e2) {
+          debugPrint('Simple tracking_locations query failed ($e2), falling back to bare select:');
+          try {
+            final res = await supabase
+                .from('tracking_locations')
+                .select('*')
+                .order('recorded_at', ascending: false)
+                .limit(60);
+            rawLocations = List<Map<String, dynamic>>.from(res);
+          } catch (e3) {
+            debugPrint('Bare tracking_locations select failed: $e3');
+          }
+        }
+      }
 
       const onTripStatuses = {
         'ongoing',
@@ -647,7 +700,7 @@ class TrackingService {
       final vehiclesWithActiveTracking = <String>{};
       final seenVehicles = <String>{};
 
-      for (final loc in List<Map<String, dynamic>>.from(response)) {
+      for (final loc in rawLocations) {
         final booking = loc['bookings'] as Map<String, dynamic>?;
         final status = booking?['status']?.toString().toLowerCase() ?? '';
         final isReturnedOrCompleted = booking?['returned_at'] != null ||
@@ -732,7 +785,7 @@ class TrackingService {
           try {
             final pVehRows = await supabase
                 .from('partner_vehicles')
-                .select('id, brand, model, plate_number, vehicle_name, partner_id, status, latitude, longitude, image_url, vehicle_images')
+                .select('id, brand, model, plate_number, vehicle_name, partner_id, status, latitude, longitude, image_url')
                 .inFilter('id', filteredIds);
             for (final pv in List<Map<String, dynamic>>.from(pVehRows)) {
               final brand = pv['brand']?.toString().trim() ?? '';
@@ -746,7 +799,7 @@ class TrackingService {
           try {
             final pAppRows = await supabase
                 .from('partner_vehicle_applications')
-                .select('id, brand, model, plate_number, vehicle_name, partner_id, partner_vehicle_id, status, latitude, longitude, photo_url, vehicle_images')
+                .select('id, brand, model, plate_number, vehicle_name, partner_id, partner_vehicle_id, status, latitude, longitude, photo_url')
                 .inFilter('id', filteredIds);
             for (final pva in List<Map<String, dynamic>>.from(pAppRows)) {
               final brand = pva['brand']?.toString().trim() ?? '';
@@ -774,7 +827,6 @@ class TrackingService {
               (t['vehicle_application_id'] != null ? vehiclesMap[t['vehicle_application_id']?.toString()] : null);
 
           final deviceId = t['device_identifier']?.toString() ?? '';
-          final bool isUnassigned = veh == null;
           if (veh == null) {
             veh = {
               'id': vid.isNotEmpty ? vid : 'tracker_${t['id']}',
@@ -833,12 +885,57 @@ class TrackingService {
             'tracker': t,
             'status': 'Available (Idle)',
           });
+          if (vid.isNotEmpty) seenVehicles.add(vid);
         }
       } catch (e) {
         debugPrint('Error fetching idle vehicle trackers: $e');
       }
 
-      // 3. Strict deduplication by vehicle plate number & vehicle ID
+      // 3. Fallback for all company & partner vehicles with registered coordinates
+      try {
+        final allVehicles = await supabase
+            .from('vehicles')
+            .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url, vehicle_images')
+            .not('latitude', 'is', null)
+            .not('longitude', 'is', null);
+
+        for (final veh in List<Map<String, dynamic>>.from(allVehicles)) {
+          final vid = veh['id']?.toString() ?? '';
+          if (vid.isEmpty || seenVehicles.contains(vid) || vehiclesWithActiveTracking.contains(vid)) {
+            continue;
+          }
+          final lat = _asDouble(veh['latitude']);
+          final lng = _asDouble(veh['longitude']);
+          if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+            final brand = veh['brand']?.toString().trim() ?? '';
+            final model = veh['model']?.toString().trim() ?? '';
+            final combo = [brand, model].where((s) => s.isNotEmpty).join(' ');
+            veh['vehicle_name'] = veh['vehicle_name'] ?? (combo.isNotEmpty ? combo : 'Vehicle');
+
+            candidateList.add({
+              'id': 'fleet_idle_$vid',
+              'vehicle_id': vid,
+              'latitude': lat,
+              'longitude': lng,
+              'speed_mps': 0.0,
+              'heading_degrees': 0.0,
+              'source': 'registered_location',
+              'recorded_at': DateTime.now().toUtc().toIso8601String(),
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+              'has_active_booking': false,
+              'is_active_booking': false,
+              'bookings': null,
+              'vehicle': veh,
+              'status': 'Available (Idle)',
+            });
+            seenVehicles.add(vid);
+          }
+        }
+      } catch (e) {
+        debugPrint('Fleet fallback tracking fetch note: $e');
+      }
+
+      // 4. Strict deduplication by vehicle plate number & vehicle ID
       final dedupedMap = <String, Map<String, dynamic>>{};
       for (final loc in candidateList) {
         final veh = (loc['vehicle'] ?? loc['bookings']?['vehicles']) as Map?;
@@ -958,43 +1055,78 @@ class TrackingService {
       final candidateList = <Map<String, dynamic>>[];
       final vehiclesWithLiveLoc = <String>{};
 
-      // 2. Fetch tracking_locations filtered to partner vehicles
+      // 2. Fetch tracking_locations filtered to partner vehicles with fallback
       try {
-        final response = await supabase
-            .from('tracking_locations')
-            .select('''
-              *,
-              tracked_user:tracked_user_id (
-                id,
-                full_name,
-                email
-              ),
-              bookings:booking_id (
-                id,
-                status,
-                partner_id,
-                pickup_location,
-                dropoff_location,
-                pickup_latitude,
-                pickup_longitude,
-                dropoff_latitude,
-                dropoff_longitude,
-                start_at,
-                end_at,
-                vehicles:vehicle_id (
+        List<Map<String, dynamic>> response = const [];
+        try {
+          final res = await supabase
+              .from('tracking_locations')
+              .select('''
+                *,
+                bookings:booking_id (
                   id,
-                  brand,
-                  model,
-                  plate_number,
-                  owner_id,
-                  owner:owner_id (id, role)
-                ),
-                renter:renter_id (id, full_name, email)
-              )
-            ''')
-            .inFilter('vehicle_id', partnerVehicleIds.toList())
-            .order('recorded_at', ascending: false)
-            .limit(40);
+                  status,
+                  partner_id,
+                  pickup_location,
+                  dropoff_location,
+                  pickup_latitude,
+                  pickup_longitude,
+                  dropoff_latitude,
+                  dropoff_longitude,
+                  start_at,
+                  end_at,
+                  vehicles:vehicle_id (
+                    id,
+                    brand,
+                    model,
+                    plate_number,
+                    owner_id,
+                    owner:owner_id (id, role)
+                  ),
+                  renter:renter_id (id, full_name, email),
+                  drivers:drivers!bookings_driver_id_fkey (
+                    id,
+                    user_id,
+                    users:users!drivers_user_id_fkey (id, full_name, email)
+                  )
+                )
+              ''')
+              .inFilter('vehicle_id', partnerVehicleIds.toList())
+              .order('recorded_at', ascending: false)
+              .limit(40);
+          response = List<Map<String, dynamic>>.from(res);
+        } catch (_) {
+          final res = await supabase
+              .from('tracking_locations')
+              .select('''
+                *,
+                bookings:booking_id (
+                  id,
+                  status,
+                  partner_id,
+                  pickup_location,
+                  dropoff_location,
+                  pickup_latitude,
+                  pickup_longitude,
+                  dropoff_latitude,
+                  dropoff_longitude,
+                  start_at,
+                  end_at,
+                  vehicles:vehicle_id (
+                    id,
+                    brand,
+                    model,
+                    plate_number,
+                    owner_id
+                  ),
+                  renter:renter_id (id, full_name, email)
+                )
+              ''')
+              .inFilter('vehicle_id', partnerVehicleIds.toList())
+              .order('recorded_at', ascending: false)
+              .limit(40);
+          response = List<Map<String, dynamic>>.from(res);
+        }
 
         const onTripStatuses = {
           'ongoing',
@@ -1003,7 +1135,7 @@ class TrackingService {
           'in_progress',
         };
 
-        for (final loc in List<Map<String, dynamic>>.from(response)) {
+        for (final loc in response) {
           final vid = loc['vehicle_id']?.toString() ?? '';
           if (!partnerVehicleIds.contains(vid)) continue;
 
@@ -1166,43 +1298,78 @@ class TrackingService {
       // Try polling the GPS tracker if assigned to this booking
       await pollGpsTrackerForBooking(bookingId);
 
-      final response = await supabase
-          .from('tracking_locations')
-          .select('''
-            *,
-            tracked_user:tracked_user_id (
-              id,
-              full_name,
-              email
-            ),
-            bookings:booking_id (
-              id,
-              status,
-              renter_id,
-              operator_id,
-              pickup_location,
-              dropoff_location,
-              pickup_latitude,
-              pickup_longitude,
-              dropoff_latitude,
-              dropoff_longitude,
-              start_at,
-              end_at,
-              vehicles:vehicle_id (
+      dynamic response;
+      try {
+        response = await supabase
+            .from('tracking_locations')
+            .select('''
+              *,
+              bookings:booking_id (
                 id,
-                brand,
-                model,
-                plate_number,
-                owner_id,
-                owner:owner_id (id, role)
-              ),
-              renter:renter_id (id, full_name, email, phone)
-            )
-          ''')
-          .eq('booking_id', bookingId)
-          .order('recorded_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+                status,
+                renter_id,
+                operator_id,
+                pickup_location,
+                dropoff_location,
+                pickup_latitude,
+                pickup_longitude,
+                dropoff_latitude,
+                dropoff_longitude,
+                start_at,
+                end_at,
+                vehicles:vehicle_id (
+                  id,
+                  brand,
+                  model,
+                  plate_number,
+                  owner_id,
+                  owner:owner_id (id, role)
+                ),
+                renter:renter_id (id, full_name, email, phone),
+                drivers:drivers!bookings_driver_id_fkey (
+                  id,
+                  user_id,
+                  users:users!drivers_user_id_fkey (id, full_name, email)
+                )
+              )
+            ''')
+            .eq('booking_id', bookingId)
+            .order('recorded_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+      } catch (_) {
+        response = await supabase
+            .from('tracking_locations')
+            .select('''
+              *,
+              bookings:booking_id (
+                id,
+                status,
+                renter_id,
+                operator_id,
+                pickup_location,
+                dropoff_location,
+                pickup_latitude,
+                pickup_longitude,
+                dropoff_latitude,
+                dropoff_longitude,
+                start_at,
+                end_at,
+                vehicles:vehicle_id (
+                  id,
+                  brand,
+                  model,
+                  plate_number,
+                  owner_id
+                ),
+                renter:renter_id (id, full_name, email, phone)
+              )
+            ''')
+            .eq('booking_id', bookingId)
+            .order('recorded_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+      }
 
       if (response == null) return null;
       final location = Map<String, dynamic>.from(response);
@@ -1228,16 +1395,30 @@ class TrackingService {
   }
 
   Future<_TrackingAccess?> _currentTrackingAccess() async {
-    final userId = supabase.auth.currentUser?.id;
+    final user = supabase.auth.currentUser;
+    final userId = user?.id;
     if (userId == null || userId.isEmpty) return null;
-    final user = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', userId)
-        .maybeSingle();
-    final role = user?['role']?.toString().trim().toLowerCase() ?? '';
-    if (role.isEmpty) return null;
-    return _TrackingAccess(userId: userId, role: role);
+
+    final metaRole = user.userMetadata?['role']?.toString().trim().toLowerCase() ??
+        user.appMetadata['role']?.toString().trim().toLowerCase() ?? '';
+    if (metaRole.isNotEmpty) {
+      return _TrackingAccess(userId: userId, role: metaRole);
+    }
+
+    try {
+      final userRow = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+      final role = userRow?['role']?.toString().trim().toLowerCase() ?? '';
+      if (role.isNotEmpty) {
+        return _TrackingAccess(userId: userId, role: role);
+      }
+    } catch (e) {
+      debugPrint('Error getting user role for tracking access: $e');
+    }
+    return _TrackingAccess(userId: userId, role: 'operator');
   }
 
   bool _canViewTracking(_TrackingAccess access, Map<String, dynamic>? booking) {
