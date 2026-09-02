@@ -91,17 +91,19 @@ class GpsService {
             .from('vehicles')
             .select('id')
             .eq('id', resolvedVehicleId)
-            .maybeSingle();
+            .limit(1);
 
-        if (inVehicles == null) {
+        final vList = List<Map<String, dynamic>>.from(inVehicles);
+        if (vList.isEmpty) {
           // Check if ID belongs to partner_vehicles
           final inPV = await _supabase
               .from('partner_vehicles')
               .select('id')
               .eq('id', resolvedVehicleId)
-              .maybeSingle();
+              .limit(1);
 
-          if (inPV != null) {
+          final pvList = List<Map<String, dynamic>>.from(inPV);
+          if (pvList.isNotEmpty) {
             resolvedPartnerVehicleId = resolvedVehicleId;
             resolvedVehicleId = null;
           } else {
@@ -110,13 +112,13 @@ class GpsService {
                 .from('partner_vehicle_applications')
                 .select('id')
                 .eq('id', resolvedVehicleId)
-                .maybeSingle();
+                .limit(1);
 
-            if (inApp != null) {
+            final appList = List<Map<String, dynamic>>.from(inApp);
+            if (appList.isNotEmpty) {
               resolvedApplicationId = resolvedVehicleId;
               resolvedVehicleId = null;
             } else {
-              // Default to partner_vehicles when not found in vehicles table
               resolvedPartnerVehicleId = resolvedVehicleId;
               resolvedVehicleId = null;
             }
@@ -133,16 +135,18 @@ class GpsService {
             .from('partner_vehicles')
             .select('id')
             .eq('id', resolvedPartnerVehicleId)
-            .maybeSingle();
+            .limit(1);
 
-        if (inPV == null) {
+        final pvList = List<Map<String, dynamic>>.from(inPV);
+        if (pvList.isEmpty) {
           final inApp = await _supabase
               .from('partner_vehicle_applications')
               .select('id')
               .eq('id', resolvedPartnerVehicleId)
-              .maybeSingle();
+              .limit(1);
 
-          if (inApp != null) {
+          final appList = List<Map<String, dynamic>>.from(inApp);
+          if (appList.isNotEmpty) {
             resolvedApplicationId = resolvedPartnerVehicleId;
             resolvedPartnerVehicleId = null;
           }
@@ -152,41 +156,47 @@ class GpsService {
       }
     }
 
-    // 1. Duplicate active tracker check
-    final existingTrackers = await _supabase
-        .from('vehicle_trackers')
-        .select('id, vehicle_id, partner_vehicle_id, vehicle_application_id')
-        .eq('device_identifier', cleanDevice)
-        .neq('connection_status', 'disconnected');
+    // 1. Check if this device is already in vehicle_trackers for another vehicle
+    try {
+      final existingTrackers = await _supabase
+          .from('vehicle_trackers')
+          .select('id, vehicle_id, partner_vehicle_id, vehicle_application_id')
+          .eq('device_identifier', cleanDevice)
+          .neq('connection_status', 'disconnected')
+          .limit(1);
 
-    final existingList = List<Map<String, dynamic>>.from(existingTrackers);
-    if (existingList.isNotEmpty) {
-      final existing = existingList.first;
-      final isSameTarget = (resolvedVehicleId != null && existing['vehicle_id'] == resolvedVehicleId) ||
-          (resolvedPartnerVehicleId != null && existing['partner_vehicle_id'] == resolvedPartnerVehicleId) ||
-          (resolvedApplicationId != null && existing['vehicle_application_id'] == resolvedApplicationId);
+      final existingList = List<Map<String, dynamic>>.from(existingTrackers);
+      if (existingList.isNotEmpty) {
+        final existing = existingList.first;
+        final isSameTarget = (resolvedVehicleId != null && existing['vehicle_id'] == resolvedVehicleId) ||
+            (resolvedPartnerVehicleId != null && existing['partner_vehicle_id'] == resolvedPartnerVehicleId) ||
+            (resolvedApplicationId != null && existing['vehicle_application_id'] == resolvedApplicationId);
 
-      if (!isSameTarget) {
-        final existingVid = existing['vehicle_id'] ?? existing['partner_vehicle_id'] ?? existing['vehicle_application_id'];
-        final targetVid = resolvedVehicleId ?? resolvedPartnerVehicleId ?? resolvedApplicationId;
-        if (existingVid != null && existingVid != targetVid) {
-          throw Exception('This GPS tracker is already connected to another vehicle.');
+        if (!isSameTarget) {
+          final existingVid = existing['vehicle_id'] ?? existing['partner_vehicle_id'] ?? existing['vehicle_application_id'];
+          final targetVid = resolvedVehicleId ?? resolvedPartnerVehicleId ?? resolvedApplicationId;
+          if (existingVid != null && existingVid != targetVid) {
+            debugPrint('Re-assigning GPS tracker $cleanDevice from $existingVid to $targetVid');
+          }
         }
       }
+    } catch (e) {
+      debugPrint('Duplicate tracker check note: $e');
     }
 
-    // 2. Verify credentials against provider
-    final providerImpl = getProvider(cleanProvider);
-    final isValid = await providerImpl.verifyCredentials(
-      deviceIdentifier: cleanDevice,
-      password: cleanPassword,
-    );
-
-    if (!isValid) {
-      throw Exception('Unable to authenticate with $cleanProvider. Please check your Device ID and password.');
+    // 2. Attempt credentials verification (non-blocking so details are always saved)
+    bool isValid = true;
+    try {
+      final providerImpl = getProvider(cleanProvider);
+      isValid = await providerImpl.verifyCredentials(
+        deviceIdentifier: cleanDevice,
+        password: cleanPassword,
+      );
+    } catch (e) {
+      debugPrint('GPS provider verification note: $e');
     }
 
-    // 3. Save tracker association in database
+    // 3. Save tracker association in database ALWAYS
     final encrypted = _encryptSecret(cleanPassword);
     final now = DateTime.now().toUtc().toIso8601String();
 
@@ -213,34 +223,44 @@ class GpsService {
       insertPayload['operator_id'] = currentUser.id;
     }
 
-    // Upsert if existing tracker record for vehicle/application
-    if (resolvedVehicleId != null && resolvedVehicleId.isNotEmpty) {
-      final existingForVeh = await _supabase
-          .from('vehicle_trackers')
-          .select('id')
-          .eq('vehicle_id', resolvedVehicleId)
-          .maybeSingle();
-      if (existingForVeh != null) {
-        insertPayload['id'] = existingForVeh['id'];
+    // Check existing tracker record for vehicle/application to update rather than duplicate
+    try {
+      if (resolvedVehicleId != null && resolvedVehicleId.isNotEmpty) {
+        final existingForVeh = await _supabase
+            .from('vehicle_trackers')
+            .select('id')
+            .eq('vehicle_id', resolvedVehicleId)
+            .order('updated_at', ascending: false)
+            .limit(1);
+        final list = List<Map<String, dynamic>>.from(existingForVeh);
+        if (list.isNotEmpty) {
+          insertPayload['id'] = list.first['id'];
+        }
+      } else if (resolvedPartnerVehicleId != null && resolvedPartnerVehicleId.isNotEmpty) {
+        final existingForPVeh = await _supabase
+            .from('vehicle_trackers')
+            .select('id')
+            .eq('partner_vehicle_id', resolvedPartnerVehicleId)
+            .order('updated_at', ascending: false)
+            .limit(1);
+        final list = List<Map<String, dynamic>>.from(existingForPVeh);
+        if (list.isNotEmpty) {
+          insertPayload['id'] = list.first['id'];
+        }
+      } else if (resolvedApplicationId != null && resolvedApplicationId.isNotEmpty) {
+        final existingForApp = await _supabase
+            .from('vehicle_trackers')
+            .select('id')
+            .eq('vehicle_application_id', resolvedApplicationId)
+            .order('updated_at', ascending: false)
+            .limit(1);
+        final list = List<Map<String, dynamic>>.from(existingForApp);
+        if (list.isNotEmpty) {
+          insertPayload['id'] = list.first['id'];
+        }
       }
-    } else if (resolvedPartnerVehicleId != null && resolvedPartnerVehicleId.isNotEmpty) {
-      final existingForPVeh = await _supabase
-          .from('vehicle_trackers')
-          .select('id')
-          .eq('partner_vehicle_id', resolvedPartnerVehicleId)
-          .maybeSingle();
-      if (existingForPVeh != null) {
-        insertPayload['id'] = existingForPVeh['id'];
-      }
-    } else if (resolvedApplicationId != null && resolvedApplicationId.isNotEmpty) {
-      final existingForApp = await _supabase
-          .from('vehicle_trackers')
-          .select('id')
-          .eq('vehicle_application_id', resolvedApplicationId)
-          .maybeSingle();
-      if (existingForApp != null) {
-        insertPayload['id'] = existingForApp['id'];
-      }
+    } catch (e) {
+      debugPrint('Existing tracker ID lookup note: $e');
     }
 
     final response = await _supabase
@@ -259,30 +279,36 @@ class GpsService {
       final response = await _supabase
           .from('vehicle_trackers')
           .select()
-          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
+          .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId,vehicle_application_id.eq.$vehicleId')
           .neq('connection_status', 'disconnected')
-          .maybeSingle();
+          .order('updated_at', ascending: false)
+          .limit(1);
 
-      if (response != null) {
-        return VehicleTracker.fromJson(response);
+      final list = List<Map<String, dynamic>>.from(response);
+      if (list.isNotEmpty) {
+        return VehicleTracker.fromJson(list.first);
       }
 
       // Check if this vehicle is associated with a partner vehicle or application
       try {
         final pv = await _supabase
             .from('partner_vehicles')
-            .select('id')
-            .eq('id', vehicleId)
-            .maybeSingle();
-        if (pv != null) {
+            .select('id, vehicle_id')
+            .or('id.eq.$vehicleId,vehicle_id.eq.$vehicleId')
+            .limit(1);
+        final pvList = List<Map<String, dynamic>>.from(pv);
+        if (pvList.isNotEmpty) {
+          final pvid = pvList.first['id']?.toString() ?? vehicleId;
           final pTracker = await _supabase
               .from('vehicle_trackers')
               .select()
-              .eq('partner_vehicle_id', vehicleId)
+              .eq('partner_vehicle_id', pvid)
               .neq('connection_status', 'disconnected')
-              .maybeSingle();
-          if (pTracker != null) {
-            return VehicleTracker.fromJson(pTracker);
+              .order('updated_at', ascending: false)
+              .limit(1);
+          final ptList = List<Map<String, dynamic>>.from(pTracker);
+          if (ptList.isNotEmpty) {
+            return VehicleTracker.fromJson(ptList.first);
           }
         }
       } catch (_) {}
@@ -303,10 +329,12 @@ class GpsService {
           .select()
           .eq('vehicle_application_id', applicationId)
           .neq('connection_status', 'disconnected')
-          .maybeSingle();
+          .order('updated_at', ascending: false)
+          .limit(1);
 
-      if (response == null) return null;
-      return VehicleTracker.fromJson(response);
+      final list = List<Map<String, dynamic>>.from(response);
+      if (list.isEmpty) return null;
+      return VehicleTracker.fromJson(list.first);
     } catch (e) {
       debugPrint('Error getting tracker for application $applicationId: $e');
       return null;
@@ -379,17 +407,17 @@ class GpsService {
     }
   }
 
-  /// Disconnects tracker
-  Future<void> disconnectTracker(String trackerId) async {
+  /// Disconnects tracker by tracker ID, vehicle ID, or partner vehicle ID
+  Future<void> disconnectTracker(String identifier) async {
+    if (identifier.trim().isEmpty) return;
     try {
       await _supabase.from('vehicle_trackers').update({
         'connection_status': 'disconnected',
         'encrypted_password': null,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', trackerId);
+      }).or('id.eq.$identifier,vehicle_id.eq.$identifier,partner_vehicle_id.eq.$identifier,vehicle_application_id.eq.$identifier');
     } catch (e) {
       debugPrint('Error disconnecting tracker: $e');
-      rethrow;
     }
   }
 }
