@@ -48,6 +48,7 @@ class GpsTrackerTelemetryCard extends StatelessWidget {
   factory GpsTrackerTelemetryCard.fromLocationData({
     required Map<String, dynamic> location,
     bool isDark = false,
+    bool isCompact = false,
     VoidCallback? onClose,
     VoidCallback? onTracking,
     VoidCallback? onPlayback,
@@ -134,6 +135,7 @@ class GpsTrackerTelemetryCard extends StatelessWidget {
       stopTime: stopTimeFormatted ?? 'N/A',
       positionType: tracker?['position_type']?.toString() ?? 'GPS+BDS',
       isDark: isDark,
+      isCompact: isCompact,
       onClose: onClose,
       onTracking: onTracking,
       onPlayback: onPlayback,
