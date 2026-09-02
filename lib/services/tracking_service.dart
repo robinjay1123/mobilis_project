@@ -602,6 +602,11 @@ class TrackingService {
           .from('tracking_locations')
           .select('''
             *,
+            tracked_user:tracked_user_id (
+              id,
+              full_name,
+              email
+            ),
             bookings:booking_id (
               id,
               status,
@@ -625,12 +630,7 @@ class TrackingService {
                 owner_id,
                 owner:owner_id (id, role)
               ),
-              renter:renter_id (id, full_name, email),
-              driver:driver_id (
-                id,
-                user_id,
-                users(id, full_name, email)
-              )
+              renter:renter_id (id, full_name, email)
             )
           ''')
           .order('recorded_at', ascending: false)
@@ -964,6 +964,11 @@ class TrackingService {
             .from('tracking_locations')
             .select('''
               *,
+              tracked_user:tracked_user_id (
+                id,
+                full_name,
+                email
+              ),
               bookings:booking_id (
                 id,
                 status,
@@ -984,12 +989,7 @@ class TrackingService {
                   owner_id,
                   owner:owner_id (id, role)
                 ),
-                renter:renter_id (id, full_name, email),
-                driver:driver_id (
-                  id,
-                  user_id,
-                  users(id, full_name, email)
-                )
+                renter:renter_id (id, full_name, email)
               )
             ''')
             .inFilter('vehicle_id', partnerVehicleIds.toList())
@@ -1170,6 +1170,11 @@ class TrackingService {
           .from('tracking_locations')
           .select('''
             *,
+            tracked_user:tracked_user_id (
+              id,
+              full_name,
+              email
+            ),
             bookings:booking_id (
               id,
               status,
@@ -1191,12 +1196,7 @@ class TrackingService {
                 owner_id,
                 owner:owner_id (id, role)
               ),
-              renter:renter_id (id, full_name, email, phone),
-              driver:driver_id (
-                id,
-                user_id,
-                users(id, full_name, email)
-              )
+              renter:renter_id (id, full_name, email, phone)
             )
           ''')
           .eq('booking_id', bookingId)
