@@ -1020,6 +1020,155 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ),
                         ),
                       ],
+                      Builder(
+                        builder: (context) {
+                          final selectedDaysCount = (rangeStart != null && rangeEnd != null)
+                              ? _dateOnly(rangeEnd!).difference(_dateOnly(rangeStart!)).inDays + 1
+                              : (rangeStart != null ? 1 : 0);
+                          final isLongBooking = selectedDaysCount > 7;
+
+                          if (isHourly) return const SizedBox.shrink();
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 8),
+                              if (isLongBooking)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 9,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.warning.withAlpha(28),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: AppColors.warning.withAlpha(140),
+                                      width: 1.2,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.info_outline_rounded,
+                                        size: 18,
+                                        color: AppColors.warning,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: RichText(
+                                          text: TextSpan(
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.textPrimaryOf(context),
+                                              height: 1.3,
+                                            ),
+                                            children: [
+                                              TextSpan(
+                                                text: '$selectedDaysCount Days Selected: ',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              const TextSpan(
+                                                text: 'Extended Booking Policy — Rentals exceeding 7 days require a ',
+                                              ),
+                                              const TextSpan(
+                                                text: '20% reservation fee deposit',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.warning,
+                                                ),
+                                              ),
+                                              const TextSpan(text: ' instead of standard ₱1,000.'),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else if (selectedDaysCount > 0)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withAlpha(20),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: AppColors.primary.withAlpha(80),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.check_circle_outline_rounded,
+                                        size: 16,
+                                        color: AppColors.primary,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: RichText(
+                                          text: TextSpan(
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              color: AppColors.textPrimaryOf(context),
+                                              height: 1.3,
+                                            ),
+                                            children: [
+                                              TextSpan(
+                                                text: '$selectedDaysCount ${selectedDaysCount == 1 ? "Day" : "Days"} Selected: ',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              const TextSpan(
+                                                text: 'Standard ₱1,000 Reservation Fee (Note: Bookings over 7 days require 20%).',
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.withAlpha(20),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Row(
+                                    children: [
+                                      Icon(
+                                        Icons.info_outline,
+                                        size: 14,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                      SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          'Policy: Standard ₱1,000 reservation fee applies for 1–7 days. Rentals over 7 days require a 20% reservation fee.',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
