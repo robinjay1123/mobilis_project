@@ -11241,15 +11241,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    height: 400,
-                    width: double.infinity,
-                    color: isDark ? AppColors.darkBg : Colors.grey.shade100,
-                    child: mapMarkers.isEmpty
-                        ? Center(
-                            child: Text(
                 Stack(
                   children: [
                     ClipRRect(
