@@ -1396,11 +1396,12 @@ class TrackingService {
 
   Future<_TrackingAccess?> _currentTrackingAccess() async {
     final user = supabase.auth.currentUser;
-    final userId = user?.id;
-    if (userId == null || userId.isEmpty) return null;
+    if (user == null) return null;
+    final userId = user.id;
+    if (userId.isEmpty) return null;
 
     final metaRole = user.userMetadata?['role']?.toString().trim().toLowerCase() ??
-        user.appMetadata['role']?.toString().trim().toLowerCase() ?? '';
+        (user.appMetadata['role']?.toString().trim().toLowerCase() ?? '');
     if (metaRole.isNotEmpty) {
       return _TrackingAccess(userId: userId, role: metaRole);
     }
