@@ -7779,7 +7779,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final vehicle = (booking?['vehicles'] ?? location['vehicle'])
         as Map<String, dynamic>?;
     final tracker = location['tracker'] as Map<String, dynamic>?;
-    final driver = booking?['drivers'] as Map<String, dynamic>?;
+    final driver = (booking?['driver'] ?? booking?['drivers']) as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final renter = booking?['renter'] as Map<String, dynamic>?;
     final rowId = booking?['id']?.toString() ??

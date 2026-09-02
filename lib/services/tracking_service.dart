@@ -626,10 +626,10 @@ class TrackingService {
                 owner:owner_id (id, role)
               ),
               renter:renter_id (id, full_name, email),
-              drivers:drivers!bookings_driver_id_fkey (
+              driver:driver_id (
                 id,
                 user_id,
-                users:users!drivers_user_id_fkey (id, full_name, email)
+                users(id, full_name, email)
               )
             )
           ''')
@@ -985,10 +985,10 @@ class TrackingService {
                   owner:owner_id (id, role)
                 ),
                 renter:renter_id (id, full_name, email),
-                drivers:drivers!bookings_driver_id_fkey (
+                driver:driver_id (
                   id,
                   user_id,
-                  users:users!drivers_user_id_fkey (id, full_name, email)
+                  users(id, full_name, email)
                 )
               )
             ''')
@@ -1192,10 +1192,10 @@ class TrackingService {
                 owner:owner_id (id, role)
               ),
               renter:renter_id (id, full_name, email, phone),
-              drivers:drivers!bookings_driver_id_fkey (
+              driver:driver_id (
                 id,
                 user_id,
-                users:users!drivers_user_id_fkey (id, full_name, email)
+                users(id, full_name, email)
               )
             )
           ''')

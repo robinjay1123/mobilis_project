@@ -8665,7 +8665,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final renter = booking['renter'] as Map<String, dynamic>?;
       final renterName = renter?['full_name']?.toString().toLowerCase() ?? '';
       final renterEmail = renter?['email']?.toString().toLowerCase() ?? '';
-      final driver = booking['drivers'] as Map<String, dynamic>?;
+      final driver = (booking['driver'] ?? booking['drivers']) as Map<String, dynamic>?;
       final driverUser = driver?['users'] as Map<String, dynamic>?;
       final driverName =
           driverUser?['full_name']?.toString().toLowerCase() ?? '';
@@ -9021,7 +9021,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final status = (booking['status'] as String? ?? 'pending').toLowerCase();
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
     final renter = booking['renter'] as Map<String, dynamic>?;
-    final driver = booking['drivers'] as Map<String, dynamic>?;
+    final driver = (booking['driver'] ?? booking['drivers']) as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final withDriver = booking['with_driver'] == true;
 
@@ -9694,7 +9694,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       : '#BK-$bookingId';
                   final vehicle = booking['vehicles'] as Map<String, dynamic>?;
                   final user = booking['renter'] as Map<String, dynamic>?;
-                  final driver = booking['drivers'] as Map<String, dynamic>?;
+                  final driver = (booking['driver'] ?? booking['drivers']) as Map<String, dynamic>?;
                   final driverUser = driver?['users'] as Map<String, dynamic>?;
                   final driverName = driverUser?['full_name']?.toString();
                   final status = booking['status'] as String? ?? 'pending';
@@ -9938,7 +9938,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         : '#BK-$bookingId';
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
     final user = booking['renter'] as Map<String, dynamic>?;
-    final driver = booking['drivers'] as Map<String, dynamic>?;
+    final driver = (booking['driver'] ?? booking['drivers']) as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final status = booking['status'] as String? ?? 'pending';
     final breakdown = _getBookingCommissionBreakdown(booking);
@@ -11313,7 +11313,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             location['vehicle'])
         as Map<String, dynamic>?;
     final tracker = location['tracker'] as Map<String, dynamic>?;
-    final driver = booking?['drivers'] as Map<String, dynamic>?;
+    final driver = (booking?['driver'] ?? booking?['drivers']) as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final renter = booking?['renter'] as Map<String, dynamic>?;
     final rowId = booking?['id']?.toString() ??

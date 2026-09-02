@@ -5417,7 +5417,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         final booking = loc['bookings'] as Map<String, dynamic>?;
         final renter = booking?['renter'] as Map<String, dynamic>?;
         final renterName = (renter?['full_name'] ?? '').toString().toLowerCase();
-        final driver = booking?['drivers']?['users'] as Map<String, dynamic>?;
+        final driver = (booking?['driver'] ?? booking?['drivers'])?['users'] as Map<String, dynamic>?;
         final driverName = (driver?['full_name'] ?? '').toString().toLowerCase();
         final plate = ((loc['vehicle'] ?? booking?['vehicles'])?['plate_number'] ?? '').toString().toLowerCase();
         return vName.contains(query) ||
@@ -6123,7 +6123,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         booking['completed_at'] == null;
     final vehicle = (booking?['vehicles'] ?? location['vehicle']) as Map<String, dynamic>?;
     final tracker = location['tracker'] as Map<String, dynamic>?;
-    final driver = booking?['drivers'] as Map<String, dynamic>?;
+    final driver = (booking?['driver'] ?? booking?['drivers']) as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final renter = booking?['renter'] as Map<String, dynamic>?;
     final rowId = booking?['id']?.toString() ??
