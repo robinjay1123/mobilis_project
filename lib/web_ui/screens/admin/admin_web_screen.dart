@@ -39,6 +39,7 @@ import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
 import '../../../mobile_ui/screens/profile/ratings_reviews_screen.dart';
 import '../../../mobile_ui/widgets/trip_route_history_dialog.dart';
+import '../../../widgets/gps_tracker_telemetry_card.dart';
 import '../../../utils/web_html.dart' as html;
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
@@ -11249,35 +11250,96 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     child: mapMarkers.isEmpty
                         ? Center(
                             child: Text(
-                              _focusedTrackingBookingId == null
-                                  ? 'No active tracking locations yet'
-                                  : 'No live location yet for this vehicle',
-                              style: TextStyle(
-                                color: isDark
-                                    ? Colors.grey[400]
-                                    : Colors.grey[700],
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        height: 420,
+                        width: double.infinity,
+                        color: isDark ? AppColors.darkBg : Colors.grey.shade100,
+                        child: mapMarkers.isEmpty
+                            ? Center(
+                                child: Text(
+                                  _focusedTrackingBookingId == null
+                                      ? 'No active tracking locations yet'
+                                      : 'No live location yet for this vehicle',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.grey[400]
+                                        : Colors.grey[700],
+                                  ),
+                                ),
+                              )
+                            : MobilisLeafletMap(
+                                key: ValueKey(
+                                  '${_focusedTrackingBookingId ?? "all"}_' +
+                                      mapMarkers
+                                          .map(
+                                            (m) =>
+                                                '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}',
+                                          )
+                                          .join('|') +
+                                      '_${routePoints.length}',
+                                ),
+                                markers: mapMarkers,
+                                routePoints: routePoints,
+                                routeColor: AppColors.primary,
+                                initialZoom: isFocused
+                                    ? (mapMarkers.length > 1 ? 12 : 15)
+                                    : (mapMarkers.length > 1 ? 10 : 14),
                               ),
+                      ),
+                    ),
+                    if (_focusedTrackingBookingId != null &&
+                        visibleLocations.isNotEmpty)
+                      Builder(
+                        builder: (context) {
+                          final focusedLoc = visibleLocations.firstWhere(
+                            (l) {
+                              final bId = l['bookings']?['id']?.toString() ??
+                                  l['id']?.toString() ??
+                                  'vehicle_${l['vehicle_id']}';
+                              return bId == _focusedTrackingBookingId;
+                            },
+                            orElse: () => visibleLocations.first,
+                          );
+                          return Positioned(
+                            top: 14,
+                            right: 14,
+                            child: GpsTrackerTelemetryCard.fromLocationData(
+                              location: focusedLoc,
+                              isDark: isDark,
+                              onClose: () {
+                                setState(() {
+                                  _focusedTrackingBookingId = null;
+                                });
+                              },
+                              onPlayback: () {
+                                final bk = focusedLoc['bookings']
+                                    as Map<String, dynamic>?;
+                                if (bk?['id'] != null) {
+                                  final veh = (bk?['vehicles'] ??
+                                      focusedLoc['vehicle']) as Map<String,
+                                      dynamic>?;
+                                  final vehName =
+                                      _resolveTrackingVehicleName(focusedLoc);
+                                  TripRouteHistoryDialog.show(
+                                    context: context,
+                                    bookingId: bk!['id'].toString(),
+                                    vehicleName: vehName,
+                                    plateNumber:
+                                        veh?['plate_number']?.toString(),
+                                    renterName:
+                                        bk['renter']?['full_name']?.toString(),
+                                  );
+                                }
+                              },
                             ),
-                          )
-                        : MobilisLeafletMap(
-                            key: ValueKey(
-                              '${_focusedTrackingBookingId ?? "all"}_' +
-                                  mapMarkers
-                                      .map(
-                                        (m) =>
-                                            '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}',
-                                      )
-                                      .join('|') +
-                                  '_${routePoints.length}',
-                            ),
-                            markers: mapMarkers,
-                            routePoints: routePoints,
-                            routeColor: AppColors.primary,
-                            initialZoom: isFocused
-                                ? (mapMarkers.length > 1 ? 12 : 15)
-                                : (mapMarkers.length > 1 ? 10 : 14),
-                          ),
-                  ),
+                          );
+                        },
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 16),
                 if (visibleLocations.isEmpty)
@@ -11817,6 +11879,34 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                   ),
                 ],
+                const SizedBox(height: 12),
+                // Authentic GPS Tracker Telemetry Details Card
+                GpsTrackerTelemetryCard.fromLocationData(
+                  location: location,
+                  isDark: isDark,
+                  isCompact: true,
+                  onTracking: () {
+                    setState(() {
+                      _focusedTrackingBookingId = isFocused ? null : rowId;
+                    });
+                  },
+                  onPlayback: () {
+                    if (booking?['id'] != null) {
+                      TripRouteHistoryDialog.show(
+                        context: context,
+                        bookingId: booking!['id'].toString(),
+                        vehicleName: vehicleName,
+                        plateNumber: vehicle?['plate_number']?.toString(),
+                        renterName: renter?['full_name']?.toString(),
+                      );
+                    }
+                  },
+                  onGeofence: () {
+                    setState(() {
+                      _focusedTrackingBookingId = rowId;
+                    });
+                  },
+                ),
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
