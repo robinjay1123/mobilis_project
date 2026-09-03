@@ -3839,15 +3839,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       try {
         final trackerRows = await _supabase
             .from('vehicle_trackers')
-            .select('latitude, longitude, last_location_update')
+            .select('last_latitude, last_longitude, last_location_at, last_sync_at')
             .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
-            .order('last_location_update', ascending: false)
+            .order('updated_at', ascending: false)
             .limit(1);
         final list = List<Map<String, dynamic>>.from(trackerRows);
         if (list.isNotEmpty) {
           addValidPoint(PhilippineGeocoding.parseCoordinate(
-            list.first['latitude'],
-            list.first['longitude'],
+            list.first['last_latitude'],
+            list.first['last_longitude'],
           ));
         }
       } catch (err) {
@@ -7295,7 +7295,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final now = DateTime.now().toUtc();
     final isStale =
         recordedAt == null || now.difference(recordedAt).inMinutes >= 5;
-    final isMoving = speedKph >= 3;
+    final isStandby = location['is_standby'] == true;
+    if (isStandby) {
+      return {
+        'status': 'standby',
+        'label': 'STANDBY • AWAITING GPS FIX',
+        'short_label': 'STANDBY',
+        'color': const Color(0xFF38BDF8),
+        'icon': Icons.satellite_alt_rounded,
+        'speedKph': 0,
+        'isMoving': false,
+        'isParked': true,
+        'isStopped': false,
+      };
+    }
 
     if (isMoving) {
       return {

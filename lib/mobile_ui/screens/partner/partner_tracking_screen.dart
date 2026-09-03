@@ -129,8 +129,13 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
 
     if (!mounted) return;
 
-    final lat = (location?['latitude'] as num?)?.toDouble();
-    final lng = (location?['longitude'] as num?)?.toDouble();
+    var lat = (location?['latitude'] as num?)?.toDouble();
+    var lng = (location?['longitude'] as num?)?.toDouble();
+
+    if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+      lat = (widget.booking['pickup_latitude'] as num?)?.toDouble();
+      lng = (widget.booking['pickup_longitude'] as num?)?.toDouble();
+    }
 
     setState(() {
       _trackingLocation = location;
@@ -152,8 +157,10 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
   }
 
   void _centerVehicle() {
-    final lat = (_trackingLocation?['latitude'] as num?)?.toDouble();
-    final lng = (_trackingLocation?['longitude'] as num?)?.toDouble();
+    final lat = (_trackingLocation?['latitude'] as num?)?.toDouble() ??
+        (widget.booking['pickup_latitude'] as num?)?.toDouble();
+    final lng = (_trackingLocation?['longitude'] as num?)?.toDouble() ??
+        (widget.booking['pickup_longitude'] as num?)?.toDouble();
     if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
       try {
         _mapController.move(LatLng(lat, lng), _zoom);
@@ -187,8 +194,11 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     final renter =
         bookingMap?['renter'] as Map<String, dynamic>? ??
         booking['users'] as Map<String, dynamic>?;
-    final lat = (tracking?['latitude'] as num?)?.toDouble();
-    final lng = (tracking?['longitude'] as num?)?.toDouble();
+    final isStandby = tracking?['is_standby'] == true;
+    final lat = (tracking?['latitude'] as num?)?.toDouble() ??
+        (bookingMap?['pickup_latitude'] ?? booking['pickup_latitude'] as num?)?.toDouble();
+    final lng = (tracking?['longitude'] as num?)?.toDouble() ??
+        (bookingMap?['pickup_longitude'] ?? booking['pickup_longitude'] as num?)?.toDouble();
     final speedMps = (tracking?['speed_mps'] as num?)?.toDouble() ?? 0;
     final speedKph = (speedMps * 3.6).round();
     final speedMph = speedMps * 2.23694;
@@ -209,10 +219,14 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     final Color motionColor;
     final IconData motionIcon;
 
-    if (tracking == null) {
+    if (tracking == null && (lat == null || lng == null)) {
       motionStatusLabel = 'AWAITING GPS';
       motionColor = Colors.grey;
       motionIcon = Icons.sensors_off_rounded;
+    } else if (isStandby || (tracking == null && lat != null)) {
+      motionStatusLabel = 'STANDBY • AT PICKUP / HUB';
+      motionColor = const Color(0xFF38BDF8);
+      motionIcon = Icons.satellite_alt_rounded;
     } else if (isMoving) {
       motionStatusLabel = 'MOVING • $speedKph KM/H';
       motionColor = const Color(0xFF00E676);
@@ -350,7 +364,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                           icon: Icons.add,
                           onTap: () {
                             setState(() {
-                              _zoom = ((_zoom + 1).clamp(6, 18) as num).toDouble();
+                              _zoom = (_zoom + 1).clamp(6.0, 18.0);
                             });
                             if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
                               try {
@@ -364,7 +378,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                           icon: Icons.remove,
                           onTap: () {
                             setState(() {
-                              _zoom = ((_zoom - 1).clamp(6, 18) as num).toDouble();
+                              _zoom = (_zoom - 1).clamp(6.0, 18.0);
                             });
                             if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
                               try {

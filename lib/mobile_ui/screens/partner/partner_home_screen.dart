@@ -5466,6 +5466,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final isStale = recordedAt == null ||
         DateTime.now().toUtc().difference(recordedAt) > const Duration(minutes: 30);
 
+    final isStandby = loc['is_standby'] == true;
+    if (isStandby) {
+      return {
+        'status': 'standby',
+        'label': 'STANDBY • AWAITING GPS FIX',
+        'short_label': 'STANDBY',
+        'color': const Color(0xFF38BDF8),
+        'icon': Icons.satellite_alt_rounded,
+        'speedKph': 0,
+        'isMoving': false,
+        'isParked': true,
+        'isStopped': false,
+      };
+    }
+
     if (speedKph >= 5) {
       return {
         'status': 'moving',

@@ -853,6 +853,7 @@ class TrackingService {
 
           var lat = (t['last_latitude'] as num?)?.toDouble();
           var lng = (t['last_longitude'] as num?)?.toDouble();
+          bool isStandby = false;
 
           // Fallback to vehicle registered coordinates if tracker position is not yet synced
           if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
@@ -860,8 +861,11 @@ class TrackingService {
             lng = _asDouble(veh['longitude']);
           }
 
+          // Fallback to central garage / fleet hub (PSDC Garage, Urdaneta) so vehicle is NEVER omitted
           if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
-            continue;
+            lat = 15.9758;
+            lng = 120.5719;
+            isStandby = true;
           }
 
           final lastSpeed = (t['last_speed'] as num?)?.toDouble() ?? 0.0;
@@ -873,7 +877,7 @@ class TrackingService {
             'longitude': lng,
             'speed_mps': lastSpeed / 3.6,
             'heading_degrees': 0.0,
-            'source': 'gps_tracker',
+            'source': isStandby ? 'standby_hub' : 'gps_tracker',
             'recorded_at':
                 t['last_sync_at'] ?? t['last_location_at'] ?? DateTime.now().toUtc().toIso8601String(),
             'updated_at':
@@ -883,7 +887,8 @@ class TrackingService {
             'bookings': null,
             'vehicle': veh,
             'tracker': t,
-            'status': 'Available (Idle)',
+            'is_standby': isStandby,
+            'status': isStandby ? 'Standby (Awaiting GPS Fix)' : 'Available (Idle)',
           });
           if (vid.isNotEmpty) seenVehicles.add(vid);
         }
@@ -930,6 +935,49 @@ class TrackingService {
             });
             seenVehicles.add(vid);
           }
+        }
+
+        try {
+          final allPartnerVehicles = await supabase
+              .from('partner_vehicles')
+              .select('id, brand, model, vehicle_name, plate_number, partner_id, status, latitude, longitude, image_url')
+              .not('latitude', 'is', null)
+              .not('longitude', 'is', null);
+
+          for (final pv in List<Map<String, dynamic>>.from(allPartnerVehicles)) {
+            final vid = pv['id']?.toString() ?? '';
+            if (vid.isEmpty || seenVehicles.contains(vid) || vehiclesWithActiveTracking.contains(vid)) {
+              continue;
+            }
+            final lat = _asDouble(pv['latitude']);
+            final lng = _asDouble(pv['longitude']);
+            if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+              final brand = pv['brand']?.toString().trim() ?? '';
+              final model = pv['model']?.toString().trim() ?? '';
+              final combo = [brand, model].where((s) => s.isNotEmpty).join(' ');
+              pv['vehicle_name'] = pv['vehicle_name'] ?? (combo.isNotEmpty ? combo : 'Partner Vehicle');
+
+              candidateList.add({
+                'id': 'partner_fleet_idle_$vid',
+                'vehicle_id': vid,
+                'latitude': lat,
+                'longitude': lng,
+                'speed_mps': 0.0,
+                'heading_degrees': 0.0,
+                'source': 'registered_location',
+                'recorded_at': DateTime.now().toUtc().toIso8601String(),
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+                'has_active_booking': false,
+                'is_active_booking': false,
+                'bookings': null,
+                'vehicle': pv,
+                'status': 'Available (Idle)',
+              });
+              seenVehicles.add(vid);
+            }
+          }
+        } catch (pvErr) {
+          debugPrint('Partner fleet fallback tracking fetch note: $pvErr');
         }
       } catch (e) {
         debugPrint('Fleet fallback tracking fetch note: $e');
@@ -1173,12 +1221,14 @@ class TrackingService {
 
         for (final t in List<Map<String, dynamic>>.from(trackerRows)) {
           final vid = (t['vehicle_id'] ?? t['partner_vehicle_id'] ?? t['vehicle_application_id'])?.toString() ?? '';
-          if (!partnerVehicleIds.contains(vid) || vehiclesWithLiveLoc.contains(vid)) {
+          final tPartnerId = t['partner_id']?.toString() ?? '';
+          final matchesPartner = partnerVehicleIds.contains(vid) || (tPartnerId.isNotEmpty && tPartnerId == partnerId);
+          if (!matchesPartner || (vid.isNotEmpty && vehiclesWithLiveLoc.contains(vid))) {
             continue;
           }
 
           final veh = vehiclesMap[vid] ?? {
-            'id': vid,
+            'id': vid.isNotEmpty ? vid : 'tracker_${t['id']}',
             'brand': 'GPS Tracker',
             'model': t['device_identifier']?.toString() ?? 'Partner Vehicle',
             'plate_number': t['device_identifier']?.toString() ?? '',
@@ -1186,21 +1236,25 @@ class TrackingService {
 
           var lat = (t['last_latitude'] as num?)?.toDouble() ?? _asDouble(veh['latitude']);
           var lng = (t['last_longitude'] as num?)?.toDouble() ?? _asDouble(veh['longitude']);
+          bool isStandby = false;
 
           if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
-            continue;
+            // Standby fallback to fleet hub so partner car is NEVER hidden
+            lat = 15.9758;
+            lng = 120.5719;
+            isStandby = true;
           }
 
           final lastSpeed = (t['last_speed'] as num?)?.toDouble() ?? 0.0;
 
           candidateList.add({
             'id': 'partner_tracker_${t['id']}',
-            'vehicle_id': vid,
+            'vehicle_id': vid.isNotEmpty ? vid : 'tracker_${t['id']}',
             'latitude': lat,
             'longitude': lng,
             'speed_mps': lastSpeed / 3.6,
             'heading_degrees': 0.0,
-            'source': 'gps_tracker',
+            'source': isStandby ? 'standby_hub' : 'gps_tracker',
             'recorded_at': t['last_sync_at'] ?? t['last_location_at'] ?? DateTime.now().toUtc().toIso8601String(),
             'updated_at': t['last_sync_at'] ?? DateTime.now().toUtc().toIso8601String(),
             'has_active_booking': false,
@@ -1208,10 +1262,11 @@ class TrackingService {
             'bookings': null,
             'vehicle': veh,
             'tracker': t,
-            'status': 'Available (Idle)',
+            'is_standby': isStandby,
+            'status': isStandby ? 'Standby (Awaiting GPS Fix)' : 'Available (Idle)',
           });
 
-          vehiclesWithLiveLoc.add(vid);
+          if (vid.isNotEmpty) vehiclesWithLiveLoc.add(vid);
         }
       } catch (e) {
         debugPrint('Error fetching partner idle vehicle trackers: $e');
@@ -1222,26 +1277,32 @@ class TrackingService {
         if (!vehiclesWithLiveLoc.contains(vid)) {
           final veh = vehiclesMap[vid];
           if (veh != null) {
-            final lat = _asDouble(veh['latitude']);
-            final lng = _asDouble(veh['longitude']);
-            if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
-              candidateList.add({
-                'id': 'partner_idle_$vid',
-                'vehicle_id': vid,
-                'latitude': lat,
-                'longitude': lng,
-                'speed_mps': 0.0,
-                'heading_degrees': 0.0,
-                'source': 'registered_location',
-                'recorded_at': DateTime.now().toUtc().toIso8601String(),
-                'updated_at': DateTime.now().toUtc().toIso8601String(),
-                'has_active_booking': false,
-                'is_active_booking': false,
-                'bookings': null,
-                'vehicle': veh,
-                'status': 'Available (Idle)',
-              });
+            var lat = _asDouble(veh['latitude']);
+            var lng = _asDouble(veh['longitude']);
+            bool isStandby = false;
+            if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+              lat = 15.9758;
+              lng = 120.5719;
+              isStandby = true;
             }
+            candidateList.add({
+              'id': 'partner_idle_$vid',
+              'vehicle_id': vid,
+              'latitude': lat,
+              'longitude': lng,
+              'speed_mps': 0.0,
+              'heading_degrees': 0.0,
+              'source': isStandby ? 'standby_hub' : 'registered_location',
+              'recorded_at': DateTime.now().toUtc().toIso8601String(),
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+              'has_active_booking': false,
+              'is_active_booking': false,
+              'bookings': null,
+              'vehicle': veh,
+              'is_standby': isStandby,
+              'status': isStandby ? 'Standby (Garage Hub)' : 'Available (Idle)',
+            });
+            vehiclesWithLiveLoc.add(vid);
           }
         }
       }
@@ -1371,7 +1432,121 @@ class TrackingService {
             .maybeSingle();
       }
 
-      if (response == null) return null;
+      if (response == null) {
+        // Resilient Fallback: If no driver-app ping exists in tracking_locations yet,
+        // resolve vehicle location from vehicle_trackers, vehicle registered coordinates,
+        // or booking pickup coordinates so live tracking screen never fails.
+        final bData = await supabase
+            .from('bookings')
+            .select('''
+              id, status, renter_id, driver_id, operator_id, partner_id,
+              pickup_location, dropoff_location,
+              pickup_latitude, pickup_longitude,
+              dropoff_latitude, dropoff_longitude,
+              start_at, end_at, vehicle_id
+            ''')
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (bData == null) return null;
+
+        final booking = Map<String, dynamic>.from(bData);
+        final vid = booking['vehicle_id']?.toString() ?? '';
+
+        // Hydrate vehicle details if available
+        Map<String, dynamic>? veh;
+        if (vid.isNotEmpty) {
+          try {
+            final vRow = await supabase
+                .from('vehicles')
+                .select('id, brand, model, plate_number, vehicle_name, owner_id, latitude, longitude')
+                .eq('id', vid)
+                .maybeSingle();
+            if (vRow != null) {
+              veh = Map<String, dynamic>.from(vRow);
+            } else {
+              final pvRow = await supabase
+                  .from('partner_vehicles')
+                  .select('id, brand, model, plate_number, vehicle_name, partner_id, latitude, longitude')
+                  .eq('id', vid)
+                  .maybeSingle();
+              if (pvRow != null) veh = Map<String, dynamic>.from(pvRow);
+            }
+          } catch (_) {}
+        }
+        booking['vehicles'] = veh;
+
+        if (!_canViewTracking(access, booking)) return null;
+
+        // Try getting vehicle_tracker coordinates
+        double? lat;
+        double? lng;
+        double speed = 0.0;
+        String source = 'standby_hub';
+
+        if (vid.isNotEmpty) {
+          try {
+            final tRow = await supabase
+                .from('vehicle_trackers')
+                .select('last_latitude, last_longitude, last_speed, last_sync_at')
+                .or('vehicle_id.eq.$vid,partner_vehicle_id.eq.$vid')
+                .neq('connection_status', 'disconnected')
+                .order('updated_at', ascending: false)
+                .limit(1)
+                .maybeSingle();
+            if (tRow != null) {
+              lat = (tRow['last_latitude'] as num?)?.toDouble();
+              lng = (tRow['last_longitude'] as num?)?.toDouble();
+              speed = (tRow['last_speed'] as num?)?.toDouble() ?? 0.0;
+              if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+                source = 'gps_tracker';
+              }
+            }
+          } catch (_) {}
+        }
+
+        // Fallback to vehicle registered coordinates
+        if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+          if (veh != null) {
+            lat = _asDouble(veh['latitude']);
+            lng = _asDouble(veh['longitude']);
+            if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+              source = 'registered_location';
+            }
+          }
+        }
+
+        // Fallback to booking pickup coordinates
+        if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+          lat = _asDouble(booking['pickup_latitude']);
+          lng = _asDouble(booking['pickup_longitude']);
+          if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+            source = 'pickup_location';
+          }
+        }
+
+        // Final fallback to central garage hub
+        if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+          lat = 15.9758;
+          lng = 120.5719;
+          source = 'fleet_hub';
+        }
+
+        return {
+          'id': 'booking_standby_$bookingId',
+          'booking_id': bookingId,
+          'vehicle_id': vid,
+          'latitude': lat,
+          'longitude': lng,
+          'speed_mps': speed / 3.6,
+          'heading_degrees': 0.0,
+          'source': source,
+          'is_standby': true,
+          'status': 'Vehicle on Standby / Awaiting Trip Start',
+          'recorded_at': DateTime.now().toUtc().toIso8601String(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+          'bookings': booking,
+        };
+      }
       final location = Map<String, dynamic>.from(response);
       final booking = location['bookings'] as Map<String, dynamic>?;
       final status = booking?['status']?.toString().toLowerCase() ?? '';
@@ -1431,14 +1606,23 @@ class TrackingService {
     }
 
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-    if (vehicle == null) return false;
+    if (vehicle == null) {
+      if (access.role == 'partner') {
+        final bookingPartnerId = booking['partner_id']?.toString() ??
+            booking['partner_user_id']?.toString() ??
+            booking['partnerId']?.toString();
+        return bookingPartnerId != null && bookingPartnerId.isNotEmpty && bookingPartnerId == access.userId;
+      }
+      return false;
+    }
     final owner = vehicle['owner'] as Map<String, dynamic>?;
     final ownerRole = owner?['role']?.toString().trim().toLowerCase();
-    final ownerId = vehicle['owner_id']?.toString();
+    final ownerId = vehicle['owner_id']?.toString() ?? vehicle['partner_id']?.toString();
     final partnerVehicle =
         ownerRole == 'partner' ||
         vehicle['is_partner_vehicle'] == true ||
-        vehicle['partner_vehicle_id'] != null;
+        vehicle['partner_vehicle_id'] != null ||
+        vehicle['partner_id'] != null;
 
     if (access.role == 'partner') {
       final bookingPartnerId = booking['partner_id']?.toString() ??
