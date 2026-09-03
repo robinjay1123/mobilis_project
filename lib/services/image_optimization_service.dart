@@ -1,9 +1,7 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
-enum UploadImagePreset { standard, profile, sensitiveDocument, signature }
+enum UploadImagePreset { standard, profile, sensitiveDocument, signature, inspection }
 
 class ImageOptimizationService {
   ImageOptimizationService._();
@@ -22,6 +20,10 @@ class ImageOptimizationService {
         maxDimension: 1800,
         targetBytes: 500000,
       ),
+      UploadImagePreset.inspection => (
+        maxDimension: 1280,
+        targetBytes: 250000,
+      ),
       UploadImagePreset.standard => (maxDimension: 1600, targetBytes: 500000),
     };
 
@@ -36,6 +38,7 @@ class ImageOptimizationService {
         'fileName': fileName,
         'maxDimension': limits.maxDimension,
         'targetBytes': limits.targetBytes,
+        'preset': preset.name,
       });
     } catch (error) {
       debugPrint('Image optimization skipped for $fileName: $error');
@@ -44,8 +47,8 @@ class ImageOptimizationService {
   }
 
   static bool _isSupportedRaster(String fileName) {
-    final extension = fileName.split('.').last.toLowerCase();
-    return const {'jpg', 'jpeg', 'png'}.contains(extension);
+    final extension = fileName.split('.').last.toLowerCase().trim();
+    return const {'jpg', 'jpeg', 'png', 'webp'}.contains(extension);
   }
 }
 
@@ -80,12 +83,14 @@ Uint8List _optimizeImage(Map<String, dynamic> request) {
               ))
       : oriented;
 
-  final extension = fileName.split('.').last.toLowerCase();
+  final extension = fileName.split('.').last.toLowerCase().trim();
+  final presetName = request['preset'] as String?;
+  final quality = presetName == 'inspection' ? 72 : 78;
   Uint8List optimized;
   if (extension == 'png') {
     optimized = img.encodePng(resized, level: 4);
   } else {
-    optimized = img.encodeJpg(resized, quality: 78);
+    optimized = img.encodeJpg(resized, quality: quality);
   }
 
   return optimized.lengthInBytes < original.lengthInBytes

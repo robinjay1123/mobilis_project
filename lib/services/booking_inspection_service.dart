@@ -1,5 +1,6 @@
-import 'dart:typed_data';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'image_optimization_service.dart';
 
@@ -66,7 +67,7 @@ class BookingInspectionService {
     String extension = 'jpg',
     String? customFileName,
   }) async {
-    final safeExtension = extension.replaceAll('.', '').toLowerCase();
+    final safeExtension = extension.replaceAll('.', '').toLowerCase().trim();
     final fileName = customFileName ??
         '${DateTime.now().millisecondsSinceEpoch}_${DateTime.now().microsecondsSinceEpoch % 1000}';
     final objectPath = '$userId/$bookingId/$fileName.$safeExtension';
@@ -74,20 +75,53 @@ class BookingInspectionService {
     final optimizedBytes = await ImageOptimizationService.optimizeForUpload(
       bytes,
       fileName: objectPath,
-      preset: UploadImagePreset.standard,
+      preset: UploadImagePreset.inspection,
     );
-    await supabase.storage
-        .from('booking_evidence')
-        .uploadBinary(
-          objectPath,
-          optimizedBytes,
-          fileOptions: const FileOptions(
-            upsert: true,
-            cacheControl: '31536000',
-          ),
-        );
 
-    return supabase.storage.from('booking_evidence').getPublicUrl(objectPath);
+    final contentType = switch (safeExtension) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'mp4' => 'video/mp4',
+      'mov' => 'video/quicktime',
+      _ => 'image/jpeg',
+    };
+
+    StorageException? lastStorageError;
+    Object? lastError;
+
+    // Retry loop with exponential backoff for transient DB / gateway timeouts (544)
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await supabase.storage
+            .from('booking_evidence')
+            .uploadBinary(
+              objectPath,
+              optimizedBytes,
+              fileOptions: FileOptions(
+                upsert: true,
+                contentType: contentType,
+                cacheControl: '31536000',
+              ),
+            );
+
+        return supabase.storage.from('booking_evidence').getPublicUrl(objectPath);
+      } on StorageException catch (e) {
+        lastStorageError = e;
+        debugPrint('StorageException on attempt $attempt for $objectPath: ${e.message} (status: ${e.statusCode})');
+        if (attempt < 3) {
+          await Future.delayed(Duration(milliseconds: 600 * attempt));
+        }
+      } catch (e) {
+        lastError = e;
+        debugPrint('Upload error on attempt $attempt for $objectPath: $e');
+        if (attempt < 3) {
+          await Future.delayed(Duration(milliseconds: 600 * attempt));
+        }
+      }
+    }
+
+    if (lastStorageError != null) throw lastStorageError;
+    throw lastError ?? Exception('Failed to upload evidence after 3 attempts');
   }
 
   Future<List<String>> uploadMultipleEvidenceBytes({
@@ -98,19 +132,65 @@ class BookingInspectionService {
     if (files.isEmpty) return [];
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    final futures = files.asMap().entries.map((entry) {
-      final index = entry.key;
-      final file = entry.value;
-      return uploadEvidenceBytes(
-        userId: userId,
-        bookingId: bookingId,
-        bytes: file.bytes,
-        extension: file.extension,
-        customFileName: '${now}_${index}_${DateTime.now().microsecondsSinceEpoch % 10000}',
-      );
-    }).toList();
+    final successfulUrls = <String>[];
+    Object? lastUploadError;
 
-    return await Future.wait(futures);
+    // Upload sequentially to avoid saturating Postgres connection pool / 544 DatabaseTimeout
+    for (int index = 0; index < files.length; index++) {
+      final file = files[index];
+      try {
+        final url = await uploadEvidenceBytes(
+          userId: userId,
+          bookingId: bookingId,
+          bytes: file.bytes,
+          extension: file.extension,
+          customFileName: '${now}_${index}_${DateTime.now().microsecondsSinceEpoch % 10000}',
+        );
+        successfulUrls.add(url);
+
+        // Small inter-request delay to release DB connections in Supabase Storage pool
+        if (index < files.length - 1) {
+          await Future.delayed(const Duration(milliseconds: 180));
+        }
+      } catch (e) {
+        lastUploadError = e;
+        debugPrint('Failed to upload evidence item $index: $e');
+        // Continue to attempt remaining evidence items
+      }
+    }
+
+    // If at least one photo uploaded successfully, proceed with the successful ones
+    if (successfulUrls.isNotEmpty) {
+      return successfulUrls;
+    }
+
+    // If ALL storage uploads failed due to severe DatabaseTimeout (544) on Supabase Storage,
+    // fallback to generating compact base64 JPEG data URIs so the partner can still save the checklist!
+    try {
+      final fallbackUrls = <String>[];
+      for (int i = 0; i < files.length && i < 4; i++) {
+        final file = files[i];
+        final compressed = await ImageOptimizationService.optimizeForUpload(
+          file.bytes,
+          fileName: 'evidence_$i.jpg',
+          preset: UploadImagePreset.inspection,
+        );
+        final base64String = base64Encode(compressed);
+        fallbackUrls.add('data:image/jpeg;base64,$base64String');
+      }
+      if (fallbackUrls.isNotEmpty) {
+        debugPrint('Supabase storage unavailable; using ${fallbackUrls.length} compressed fallback evidence URIs');
+        return fallbackUrls;
+      }
+    } catch (fallbackError) {
+      debugPrint('Fallback evidence encoding failed: $fallbackError');
+    }
+
+    if (lastUploadError != null) {
+      throw lastUploadError;
+    }
+
+    return [];
   }
 
   Future<Map<String, dynamic>> saveInspection({
