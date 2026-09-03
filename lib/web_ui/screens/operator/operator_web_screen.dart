@@ -506,6 +506,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<XFile> _selectedImages = [];
   final Map<String, Future<Uint8List>> _selectedImageBytes = {};
   bool _isSubmittingVehicle = false;
+  bool _isOpeningEditVehicleDialog = false;
   bool _isTestingGps = false;
   bool? _isGpsVerified;
   String? _gpsTestMessage;
@@ -28949,107 +28950,214 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     String? partnerIdForNotification,
     String? vehicleTitleForNotification,
   }) async {
-    final formKey = GlobalKey<FormState>();
-    final isPartnerVehicle =
-        vehicle['_source'] == 'partner' ||
-        vehicle['source'] == 'partner' ||
-        vehicle['is_partner_vehicle'] == true;
-    final partnerVehicleId =
-        vehicle['partner_vehicle_id'] ??
-        vehicle['_partner_vehicle_id'] ??
-        vehicle['id'];
+    if (_isOpeningEditVehicleDialog) return;
+    _isOpeningEditVehicleDialog = true;
 
-    _brandController.text = vehicle['brand']?.toString() ?? '';
-    _modelController.text = vehicle['model']?.toString() ?? '';
-    _plateController.text = vehicle['plate_number']?.toString() ?? '';
-    _yearController.text = (vehicle['year'] ?? '').toString();
-    _colorController.text = vehicle['color']?.toString() ?? '';
-    _vehicleNameController.text = vehicle['vehicle_name']?.toString() ?? '';
-    _seatsController.text = (vehicle['seats'] ?? '5').toString();
-    if (prefilledPricePerDay != null) {
-      _priceController.text = prefilledPricePerDay.toStringAsFixed(0);
-    } else {
-      _priceController.text = (vehicle['price_per_day'] ?? '').toString();
-    }
-    if (prefilledPricePerHour != null) {
-      _pricePerHourController.text =
-          prefilledPricePerHour.toStringAsFixed(0);
-    } else {
-      _pricePerHourController.text =
-          (vehicle['price_per_hour'] ?? '').toString();
-    }
-    _locationController.text = vehicle['location']?.toString() ?? '';
-    _latitudeController.text = vehicle['latitude'] != null
-        ? vehicle['latitude'].toString()
-        : '';
-    _longitudeController.text = vehicle['longitude'] != null
-        ? vehicle['longitude'].toString()
-        : '';
-    _descriptionController.text = vehicle['description']?.toString() ?? '';
+    final brand = vehicle['brand']?.toString().trim() ?? '';
+    final model = vehicle['model']?.toString().trim() ?? '';
+    final rawName = vehicle['vehicle_name']?.toString().trim() ?? '';
+    final plate = vehicle['plate_number']?.toString().trim().toUpperCase() ?? '';
+    final displayName = rawName.isNotEmpty ? rawName : (brand.isNotEmpty ? '$brand $model' : 'Vehicle');
 
-    // Reset and preload GPS Tracker info for this vehicle
-    _gpsDeviceIdController.clear();
-    _gpsPasswordController.clear();
-    _isGpsVerified = null;
-    _gpsTestMessage = null;
+    BuildContext? loadingDialogContext;
 
-    final targetVehicleId =
-        (vehicle['id'] ?? vehicle['partner_vehicle_id'])?.toString() ?? '';
-    if (targetVehicleId.isNotEmpty) {
-      try {
-        final existingTracker =
-            await GpsService().getTrackerForVehicle(targetVehicleId);
-        if (existingTracker != null) {
-          final rawPass = GpsService.decryptSecret(
-            existingTracker.encryptedPassword ?? '',
-          );
-          _gpsDeviceIdController.text = existingTracker.deviceIdentifier;
-          _gpsPasswordController.text = rawPass.isNotEmpty
-              ? rawPass
-              : (existingTracker.encryptedPassword ?? '');
-          _isGpsVerified = existingTracker.connectionStatus !=
-              GpsConnectionStatus.disconnected;
-          if (_isGpsVerified == true) {
-            _gpsTestMessage =
-                '● Connected: AIKA168 tracker active (${existingTracker.deviceIdentifier})';
-          }
-        }
-      } catch (e) {
-        debugPrint('Error loading vehicle tracker: $e');
-      }
-    }
-
-    if (!mounted) return;
-
-    var category = (vehicle['category']?.toString().trim().isNotEmpty == true)
-        ? vehicle['category'].toString().trim()
-        : 'Sedan';
-    var vehicleType =
-        (vehicle['vehicle_type']?.toString().trim().isNotEmpty == true)
-        ? vehicle['vehicle_type'].toString().trim()
-        : 'Sedan';
-    var fuelType = (vehicle['fuel_type']?.toString().trim().isNotEmpty == true)
-        ? vehicle['fuel_type'].toString().trim()
-        : 'Unleaded';
-    var transmission =
-        (vehicle['transmission']?.toString().trim().isNotEmpty == true)
-        ? vehicle['transmission'].toString().trim()
-        : 'Automatic';
-    var status = (vehicle['status']?.toString().trim().isNotEmpty == true)
-        ? vehicle['status'].toString().trim()
-        : 'active';
-
-    final List<Map<String, dynamic>> existingImages =
-        List<Map<String, dynamic>>.from(
-          (vehicle['vehicle_images'] as List?) ?? [],
-        );
-    final List<XFile> newImages = [];
-    bool isUpdating = false;
-
+    // Show immediate processing modal to block spam clicks
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => StatefulBuilder(
+      barrierColor: Colors.black.withValues(alpha: isDark ? 0.5 : 0.25),
+      builder: (ctx) {
+        loadingDialogContext = ctx;
+        final bgColor = isDark ? const Color(0xFF1E293B) : Colors.white;
+        final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+        final subTextColor = isDark ? Colors.white70 : const Color(0xFF64748B);
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Center(
+            child: Container(
+              width: 400,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 34),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.6 : 0.25),
+                    blurRadius: 36,
+                    offset: const Offset(0, 18),
+                  ),
+                ],
+                border: Border.all(
+                  color: _operatorGold.withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: (isDark ? _operatorNavy : const Color(0xFFF59E0B))
+                          .withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        isDark ? _operatorGold : const Color(0xFFD97706),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    'Loading Vehicle Details',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    plate.isNotEmpty
+                        ? 'Preparing editor for $displayName ($plate)...'
+                        : 'Preparing editor for $displayName...',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: subTextColor,
+                      fontSize: 13,
+                      height: 1.4,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    try {
+      final formKey = GlobalKey<FormState>();
+      final isPartnerVehicle =
+          vehicle['_source'] == 'partner' ||
+          vehicle['source'] == 'partner' ||
+          vehicle['is_partner_vehicle'] == true;
+      final partnerVehicleId =
+          vehicle['partner_vehicle_id'] ??
+          vehicle['_partner_vehicle_id'] ??
+          vehicle['id'];
+
+      _brandController.text = vehicle['brand']?.toString() ?? '';
+      _modelController.text = vehicle['model']?.toString() ?? '';
+      _plateController.text = vehicle['plate_number']?.toString() ?? '';
+      _yearController.text = (vehicle['year'] ?? '').toString();
+      _colorController.text = vehicle['color']?.toString() ?? '';
+      _vehicleNameController.text = vehicle['vehicle_name']?.toString() ?? '';
+      _seatsController.text = (vehicle['seats'] ?? '5').toString();
+      if (prefilledPricePerDay != null) {
+        _priceController.text = prefilledPricePerDay.toStringAsFixed(0);
+      } else {
+        _priceController.text = (vehicle['price_per_day'] ?? '').toString();
+      }
+      if (prefilledPricePerHour != null) {
+        _pricePerHourController.text =
+            prefilledPricePerHour.toStringAsFixed(0);
+      } else {
+        _pricePerHourController.text =
+            (vehicle['price_per_hour'] ?? '').toString();
+      }
+      _locationController.text = vehicle['location']?.toString() ?? '';
+      _latitudeController.text = vehicle['latitude'] != null
+          ? vehicle['latitude'].toString()
+          : '';
+      _longitudeController.text = vehicle['longitude'] != null
+          ? vehicle['longitude'].toString()
+          : '';
+      _descriptionController.text = vehicle['description']?.toString() ?? '';
+
+      // Reset and preload GPS Tracker info for this vehicle
+      _gpsDeviceIdController.clear();
+      _gpsPasswordController.clear();
+      _isGpsVerified = null;
+      _gpsTestMessage = null;
+
+      final targetVehicleId =
+          (vehicle['id'] ?? vehicle['partner_vehicle_id'])?.toString() ?? '';
+      if (targetVehicleId.isNotEmpty) {
+        try {
+          final existingTracker =
+              await GpsService().getTrackerForVehicle(targetVehicleId);
+          if (existingTracker != null) {
+            final rawPass = GpsService.decryptSecret(
+              existingTracker.encryptedPassword ?? '',
+            );
+            _gpsDeviceIdController.text = existingTracker.deviceIdentifier;
+            _gpsPasswordController.text = rawPass.isNotEmpty
+                ? rawPass
+                : (existingTracker.encryptedPassword ?? '');
+            _isGpsVerified = existingTracker.connectionStatus !=
+                GpsConnectionStatus.disconnected;
+            if (_isGpsVerified == true) {
+              _gpsTestMessage =
+                  '● Connected: AIKA168 tracker active (${existingTracker.deviceIdentifier})';
+            }
+          }
+        } catch (e) {
+          debugPrint('Error loading vehicle tracker: $e');
+        }
+      }
+
+      // Small delay to ensure smooth transition
+      await Future.delayed(const Duration(milliseconds: 250));
+
+      if (loadingDialogContext != null && loadingDialogContext!.mounted) {
+        Navigator.of(loadingDialogContext!).pop();
+        loadingDialogContext = null;
+      } else if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      if (!mounted) return;
+
+      var category = (vehicle['category']?.toString().trim().isNotEmpty == true)
+          ? vehicle['category'].toString().trim()
+          : 'Sedan';
+      var vehicleType =
+          (vehicle['vehicle_type']?.toString().trim().isNotEmpty == true)
+          ? vehicle['vehicle_type'].toString().trim()
+          : 'Sedan';
+      var fuelType = (vehicle['fuel_type']?.toString().trim().isNotEmpty == true)
+          ? vehicle['fuel_type'].toString().trim()
+          : 'Unleaded';
+      var transmission =
+          (vehicle['transmission']?.toString().trim().isNotEmpty == true)
+          ? vehicle['transmission'].toString().trim()
+          : 'Automatic';
+      var status = (vehicle['status']?.toString().trim().isNotEmpty == true)
+          ? vehicle['status'].toString().trim()
+          : 'active';
+
+      final List<Map<String, dynamic>> existingImages =
+          List<Map<String, dynamic>>.from(
+            (vehicle['vehicle_images'] as List?) ?? [],
+          );
+      final List<XFile> newImages = [];
+      bool isUpdating = false;
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           final foreground = isDark ? Colors.white : _operatorInk;
           final panelColor = isDark ? _operatorNavyDeep : Colors.white;
@@ -29923,6 +30031,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         },
       ),
     );
+    } finally {
+      if (loadingDialogContext != null && loadingDialogContext!.mounted) {
+        Navigator.of(loadingDialogContext!).pop();
+      }
+      _isOpeningEditVehicleDialog = false;
+    }
   }
 
   Future<void> _deleteVehicle(dynamic vehicleId) async {
