@@ -7794,6 +7794,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           },
                           onPlayback: () {
                             final bk = focusedLoc['bookings'] as Map<String, dynamic>?;
+                            if (bk != null && _isPartnerOwnedBooking(bk)) return;
                             if (bk?['id'] != null) {
                               final veh = (bk?['vehicles'] ?? focusedLoc['vehicle']) as Map<String, dynamic>?;
                               final vehName = _resolveTrackingVehicleName(focusedLoc);
@@ -8365,17 +8366,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       _focusedTrackingBookingId = isFocused ? null : rowId;
                     });
                   },
-                  onPlayback: () {
-                    if (booking?['id'] != null) {
-                      TripRouteHistoryDialog.show(
-                        context: context,
-                        bookingId: booking!['id'].toString(),
-                        vehicleName: vehicleName,
-                        plateNumber: vehicle?['plate_number']?.toString(),
-                        renterName: renter?['full_name']?.toString(),
-                      );
-                    }
-                  },
+                  onPlayback: (booking?['id'] == null || _isPartnerOwnedBooking(booking!))
+                      ? null
+                      : () {
+                          TripRouteHistoryDialog.show(
+                            context: context,
+                            bookingId: booking!['id'].toString(),
+                            vehicleName: vehicleName,
+                            plateNumber: vehicle?['plate_number']?.toString(),
+                            renterName: renter?['full_name']?.toString(),
+                          );
+                        },
                   onGeofence: () {
                     setState(() {
                       _focusedTrackingBookingId = rowId;
@@ -8408,7 +8409,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ],
                 ),
-                if (hasActiveBooking && booking?['id'] != null) ...[
+                if (hasActiveBooking && booking?['id'] != null && !_isPartnerOwnedBooking(booking!)) ...[
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
@@ -12762,13 +12763,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
-                      if (statusLower == 'active' ||
+                      if ((statusLower == 'active' ||
                               statusLower == 'ongoing' ||
                               statusLower == 'return_pending_inspection' ||
                               statusLower == 'awaiting_completion' ||
                               statusLower == 'completed' ||
                               group == BookingStatusGroup.ongoing ||
-                              group == BookingStatusGroup.completed) ...[
+                              group == BookingStatusGroup.completed) &&
+                          !_isPartnerOwnedBooking(booking)) ...[
                         OutlinedButton.icon(
                           onPressed: () {
                             final bId = booking['id']?.toString() ?? '';
@@ -13514,13 +13516,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             const SizedBox(height: 14),
             BookingReturnCountdown(booking: booking, lightBackground: !isDark),
           ],
-          if (statusLower == 'active' ||
-              statusLower == 'ongoing' ||
-              statusLower == 'return_pending_inspection' ||
-              statusLower == 'awaiting_completion' ||
-              statusLower == 'completed' ||
-              group == BookingStatusGroup.ongoing ||
-              group == BookingStatusGroup.completed) ...[
+          if ((statusLower == 'active' ||
+                  statusLower == 'ongoing' ||
+                  statusLower == 'return_pending_inspection' ||
+                  statusLower == 'awaiting_completion' ||
+                  statusLower == 'completed' ||
+                  group == BookingStatusGroup.ongoing ||
+                  group == BookingStatusGroup.completed) &&
+              !_isPartnerOwnedBooking(booking)) ...[
             const SizedBox(height: 14),
             Container(
               width: double.infinity,
@@ -13929,45 +13932,47 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   'Total Final Trip Cost',
                   'PHP ${_formatCurrency(((booking['total_price'] as num?)?.toDouble() ?? (booking['total_cost'] as num?)?.toDouble() ?? 0.0))}',
                 ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      final bId = booking['id']?.toString() ?? '';
-                      if (bId.isNotEmpty) {
-                        TripRouteHistoryDialog.show(
-                          context: context,
-                          bookingId: bId,
-                          vehicleName: booking['vehicles']?['brand'] != null
-                              ? '${booking['vehicles']['brand']} ${booking['vehicles']['model'] ?? ''}'
-                              : null,
-                          plateNumber:
-                              booking['vehicles']?['plate_number']?.toString(),
-                          renterName: booking['renter']?['full_name']?.toString(),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.route_rounded, size: 16),
-                    label: const Text(
-                      'Audit Traveled GPS Route & Destination Compliance',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                if (!_isPartnerOwnedBooking(booking)) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        final bId = booking['id']?.toString() ?? '';
+                        if (bId.isNotEmpty) {
+                          TripRouteHistoryDialog.show(
+                            context: context,
+                            bookingId: bId,
+                            vehicleName: booking['vehicles']?['brand'] != null
+                                ? '${booking['vehicles']['brand']} ${booking['vehicles']['model'] ?? ''}'
+                                : null,
+                            plateNumber:
+                                booking['vehicles']?['plate_number']?.toString(),
+                            renterName: booking['renter']?['full_name']?.toString(),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.route_rounded, size: 16),
+                      label: const Text(
+                        'Audit Traveled GPS Route & Destination Compliance',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _operatorGold,
-                      side: BorderSide(
-                        color: _operatorGold.withValues(alpha: 0.8),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _operatorGold,
+                        side: BorderSide(
+                          color: _operatorGold.withValues(alpha: 0.8),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                ],
                 () {
                   final finalReceiptUrl =
                       (booking['final_payment_proof_url'] ??
@@ -14319,7 +14324,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ],
                         ),
                       ),
-                      OutlinedButton.icon(
+                      if (!_isPartnerOwnedBooking(booking))
+                        OutlinedButton.icon(
                         onPressed: () {
                           final bId = booking['id']?.toString() ?? '';
                           if (bId.isNotEmpty) {

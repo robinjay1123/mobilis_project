@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/tracking_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/leaflet_map.dart';
+import '../../widgets/trip_route_history_dialog.dart';
 import '../home/chat_detail_screen.dart';
 
 class PartnerTrackingScreen extends StatefulWidget {
@@ -875,6 +876,37 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                final bId = widget.booking['id']?.toString() ?? '';
+                if (bId.isNotEmpty) {
+                  TripRouteHistoryDialog.show(
+                    context: context,
+                    bookingId: bId,
+                    vehicleName: vehicleName,
+                    plateNumber: plateNumber,
+                    renterName: renterName,
+                  );
+                }
+              },
+              icon: const Icon(Icons.route_rounded, size: 18, color: AppColors.primary),
+              label: const Text(
+                'Audit Traveled Route & GPS Playback',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary, width: 1.5),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
           ),
         ],
       ),

@@ -3049,6 +3049,40 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
             ),
           ],
+          if (status == 'active' ||
+              status == 'ongoing' ||
+              status == 'return_pending_inspection' ||
+              status == 'completed' ||
+              status == 'returned') ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  final bId = booking['id']?.toString() ?? '';
+                  if (bId.isNotEmpty) {
+                    TripRouteHistoryDialog.show(
+                      context: context,
+                      bookingId: bId,
+                      vehicleName: vehicleTitle,
+                      plateNumber: vehicle?['plate_number']?.toString(),
+                      renterName: renter?['full_name']?.toString(),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.route_rounded, size: 16, color: AppColors.primary),
+                label: const Text('Audit Traveled Route & GPS Playback'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -12285,6 +12319,31 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                       icon: const Icon(Icons.download_rounded, size: 15),
                       label: const Text('Download Receipt'),
                       style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                    ),
+                  if (status == 'active' ||
+                      status == 'ongoing' ||
+                      status == 'return_pending_inspection' ||
+                      status == 'completed' ||
+                      status == 'returned' ||
+                      status == 'return_inspected')
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        if (widget.showHeader) Navigator.pop(context);
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: bookingId,
+                          vehicleName: vehicleTitle,
+                          plateNumber: plateNumber,
+                          renterName: renter?['full_name']?.toString(),
+                        );
+                      },
+                      icon: const Icon(Icons.route_rounded, size: 15, color: AppColors.primary),
+                      label: const Text('Audit Traveled Route & Playback'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
                     ),
