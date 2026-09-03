@@ -7310,6 +7310,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       };
     }
 
+    final isMoving = speedKph >= 3;
     if (isMoving) {
       return {
         'status': 'moving',
