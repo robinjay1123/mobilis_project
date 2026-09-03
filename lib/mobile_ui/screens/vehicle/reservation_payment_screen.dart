@@ -1225,21 +1225,31 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.shield_outlined, size: 16, color: Color(0xFF3B82F6)),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Security Deposit (${((widget.vehicleData['seats'] as num?)?.toInt() ?? 5) >= 6 ? '6+ Seater' : '4–5 Seater'})',
-                          style: TextStyle(
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(Icons.shield_outlined, size: 16, color: Color(0xFF3B82F6)),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Security Deposit (${((widget.vehicleData['seats'] as num?)?.toInt() ?? 5) >= 6 ? '6+ Seater' : '4–5 Seater'})',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
                       'PHP ${formatAmount(securityDeposit, decimalDigits: 0)}',
                       style: TextStyle(
@@ -1288,23 +1298,33 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.bookmark_added_rounded, size: 16, color: Color(0xFF3B82F6)),
-                          const SizedBox(width: 6),
-                          Text(
-                            widget.requiresLongBookingReservation
-                                ? 'Reservation Fee (20% of principal rent)'
-                                : 'Reservation Fee (PHP 1,000 to hold booking)',
-                            style: TextStyle(
-                              color: isDark ? Colors.white : const Color(0xFF0F172A),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
+                      Expanded(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 2),
+                              child: Icon(Icons.bookmark_added_rounded, size: 16, color: Color(0xFF3B82F6)),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                widget.requiresLongBookingReservation
+                                    ? 'Reservation Fee (20% of principal rent)'
+                                    : 'Reservation Fee (PHP 1,000 to hold booking)',
+                                style: TextStyle(
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
                         'PHP ${formatAmount(reservationFee, decimalDigits: 0)}',
                         style: const TextStyle(
@@ -1443,6 +1463,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   'PHP ${formatAmount(remainingBalance, decimalDigits: 0)}',
                   style: TextStyle(
@@ -1468,8 +1489,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Flexible(
+        Expanded(
           child: Text(
             label,
             style: TextStyle(
@@ -1479,6 +1501,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             ),
           ),
         ),
+        const SizedBox(width: 8),
         Text(
           '${isDiscount ? '-' : ''}PHP ${formatAmount(amount, decimalDigits: 0)}',
           style: TextStyle(
