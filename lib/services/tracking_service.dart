@@ -962,15 +962,31 @@ class TrackingService {
         final vehiclesMap = <String, Map<String, dynamic>>{};
         if (filteredIds.isNotEmpty) {
           try {
-            final vehRows = await supabase
-                .from('vehicles')
-                .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url, vehicle_images')
-                .inFilter('id', filteredIds);
+            List<dynamic> vehRows;
+            try {
+              vehRows = await supabase
+                  .from('vehicles')
+                  .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url, vehicle_images(id, image_url, display_order)')
+                  .inFilter('id', filteredIds);
+            } catch (_) {
+              vehRows = await supabase
+                  .from('vehicles')
+                  .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url')
+                  .inFilter('id', filteredIds);
+            }
             for (final v in List<Map<String, dynamic>>.from(vehRows)) {
               final brand = v['brand']?.toString().trim() ?? '';
               final model = v['model']?.toString().trim() ?? '';
               final combo = [brand, model].where((s) => s.isNotEmpty).join(' ');
               v['vehicle_name'] = v['vehicle_name'] ?? (combo.isNotEmpty ? combo : 'Vehicle');
+              if ((v['image_url'] == null || v['image_url'].toString().isEmpty) &&
+                  v['vehicle_images'] is List &&
+                  (v['vehicle_images'] as List).isNotEmpty) {
+                final firstImg = (v['vehicle_images'] as List).first;
+                if (firstImg is Map && firstImg['image_url'] != null) {
+                  v['image_url'] = firstImg['image_url'].toString();
+                }
+              }
               vehiclesMap[v['id'].toString()] = v;
             }
           } catch (e) {
@@ -1093,11 +1109,20 @@ class TrackingService {
 
       // 3. Fallback for all company & partner vehicles with registered coordinates
       try {
-        final allVehicles = await supabase
-            .from('vehicles')
-            .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url, vehicle_images')
-            .not('latitude', 'is', null)
-            .not('longitude', 'is', null);
+        List<dynamic> allVehicles;
+        try {
+          allVehicles = await supabase
+              .from('vehicles')
+              .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url, vehicle_images(id, image_url, display_order)')
+              .not('latitude', 'is', null)
+              .not('longitude', 'is', null);
+        } catch (_) {
+          allVehicles = await supabase
+              .from('vehicles')
+              .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url')
+              .not('latitude', 'is', null)
+              .not('longitude', 'is', null);
+        }
 
         for (final veh in List<Map<String, dynamic>>.from(allVehicles)) {
           final vid = veh['id']?.toString() ?? '';
@@ -1111,6 +1136,14 @@ class TrackingService {
             final model = veh['model']?.toString().trim() ?? '';
             final combo = [brand, model].where((s) => s.isNotEmpty).join(' ');
             veh['vehicle_name'] = veh['vehicle_name'] ?? (combo.isNotEmpty ? combo : 'Vehicle');
+            if ((veh['image_url'] == null || veh['image_url'].toString().isEmpty) &&
+                veh['vehicle_images'] is List &&
+                (veh['vehicle_images'] as List).isNotEmpty) {
+              final firstImg = (veh['vehicle_images'] as List).first;
+              if (firstImg is Map && firstImg['image_url'] != null) {
+                veh['image_url'] = firstImg['image_url'].toString();
+              }
+            }
 
             candidateList.add({
               'id': 'fleet_idle_$vid',

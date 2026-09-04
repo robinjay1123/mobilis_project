@@ -157,16 +157,17 @@ class GpsService {
     }
 
     // 1. Check if this device is already in vehicle_trackers for another vehicle
+    String? existingTrackerIdByDevice;
     try {
       final existingTrackers = await _supabase
           .from('vehicle_trackers')
           .select('id, vehicle_id, partner_vehicle_id, vehicle_application_id')
           .eq('device_identifier', cleanDevice)
-          .neq('connection_status', 'disconnected')
           .limit(1);
 
       final existingList = List<Map<String, dynamic>>.from(existingTrackers);
       if (existingList.isNotEmpty) {
+        existingTrackerIdByDevice = existingList.first['id']?.toString();
         final existing = existingList.first;
         final isSameTarget = (resolvedVehicleId != null && existing['vehicle_id'] == resolvedVehicleId) ||
             (resolvedPartnerVehicleId != null && existing['partner_vehicle_id'] == resolvedPartnerVehicleId) ||
@@ -223,45 +224,76 @@ class GpsService {
       insertPayload['operator_id'] = currentUser.id;
     }
 
-    // Check existing tracker record for vehicle/application to update rather than duplicate
+    // Priority 1: If this exact device_identifier already exists in vehicle_trackers,
+    // we MUST reuse its row id so the upsert updates the existing row and never hits a unique constraint violation!
+    if (existingTrackerIdByDevice != null && existingTrackerIdByDevice.isNotEmpty) {
+      insertPayload['id'] = existingTrackerIdByDevice;
+    } else {
+      // Check existing tracker record for vehicle/application to update rather than duplicate
+      try {
+        if (resolvedVehicleId != null && resolvedVehicleId.isNotEmpty) {
+          final existingForVeh = await _supabase
+              .from('vehicle_trackers')
+              .select('id')
+              .eq('vehicle_id', resolvedVehicleId)
+              .order('updated_at', ascending: false)
+              .limit(1);
+          final list = List<Map<String, dynamic>>.from(existingForVeh);
+          if (list.isNotEmpty) {
+            insertPayload['id'] = list.first['id'];
+          }
+        } else if (resolvedPartnerVehicleId != null && resolvedPartnerVehicleId.isNotEmpty) {
+          final existingForPVeh = await _supabase
+              .from('vehicle_trackers')
+              .select('id')
+              .eq('partner_vehicle_id', resolvedPartnerVehicleId)
+              .order('updated_at', ascending: false)
+              .limit(1);
+          final list = List<Map<String, dynamic>>.from(existingForPVeh);
+          if (list.isNotEmpty) {
+            insertPayload['id'] = list.first['id'];
+          }
+        } else if (resolvedApplicationId != null && resolvedApplicationId.isNotEmpty) {
+          final existingForApp = await _supabase
+              .from('vehicle_trackers')
+              .select('id')
+              .eq('vehicle_application_id', resolvedApplicationId)
+              .order('updated_at', ascending: false)
+              .limit(1);
+          final list = List<Map<String, dynamic>>.from(existingForApp);
+          if (list.isNotEmpty) {
+            insertPayload['id'] = list.first['id'];
+          }
+        }
+      } catch (e) {
+        debugPrint('Existing tracker ID lookup note: $e');
+      }
+    }
+
+    // If target vehicle was previously linked to another tracker with a different device ID, detach that old tracker
     try {
       if (resolvedVehicleId != null && resolvedVehicleId.isNotEmpty) {
-        final existingForVeh = await _supabase
+        await _supabase
             .from('vehicle_trackers')
-            .select('id')
+            .update({
+              'vehicle_id': null,
+              'connection_status': 'standby',
+              'updated_at': now,
+            })
             .eq('vehicle_id', resolvedVehicleId)
-            .order('updated_at', ascending: false)
-            .limit(1);
-        final list = List<Map<String, dynamic>>.from(existingForVeh);
-        if (list.isNotEmpty) {
-          insertPayload['id'] = list.first['id'];
-        }
+            .neq('device_identifier', cleanDevice);
       } else if (resolvedPartnerVehicleId != null && resolvedPartnerVehicleId.isNotEmpty) {
-        final existingForPVeh = await _supabase
+        await _supabase
             .from('vehicle_trackers')
-            .select('id')
+            .update({
+              'partner_vehicle_id': null,
+              'connection_status': 'standby',
+              'updated_at': now,
+            })
             .eq('partner_vehicle_id', resolvedPartnerVehicleId)
-            .order('updated_at', ascending: false)
-            .limit(1);
-        final list = List<Map<String, dynamic>>.from(existingForPVeh);
-        if (list.isNotEmpty) {
-          insertPayload['id'] = list.first['id'];
-        }
-      } else if (resolvedApplicationId != null && resolvedApplicationId.isNotEmpty) {
-        final existingForApp = await _supabase
-            .from('vehicle_trackers')
-            .select('id')
-            .eq('vehicle_application_id', resolvedApplicationId)
-            .order('updated_at', ascending: false)
-            .limit(1);
-        final list = List<Map<String, dynamic>>.from(existingForApp);
-        if (list.isNotEmpty) {
-          insertPayload['id'] = list.first['id'];
-        }
+            .neq('device_identifier', cleanDevice);
       }
-    } catch (e) {
-      debugPrint('Existing tracker ID lookup note: $e');
-    }
+    } catch (_) {}
 
     final response = await _supabase
         .from('vehicle_trackers')

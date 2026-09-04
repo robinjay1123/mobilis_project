@@ -56,31 +56,46 @@ class GpsTrackerTelemetryCard extends StatelessWidget {
     VoidCallback? onMore,
   }) {
     final booking = location['bookings'] as Map<String, dynamic>?;
-    final vehicle = (booking?['vehicles'] ?? location['vehicle']) as Map<String, dynamic>?;
+    final vehicle = (booking?['vehicles'] ??
+            booking?['partner_vehicles'] ??
+            location['vehicle']) as Map<String, dynamic>?;
     final tracker = location['tracker'] as Map<String, dynamic>?;
-
-    String resolvedTitle = '';
-    if (vehicle != null) {
-      final brand = vehicle['brand']?.toString().trim() ?? '';
-      final model = vehicle['model']?.toString().trim() ?? '';
-      final plate = vehicle['plate_number']?.toString().trim() ?? '';
-      if (brand.isNotEmpty && model.isNotEmpty) {
-        resolvedTitle = '$brand $model${plate.isNotEmpty ? ' ($plate)' : ''}';
-      } else if (brand.isNotEmpty) {
-        resolvedTitle = brand;
-      }
-    }
-    if (resolvedTitle.isEmpty) {
-      resolvedTitle = location['name']?.toString() ??
-          tracker?['name']?.toString() ??
-          (location['device_identifier'] != null ? 'Tracker ${location['device_identifier']}' : 'GPS Tracker');
-    }
 
     final deviceId = (tracker?['device_identifier'] ??
             location['device_identifier'] ??
             location['device_id'] ??
+            vehicle?['plate_number'] ??
             'N/A')
-        .toString();
+        .toString()
+        .trim();
+
+    String resolvedTitle = '';
+    if (vehicle != null) {
+      final isDummy = vehicle['is_unassigned_tracker'] == true ||
+          (vehicle['brand']?.toString().toLowerCase() == 'gps tracker' &&
+              (vehicle['model']?.toString().isEmpty != false ||
+                  vehicle['model']?.toString() == deviceId ||
+                  vehicle['model']?.toString() == 'Device'));
+
+      if (!isDummy) {
+        final brand = vehicle['brand']?.toString().trim() ?? '';
+        final model = vehicle['model']?.toString().trim() ?? '';
+        final plate = vehicle['plate_number']?.toString().trim() ?? '';
+        final vName = vehicle['vehicle_name']?.toString().trim() ?? '';
+        if (brand.isNotEmpty && model.isNotEmpty) {
+          resolvedTitle = '$brand $model${plate.isNotEmpty ? ' ($plate)' : ''}';
+        } else if (vName.isNotEmpty && !vName.toLowerCase().startsWith('gps tracker')) {
+          resolvedTitle = plate.isNotEmpty && !vName.contains(plate) ? '$vName ($plate)' : vName;
+        } else if (brand.isNotEmpty && brand.toLowerCase() != 'gps tracker') {
+          resolvedTitle = plate.isNotEmpty ? '$brand ($plate)' : brand;
+        }
+      }
+    }
+    if (resolvedTitle.isEmpty) {
+      resolvedTitle = (deviceId.isNotEmpty && deviceId != 'N/A')
+          ? 'GPS Tracker $deviceId (Standby)'
+          : 'GPS Tracker (Standby)';
+    }
 
     // ICCID
     String resolvedIccid = (tracker?['iccid'] ?? location['iccid'])?.toString() ?? '';

@@ -10939,14 +10939,34 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   String _resolveTrackingVehicleName(Map<String, dynamic> loc) {
     final booking = loc['bookings'] as Map<String, dynamic>?;
-    final vehicle = (booking?['vehicles'] ??
+    var vehicle = (booking?['vehicles'] ??
             booking?['partner_vehicles'] ??
             loc['vehicle'])
         as Map<String, dynamic>?;
     final tracker = loc['tracker'] as Map<String, dynamic>?;
 
-    final isUnassigned = loc['is_unassigned_tracker'] == true ||
-        vehicle?['is_unassigned_tracker'] == true;
+    final targetId = loc['vehicle_id']?.toString() ??
+        tracker?['vehicle_id']?.toString() ??
+        tracker?['partner_vehicle_id']?.toString() ??
+        vehicle?['id']?.toString();
+    if (targetId != null && targetId.isNotEmpty && !targetId.startsWith('tracker_')) {
+      final real = _allVehicles.firstWhere(
+        (v) => v['id']?.toString() == targetId || v['partner_vehicle_id']?.toString() == targetId,
+        orElse: () => const {},
+      );
+      if (real.isNotEmpty) {
+        vehicle = real;
+      }
+    }
+
+    final isUnassigned = (loc['is_unassigned_tracker'] == true ||
+            vehicle?['is_unassigned_tracker'] == true ||
+            (vehicle?['brand']?.toString().toLowerCase() == 'gps tracker' &&
+                (vehicle?['model']?.toString().isEmpty != false ||
+                    vehicle?['model']?.toString() == tracker?['device_identifier']?.toString() ||
+                    vehicle?['model']?.toString() == loc['device_identifier']?.toString() ||
+                    vehicle?['model']?.toString() == 'Device'))) &&
+        (vehicle?['brand']?.toString().toLowerCase() == 'gps tracker' || vehicle?['brand'] == null);
 
     final deviceId = tracker?['device_identifier']?.toString().trim() ??
         loc['device_identifier']?.toString().trim() ??
@@ -11356,6 +11376,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                   );
                                 }
                               },
+                              onMore: () {
+                                var veh = (focusedLoc['bookings']?['vehicles'] ??
+                                    focusedLoc['bookings']?['partner_vehicles'] ??
+                                    focusedLoc['vehicle']) as Map<String, dynamic>?;
+                                final targetId = focusedLoc['vehicle_id']?.toString() ??
+                                    focusedLoc['tracker']?['vehicle_id']?.toString() ??
+                                    focusedLoc['tracker']?['partner_vehicle_id']?.toString() ??
+                                    veh?['id']?.toString();
+                                if (targetId != null && targetId.isNotEmpty && !targetId.startsWith('tracker_')) {
+                                  final real = _allVehicles.firstWhere(
+                                    (v) => v['id']?.toString() == targetId || v['partner_vehicle_id']?.toString() == targetId,
+                                    orElse: () => const {},
+                                  );
+                                  if (real.isNotEmpty) {
+                                    veh = real;
+                                  }
+                                }
+                                if (veh != null) {
+                                  _showAdminVehicleDetailsDialog(veh, isDark);
+                                }
+                              },
                             ),
                           );
                         },
@@ -11391,11 +11432,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         {'ongoing', 'active', 'in_progress', 'picked_up'}.contains(bStatus) &&
         booking['returned_at'] == null &&
         booking['completed_at'] == null;
-    final vehicle = (booking?['vehicles'] ??
+    var vehicle = (booking?['vehicles'] ??
             booking?['partner_vehicles'] ??
             location['vehicle'])
         as Map<String, dynamic>?;
     final tracker = location['tracker'] as Map<String, dynamic>?;
+    final targetId = location['vehicle_id']?.toString() ??
+        tracker?['vehicle_id']?.toString() ??
+        tracker?['partner_vehicle_id']?.toString() ??
+        vehicle?['id']?.toString();
+    if (targetId != null && targetId.isNotEmpty && !targetId.startsWith('tracker_')) {
+      final real = _allVehicles.firstWhere(
+        (v) => v['id']?.toString() == targetId || v['partner_vehicle_id']?.toString() == targetId,
+        orElse: () => const {},
+      );
+      if (real.isNotEmpty) {
+        vehicle = real;
+      }
+    }
     final driver = (booking?['driver'] ?? booking?['drivers']) as Map<String, dynamic>?;
     final driverUser = (location['tracked_user'] ?? driver?['users']) as Map<String, dynamic>?;
     final renter = booking?['renter'] as Map<String, dynamic>?;
