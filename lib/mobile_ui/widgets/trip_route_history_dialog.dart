@@ -6,6 +6,9 @@ import 'package:intl/intl.dart';
 
 import '../../services/tracking_service.dart';
 
+import '../screens/partner/trip_route_history_screen.dart';
+export '../screens/partner/trip_route_history_screen.dart';
+
 class TripRouteHistoryDialog extends StatefulWidget {
   final String bookingId;
   final String? vehicleName;
@@ -27,14 +30,14 @@ class TripRouteHistoryDialog extends StatefulWidget {
     String? plateNumber,
     String? renterName,
   }) {
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => TripRouteHistoryDialog(
-        bookingId: bookingId,
-        vehicleName: vehicleName,
-        plateNumber: plateNumber,
-        renterName: renterName,
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => TripRouteHistoryScreen(
+          bookingId: bookingId,
+          vehicleName: vehicleName,
+          plateNumber: plateNumber,
+          renterName: renterName,
+        ),
       ),
     );
   }

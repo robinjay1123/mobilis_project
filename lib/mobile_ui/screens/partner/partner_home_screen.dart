@@ -43,6 +43,7 @@ import '../profile/unified_profile_screen.dart';
 import 'partner_tracking_screen.dart';
 import 'partner_revenue_screen.dart';
 import 'partner_safety_review_screen.dart';
+import 'trip_route_history_screen.dart';
 import '../../widgets/leaflet_map.dart';
 import '../../../utils/philippine_geocoding.dart';
 import '../../../utils/currency_formatter.dart';
@@ -3092,7 +3093,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 onPressed: () {
                   final bId = booking['id']?.toString() ?? '';
                   if (bId.isNotEmpty) {
-                    TripRouteHistoryDialog.show(
+                    TripRouteHistoryScreen.open(
                       context: context,
                       bookingId: bId,
                       vehicleName: vehicleTitle,
@@ -13112,8 +13113,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                       status == 'return_inspected')
                     OutlinedButton.icon(
                       onPressed: () {
-                        if (widget.showHeader) Navigator.pop(context);
-                        TripRouteHistoryDialog.show(
+                        TripRouteHistoryScreen.open(
                           context: context,
                           bookingId: bookingId,
                           vehicleName: vehicleTitle,

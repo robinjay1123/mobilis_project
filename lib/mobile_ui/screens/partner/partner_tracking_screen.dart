@@ -1009,7 +1009,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                   onPressed: () {
                     final bId = widget.booking['id']?.toString() ?? '';
                     if (bId.isNotEmpty) {
-                      TripRouteHistoryDialog.show(
+                      TripRouteHistoryScreen.open(
                         context: context,
                         bookingId: bId,
                         vehicleName: vehicleName,
