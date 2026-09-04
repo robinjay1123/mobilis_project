@@ -16571,6 +16571,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         : (renterPayoutMethods.isNotEmpty
             ? renterPayoutMethods.first.provider
             : 'GCash');
+    // Fetch post-trip return inspection
+    Map<String, dynamic>? postInspection;
+    try {
+      final inspections = await BookingInspectionService().getBookingInspections(bookingId);
+      final afterList = inspections.where((i) => (i['inspection_type']?.toString().toLowerCase() == 'after')).toList();
+      if (afterList.isNotEmpty) {
+        postInspection = afterList.first;
+      }
+    } catch (e) {
+      debugPrint('Could not load booking inspections: $e');
+    }
+
     PlatformFile? receiptFile;
     bool isSubmitting = false;
     String? dialogError;
@@ -16583,6 +16595,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           final deposit = double.tryParse(refundAmountController.text) ?? depositAmount;
           final deduction = double.tryParse(deductionAmountController.text) ?? 0.0;
           final netRefund = (deposit - deduction).clamp(0.0, double.infinity);
+
+          // Resolve current status in workflow
+          final currentStatus = (booking['security_deposit_refunded'] == true)
+              ? 'refund_processed'
+              : (booking['security_deposit_status']?.toString() ??
+                  (postInspection != null ? 'post_inspection_submitted' : 'deposit_held'));
 
           // Find active renter method matching selectedMethod
           final activeMethod = renterPayoutMethods.firstWhere(
@@ -16603,11 +16621,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ? activeMethod.qrCodeUrl!.trim()
               : (directQrUrl != null && directQrUrl.trim().isNotEmpty ? directQrUrl.trim() : '');
 
+          // Parse flagged items from post-inspection checklist
+          final flaggedItems = <String>[];
+          if (postInspection != null) {
+            final rawChecklist = postInspection['checklist_items'];
+            if (rawChecklist is Map) {
+              final Map<String, String> keyToLabel = {};
+              for (final sec in BookingInspectionService.checklistSections.values) {
+                keyToLabel.addAll(sec);
+              }
+              rawChecklist.forEach((key, val) {
+                if (val == false) {
+                  flaggedItems.add(keyToLabel[key] ?? key.toString().replaceAll('_', ' '));
+                }
+              });
+            }
+          }
+
+          final evidenceRaw = postInspection?['evidence_urls'];
+          final List<String> evidenceUrls = evidenceRaw is List
+              ? evidenceRaw.map((e) => e.toString()).where((u) => u.trim().isNotEmpty).toList()
+              : [];
+
           return Dialog(
             backgroundColor: Colors.transparent,
             insetPadding: const EdgeInsets.all(24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 640),
+              constraints: const BoxConstraints(maxWidth: 720),
               child: Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
@@ -16651,7 +16691,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
-                                  'Refund Security Deposit',
+                                  'Security Deposit Refund Review',
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w800,
@@ -16682,6 +16722,69 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Operator Authority & Funds Notice
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0284C7).withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(Icons.verified_user_rounded, color: Color(0xFF0284C7), size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Operator & PSDC Authority: PSDC initially receives and holds the security deposit. The Partner submits a Post-Inspection condition report as a recommendation. The Operator reviews the findings, decides any deduction, and releases the refund.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        height: 1.4,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark ? const Color(0xFF7DD3FC) : const Color(0xFF0369A1),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+
+                            // Workflow Status Tracker Chips
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF1E2D44) : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF2C3E5A) : const Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'SECURITY DEPOSIT WORKFLOW STAGES',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.7, color: Colors.grey),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 6,
+                                    children: [
+                                      _buildWorkflowChip('1. Deposit Held', isDone: true, isActive: currentStatus == 'deposit_held', isDark: isDark),
+                                      _buildWorkflowChip('2. Post Inspection Submitted', isDone: postInspection != null || isAlreadyRefunded, isActive: currentStatus == 'post_inspection_submitted', isDark: isDark),
+                                      _buildWorkflowChip('3. Operator Review', isDone: isAlreadyRefunded, isActive: currentStatus == 'operator_review' || (postInspection != null && !isAlreadyRefunded), isDark: isDark),
+                                      _buildWorkflowChip('4. Refund Processed', isDone: isAlreadyRefunded, isActive: currentStatus == 'refund_processed', isDark: isDark),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
                             if (booking['security_deposit_refunded'] == true) ...[
                               Container(
                                 width: double.infinity,
@@ -16703,6 +16806,318 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ),
                                   ],
                                 ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
+                            // Post Inspection Findings & Vehicle Condition Card
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: flaggedItems.isNotEmpty || (postInspection?['damages']?.toString().isNotEmpty == true)
+                                      ? Colors.orange.withValues(alpha: 0.6)
+                                      : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+                                  width: flaggedItems.isNotEmpty ? 1.5 : 1.0,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.fact_check_rounded,
+                                        size: 20,
+                                        color: postInspection != null ? const Color(0xFF0284C7) : Colors.grey,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Expanded(
+                                        child: Text(
+                                          'Partner Post-Inspection Findings & Condition',
+                                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                        ),
+                                      ),
+                                      if (postInspection != null)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: (booking['security_deposit_return_eligible'] == true)
+                                                ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                                                : Colors.orange.withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(
+                                              color: (booking['security_deposit_return_eligible'] == true)
+                                                  ? const Color(0xFF10B981)
+                                                  : Colors.orange,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            (booking['security_deposit_return_eligible'] == true)
+                                                ? 'Partner Recommended: Cleared'
+                                                : 'Partner Recommended: Review Issues',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                              color: (booking['security_deposit_return_eligible'] == true)
+                                                  ? const Color(0xFF10B981)
+                                                  : Colors.orange,
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        const Text(
+                                          'No inspection filed yet',
+                                          style: TextStyle(fontSize: 11, color: Colors.grey, fontStyle: FontStyle.italic),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+
+                                  if (postInspection != null) ...[
+                                    // Condition Grid
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: _buildInspectionMiniItem(
+                                            label: 'Fuel Level',
+                                            value: postInspection['fuel_level']?.toString() ?? 'Recorded',
+                                            icon: Icons.local_gas_station_rounded,
+                                            isDark: isDark,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _buildInspectionMiniItem(
+                                            label: 'Cleanliness',
+                                            value: postInspection['cleanliness']?.toString() ?? 'Recorded',
+                                            icon: Icons.cleaning_services_rounded,
+                                            isDark: isDark,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _buildInspectionMiniItem(
+                                            label: 'Tires / Mags',
+                                            value: '${postInspection["tires_details"] ?? "OK"} / ${postInspection["mags_details"] ?? "OK"}',
+                                            icon: Icons.tire_repair_rounded,
+                                            isDark: isDark,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _buildInspectionMiniItem(
+                                            label: 'Mileage',
+                                            value: postInspection['mileage'] != null
+                                                ? '${postInspection["mileage"]} km'
+                                                : 'Not logged',
+                                            icon: Icons.speed_rounded,
+                                            isDark: isDark,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+
+                                    // Flagged issues / unchecked items
+                                    if (flaggedItems.isNotEmpty) ...[
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: const [
+                                                Icon(Icons.warning_amber_rounded, size: 16, color: Colors.red),
+                                                SizedBox(width: 6),
+                                                Text(
+                                                  'Reported Deficiencies / Unchecked Checklist Items:',
+                                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11.5, color: Colors.red),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Wrap(
+                                              spacing: 6,
+                                              runSpacing: 4,
+                                              children: flaggedItems
+                                                  .map(
+                                                    (item) => Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.red.withValues(alpha: 0.15),
+                                                        borderRadius: BorderRadius.circular(5),
+                                                      ),
+                                                      child: Text(
+                                                        '• $item',
+                                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.red),
+                                                      ),
+                                                    ),
+                                                  )
+                                                  .toList(),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                    ],
+
+                                    // Reported damages or remarks
+                                    if (postInspection['damages']?.toString().isNotEmpty == true ||
+                                        postInspection['remarks']?.toString().isNotEmpty == true ||
+                                        booking['security_deposit_return_notes']?.toString().isNotEmpty == true) ...[
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            if (postInspection['damages']?.toString().isNotEmpty == true)
+                                              Text(
+                                                'Reported Damages: ${postInspection["damages"]}',
+                                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange),
+                                              ),
+                                            if (postInspection['remarks']?.toString().isNotEmpty == true)
+                                              Padding(
+                                                padding: const EdgeInsets.only(top: 4),
+                                                child: Text(
+                                                  'Inspector Remarks: ${postInspection["remarks"]}',
+                                                  style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white70 : Colors.black87),
+                                                ),
+                                              ),
+                                            if (booking['security_deposit_return_notes']?.toString().isNotEmpty == true)
+                                              Padding(
+                                                padding: const EdgeInsets.only(top: 4),
+                                                child: Text(
+                                                  'Partner Deposit Note: ${booking["security_deposit_return_notes"]}',
+                                                  style: TextStyle(fontSize: 11.5, fontStyle: FontStyle.italic, color: isDark ? Colors.white60 : Colors.black54),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                    ],
+
+                                    // Photo evidence thumbnails
+                                    if (evidenceUrls.isNotEmpty) ...[
+                                      const Text(
+                                        'Inspection Evidence Photos (Tap to inspect full size):',
+                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.grey),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      SizedBox(
+                                        height: 64,
+                                        child: ListView.separated(
+                                          scrollDirection: Axis.horizontal,
+                                          itemCount: evidenceUrls.length,
+                                          separatorBuilder: (_, __) => const SizedBox(width: 8),
+                                          itemBuilder: (ctx, idx) {
+                                            final url = evidenceUrls[idx];
+                                            return InkWell(
+                                              onTap: () => _showReceiptProofDialog(url, isDark),
+                                              child: ClipRRect(
+                                                borderRadius: BorderRadius.circular(8),
+                                                child: Container(
+                                                  width: 64,
+                                                  height: 64,
+                                                  decoration: BoxDecoration(
+                                                    border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.5)),
+                                                  ),
+                                                  child: Image.network(
+                                                    url,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __, ___) => const Center(
+                                                      child: Icon(Icons.broken_image_rounded, size: 24, color: Colors.grey),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ] else ...[
+                                    Text(
+                                      'Post-trip return inspection has not been submitted by Partner yet.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontStyle: FontStyle.italic,
+                                        color: isDark ? Colors.white60 : Colors.black54,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Quick Decision Preset Buttons for Operator
+                            if (!isAlreadyRefunded) ...[
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () {
+                                        setDialogState(() {
+                                          deductionAmountController.text = '0';
+                                          deductionNotesController.text = 'Vehicle inspected and cleared. Full refund approved.';
+                                        });
+                                      },
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(0xFF10B981),
+                                        side: const BorderSide(color: Color(0xFF10B981)),
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                                      label: const Text(
+                                        'Approve Full Refund (₱0 Deduction)',
+                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () {
+                                        setDialogState(() {
+                                          if (deductionAmountController.text == '0' || deductionAmountController.text.isEmpty) {
+                                            deductionAmountController.text = '500';
+                                          }
+                                          if (deductionNotesController.text.isEmpty) {
+                                            deductionNotesController.text = 'Post-inspection deduction for damages / missing items.';
+                                          }
+                                        });
+                                      },
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: Colors.orange,
+                                        side: const BorderSide(color: Colors.orange),
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      icon: const Icon(Icons.handyman_outlined, size: 18),
+                                      label: const Text(
+                                        'Apply Deduction & Refund Remaining',
+                                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 16),
                             ],
@@ -16968,7 +17383,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text('Deductions (PHP)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const Text('Deduction from Deposit (PHP)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                                       const SizedBox(height: 6),
                                       TextFormField(
                                         controller: deductionAmountController,
@@ -16995,14 +17410,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Deduction Reason / Notes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                  const Text('Deduction Reason / Notes *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                                   const SizedBox(height: 6),
                                   TextFormField(
                                     controller: deductionNotesController,
                                     readOnly: isAlreadyRefunded,
                                     decoration: InputDecoration(
                                       isDense: true,
-                                      hintText: 'e.g. Minor cleaning fee, missing fuel shortage',
+                                      hintText: 'e.g. Scratches on bumper, missing early warning device, carwash fee...',
                                       filled: true,
                                       fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
                                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -17024,16 +17439,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text(
-                                    'Net Refund Amount to Renter:',
-                                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Net Refund to Renter:',
+                                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                      ),
+                                      Text(
+                                        'Deposit (PHP ${_formatCurrency(deposit, decimals: 0)}) - Deduction (PHP ${_formatCurrency(deduction, decimals: 0)})',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark ? Colors.white60 : Colors.black54,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   Text(
                                     'PHP ${_formatCurrency(netRefund, decimals: 0)}',
                                     style: const TextStyle(
                                       color: Color(0xFF10B981),
                                       fontWeight: FontWeight.w900,
-                                      fontSize: 17,
+                                      fontSize: 18,
                                     ),
                                   ),
                                 ],
@@ -17277,22 +17704,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         booking['security_deposit_refunded'] = true;
                                         booking['security_deposit_refund_amount'] = netRefund;
                                         booking['security_deposit_refund_deduction'] = deduction;
+                                        booking['partner_security_deposit_deduction'] = deduction;
+                                        booking['security_deposit_status'] = 'refund_processed';
                                         booking['security_deposit_refund_notes'] = deductionNotesController.text.trim();
                                         booking['security_deposit_refund_method'] = selectedMethod;
                                         booking['security_deposit_refund_ref'] = ref;
                                         booking['security_deposit_refund_receipt_url'] = uploadedReceiptUrl;
                                         booking['security_deposit_refunded_at'] = DateTime.now().toIso8601String();
+                                        booking['security_deposit_operator_reviewed_at'] = DateTime.now().toIso8601String();
+                                        booking['security_deposit_operator_reviewed_by'] = currentUserId;
 
                                         final rIdx = _recentBookings.indexWhere((b) => b['id']?.toString() == bookingId);
                                         if (rIdx != -1) {
                                           _recentBookings[rIdx]['security_deposit_refunded'] = true;
                                           _recentBookings[rIdx]['security_deposit_refund_amount'] = netRefund;
                                           _recentBookings[rIdx]['security_deposit_refund_deduction'] = deduction;
+                                          _recentBookings[rIdx]['partner_security_deposit_deduction'] = deduction;
+                                          _recentBookings[rIdx]['security_deposit_status'] = 'refund_processed';
                                           _recentBookings[rIdx]['security_deposit_refund_notes'] = deductionNotesController.text.trim();
                                           _recentBookings[rIdx]['security_deposit_refund_method'] = selectedMethod;
                                           _recentBookings[rIdx]['security_deposit_refund_ref'] = ref;
                                           _recentBookings[rIdx]['security_deposit_refund_receipt_url'] = uploadedReceiptUrl;
                                           _recentBookings[rIdx]['security_deposit_refunded_at'] = DateTime.now().toIso8601String();
+                                          _recentBookings[rIdx]['security_deposit_operator_reviewed_at'] = DateTime.now().toIso8601String();
+                                          _recentBookings[rIdx]['security_deposit_operator_reviewed_by'] = currentUserId;
                                         }
                                         if (mounted) {
                                           setState(() {});
@@ -17316,26 +17751,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       } catch (e) {
                                         setDialogState(() {
                                           isSubmitting = false;
-                                          dialogError = 'Failed to submit refund: ${e.toString().replaceAll('Exception:', '').trim()}';
+                                          dialogError = 'Refund failed: $e';
                                         });
                                       }
                                     },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF10B981),
                                 foregroundColor: Colors.white,
-                                disabledBackgroundColor: isDark ? Colors.white12 : Colors.grey.shade300,
-                                disabledForegroundColor: isDark ? Colors.white38 : Colors.grey.shade600,
                                 minimumSize: const Size.fromHeight(46),
                               ),
-                              child: isAlreadyRefunded
-                                  ? const Text('Deposit Refunded ✓', style: TextStyle(fontWeight: FontWeight.w700))
-                                  : (isSubmitting
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                        )
-                                      : const Text('Confirm & Submit Refund', style: TextStyle(fontWeight: FontWeight.w700))),
+                              child: isSubmitting
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2),
+                                    )
+                                  : Text(
+                                      isAlreadyRefunded
+                                          ? 'Refund Already Completed'
+                                          : 'Finalize & Release Refund (PHP ${_formatCurrency(netRefund, decimals: 0)})',
+                                      style: const TextStyle(fontWeight: FontWeight.w800),
+                                    ),
                             ),
                           ),
                         ],
@@ -17355,6 +17791,96 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     deductionNotesController.dispose();
     referenceController.dispose();
     });
+  }
+
+  Widget _buildWorkflowChip(
+    String label, {
+    required bool isDone,
+    required bool isActive,
+    required bool isDark,
+  }) {
+    Color bg;
+    Color fg;
+    Color border;
+    IconData icon;
+
+    if (isActive) {
+      bg = const Color(0xFF10B981).withValues(alpha: 0.2);
+      fg = const Color(0xFF10B981);
+      border = const Color(0xFF10B981);
+      icon = Icons.radio_button_checked_rounded;
+    } else if (isDone) {
+      bg = const Color(0xFF0284C7).withValues(alpha: 0.12);
+      fg = isDark ? const Color(0xFF7DD3FC) : const Color(0xFF0369A1);
+      border = const Color(0xFF0284C7).withValues(alpha: 0.4);
+      icon = Icons.check_circle_rounded;
+    } else {
+      bg = isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.04);
+      fg = isDark ? Colors.white38 : Colors.black38;
+      border = isDark ? Colors.white12 : Colors.black12;
+      icon = Icons.radio_button_unchecked_rounded;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border, width: isActive ? 1.5 : 1.0),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: fg),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, fontWeight: isActive ? FontWeight.w800 : FontWeight.w600, color: fg),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInspectionMiniItem({
+    required String label,
+    required String value,
+    required IconData icon,
+    required bool isDark,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: const Color(0xFF0284C7)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.grey),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildPaymentStateBadge(Map<String, dynamic> booking) {
@@ -18281,7 +18807,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final lateFee = (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
     final rentalSubtotal = (rawRental > 0 ? rawRental : ((booking['total_price'] as num?)?.toDouble() ?? 0.0)) + deliveryFee + lateFee;
     final commission = rentalSubtotal * 0.05;
-    final netPayout = (rentalSubtotal - commission).clamp(0.0, double.infinity);
+    final partnerEarnings = (rentalSubtotal - commission).clamp(0.0, double.infinity);
+    final depositDeduction = (booking['partner_security_deposit_deduction'] as num?)?.toDouble() ??
+        ((booking['partner_payout_deposit_deduction'] as num?)?.toDouble() ??
+        ((booking['security_deposit_refund_deduction'] as num?)?.toDouble() ?? 0.0));
+    final netPayout = (partnerEarnings - depositDeduction).clamp(0.0, double.infinity);
 
     final isAlreadyDisbursed = booking['partner_payout_disbursed'] == true ||
         booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed';
@@ -18526,7 +19056,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Rental Gross (Subtotal + Fees)', style: TextStyle(fontSize: 12)),
+                                      const Text('Rental Total (Gross + Fees)', style: TextStyle(fontSize: 12)),
                                       Text('PHP ${_formatCurrency(rentalSubtotal)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                                     ],
                                   ),
@@ -18538,11 +19068,56 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       Text('- PHP ${_formatCurrency(commission)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.orange)),
                                     ],
                                   ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Partner Earnings', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      Text('PHP ${_formatCurrency(partnerEarnings)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Text('Security Deposit Deduction', style: TextStyle(fontSize: 12)),
+                                          const SizedBox(width: 5),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: depositDeduction > 0
+                                                  ? Colors.red.withValues(alpha: 0.15)
+                                                  : Colors.grey.withValues(alpha: 0.15),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Conditional',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: depositDeduction > 0 ? Colors.redAccent : Colors.grey,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      Text(
+                                        '- PHP ${_formatCurrency(depositDeduction)}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: depositDeduction > 0 ? Colors.redAccent : Colors.grey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                   const Divider(height: 16),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Net Payout to Partner (95%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                                      const Text('Final Partner Disbursement', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                                       Text(
                                         'PHP ${_formatCurrency(netPayout)}',
                                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.purpleAccent),
@@ -18784,6 +19359,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           receiptUrl: uploadedReceiptUrl,
                                           netAmount: effectiveNet,
                                           commissionAmount: commission,
+                                          securityDepositDeduction: depositDeduction,
                                           partnerUserId: partnerUserId,
                                         );
 
@@ -18791,6 +19367,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         booking['partner_payout_status'] = 'disbursed';
                                         booking['partner_payout_amount'] = effectiveNet;
                                         booking['partner_payout_commission'] = commission;
+                                        booking['partner_payout_deposit_deduction'] = depositDeduction;
+                                        booking['partner_security_deposit_deduction'] = depositDeduction;
                                         booking['partner_payout_method'] = selectedMethod;
                                         booking['partner_payout_ref'] = ref;
                                         booking['partner_payout_receipt_url'] = uploadedReceiptUrl;
@@ -18802,6 +19380,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           _recentBookings[pIdx]['partner_payout_status'] = 'disbursed';
                                           _recentBookings[pIdx]['partner_payout_amount'] = effectiveNet;
                                           _recentBookings[pIdx]['partner_payout_commission'] = commission;
+                                          _recentBookings[pIdx]['partner_payout_deposit_deduction'] = depositDeduction;
+                                          _recentBookings[pIdx]['partner_security_deposit_deduction'] = depositDeduction;
                                           _recentBookings[pIdx]['partner_payout_method'] = selectedMethod;
                                           _recentBookings[pIdx]['partner_payout_ref'] = ref;
                                           _recentBookings[pIdx]['partner_payout_receipt_url'] = uploadedReceiptUrl;

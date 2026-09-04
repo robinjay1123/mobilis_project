@@ -7,6 +7,8 @@ class BookingSettlementAmounts {
   const BookingSettlementAmounts({
     required this.ownerServiceAmount,
     required this.partnerCommission,
+    required this.partnerEarnings,
+    this.securityDepositDeduction = 0.0,
     required this.partnerNet,
     required this.driverCommission,
     required this.driverNet,
@@ -15,6 +17,8 @@ class BookingSettlementAmounts {
 
   final double ownerServiceAmount;
   final double partnerCommission;
+  final double partnerEarnings;
+  final double securityDepositDeduction;
   final double partnerNet;
   final double driverCommission;
   final double driverNet;
@@ -26,18 +30,23 @@ class BookingSettlementAmounts {
     required double lateFeeAmount,
     required double driverGross,
     required bool isPartnerVehicle,
+    double securityDepositDeduction = 0.0,
   }) {
     final ownerServiceAmount = rentalAmount + deliveryAmount + lateFeeAmount;
     final partnerCommission = isPartnerVehicle ? ownerServiceAmount * 0.05 : 0.0;
+    final partnerEarnings = isPartnerVehicle
+        ? (ownerServiceAmount - partnerCommission).clamp(0.0, double.infinity).toDouble()
+        : 0.0;
+    final partnerNet = isPartnerVehicle
+        ? (partnerEarnings - securityDepositDeduction).clamp(0.0, double.infinity).toDouble()
+        : 0.0;
     final driverCommission = driverGross * 0.05;
     return BookingSettlementAmounts(
       ownerServiceAmount: ownerServiceAmount,
       partnerCommission: partnerCommission,
-      partnerNet: isPartnerVehicle
-          ? (ownerServiceAmount - partnerCommission)
-                .clamp(0.0, double.infinity)
-                .toDouble()
-          : 0.0,
+      partnerEarnings: partnerEarnings,
+      securityDepositDeduction: securityDepositDeduction,
+      partnerNet: partnerNet,
       driverCommission: driverCommission,
       driverNet: (driverGross - driverCommission)
           .clamp(0.0, double.infinity)
@@ -116,6 +125,9 @@ class BookingSettlementService {
           rental_subtotal,
           delivery_fee,
           late_return_fee,
+          partner_security_deposit_deduction,
+          partner_payout_deposit_deduction,
+          security_deposit_refund_deduction,
           vehicles:vehicle_id (
             id,
             owner_id,
@@ -155,6 +167,11 @@ class BookingSettlementService {
     var rentalAmount = _number(booking['rental_subtotal']);
     final deliveryAmount = _number(booking['delivery_fee']);
     final lateFeeAmount = _number(booking['late_return_fee']);
+    final depositDeduction = _number(
+      booking['partner_security_deposit_deduction'] ??
+          booking['partner_payout_deposit_deduction'] ??
+          booking['security_deposit_refund_deduction'],
+    );
     final recordedTotal = _number(
       booking['total_price'] ?? booking['total_cost'],
     );
@@ -190,6 +207,7 @@ class BookingSettlementService {
       lateFeeAmount: lateFeeAmount,
       driverGross: driverGross,
       isPartnerVehicle: partnerId != null,
+      securityDepositDeduction: depositDeduction,
     );
     final ownerServiceAmount = amounts.ownerServiceAmount;
     final partnerCommission = amounts.partnerCommission;
@@ -230,7 +248,8 @@ class BookingSettlementService {
       'status': 'pending',
       'released_at': null,
       'details': {
-        'partner_commission_rate': partnerId == null ? 0 : 10,
+        'partner_commission_rate': partnerId == null ? 0 : 5,
+        'partner_deposit_deduction': depositDeduction,
         'driver_commission_rate': driverId == null ? 0 : 15,
         'source_total': recordedTotal,
         'note': 'Internal payout ledger; external disbursement is separate.',
@@ -249,11 +268,14 @@ class BookingSettlementService {
         'recipient_user_id': partnerId,
         'recipient_role': 'partner',
         'gross_amount': ownerServiceAmount,
-        'deductions': partnerCommission,
+        'deductions': partnerCommission + depositDeduction,
         'net_amount': partnerNet,
         'status': 'released',
         'released_at': releasedAt,
-        'metadata': {'commission_rate': 10},
+        'metadata': {
+          'commission_rate': 5,
+          'security_deposit_deduction': depositDeduction,
+        },
         'updated_at': releasedAt,
       }, onConflict: 'booking_id,recipient_user_id,recipient_role');
       await _notifyPayout(partnerId, bookingId, partnerNet, 'Partner');

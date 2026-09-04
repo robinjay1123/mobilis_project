@@ -2798,6 +2798,18 @@ class _BookingCard extends StatelessWidget {
     final double defaultSecurityDeposit = adminSettings.getDepositForSeats(seats);
     final depositAmount = (booking['security_deposit'] as num?)?.toDouble() ?? defaultSecurityDeposit;
 
+    // Fetch post-trip return inspection
+    Map<String, dynamic>? postInspection;
+    try {
+      final inspections = await BookingInspectionService().getBookingInspections(bookingId);
+      final afterList = inspections.where((i) => (i['inspection_type']?.toString().toLowerCase() == 'after')).toList();
+      if (afterList.isNotEmpty) {
+        postInspection = afterList.first;
+      }
+    } catch (e) {
+      debugPrint('Could not load booking inspections: $e');
+    }
+
     final refundAmountController =
         TextEditingController(text: depositAmount.toStringAsFixed(0));
     final deductionAmountController = TextEditingController(text: '0');
@@ -2818,6 +2830,11 @@ class _BookingCard extends StatelessWidget {
           final deduction = double.tryParse(deductionAmountController.text) ?? 0.0;
           final netRefund = (deposit - deduction).clamp(0.0, double.infinity);
 
+          final currentStatus = (booking['security_deposit_refunded'] == true)
+              ? 'refund_processed'
+              : (booking['security_deposit_status']?.toString() ??
+                  (postInspection != null ? 'post_inspection_submitted' : 'deposit_held'));
+
           final activeMethod = renterPayoutMethods.firstWhere(
             (m) => m.provider.toLowerCase() == selectedMethod.toLowerCase(),
             orElse: () => renterPayoutMethods.isNotEmpty
@@ -2835,6 +2852,28 @@ class _BookingCard extends StatelessWidget {
           final activeQrUrl = (activeMethod.qrCodeUrl != null && activeMethod.qrCodeUrl!.trim().isNotEmpty)
               ? activeMethod.qrCodeUrl!.trim()
               : (directQrUrl != null && directQrUrl.trim().isNotEmpty ? directQrUrl.trim() : '');
+
+          // Parse flagged items
+          final flaggedItems = <String>[];
+          if (postInspection != null) {
+            final rawChecklist = postInspection['checklist_items'];
+            if (rawChecklist is Map) {
+              final Map<String, String> keyToLabel = {};
+              for (final sec in BookingInspectionService.checklistSections.values) {
+                keyToLabel.addAll(sec);
+              }
+              rawChecklist.forEach((key, val) {
+                if (val == false) {
+                  flaggedItems.add(keyToLabel[key] ?? key.toString().replaceAll('_', ' '));
+                }
+              });
+            }
+          }
+
+          final evidenceRaw = postInspection?['evidence_urls'];
+          final List<String> evidenceUrls = evidenceRaw is List
+              ? evidenceRaw.map((e) => e.toString()).where((u) => u.trim().isNotEmpty).toList()
+              : [];
 
           return Dialog(
             backgroundColor: isDark ? const Color(0xFF172235) : Colors.white,
@@ -2912,7 +2951,212 @@ class _BookingCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 8),
+
+                  // Status Badge
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.shield_outlined, size: 12, color: Color(0xFF10B981)),
+                        const SizedBox(width: 4),
+                        Text(
+                          'STATUS: ${currentStatus.replaceAll('_', ' ').toUpperCase()}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // PSDC Authority Banner
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0284C7).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.verified_user_rounded, color: Color(0xFF0284C7), size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'PSDC Operator Authority: PSDC receives and holds the security deposit. Partner submits post-trip inspection as recommendation. Operator approves refund or applies deduction.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDark ? const Color(0xFF7DD3FC) : const Color(0xFF0369A1),
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Post Inspection Findings & Vehicle Condition Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E2D44) : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: flaggedItems.isNotEmpty
+                            ? Colors.orange.withValues(alpha: 0.6)
+                            : (isDark ? const Color(0xFF2C3E5A) : const Color(0xFFE2E8F0)),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.fact_check_rounded, size: 16, color: postInspection != null ? const Color(0xFF0284C7) : Colors.grey),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text(
+                                'Post-Inspection Findings',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                            if (postInspection != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: (booking['security_deposit_return_eligible'] == true)
+                                      ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                                      : Colors.orange.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  (booking['security_deposit_return_eligible'] == true)
+                                      ? 'Partner: Cleared'
+                                      : 'Partner: Review Issues',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: (booking['security_deposit_return_eligible'] == true)
+                                        ? const Color(0xFF10B981)
+                                        : Colors.orange,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        if (postInspection != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Fuel: ${postInspection["fuel_level"] ?? "N/A"} • Cleanliness: ${postInspection["cleanliness"] ?? "N/A"} • Tires: ${postInspection["tires_details"] ?? "OK"}',
+                            style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.black87),
+                          ),
+                          if (flaggedItems.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Flagged Deficiencies: ${flaggedItems.join(", ")}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red),
+                            ),
+                          ],
+                          if (postInspection['damages']?.toString().isNotEmpty == true) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Damages: ${postInspection["damages"]}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orange),
+                            ),
+                          ],
+                          if (evidenceUrls.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 48,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: evidenceUrls.length,
+                                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                                itemBuilder: (ctx, idx) => ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Image.network(
+                                    evidenceUrls[idx],
+                                    width: 48,
+                                    height: 48,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 24),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ] else ...[
+                          const SizedBox(height: 4),
+                          const Text(
+                            'No post-trip inspection submitted yet by Partner.',
+                            style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Quick Action Buttons
+                  if (booking['security_deposit_refunded'] != true) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              setDialogState(() {
+                                deductionAmountController.text = '0';
+                                deductionNotesController.text = 'Vehicle inspected and cleared. Full refund approved.';
+                              });
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF10B981),
+                              side: const BorderSide(color: Color(0xFF10B981)),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                            child: const Text('Approve Full (₱0)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              setDialogState(() {
+                                if (deductionAmountController.text == '0' || deductionAmountController.text.isEmpty) {
+                                  deductionAmountController.text = '500';
+                                }
+                                if (deductionNotesController.text.isEmpty) {
+                                  deductionNotesController.text = 'Deduction for condition/damages.';
+                                }
+                              });
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.orange,
+                              side: const BorderSide(color: Colors.orange),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                            child: const Text('Apply Deduction', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
                   // Renter Info & QR / Linked Account Card
                   Container(
@@ -3080,47 +3324,28 @@ class _BookingCard extends StatelessWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Net Refund:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Net Refund to Renter:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            Text(
+                              'Deposit (PHP ${deposit.toStringAsFixed(0)}) - Deduction (PHP ${deduction.toStringAsFixed(0)})',
+                              style: const TextStyle(fontSize: 10, color: Colors.grey),
+                            ),
+                          ],
+                        ),
                         Text(
                           'PHP ${netRefund.toStringAsFixed(0)}',
                           style: const TextStyle(
                             color: Color(0xFF10B981),
                             fontWeight: FontWeight.w900,
-                            fontSize: 15,
+                            fontSize: 16,
                           ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 10),
-                  // Deduction policy note
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF59E0B).withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
-                    ),
-                    child: const Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFFF59E0B)),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Note: The security deposit may NOT be fully refunded if the vehicle was returned with cleanliness issues, scratches, damages, or any unresolved violations. The operator may deduct applicable charges before disbursing the refund. Enter the deduction amount above and provide notes for transparency.',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFFF59E0B),
-                              height: 1.45,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
 
                   // Method & Ref
                   DropdownButtonFormField<String>(
@@ -3173,7 +3398,6 @@ class _BookingCard extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 12),
-
 
                   // Receipt Upload
                   if (receiptFile == null)
@@ -3279,11 +3503,15 @@ class _BookingCard extends StatelessWidget {
                                 booking['security_deposit_refunded'] = true;
                                 booking['security_deposit_refund_amount'] = netRefund;
                                 booking['security_deposit_refund_deduction'] = deduction;
+                                booking['partner_security_deposit_deduction'] = deduction;
+                                booking['security_deposit_status'] = 'refund_processed';
                                 booking['security_deposit_refund_notes'] = deductionNotesController.text.trim();
                                 booking['security_deposit_refund_method'] = selectedMethod;
                                 booking['security_deposit_refund_ref'] = ref;
                                 booking['security_deposit_refund_receipt_url'] = uploadedReceiptUrl;
                                 booking['security_deposit_refunded_at'] = DateTime.now().toIso8601String();
+                                booking['security_deposit_operator_reviewed_at'] = DateTime.now().toIso8601String();
+                                booking['security_deposit_operator_reviewed_by'] = currentUserId;
 
                                 if (!context.mounted) return;
                                 Navigator.pop(dialogContext);
@@ -3367,7 +3595,11 @@ class _BookingCard extends StatelessWidget {
     final lateFee = (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
     final rentalSubtotal = (rawRental > 0 ? rawRental : ((booking['total_price'] as num?)?.toDouble() ?? 0.0)) + deliveryFee + lateFee;
     final commission = rentalSubtotal * 0.05;
-    final netPayout = (rentalSubtotal - commission).clamp(0.0, double.infinity);
+    final partnerEarnings = rentalSubtotal - commission;
+    final depositDeduction = (booking['partner_security_deposit_deduction'] as num?)?.toDouble() ??
+        ((booking['partner_payout_deposit_deduction'] as num?)?.toDouble() ??
+            ((booking['security_deposit_refund_deduction'] as num?)?.toDouble() ?? 0.0));
+    final netPayout = (partnerEarnings - depositDeduction).clamp(0.0, double.infinity);
 
     final payoutAmountController =
         TextEditingController(text: netPayout.toStringAsFixed(2));
@@ -3540,7 +3772,7 @@ class _BookingCard extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Rental Subtotal', style: TextStyle(fontSize: 12)),
+                            const Text('Rental Total (Gross + Fees)', style: TextStyle(fontSize: 12)),
                             Text('PHP ${rentalSubtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                           ],
                         ),
@@ -3548,15 +3780,60 @@ class _BookingCard extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Platform Fee (5%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                            const Text('PSDC Platform Commission (5%)', style: TextStyle(fontSize: 12, color: Colors.orange)),
                             Text('- PHP ${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.orange)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Partner Earnings', style: TextStyle(fontSize: 12)),
+                            Text('PHP ${partnerEarnings.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Text('Security Deposit Deduction', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: depositDeduction > 0 ? Colors.red.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    depositDeduction > 0 ? 'Applied' : '₱0 (None)',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: depositDeduction > 0 ? Colors.red : Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              depositDeduction > 0
+                                  ? '- PHP ${depositDeduction.toStringAsFixed(2)}'
+                                  : 'PHP 0.00',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: depositDeduction > 0 ? Colors.red : Colors.grey,
+                              ),
+                            ),
                           ],
                         ),
                         const Divider(height: 12),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Net Payout (95%)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                            const Text('Final Partner Disbursement', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                             Text('PHP ${netPayout.toStringAsFixed(2)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.purpleAccent)),
                           ],
                         ),
@@ -3703,6 +3980,7 @@ class _BookingCard extends StatelessWidget {
                                   receiptUrl: uploadedReceiptUrl,
                                   netAmount: effectiveNet,
                                   commissionAmount: commission,
+                                  securityDepositDeduction: depositDeduction,
                                   partnerUserId: partnerUserId,
                                 );
 
@@ -3710,6 +3988,8 @@ class _BookingCard extends StatelessWidget {
                                 booking['partner_payout_status'] = 'disbursed';
                                 booking['partner_payout_amount'] = effectiveNet;
                                 booking['partner_payout_commission'] = commission;
+                                booking['partner_security_deposit_deduction'] = depositDeduction;
+                                booking['partner_payout_deposit_deduction'] = depositDeduction;
                                 booking['partner_payout_method'] = selectedMethod;
                                 booking['partner_payout_ref'] = ref;
                                 booking['partner_payout_receipt_url'] = uploadedReceiptUrl;

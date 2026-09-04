@@ -10374,6 +10374,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         key: false,
     };
     final selectedEvidence = <PlatformFile>[];
+    bool partnerEligibleRecommendation = true;
 
     final shouldSave = await showModalBottomSheet<bool>(
       context: context,
@@ -10432,7 +10433,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             Text(
                               inspectionType == 'before'
                                   ? 'Required before this booking can move to Ongoing.'
-                                  : 'Record the condition returned by the renter.',
+                                  : 'Report the vehicle condition for Operator deposit review.',
                               style: const TextStyle(
                                 color: AppColors.textSecondary,
                                 fontSize: 12,
@@ -10568,7 +10569,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           child: Text(
                             inspectionType == 'before'
                                 ? 'Pre-trip checklist items are optional. Check only items that apply and are in working condition. Unchecked items will be recorded as existing defects.'
-                                : 'Post-trip checklist items are optional. Check only items that apply — unchecked items will be flagged as issues for review. This determines security deposit refund eligibility.',
+                                : 'Post-trip checklist: check items in good working condition. Unchecked items and damages will be sent to the Operator to determine applicable security deposit deductions.',
                             style: const TextStyle(fontSize: 11, color: Colors.blue, height: 1.4),
                           ),
                         ),
@@ -10656,6 +10657,65 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           .toList(),
                     ),
                   ],
+                  if (inspectionType == 'after') ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: partnerEligibleRecommendation
+                            ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                            : AppColors.darkBg,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: partnerEligibleRecommendation
+                              ? const Color(0xFF10B981)
+                              : AppColors.borderColor,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Checkbox(
+                            value: partnerEligibleRecommendation,
+                            activeColor: const Color(0xFF10B981),
+                            onChanged: (val) {
+                              setSheetState(() {
+                                partnerEligibleRecommendation = val ?? false;
+                              });
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Partner Report: Vehicle Returned in Good Condition',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                    color: partnerEligibleRecommendation
+                                        ? const Color(0xFF10B981)
+                                        : AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                const Text(
+                                  'Check if vehicle has no unaddressed damages or issues. This serves as your condition recommendation; the Operator will review all inspection findings and make the final decision regarding security deposit refund or deductions.',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textSecondary,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
@@ -10699,7 +10759,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       child: Text(
                         inspectionType == 'before'
                             ? 'Submit and Start Trip'
-                            : 'Submit Return Checklist',
+                            : 'Submit Inspection to Operator',
                       ),
                     ),
                   ),
@@ -10956,10 +11016,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           confirmPaymentIfUnpaid: confirmPaymentNow,
         );
 
+        await BookingService().setSecurityDepositReturnEligibility(
+          bookingId: bookingId,
+          isEligible: partnerEligibleRecommendation,
+          ineligibilityReason: partnerEligibleRecommendation
+              ? null
+              : 'Partner reported damages / vehicle issues for Operator review.',
+        );
+
         if (!mounted) return;
         _showSuccessSnackBar(
           (!hasChargesOrViolations || confirmPaymentNow)
-              ? 'Return checklist submitted. Trip completed successfully!'
+              ? 'Return checklist submitted. Vehicle condition reported to Operator for security deposit review.'
               : 'Return checklist submitted. Trip is awaiting late fee / balance payment confirmation.',
         );
       }

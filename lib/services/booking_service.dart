@@ -3906,20 +3906,23 @@ class BookingService {
         'pending';
     final isPaid = currentPaymentStatus == 'paid' || confirmPaymentIfUnpaid;
 
+    final isDepositAlreadyRefunded = booking['security_deposit_refunded'] == true;
+    final depositStatus = isDepositAlreadyRefunded
+        ? 'refund_processed'
+        : 'post_inspection_submitted';
+
     if (isPaid) {
-      await supabase
-          .from('bookings')
-          .update({
-            'status': 'completed',
-            'returned_at': now,
-            'completed_at': now,
-            'final_payment_status': 'paid',
-            'final_payment_confirmed_at': now,
-            'final_payment_confirmed_by': inspectorId,
-            ...lateReturn,
-            'updated_at': now,
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'status': 'completed',
+        'returned_at': now,
+        'completed_at': now,
+        'final_payment_status': 'paid',
+        'final_payment_confirmed_at': now,
+        'final_payment_confirmed_by': inspectorId,
+        'security_deposit_status': depositStatus,
+        ...lateReturn,
+        'updated_at': now,
+      });
 
       try {
         await LoyaltyService().awardPointsForCompletedBooking(bookingId);
@@ -3928,17 +3931,15 @@ class BookingService {
       }
     } else {
       // Payment has NOT been confirmed yet. Return goes through, but booking stays ongoing!
-      await supabase
-          .from('bookings')
-          .update({
-            'status': 'ongoing',
-            'returned_at': now,
-            'completion_stage': 'awaiting_payment',
-            'final_payment_status': 'pending',
-            ...lateReturn,
-            'updated_at': now,
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'status': 'ongoing',
+        'returned_at': now,
+        'completion_stage': 'awaiting_payment',
+        'final_payment_status': 'pending',
+        'security_deposit_status': depositStatus,
+        ...lateReturn,
+        'updated_at': now,
+      });
     }
 
     try {
@@ -6389,16 +6390,20 @@ class BookingService {
     final now = DateTime.now().toUtc();
     final updatePayload = <String, dynamic>{
       'security_deposit_refunded': true,
+      'security_deposit_status': 'refund_processed',
       'security_deposit_refund_amount': refundAmount,
       'security_deposit_refund_deduction': deductionAmount,
+      'partner_security_deposit_deduction': deductionAmount,
       'security_deposit_refund_notes': deductionNotes,
       'security_deposit_refund_method': refundMethod,
       'security_deposit_refund_ref': refundReference,
       'security_deposit_refund_receipt_url': refundReceiptUrl,
       'security_deposit_refunded_at': now.toIso8601String(),
+      'security_deposit_operator_reviewed_at': now.toIso8601String(),
     };
     if (operatorId.trim().isNotEmpty) {
       updatePayload['security_deposit_refunded_by'] = operatorId.trim();
+      updatePayload['security_deposit_operator_reviewed_by'] = operatorId.trim();
     }
 
     await safeUpdateBooking(bookingId, updatePayload);
@@ -6434,6 +6439,30 @@ class BookingService {
     }
   }
 
+  /// Records the Operator's review decision for the security deposit before or during refund processing.
+  Future<void> reviewSecurityDepositDecision({
+    required String bookingId,
+    required double deductionAmount,
+    String? deductionNotes,
+    required String operatorId,
+  }) async {
+    final now = DateTime.now().toUtc();
+    final status =
+        deductionAmount > 0 ? 'deduction_applied' : 'full_refund_approved';
+    final payload = <String, dynamic>{
+      'security_deposit_status': status,
+      'security_deposit_refund_deduction': deductionAmount,
+      'partner_security_deposit_deduction': deductionAmount,
+      if (deductionNotes != null)
+        'security_deposit_refund_notes': deductionNotes.trim(),
+      'security_deposit_operator_reviewed_at': now.toIso8601String(),
+    };
+    if (operatorId.trim().isNotEmpty) {
+      payload['security_deposit_operator_reviewed_by'] = operatorId.trim();
+    }
+    await safeUpdateBooking(bookingId, payload);
+  }
+
   Future<void> setSecurityDepositReturnEligibility({
     required String bookingId,
     required bool isEligible,
@@ -6447,6 +6476,9 @@ class BookingService {
   }
 
   /// Disburse partner net earnings / commission for a completed partner booking.
+  /// Calculation:
+  /// Partner Earnings = Rental Total - 5% PSDC Commission
+  /// Final Disbursement = Partner Earnings - Security Deposit Deduction (Conditional)
   Future<void> disbursePartnerCommission({
     required String bookingId,
     required String operatorId,
@@ -6455,6 +6487,7 @@ class BookingService {
     String? receiptUrl,
     required double netAmount,
     required double commissionAmount,
+    double securityDepositDeduction = 0.0,
     String? partnerUserId,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
@@ -6464,6 +6497,8 @@ class BookingService {
       'partner_payout_status': 'disbursed',
       'partner_payout_amount': netAmount,
       'partner_payout_commission': commissionAmount,
+      'partner_payout_deposit_deduction': securityDepositDeduction,
+      'partner_security_deposit_deduction': securityDepositDeduction,
       'partner_payout_method': paymentMethod,
       'partner_payout_ref': referenceNumber,
       'partner_payout_receipt_url': receiptUrl ?? '',
@@ -6488,13 +6523,14 @@ class BookingService {
           'booking_id': bookingId,
           'recipient_user_id': partnerUserId,
           'recipient_role': 'partner',
-          'gross_amount': netAmount + commissionAmount,
-          'deductions': commissionAmount,
+          'gross_amount': netAmount + commissionAmount + securityDepositDeduction,
+          'deductions': commissionAmount + securityDepositDeduction,
           'net_amount': netAmount,
           'status': 'released',
           'released_at': now,
           'metadata': {
             'commission_rate': 5,
+            'security_deposit_deduction': securityDepositDeduction,
             'payment_method': paymentMethod,
             'reference_number': referenceNumber,
             'receipt_url': receiptUrl,
