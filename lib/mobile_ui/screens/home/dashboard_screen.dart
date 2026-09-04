@@ -9056,11 +9056,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.bolt_rounded, color: AppColors.primary, size: 16),
+                  Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 16),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Trip extensions are paid immediately online (GCash/Maya/QR Ph) for instant confirmation.',
+                      'Trip extensions require review and approval by the Partner/Operator before becoming finalized.',
                       style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -9093,7 +9093,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Navigator.pop(ctx, true);
             },
             child: const Text(
-              'Proceed to Online Payment',
+              'Proceed to Payment & Request',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
               ),
@@ -9185,7 +9185,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Pay Extension Online',
+                            'Pay & Request Extension',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -9194,7 +9194,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'Instant Schedule Confirmation',
+                            'Requires Partner / Operator Approval',
                             style: TextStyle(
                               fontSize: 12,
                               color: AppColors.primary,
@@ -9558,7 +9558,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text(
-                                        'Trip Extension Confirmed & Paid! Your new return schedule is updated.',
+                                        'Extension request submitted! Waiting for Partner review and confirmation.',
                                       ),
                                       backgroundColor: AppColors.success,
                                     ),
@@ -9595,7 +9595,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             )
                           : const Text(
-                              'Pay & Confirm Extension',
+                              'Submit Extension Request & Payment',
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 15,
@@ -12642,7 +12642,35 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             'Additional Extension Fee',
             '+PHP ${formatAmount(additionalPrice, decimalDigits: 0)}',
           ),
-          if (extStatus == 'accepted' || extStatus == 'payment_pending') ...[
+          if (extStatus == 'pending' ||
+              extStatus == 'pending_partner' ||
+              extStatus == 'pending_operator') ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.hourglass_top_rounded, color: Colors.amber, size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Extension request submitted! Waiting for the vehicle partner to review and accept.',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (extStatus == 'accepted' || extStatus == 'payment_pending') ...[
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
@@ -12678,7 +12706,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Payment receipt submitted! Waiting for manager to verify proof and confirm your dates.',
+                      'Payment receipt submitted! Waiting for partner to verify proof and confirm your dates.',
                       style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 11,
@@ -12704,7 +12732,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Payment verified! Vehicle manager is performing final calendar confirmation.',
+                      'Payment verified! Partner is performing final calendar confirmation.',
                       style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 11,
@@ -12740,6 +12768,173 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ] else if (extStatus == 'rejected' || extStatus == 'cancelled') ...[
+            const SizedBox(height: 10),
+            Builder(
+              builder: (context) {
+                final reason = booking['extension_rejection_reason']?.toString() ?? 'Extension request declined.';
+                final extPayStatus = booking['extension_payment_status']?.toString().toLowerCase().trim() ?? '';
+                final extPayRef = booking['extension_payment_reference']?.toString().trim() ?? '';
+                final hasPayment = (extPayStatus == 'paid' ||
+                        extPayStatus == 'verified' ||
+                        extPayStatus == 'pending_review') ||
+                    (extPayRef.isNotEmpty && extPayRef != 'N/A');
+                final refundStatus = booking['extension_refund_status']?.toString().toLowerCase().trim() ?? '';
+                final isRefunded = refundStatus == 'refunded' || booking['extension_refund_completed'] == true;
+                final refundAmount = (booking['extension_refund_amount'] as num?)?.toDouble() ??
+                    (booking['extension_additional_price'] as num?)?.toDouble() ??
+                    additionalPrice;
+                final refundMethod = booking['extension_refund_method']?.toString() ?? 'Online';
+                final refundRef = booking['extension_refund_ref']?.toString() ?? 'N/A';
+                final refundReceipt = booking['extension_refund_receipt_url']?.toString();
+
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.cancel_outlined, color: AppColors.error, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              reason,
+                              style: const TextStyle(
+                                color: AppColors.error,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Your extension request was declined. Please return the vehicle according to your scheduled return time.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                          height: 1.35,
+                        ),
+                      ),
+                      if (isRefunded) ...[
+                        const Divider(height: 16, color: Colors.white12),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 16),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Extension Fee Refunded: PHP ${formatAmount(refundAmount, decimalDigits: 0)}',
+                                    style: const TextStyle(
+                                      color: Colors.greenAccent,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Refund sent via $refundMethod • Ref: $refundRef',
+                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                              ),
+                              if (refundReceipt != null && refundReceipt.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                InkWell(
+                                  onTap: () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (ctx) => Dialog(
+                                        backgroundColor: Colors.black,
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Image.network(refundReceipt),
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(ctx),
+                                              child: const Text('Close'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text(
+                                    'View Refund Transfer Receipt',
+                                    style: TextStyle(
+                                      color: AppColors.primary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ] else if (hasPayment || booking['extension_refund_required'] == true) ...[
+                        const Divider(height: 16, color: Colors.white12),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.currency_exchange_rounded, color: Colors.amber, size: 16),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Refund Initiated: PHP ${formatAmount(refundAmount, decimalDigits: 0)}',
+                                    style: const TextStyle(
+                                      color: Colors.amber,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'The vehicle partner has declined this extension. Your paid extension fee is being returned to your registered refund account/QR code.',
+                                style: TextStyle(color: AppColors.textSecondary, fontSize: 11, height: 1.3),
+                              ),
+                              if (extPayRef.isNotEmpty && extPayRef != 'N/A') ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Original Payment Ref: $extPayRef (${booking['extension_payment_method'] ?? 'Online'})',
+                                  style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
             ),
           ],
         ],

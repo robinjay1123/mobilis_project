@@ -5220,35 +5220,25 @@ class BookingService {
       }
     }
 
-    final currentTotal = (booking['total_price'] as num?)?.toDouble() ??
-        (booking['totalCost'] as num?)?.toDouble() ??
-        0.0;
-    final newTotal = currentTotal + additionalPrice;
-    final currentDays = (booking['days'] as num?)?.toInt() ?? 1;
-    final totalDays = currentDays + extensionDays;
     final now = DateTime.now().toUtc().toIso8601String();
 
+    // ⚠️ CRITICAL FIX: Do NOT immediately commit end_at, end_date, total_price, days, or dropoff_location!
+    // The extension must be reviewed and explicitly approved/finalized by the Partner/Operator.
+    // Trip schedule remains untouched until the Partner/Operator approves.
     await safeUpdateBooking(bookingId, {
-      'end_at': newEndAt.toIso8601String(),
-      'end_date': newEndAt.toIso8601String(),
-      'total_price': newTotal,
-      'days': totalDays,
-      if (newDestination != null && newDestination.trim().isNotEmpty)
-        'dropoff_location': newDestination.trim(),
       'extension_requested_end_at': newEndAt.toIso8601String(),
       if (newDestination != null && newDestination.trim().isNotEmpty)
         'extension_requested_destination': newDestination.trim(),
       'extension_additional_price': additionalPrice,
       'extension_days': extensionDays,
-      'extension_status': 'finalized',
-      'extension_payment_status': 'paid',
+      'extension_status': 'payment_completed',
+      'extension_payment_status': 'pending_review',
       'extension_payment_method': paymentMethod.trim(),
       'extension_payment_reference': paymentReference.trim(),
       if (proofUrl != null && proofUrl.isNotEmpty)
         'extension_payment_proof_url': proofUrl.trim(),
       'extension_payment_submitted_at': now,
-      'extension_finalized_at': now,
-      'extension_finalized_by': effectiveRenterId,
+      'extension_requested_at': now,
       'updated_at': now,
     });
 
@@ -5265,7 +5255,7 @@ class BookingService {
         ? ' to "$newDestination"'
         : '';
     final msg =
-        'Trip Extension Paid Online: $renterName extended trip until $formattedDate$destMsg (+PHP ${additionalPrice.toStringAsFixed(2)}) via $paymentMethod (Ref: $paymentReference). Return schedule updated.';
+        'Trip Extension Requested with Payment: $renterName requested extension until $formattedDate$destMsg (+PHP ${additionalPrice.toStringAsFixed(2)}) via $paymentMethod (Ref: $paymentReference). Awaiting Partner/Operator review and confirmation.';
 
     if (conversation != null) {
       final conversationId = conversation['id']?.toString();
@@ -5525,6 +5515,7 @@ class BookingService {
             if (requestedDest != null && requestedDest.trim().isNotEmpty)
               'dropoff_location': requestedDest.trim(),
             'extension_status': 'finalized',
+            'extension_payment_status': 'paid',
             'extension_finalized_at': DateTime.now().toIso8601String(),
             'extension_finalized_by': finalizerId,
             'updated_at': DateTime.now().toIso8601String(),
@@ -5545,6 +5536,26 @@ class BookingService {
           );
         }
       }
+
+      // In-app notification to renter
+      final renterId = booking['renter_id']?.toString();
+      if (renterId != null && renterId.isNotEmpty) {
+        unawaited(
+          supabase.from('notifications').insert({
+            'user_id': renterId,
+            'title': '🎉 Trip Extension Confirmed',
+            'message':
+                'Your trip extension until ${newEndAt.month}/${newEndAt.day}/${newEndAt.year} has been approved and confirmed by the vehicle manager.',
+            'type': 'extension_approved',
+            'data': {
+              'booking_id': bookingId,
+              'extension_status': 'finalized',
+              'new_end_at': newEndAt.toIso8601String(),
+            },
+            'created_at': DateTime.now().toIso8601String(),
+          }).catchError((e) => debugPrint('Error notifying renter of extension approval: $e')),
+        );
+      }
     } catch (e) {
       debugPrint('Error finalizing trip extension: $e');
       rethrow;
@@ -5552,6 +5563,8 @@ class BookingService {
   }
 
   /// Reject trip extension request.
+  /// If the renter has already paid for the extension, payment records are strictly preserved
+  /// and a refund process is initiated (extension_refund_status: 'pending_refund').
   Future<void> rejectTripExtension({
     required String bookingId,
     String? reviewerId,
@@ -5570,7 +5583,7 @@ class BookingService {
         final response = await supabase
             .from('bookings')
             .select(
-              'id, status, renter_id, vehicle_id, partner_id, extension_status, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+              '*, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
             )
             .eq('id', bookingId)
             .maybeSingle();
@@ -5589,15 +5602,39 @@ class BookingService {
         );
       }
 
+      final payStatus =
+          booking['extension_payment_status']?.toString().toLowerCase().trim() ??
+              '';
+      final payRef =
+          booking['extension_payment_reference']?.toString().trim() ?? '';
+      final hasPayment = (payStatus == 'paid' ||
+              payStatus == 'verified' ||
+              payStatus == 'pending_review') ||
+          (payRef.isNotEmpty && payRef != 'N/A');
+      final addPrice =
+          (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+
+      final updates = <String, dynamic>{
+        'extension_status': 'rejected',
+        'extension_rejection_reason':
+            reason ?? 'Extension request declined.',
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      if (hasPayment && addPrice > 0) {
+        updates['extension_refund_status'] = 'pending_refund';
+        updates['extension_refund_required'] = true;
+        updates['extension_refund_amount'] = addPrice;
+      }
+
       await supabase
           .from('bookings')
-          .update({
-            'extension_status': 'rejected',
-            'extension_rejection_reason':
-                reason ?? 'Extension request declined.',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
+          .update(updates)
           .eq('id', bookingId);
+
+      final refundNotice = (hasPayment && addPrice > 0)
+          ? ' Since you already paid for the extension fee of PHP ${addPrice.toStringAsFixed(2)}, a refund has been initiated and will be returned to you.'
+          : '';
 
       unawaited(
         ChatService()
@@ -5610,7 +5647,7 @@ class BookingService {
                     conversationId: conversationId,
                     senderId: effectiveReviewerId,
                     content:
-                        'Trip Extension Request Declined${reason != null && reason.isNotEmpty ? ": $reason" : ""}. Please return the vehicle by your original schedule.',
+                        'Trip Extension Request Declined${reason != null && reason.isNotEmpty ? ": $reason" : ""}.$refundNotice Please return the vehicle according to your scheduled return time.',
                   );
                 }
               }
@@ -5619,9 +5656,101 @@ class BookingService {
               (e) => debugPrint('Error sending extension decline chat: $e'),
             ),
       );
+
+      if (hasPayment && addPrice > 0) {
+        final renterId = booking['renter_id']?.toString();
+        if (renterId != null && renterId.isNotEmpty) {
+          unawaited(
+            supabase.from('notifications').insert({
+              'user_id': renterId,
+              'title': '⚠️ Extension Declined • Refund Initiated',
+              'message':
+                  'Your trip extension request was declined. A refund of PHP ${addPrice.toStringAsFixed(2)} has been initiated for your extension fee.',
+              'type': 'extension_refund',
+              'data': {
+                'booking_id': bookingId,
+                'extension_refund_status': 'pending_refund',
+                'amount': addPrice,
+              },
+              'created_at': DateTime.now().toIso8601String(),
+            }).catchError((e) => debugPrint('Error notifying renter of extension refund: $e')),
+          );
+        }
+      }
     } catch (e) {
       debugPrint('Error rejecting trip extension: $e');
       rethrow;
+    }
+  }
+
+  /// Settle refund for a declined paid trip extension (Partner or Operator action)
+  Future<void> settleExtensionRefund({
+    required String bookingId,
+    required double amount,
+    required String method,
+    required String reference,
+    String? receiptUrl,
+    String? notes,
+    String? settlerId,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final effectiveSettlerId =
+        settlerId ?? supabase.auth.currentUser?.id ?? '';
+
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    await supabase.from('bookings').update({
+      'extension_refund_status': 'refunded',
+      'extension_refund_completed': true,
+      'extension_refund_amount': amount,
+      'extension_refund_method': method.trim(),
+      'extension_refund_ref': reference.trim(),
+      if (receiptUrl != null && receiptUrl.trim().isNotEmpty)
+        'extension_refund_receipt_url': receiptUrl.trim(),
+      if (notes != null && notes.trim().isNotEmpty)
+        'extension_refund_notes': notes.trim(),
+      if (effectiveSettlerId.isNotEmpty)
+        'extension_refunded_by': effectiveSettlerId,
+      'extension_refunded_at': now,
+      'updated_at': now,
+    }).eq('id', bookingId);
+
+    // Notify renter that extension refund is disbursed
+    final renterId = booking['renter_id']?.toString();
+    if (renterId != null && renterId.isNotEmpty) {
+      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+      final vehicleTitle = _vehicleTitle(vehicle);
+      unawaited(
+        supabase.from('notifications').insert({
+          'user_id': renterId,
+          'title': '💸 Extension Fee Refunded',
+          'message':
+              'Your extension fee refund of PHP ${amount.toStringAsFixed(2)} for $vehicleTitle has been disbursed ($method, Ref: $reference).',
+          'type': 'extension_refund',
+          'data': {
+            'booking_id': bookingId,
+            'extension_refund_status': 'refunded',
+            'extension_refund_ref': reference,
+            'amount': amount,
+          },
+          'created_at': now,
+        }).catchError((e) => debugPrint('Error notifying renter of extension refund: $e')),
+      );
+
+      final conversation =
+          await ChatService().getConversationBookingContext(bookingId);
+      if (conversation != null) {
+        final conversationId = conversation['id']?.toString();
+        if (conversationId != null) {
+          await ChatService().sendMessage(
+            conversationId: conversationId,
+            senderId: effectiveSettlerId,
+            content:
+                'Extension Fee Refund Disbursed: PHP ${amount.toStringAsFixed(2)} was sent via $method (Ref: $reference). Thank you for your patience.',
+          );
+        }
+      }
     }
   }
 

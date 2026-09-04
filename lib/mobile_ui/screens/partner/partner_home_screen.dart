@@ -4915,6 +4915,462 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     notesController.dispose();
   }
 
+  /// Dialog for Partner to process/settle an extension fee refund when paid extension is declined.
+  Future<void> _showPartnerExtensionRefundDialog(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final renter = booking['users'] as Map<String, dynamic>? ?? booking['renter'] as Map<String, dynamic>? ?? {};
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renterName = renter['full_name']?.toString() ?? 'Renter';
+    final renterPhone = renter['phone_number']?.toString() ?? renter['phone']?.toString() ?? '';
+    final vehicleTitle = '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+
+    final renterUserId = (booking['renter_id'] ?? renter['id'] ?? renter['user_id'])?.toString();
+    List<PayoutMethod> renterPayoutMethods = [];
+    String? discoveredQrUrl;
+
+    if (renterUserId != null && renterUserId.isNotEmpty) {
+      try {
+        renterPayoutMethods = await PayoutMethodService().getPayoutMethods(renterUserId);
+      } catch (_) {}
+      try {
+        discoveredQrUrl = await PayoutMethodService().getRenterQrCodeUrl(renterUserId);
+      } catch (_) {}
+    }
+
+    final directQrUrl = (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty)
+        ? discoveredQrUrl
+        : (renter['qr_code_url']?.toString() ?? renter['gcash_qr_url']?.toString() ?? renter['payout_qr_url']?.toString());
+
+    final isAlreadyRefunded = booking['extension_refund_status'] == 'refunded' || booking['extension_refund_completed'] == true;
+    final defaultRefundAmount = (booking['extension_additional_price'] as num?)?.toDouble() ??
+        (booking['extension_refund_amount'] as num?)?.toDouble() ??
+        0.0;
+
+    final refundAmountController = TextEditingController(text: defaultRefundAmount.toStringAsFixed(2));
+    final referenceController = TextEditingController(text: booking['extension_refund_ref']?.toString() ?? '');
+    final notesController = TextEditingController(text: booking['extension_refund_notes']?.toString() ?? '');
+    String selectedMethod = booking['extension_refund_method']?.toString() ??
+        booking['extension_payment_method']?.toString() ??
+        (renterPayoutMethods.isNotEmpty ? renterPayoutMethods.first.provider : 'GCash');
+    PlatformFile? receiptFile;
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final refundAmount = double.tryParse(refundAmountController.text) ?? defaultRefundAmount;
+
+          final activeMethod = renterPayoutMethods.firstWhere(
+            (m) => m.provider.toLowerCase() == selectedMethod.toLowerCase(),
+            orElse: () => renterPayoutMethods.isNotEmpty
+                ? renterPayoutMethods.first
+                : PayoutMethod(
+                    id: '',
+                    provider: selectedMethod,
+                    accountName: renterName,
+                    accountNumber: renterPhone,
+                    qrCodeUrl: directQrUrl,
+                    createdAt: DateTime.now(),
+                  ),
+          );
+
+          return Dialog(
+            backgroundColor: isDark ? const Color(0xFF1B2638) : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 760),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isAlreadyRefunded
+                                ? const Color(0xFFA855F7).withValues(alpha: 0.15)
+                                : const Color(0xFFEF4444).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            isAlreadyRefunded ? Icons.check_circle_rounded : Icons.currency_exchange_rounded,
+                            color: isAlreadyRefunded ? const Color(0xFFA855F7) : const Color(0xFFEF4444),
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isAlreadyRefunded ? 'Extension Refund Details' : 'Process Extension Fee Refund',
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '$renterName • $vehicleTitle',
+                                style: TextStyle(fontSize: 11, color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(dialogContext),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isAlreadyRefunded
+                                  ? const Color(0xFFA855F7).withValues(alpha: 0.12)
+                                  : const Color(0xFFEF4444).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isAlreadyRefunded
+                                    ? const Color(0xFFA855F7).withValues(alpha: 0.35)
+                                    : const Color(0xFFEF4444).withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isAlreadyRefunded ? Icons.check_circle_outline_rounded : Icons.warning_amber_rounded,
+                                  color: isAlreadyRefunded ? const Color(0xFFA855F7) : const Color(0xFFEF4444),
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    isAlreadyRefunded
+                                        ? 'Extension fee refund completed: PHP ${refundAmount.toStringAsFixed(2)} was disbursed to renter.'
+                                        : 'Trip extension was declined after payment was received. Please disburse the refund of PHP ${refundAmount.toStringAsFixed(2)} to the renter.',
+                                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Renter Original Payment info
+                          if (booking['extension_payment_reference'] != null) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF101928) : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Renter Extension Payment', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${booking['extension_payment_method'] ?? 'E-Wallet'} • Ref: ${booking['extension_payment_reference'] ?? 'N/A'} • Amount: PHP ${defaultRefundAmount.toStringAsFixed(2)}',
+                                    style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
+
+                          // Payout Destination Card
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF101928) : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Renter Payout Destination', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    if (activeMethod.qrCodeUrl != null && activeMethod.qrCodeUrl!.isNotEmpty)
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.network(
+                                          activeMethod.qrCodeUrl!,
+                                          width: 70,
+                                          height: 70,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => const Icon(Icons.qr_code, size: 50),
+                                        ),
+                                      ),
+                                    if (activeMethod.qrCodeUrl != null && activeMethod.qrCodeUrl!.isNotEmpty)
+                                      const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            activeMethod.provider.toUpperCase(),
+                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.primary),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text('Name: ${activeMethod.accountName}', style: const TextStyle(fontSize: 11)),
+                                          Text('No: ${activeMethod.accountNumber}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Refund Form
+                          const Text('Refund Disbursement Amount (PHP)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: refundAmountController,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            readOnly: isAlreadyRefunded,
+                            decoration: InputDecoration(
+                              filled: true,
+                              fillColor: isDark ? const Color(0xFF263247) : const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              prefixText: 'PHP ',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Refund Method', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                    const SizedBox(height: 6),
+                                    DropdownButtonFormField<String>(
+                                      value: selectedMethod,
+                                      decoration: InputDecoration(
+                                        filled: true,
+                                        fillColor: isDark ? const Color(0xFF263247) : const Color(0xFFF8FAFC),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      items: ['GCash', 'Maya', 'Bank Transfer', 'Cash']
+                                          .map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 11))))
+                                          .toList(),
+                                      onChanged: isAlreadyRefunded ? null : (v) => setDialogState(() => selectedMethod = v ?? 'GCash'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Reference No.', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                    const SizedBox(height: 6),
+                                    TextField(
+                                      controller: referenceController,
+                                      readOnly: isAlreadyRefunded,
+                                      decoration: InputDecoration(
+                                        hintText: 'e.g. 1002345892',
+                                        filled: true,
+                                        fillColor: isDark ? const Color(0xFF263247) : const Color(0xFFF8FAFC),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Screenshot upload
+                          const Text('Transfer Screenshot / Receipt', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 6),
+                          if (isAlreadyRefunded)
+                            Builder(
+                              builder: (_) {
+                                final receipt = booking['extension_refund_receipt_url']?.toString();
+                                if (receipt != null && receipt.isNotEmpty) {
+                                  return Text('Proof URL: $receipt', style: const TextStyle(fontSize: 11, color: AppColors.primary));
+                                }
+                                return const Text('No receipt attached.', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic));
+                              },
+                            )
+                          else if (receiptFile == null)
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final result = await FilePicker.platform.pickFiles(
+                                  type: FileType.custom,
+                                  allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+                                  withData: true,
+                                );
+                                if (result != null && result.files.isNotEmpty) {
+                                  setDialogState(() => receiptFile = result.files.first);
+                                }
+                              },
+                              icon: const Icon(Icons.upload_file_rounded, size: 16),
+                              label: const Text('Upload Transfer Receipt', style: TextStyle(fontSize: 12)),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(40),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(receiptFile!.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close_rounded, size: 16),
+                                    onPressed: () => setDialogState(() => receiptFile = null),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: const Text('Close'),
+                          ),
+                        ),
+                        if (!isAlreadyRefunded) ...[
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 2,
+                            child: ElevatedButton.icon(
+                              onPressed: isSubmitting
+                                  ? null
+                                  : () async {
+                                      final ref = referenceController.text.trim();
+                                      if (ref.isEmpty) {
+                                        _showErrorSnackBar('Please provide a reference number for the refund transfer.');
+                                        return;
+                                      }
+                                      setDialogState(() => isSubmitting = true);
+                                      try {
+                                        String uploadedReceiptUrl = '';
+                                        if (receiptFile?.bytes != null) {
+                                          final currentUserId = AuthService().currentUser?.id ?? '';
+                                          uploadedReceiptUrl = await BookingInspectionService().uploadEvidenceBytes(
+                                            userId: currentUserId,
+                                            bookingId: bookingId,
+                                            bytes: receiptFile!.bytes!,
+                                            extension: receiptFile!.extension ?? 'jpg',
+                                          );
+                                        }
+
+                                        final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+                                        await BookingService().settleExtensionRefund(
+                                          bookingId: bookingId,
+                                          amount: refundAmount,
+                                          method: selectedMethod,
+                                          reference: ref,
+                                          receiptUrl: uploadedReceiptUrl,
+                                          notes: notesController.text.trim(),
+                                          settlerId: currentPartnerId,
+                                        );
+
+                                        booking['extension_refund_status'] = 'refunded';
+                                        booking['extension_refund_completed'] = true;
+                                        booking['extension_refund_amount'] = refundAmount;
+                                        booking['extension_refund_ref'] = ref;
+                                        booking['extension_refund_method'] = selectedMethod;
+                                        booking['extension_refund_receipt_url'] = uploadedReceiptUrl;
+
+                                        final idx = bookings.indexWhere((b) => b['id']?.toString() == bookingId);
+                                        if (idx != -1) {
+                                          bookings[idx]['extension_refund_status'] = 'refunded';
+                                          bookings[idx]['extension_refund_completed'] = true;
+                                          bookings[idx]['extension_refund_amount'] = refundAmount;
+                                          bookings[idx]['extension_refund_ref'] = ref;
+                                          bookings[idx]['extension_refund_method'] = selectedMethod;
+                                          bookings[idx]['extension_refund_receipt_url'] = uploadedReceiptUrl;
+                                        }
+
+                                        if (dialogContext.mounted) Navigator.pop(dialogContext);
+                                        _loadPartnerData(silent: true);
+                                        _showSuccessSnackBar('✅ Extension fee refund of PHP ${refundAmount.toStringAsFixed(2)} recorded successfully.');
+                                      } catch (e) {
+                                        setDialogState(() => isSubmitting = false);
+                                        _showErrorSnackBar('Failed to complete extension refund: $e');
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                              label: Text(
+                                isSubmitting ? 'Recording...' : 'Confirm & Complete Refund',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    refundAmountController.dispose();
+    referenceController.dispose();
+    notesController.dispose();
+  }
+
   // ===================== NOTIFICATIONS TAB =====================
   List<Map<String, dynamic>> _uiPartnerNotifications() {
     return notifications.where((n) => !isMessageNotification(n)).map((n) {
@@ -7638,6 +8094,38 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       ),
                     ],
                   ),
+                ] else if (extStatus == 'accepted' ||
+                    extStatus == 'payment_pending') ...[
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Waiting for Renter to submit extension payment...',
+                          style: TextStyle(
+                            color: Colors.blueAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: () => _handleRejectTripExtension(booking),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          side: const BorderSide(color: AppColors.error),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text('Decline'),
+                      ),
+                    ],
+                  ),
                 ] else if (extStatus == 'payment_completed') ...[
                   Row(
                     children: [
@@ -7675,21 +8163,41 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     ],
                   ),
                 ] else if (extStatus == 'pending_final_confirmation') ...[
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () => _handleFinalizeTripExtension(booking),
-                      icon: const Icon(Icons.verified, size: 16),
-                      label: const Text('Finalize Extension & Update Dates'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.success,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _handleFinalizeTripExtension(booking),
+                          icon: const Icon(Icons.verified, size: 16),
+                          label: const Text('Finalize Extension'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: OutlinedButton(
+                          onPressed: () => _handleRejectTripExtension(booking),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: const BorderSide(color: AppColors.error),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('Decline'),
+                        ),
+                      ),
+                    ],
                   ),
                 ] else if (extStatus == 'finalized' ||
                     extStatus == 'approved') ...[
@@ -7725,7 +8233,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     extStatus == 'cancelled') ...[
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: AppColors.error.withValues(alpha: 0.15),
@@ -7740,6 +8248,120 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                         fontSize: 11,
                       ),
                     ),
+                  ),
+                  Builder(
+                    builder: (context) {
+                      final extPayStatus = booking['extension_payment_status']?.toString().toLowerCase().trim() ?? '';
+                      final extPayRef = booking['extension_payment_reference']?.toString().trim() ?? '';
+                      final hasExtPayment = (extPayStatus == 'paid' ||
+                              extPayStatus == 'verified' ||
+                              extPayStatus == 'pending_review') ||
+                          (extPayRef.isNotEmpty && extPayRef != 'N/A');
+                      final extRefundStatus = booking['extension_refund_status']?.toString().toLowerCase().trim() ?? '';
+                      final isExtRefunded = extRefundStatus == 'refunded' || booking['extension_refund_completed'] == true;
+                      final refundAmount = (booking['extension_refund_amount'] as num?)?.toDouble() ??
+                          (booking['extension_additional_price'] as num?)?.toDouble() ??
+                          additionalPrice;
+
+                      if (isExtRefunded) {
+                        final refundReceipt = booking['extension_refund_receipt_url']?.toString();
+                        final refundRef = booking['extension_refund_ref']?.toString() ?? 'N/A';
+                        final refundMethod = booking['extension_refund_method']?.toString() ?? 'Online';
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.green.withValues(alpha: 0.35)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 16),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Extension Fee Refund Completed (PHP ${_formatMoney(refundAmount)})',
+                                        style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w800, fontSize: 12),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Disbursed via $refundMethod • Ref: $refundRef',
+                                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                                ),
+                                if (refundReceipt != null && refundReceipt.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  InkWell(
+                                    onTap: () => _showProofImageModal(refundReceipt, refundRef),
+                                    child: const Text(
+                                      'View Refund Receipt Proof',
+                                      style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      } else if (hasExtPayment || booking['extension_refund_required'] == true) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Renter Paid PHP ${_formatMoney(refundAmount)} — Refund Required',
+                                        style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.w800, fontSize: 12),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'This extension was declined after payment was received. Please disburse the refund to the renter.',
+                                  style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                                ),
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _showPartnerExtensionRefundDialog(booking),
+                                    icon: const Icon(Icons.currency_exchange_rounded, size: 16),
+                                    label: const Text('Process Extension Refund'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.amber,
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(vertical: 10),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
                   ),
                 ],
                 const SizedBox(height: 10),
@@ -8601,45 +9223,174 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ],
             ),
           ] else if (extStatus == 'payment_completed') ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => _handlePartnerVerifyPayment(booking),
-                icon: const Icon(Icons.verified_user_rounded, size: 16),
-                label: const Text('Verify Renter Payment Proof'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF38BDF8),
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _handlePartnerVerifyPayment(booking),
+                    icon: const Icon(Icons.verified_user_rounded, size: 16),
+                    label: const Text('Verify Payment Proof'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF38BDF8),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => _showPartnerRejectExtensionDialog(booking),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Decline'),
+                ),
+              ],
             ),
           ] else if (extStatus == 'pending_final_confirmation') ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => _handlePartnerFinalizeExtension(booking),
-                icon: const Icon(Icons.task_alt_rounded, size: 16),
-                label: const Text('Confirm & Finalize Extension'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _handlePartnerFinalizeExtension(booking),
+                    icon: const Icon(Icons.task_alt_rounded, size: 16),
+                    label: const Text('Finalize Extension'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => _showPartnerRejectExtensionDialog(booking),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Decline'),
+                ),
+              ],
             ),
           ] else if (extStatus == 'accepted' || extStatus == 'payment_pending') ...[
-            const Center(
-              child: Text(
-                'Waiting for Renter to submit extension payment proof...',
-                style: TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.w600),
-              ),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Waiting for Renter to submit extension payment...',
+                    style: TextStyle(
+                      color: Colors.amber,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => _showPartnerRejectExtensionDialog(booking),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Decline'),
+                ),
+              ],
+            ),
+          ] else if (extStatus == 'rejected' || extStatus == 'cancelled') ...[
+            Builder(
+              builder: (context) {
+                final extPayStatus = booking['extension_payment_status']?.toString().toLowerCase().trim() ?? '';
+                final extPayRef = booking['extension_payment_reference']?.toString().trim() ?? '';
+                final hasExtPayment = (extPayStatus == 'paid' ||
+                        extPayStatus == 'verified' ||
+                        extPayStatus == 'pending_review') ||
+                    (extPayRef.isNotEmpty && extPayRef != 'N/A');
+                final extRefundStatus = booking['extension_refund_status']?.toString().toLowerCase().trim() ?? '';
+                final isExtRefunded = extRefundStatus == 'refunded' || booking['extension_refund_completed'] == true;
+                final refundAmount = (booking['extension_refund_amount'] as num?)?.toDouble() ??
+                    (booking['extension_additional_price'] as num?)?.toDouble() ??
+                    additionalPrice;
+
+                if (isExtRefunded) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      'Extension Declined • Refund Completed (PHP ${_formatMoney(refundAmount)})',
+                      style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.w700),
+                    ),
+                  );
+                } else if (hasExtPayment || booking['extension_refund_required'] == true) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Extension Declined • Refund Required (PHP ${_formatMoney(refundAmount)})',
+                          style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _showPartnerExtensionRefundDialog(booking),
+                            icon: const Icon(Icons.currency_exchange_rounded, size: 14),
+                            label: const Text('Process Refund', style: TextStyle(fontSize: 12)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
             ),
           ],
         ],
