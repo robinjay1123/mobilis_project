@@ -2643,6 +2643,7 @@ class BookingService {
           ((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 0) > 0 ||
           refundAmount > 0;
 
+      final now = DateTime.now().toIso8601String();
       final updatePayload = <String, dynamic>{
         'status': 'rejected',
         'rejection_reason': reason,
