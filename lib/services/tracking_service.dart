@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'notification_service.dart';
@@ -696,12 +697,207 @@ class TrackingService {
         'in_progress',
       };
 
+      // 1b. Fetch all currently active / ongoing bookings directly from bookings table
+      // to ensure no active trip is missed even if driver app has not streamed a ping yet
+      List<Map<String, dynamic>> activeBookingsFromDb = const [];
+      try {
+        final bRes = await supabase
+            .from('bookings')
+            .select('''
+              id,
+              status,
+              operator_id,
+              partner_id,
+              renter_id,
+              driver_id,
+              vehicle_id,
+              pickup_location,
+              dropoff_location,
+              pickup_latitude,
+              pickup_longitude,
+              dropoff_latitude,
+              dropoff_longitude,
+              start_at,
+              end_at,
+              returned_at,
+              completed_at,
+              completion_stage,
+              vehicles:vehicle_id (
+                id,
+                brand,
+                model,
+                plate_number,
+                vehicle_name,
+                image_url,
+                vehicle_images,
+                owner_id,
+                latitude,
+                longitude,
+                owner:owner_id (id, role)
+              ),
+              renter:renter_id (id, full_name, email),
+              drivers:drivers!bookings_driver_id_fkey (
+                id,
+                user_id,
+                users:users!drivers_user_id_fkey (id, full_name, email)
+              )
+            ''')
+            .inFilter('status', [
+              'ongoing',
+              'active',
+              'picked_up',
+              'in_progress',
+            ])
+            .isFilter('returned_at', null)
+            .isFilter('completed_at', null);
+        activeBookingsFromDb = List<Map<String, dynamic>>.from(bRes);
+      } catch (bErr) {
+        debugPrint('Rich active bookings fetch note ($bErr), trying simple select:');
+        try {
+          final bRes = await supabase
+              .from('bookings')
+              .select('''
+                id,
+                status,
+                operator_id,
+                partner_id,
+                renter_id,
+                driver_id,
+                vehicle_id,
+                pickup_location,
+                dropoff_location,
+                pickup_latitude,
+                pickup_longitude,
+                dropoff_latitude,
+                dropoff_longitude,
+                start_at,
+                end_at,
+                returned_at,
+                completed_at,
+                completion_stage,
+                vehicles:vehicle_id (
+                  id,
+                  brand,
+                  model,
+                  plate_number,
+                  vehicle_name,
+                  image_url,
+                  owner_id,
+                  latitude,
+                  longitude
+                ),
+                renter:renter_id (id, full_name, email)
+              ''')
+              .inFilter('status', [
+                'ongoing',
+                'active',
+                'picked_up',
+                'in_progress',
+              ]);
+          activeBookingsFromDb = List<Map<String, dynamic>>.from(bRes);
+        } catch (_) {}
+      }
+
       final candidateList = <Map<String, dynamic>>[];
       final vehiclesWithActiveTracking = <String>{};
+      final bookingsWithActiveTracking = <String>{};
       final seenVehicles = <String>{};
 
+      // Map live tracking_locations by booking_id
+      final rawLocationsByBookingId = <String, Map<String, dynamic>>{};
+      final rawLocationsByVehicleId = <String, Map<String, dynamic>>{};
+      for (final loc in rawLocations) {
+        final bId = loc['booking_id']?.toString() ??
+            (loc['bookings'] as Map?)?['id']?.toString() ??
+            '';
+        if (bId.isNotEmpty && !rawLocationsByBookingId.containsKey(bId)) {
+          rawLocationsByBookingId[bId] = loc;
+        }
+        final vId = loc['vehicle_id']?.toString() ??
+            (loc['bookings']?['vehicles'] as Map?)?['id']?.toString() ??
+            '';
+        if (vId.isNotEmpty && !rawLocationsByVehicleId.containsKey(vId)) {
+          rawLocationsByVehicleId[vId] = loc;
+        }
+      }
+
+      // First: Ingest all active bookings from the bookings table
+      for (final booking in activeBookingsFromDb) {
+        final bId = booking['id']?.toString() ?? '';
+        if (bId.isEmpty) continue;
+        if (!_canViewTracking(access, booking)) continue;
+
+        final vid = booking['vehicle_id']?.toString() ??
+            booking['vehicles']?['id']?.toString() ??
+            '';
+
+        // Check if there is already a live location stream in rawLocations
+        final liveLoc = rawLocationsByBookingId[bId] ??
+            (vid.isNotEmpty ? rawLocationsByVehicleId[vid] : null);
+
+        if (liveLoc != null) {
+          final enriched = Map<String, dynamic>.from(liveLoc);
+          enriched['bookings'] = booking;
+          enriched['has_active_booking'] = true;
+          enriched['is_active_booking'] = true;
+          candidateList.add(enriched);
+          bookingsWithActiveTracking.add(bId);
+          if (vid.isNotEmpty) {
+            seenVehicles.add(vid);
+            vehiclesWithActiveTracking.add(vid);
+          }
+        } else {
+          // Fallback standby coordinates for this active booking so it appears on map!
+          var lat = _asDouble(booking['vehicles']?['latitude']);
+          var lng = _asDouble(booking['vehicles']?['longitude']);
+          String source = 'vehicle_registered';
+
+          if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+            lat = _asDouble(booking['pickup_latitude']);
+            lng = _asDouble(booking['pickup_longitude']);
+            source = 'pickup_location';
+          }
+
+          if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+            lat = 15.9758;
+            lng = 120.5719;
+            source = 'fleet_hub';
+          }
+
+          candidateList.add({
+            'id': 'active_trip_$bId',
+            'booking_id': bId,
+            'vehicle_id': vid,
+            'latitude': lat,
+            'longitude': lng,
+            'speed_mps': 0.0,
+            'heading_degrees': 0.0,
+            'source': source,
+            'is_standby': true,
+            'status': 'Active Trip (Standby / Awaiting GPS)',
+            'recorded_at': DateTime.now().toUtc().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'has_active_booking': true,
+            'is_active_booking': true,
+            'bookings': booking,
+            'vehicle': booking['vehicles'],
+          });
+          bookingsWithActiveTracking.add(bId);
+          if (vid.isNotEmpty) {
+            seenVehicles.add(vid);
+            vehiclesWithActiveTracking.add(vid);
+          }
+        }
+      }
+
+      // Then process any other rawLocations not already added
       for (final loc in rawLocations) {
         final booking = loc['bookings'] as Map<String, dynamic>?;
+        final bId = loc['booking_id']?.toString() ?? booking?['id']?.toString() ?? '';
+        if (bId.isNotEmpty && bookingsWithActiveTracking.contains(bId)) {
+          continue; // Already processed above
+        }
+
         final status = booking?['status']?.toString().toLowerCase() ?? '';
         final isReturnedOrCompleted = booking?['returned_at'] != null ||
             booking?['completed_at'] != null ||
@@ -722,13 +918,12 @@ class TrackingService {
           enriched['has_active_booking'] = true;
           enriched['is_active_booking'] = true;
           candidateList.add(enriched);
-
+          if (bId.isNotEmpty) bookingsWithActiveTracking.add(bId);
           if (vid.isNotEmpty) {
             seenVehicles.add(vid);
             vehiclesWithActiveTracking.add(vid);
           }
         } else if (vid.isNotEmpty && !seenVehicles.contains(vid)) {
-          // Booking is approved/pending/finished: vehicle is currently Idle
           final enriched = Map<String, dynamic>.from(loc);
           enriched['has_active_booking'] = false;
           enriched['is_active_booking'] = false;
@@ -1575,12 +1770,7 @@ class TrackingService {
     final userId = user.id;
     if (userId.isEmpty) return null;
 
-    final metaRole = user.userMetadata?['role']?.toString().trim().toLowerCase() ??
-        (user.appMetadata['role']?.toString().trim().toLowerCase() ?? '');
-    if (metaRole.isNotEmpty) {
-      return _TrackingAccess(userId: userId, role: metaRole);
-    }
-
+    // 1. Check database users table first (ground truth)
     try {
       final userRow = await supabase
           .from('users')
@@ -1592,8 +1782,25 @@ class TrackingService {
         return _TrackingAccess(userId: userId, role: role);
       }
     } catch (e) {
-      debugPrint('Error getting user role for tracking access: $e');
+      debugPrint('Error getting user role from DB for tracking access: $e');
     }
+
+    // 2. Check cached role in SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedRole = prefs.getString('cached_user_role_$userId');
+      if (cachedRole != null && cachedRole.trim().isNotEmpty) {
+        return _TrackingAccess(userId: userId, role: cachedRole.trim().toLowerCase());
+      }
+    } catch (_) {}
+
+    // 3. Fallback to auth user metadata
+    final metaRole = user.userMetadata?['role']?.toString().trim().toLowerCase() ??
+        (user.appMetadata['role']?.toString().trim().toLowerCase() ?? '');
+    if (metaRole.isNotEmpty) {
+      return _TrackingAccess(userId: userId, role: metaRole);
+    }
+
     return _TrackingAccess(userId: userId, role: 'operator');
   }
 
@@ -1702,9 +1909,9 @@ class TrackingService {
           final tracker = VehicleTracker.fromJson(tMap);
           if (tracker.deviceIdentifier.trim().isEmpty) continue;
 
-          final position = await gpsService.fetchLatestLocation(
-            tracker: tracker,
-          );
+          final position = await gpsService
+              .fetchLatestLocation(tracker: tracker)
+              .timeout(const Duration(seconds: 5), onTimeout: () => null);
           if (position == null ||
               (position.latitude == 0.0 && position.longitude == 0.0)) {
             continue;
@@ -1843,7 +2050,9 @@ class TrackingService {
         return;
       }
 
-      final position = await gpsService.fetchLatestLocation(tracker: tracker);
+      final position = await gpsService
+          .fetchLatestLocation(tracker: tracker)
+          .timeout(const Duration(seconds: 5), onTimeout: () => null);
       if (position == null ||
           (position.latitude == 0.0 && position.longitude == 0.0)) {
         return;

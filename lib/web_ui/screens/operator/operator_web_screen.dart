@@ -1111,7 +1111,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) {
-        if (mounted && (_selectedIndex == 8 || _selectedIndex == 0)) {
+        if (mounted && (_selectedIndex == 6 || _selectedIndex == 0)) {
           _refreshTrackingLocations();
         }
       },
@@ -1618,17 +1618,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Future<void> _loadTrackingLocations() async {
-    await TrackingService().pollGpsTrackersForActiveBookings();
-    final locations = await TrackingService().getActiveTrackingLocations();
-    if (!mounted) return;
-    setState(() => _trackingLocations = locations);
+    try {
+      final locations = await TrackingService().getActiveTrackingLocations();
+      if (mounted) setState(() => _trackingLocations = locations);
+      TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
+        if (!mounted) return;
+        final updated = await TrackingService().getActiveTrackingLocations();
+        if (mounted) setState(() => _trackingLocations = updated);
+      }).catchError((e) {
+        debugPrint('Operator background GPS poll error: $e');
+      });
+    } catch (e) {
+      debugPrint('Error loading tracking locations: $e');
+    }
   }
 
   Future<void> _refreshTrackingLocations() async {
-    await TrackingService().pollGpsTrackersForActiveBookings();
-    final locations = await TrackingService().getActiveTrackingLocations();
-    if (!mounted) return;
-    setState(() => _trackingLocations = locations);
+    try {
+      final locations = await TrackingService().getActiveTrackingLocations();
+      if (mounted) setState(() => _trackingLocations = locations);
+      TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
+        if (!mounted) return;
+        final updated = await TrackingService().getActiveTrackingLocations();
+        if (mounted) setState(() => _trackingLocations = updated);
+      }).catchError((e) {
+        debugPrint('Operator background GPS poll error: $e');
+      });
+    } catch (e) {
+      debugPrint('Error refreshing tracking locations: $e');
+    }
   }
 
   bool _isOperatorRatingFullyCompleted(Map<String, dynamic> booking) {
@@ -1890,8 +1908,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   bool _canTrackBooking(Map<String, dynamic> booking) {
-    return _isCompanyOwnedBooking(booking) &&
-        bookingStatusGroup(booking['status']) == BookingStatusGroup.ongoing;
+    final status = (booking['status'] as String? ?? '').toLowerCase();
+    final group = bookingStatusGroup(booking['status']);
+    return status == 'active' ||
+        status == 'approved' ||
+        status == 'confirmed' ||
+        status == 'ongoing' ||
+        status == 'in_progress' ||
+        status == 'picked_up' ||
+        group == BookingStatusGroup.ongoing;
   }
 
   Future<void> _openBookingConversation(Map<String, dynamic> booking) async {
@@ -2095,30 +2120,39 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     try {
       await _loadTrackingLocations();
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   List<Map<String, dynamic>> _visibleTrackingLocations() {
-    final source = (_focusedTrackingBookingId == null ||
-            _focusedTrackingBookingId!.isEmpty)
+    final isFocused = _focusedTrackingBookingId != null &&
+        _focusedTrackingBookingId!.isNotEmpty;
+
+    final source = !isFocused
         ? _trackingLocations
         : _trackingLocations.where((location) {
             final booking = location['bookings'] as Map<String, dynamic>?;
             final bookingId = booking?['id']?.toString();
             final rowId = location['id']?.toString();
+            final vehicleId = location['vehicle_id']?.toString() ??
+                booking?['vehicle_id']?.toString() ??
+                (booking?['vehicles'] as Map?)?['id']?.toString();
             return bookingId == _focusedTrackingBookingId ||
                 rowId == _focusedTrackingBookingId ||
-                location['vehicle_id']?.toString() ==
-                    _focusedTrackingBookingId;
+                vehicleId == _focusedTrackingBookingId;
           }).toList();
+
+    if (isFocused && source.isEmpty) {
+      return const [];
+    }
 
     final seenKeys = <String>{};
     final deduped = <Map<String, dynamic>>[];
-    for (final loc in (source.isNotEmpty ? source : _trackingLocations)) {
+    for (final loc in source) {
       final veh = (loc['vehicle'] ?? loc['bookings']?['vehicles']) as Map?;
       final rawPlate = veh?['plate_number']?.toString() ??
           loc['tracker']?['device_identifier']?.toString() ??
@@ -5281,6 +5315,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _loadConversations();
       _loadUnreadMessagesCount();
     }
+    if (index == 6) {
+      _refreshTrackingLocations();
+    }
     if (index == 9) {
       _loadPriceChangeRequests();
     }
@@ -5335,7 +5372,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Future<void> _refreshCurrentSection() async {
-    if (_selectedIndex == 5) {
+    if (_selectedIndex == 6) {
       await _refreshTrackingLocations();
       if (mounted) setState(() {});
       return;

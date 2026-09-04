@@ -2711,24 +2711,45 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Future<void> _loadTrackingLocations() async {
-    // First poll IMEI GPS trackers to upsert their latest positions
-    await TrackingService().pollGpsTrackersForActiveBookings();
-    final locations = await TrackingService().getActiveTrackingLocations();
-    if (!mounted) return;
-    setState(() => _trackingLocations = locations);
+    try {
+      final locations = await TrackingService().getActiveTrackingLocations();
+      if (mounted) setState(() => _trackingLocations = locations);
+      TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
+        if (!mounted) return;
+        final updated = await TrackingService().getActiveTrackingLocations();
+        if (mounted) setState(() => _trackingLocations = updated);
+      }).catchError((e) {
+        debugPrint('Admin background GPS poll error: $e');
+      });
+    } catch (e) {
+      debugPrint('Error loading tracking locations: $e');
+    }
   }
 
   Future<void> _refreshTrackingLocations() async {
-    // Poll GPS trackers first, then refresh the locations list
-    await TrackingService().pollGpsTrackersForActiveBookings();
-    final locations = await TrackingService().getActiveTrackingLocations();
-    if (!mounted) return;
-    setState(() => _trackingLocations = locations);
+    try {
+      final locations = await TrackingService().getActiveTrackingLocations();
+      if (mounted) setState(() => _trackingLocations = locations);
+      TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
+        if (!mounted) return;
+        final updated = await TrackingService().getActiveTrackingLocations();
+        if (mounted) setState(() => _trackingLocations = updated);
+      }).catchError((e) {
+        debugPrint('Admin background GPS poll error: $e');
+      });
+    } catch (e) {
+      debugPrint('Error refreshing tracking locations: $e');
+    }
   }
 
   bool _canTrackBooking(Map<String, dynamic> booking) {
     final status = (booking['status'] as String? ?? '').toLowerCase();
-    return status == 'active' || status == 'approved' || status == 'confirmed';
+    return status == 'active' ||
+        status == 'approved' ||
+        status == 'confirmed' ||
+        status == 'ongoing' ||
+        status == 'in_progress' ||
+        status == 'picked_up';
   }
 
   Future<void> _openTrackingForBooking(Map<String, dynamic> booking) async {
@@ -2744,28 +2765,37 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     try {
       await _loadTrackingLocations();
     } finally {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   List<Map<String, dynamic>> _visibleTrackingLocations() {
-    final source = (_focusedTrackingBookingId == null ||
-            _focusedTrackingBookingId!.isEmpty)
+    final isFocused = _focusedTrackingBookingId != null &&
+        _focusedTrackingBookingId!.isNotEmpty;
+
+    final source = !isFocused
         ? _trackingLocations
         : _trackingLocations.where((location) {
             final booking = location['bookings'] as Map<String, dynamic>?;
             final bookingId = booking?['id']?.toString();
             final rowId = location['id']?.toString();
+            final vehicleId = location['vehicle_id']?.toString() ??
+                booking?['vehicle_id']?.toString() ??
+                (booking?['vehicles'] as Map?)?['id']?.toString();
             return bookingId == _focusedTrackingBookingId ||
                 rowId == _focusedTrackingBookingId ||
-                location['vehicle_id']?.toString() ==
-                    _focusedTrackingBookingId;
+                vehicleId == _focusedTrackingBookingId;
           }).toList();
+
+    if (isFocused && source.isEmpty) {
+      return const [];
+    }
 
     final seenKeys = <String>{};
     final deduped = <Map<String, dynamic>>[];
-    for (final loc in (source.isNotEmpty ? source : _trackingLocations)) {
+    for (final loc in source) {
       final veh = (loc['vehicle'] ?? loc['bookings']?['vehicles']) as Map?;
       final rawPlate = veh?['plate_number']?.toString() ??
           loc['tracker']?['device_identifier']?.toString() ??
