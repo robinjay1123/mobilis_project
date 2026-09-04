@@ -11350,6 +11350,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             right: 14,
                             child: GpsTrackerTelemetryCard.fromLocationData(
                               location: focusedLoc,
+                              title: _resolveTrackingVehicleName(focusedLoc),
                               isDark: isDark,
                               onClose: () {
                                 setState(() {

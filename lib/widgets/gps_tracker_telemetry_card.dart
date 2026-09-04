@@ -47,6 +47,7 @@ class GpsTrackerTelemetryCard extends StatelessWidget {
 
   factory GpsTrackerTelemetryCard.fromLocationData({
     required Map<String, dynamic> location,
+    String? title,
     bool isDark = false,
     bool isCompact = false,
     VoidCallback? onClose,
@@ -69,8 +70,8 @@ class GpsTrackerTelemetryCard extends StatelessWidget {
         .toString()
         .trim();
 
-    String resolvedTitle = '';
-    if (vehicle != null) {
+    String resolvedTitle = title?.trim() ?? '';
+    if (resolvedTitle.isEmpty && vehicle != null) {
       final isDummy = vehicle['is_unassigned_tracker'] == true ||
           (vehicle['brand']?.toString().toLowerCase() == 'gps tracker' &&
               (vehicle['model']?.toString().isEmpty != false ||

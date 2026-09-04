@@ -7841,6 +7841,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         right: 14,
                         child: GpsTrackerTelemetryCard.fromLocationData(
                           location: focusedLoc,
+                          title: _resolveTrackingVehicleName(focusedLoc),
                           isDark: isDark,
                           onClose: () {
                             setState(() {
