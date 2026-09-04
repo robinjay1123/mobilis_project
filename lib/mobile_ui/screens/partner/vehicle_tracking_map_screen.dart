@@ -135,14 +135,16 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
     final String statusText;
     final Color statusColor;
 
+    final stopDuration = minutesAgo < 999 && minutesAgo > 0 ? ' ($minutesAgo m)' : '';
+
     if (speed >= 3) {
       statusText = 'Moving (${speed.toStringAsFixed(0)} km/h)';
       statusColor = const Color(0xFF00E676);
     } else if (isParked) {
-      statusText = 'Parked (Engine Off)';
+      statusText = 'Parked (Engine Off$stopDuration)';
       statusColor = const Color(0xFF94A3B8);
     } else if (isOnline) {
-      statusText = 'Stopped (Idling)';
+      statusText = 'Parked (Idling$stopDuration)';
       statusColor = const Color(0xFFFFB300);
     } else {
       statusText = 'GPS Offline';

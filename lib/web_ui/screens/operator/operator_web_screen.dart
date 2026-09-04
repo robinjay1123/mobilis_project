@@ -7322,6 +7322,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return null;
   }
 
+  static final Map<String, DateTime> _vehicleStoppedAt = {};
+
+  static String _formatStoppedDuration(Duration diff) {
+    if (diff.isNegative || diff.inMinutes < 1) {
+      return '< 1m';
+    }
+    final days = diff.inDays;
+    final hours = diff.inHours % 24;
+    final minutes = diff.inMinutes % 60;
+    if (days > 0) {
+      return hours > 0 ? '${days}d ${hours}h' : '${days}d';
+    }
+    if (diff.inHours > 0) {
+      return minutes > 0 ? '${diff.inHours}h ${minutes}m' : '${diff.inHours}h';
+    }
+    return '${diff.inMinutes}m';
+  }
+
   Map<String, dynamic> _getVehicleMotionInfo(Map<String, dynamic> location) {
     final speedMps = (location['speed_mps'] as num?)?.toDouble() ?? 0.0;
     final speedKph = (speedMps * 3.6).round();
@@ -7345,11 +7363,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         'isMoving': false,
         'isParked': true,
         'isStopped': false,
+        'stopTime': '0m',
       };
     }
 
+    final locKey = location['vehicle_id']?.toString() ??
+        location['booking_id']?.toString() ??
+        location['id']?.toString() ??
+        '';
+
     final isMoving = speedKph >= 3;
     if (isMoving) {
+      if (locKey.isNotEmpty) {
+        _vehicleStoppedAt.remove(locKey);
+      }
       return {
         'status': 'moving',
         'label': 'MOVING • $speedKph km/h',
@@ -7360,30 +7387,54 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         'isMoving': true,
         'isParked': false,
         'isStopped': false,
+        'stopTime': '0m',
       };
-    } else if (isStale) {
+    }
+
+    // Stationary (speed < 3 km/h) -> MARK AS PARKED & CALCULATE STOPPED TIME
+    DateTime stoppedSince;
+    final explicitStopped = location['stopped_at'] ?? location['stationary_since'];
+    if (explicitStopped != null) {
+      stoppedSince = DateTime.tryParse(explicitStopped.toString())?.toUtc() ?? recordedAt ?? now;
+    } else if (locKey.isNotEmpty && _vehicleStoppedAt.containsKey(locKey)) {
+      stoppedSince = _vehicleStoppedAt[locKey]!;
+    } else {
+      stoppedSince = recordedAt ?? now;
+      if (locKey.isNotEmpty) {
+        _vehicleStoppedAt[locKey] = stoppedSince;
+      }
+    }
+
+    final diff = now.difference(stoppedSince);
+    final durationText = _formatStoppedDuration(diff);
+
+    if (isStale) {
       return {
         'status': 'parked',
-        'label': 'PARKED • ENGINE OFF',
-        'short_label': 'PARKED (OFF)',
+        'label': 'PARKED • ENGINE OFF ($durationText)',
+        'short_label': 'PARKED (OFF • $durationText)',
         'color': const Color(0xFF9E9E9E),
-        'icon': Icons.power_settings_new_rounded,
+        'icon': Icons.local_parking_rounded,
         'speedKph': 0,
         'isMoving': false,
         'isParked': true,
-        'isStopped': false,
+        'isStopped': true,
+        'stopTime': durationText,
+        'stoppedSince': stoppedSince,
       };
     } else {
       return {
-        'status': 'stopped',
-        'label': 'STOPPED • IDLING',
-        'short_label': 'STOPPED',
+        'status': 'parked',
+        'label': 'PARKED • IDLING ($durationText)',
+        'short_label': 'PARKED ($durationText)',
         'color': const Color(0xFFFF9100),
-        'icon': Icons.pause_circle_filled_rounded,
+        'icon': Icons.local_parking_rounded,
         'speedKph': 0,
         'isMoving': false,
-        'isParked': false,
+        'isParked': true,
         'isStopped': true,
+        'stopTime': durationText,
+        'stoppedSince': stoppedSince,
       };
     }
   }
@@ -8265,10 +8316,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 );
                               }
 
+                              final motion = _getVehicleMotionInfo(location);
+                              final isParked = motion['isParked'] == true;
+                              final stopTime = motion['stopTime']?.toString();
+                              final speedText = isParked && stopTime != null && stopTime.isNotEmpty
+                                  ? 'Parked: $stopTime (0 km/h)'
+                                  : 'Speed: $speedKph km/h';
+
                               return Text(
                                 hasActiveBooking
-                                    ? 'Booking: ${booking?['id'] ?? 'N/A'} | Driver: ${driverUser?['full_name'] ?? 'N/A (Self-Drive)'} | Renter: ${renter?['full_name'] ?? 'N/A'} • Speed: $speedKph km/h'
-                                    : 'Tracker ID: ${tracker?['device_identifier'] ?? location['device_identifier'] ?? 'GPS Connected'} • Speed: $speedKph km/h',
+                                    ? 'Booking: ${booking?['id'] ?? 'N/A'} | Driver: ${driverUser?['full_name'] ?? 'N/A (Self-Drive)'} | Renter: ${renter?['full_name'] ?? 'N/A'} • $speedText'
+                                    : 'Tracker ID: ${tracker?['device_identifier'] ?? location['device_identifier'] ?? 'GPS Connected'} • $speedText',
                                 style: TextStyle(
                                   color: isDark
                                       ? Colors.grey[400]

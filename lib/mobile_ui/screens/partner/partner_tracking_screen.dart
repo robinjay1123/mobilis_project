@@ -233,13 +233,15 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
       motionColor = const Color(0xFF00E676);
       motionIcon = Icons.speed_rounded;
     } else if (isStale || minutesSinceRecorded >= 15) {
-      motionStatusLabel = 'PARKED • ENGINE OFF';
+      final stopDuration = minutesSinceRecorded > 0 ? ' ($minutesSinceRecorded m)' : '';
+      motionStatusLabel = 'PARKED • ENGINE OFF$stopDuration';
       motionColor = const Color(0xFF94A3B8);
       motionIcon = Icons.local_parking_rounded;
     } else {
-      motionStatusLabel = 'STOPPED • IDLING';
+      final stopDuration = minutesSinceRecorded > 0 ? ' ($minutesSinceRecorded m)' : '';
+      motionStatusLabel = 'PARKED • IDLING$stopDuration';
       motionColor = const Color(0xFFFFB300);
-      motionIcon = Icons.pause_circle_filled_rounded;
+      motionIcon = Icons.local_parking_rounded;
     }
 
     final destination =
@@ -753,9 +755,9 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                     label: 'STATUS',
                     value: motionStatusLabel.contains('MOVING')
                         ? 'Moving'
-                        : (motionStatusLabel.contains('PARKED')
+                        : (motionStatusLabel.contains('ENGINE OFF')
                             ? 'Parked (Off)'
-                            : 'Stopped'),
+                            : 'Parked'),
                   ),
                 ),
                 Expanded(

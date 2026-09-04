@@ -125,16 +125,28 @@ class GpsTrackerTelemetryCard extends StatelessWidget {
       posTime = DateTime.tryParse(rawTime.toString());
     }
 
-    // Stop duration
+    // Stop / parked duration
     String? stopTimeFormatted;
-    if (posTime != null) {
+    final speedMps = (location['speed_mps'] as num?)?.toDouble() ?? 0.0;
+    final speedKph = (speedMps * 3.6).round();
+    final isMoving = speedKph >= 3;
+
+    if (isMoving) {
+      stopTimeFormatted = 'Moving ($speedKph km/h)';
+    } else if (posTime != null) {
       final diff = DateTime.now().difference(posTime);
-      final h = diff.inHours;
-      final m = diff.inMinutes % 60;
-      if (h > 0) {
-        stopTimeFormatted = '${h}Hour${m}Minute';
+      if (diff.isNegative || diff.inMinutes < 1) {
+        stopTimeFormatted = '< 1m (Just parked)';
+      } else if (diff.inDays > 0) {
+        final d = diff.inDays;
+        final h = diff.inHours % 24;
+        stopTimeFormatted = h > 0 ? '${d}d ${h}h' : '${d}d';
+      } else if (diff.inHours > 0) {
+        final h = diff.inHours;
+        final m = diff.inMinutes % 60;
+        stopTimeFormatted = m > 0 ? '${h}h ${m}m' : '${h}h';
       } else {
-        stopTimeFormatted = '${m}Minute';
+        stopTimeFormatted = '${diff.inMinutes}m';
       }
     }
 
@@ -305,8 +317,8 @@ class GpsTrackerTelemetryCard extends StatelessWidget {
 
           // Stop time
           _buildDetailRow(
-            'Stop time:',
-            stopTime ?? '4Hour34Minute',
+            'Stop time / Parked:',
+            stopTime ?? 'N/A',
             textDark,
             textDark,
           ),

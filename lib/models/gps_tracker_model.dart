@@ -187,13 +187,17 @@ class VehicleTracker {
     final refTime = lastLocationAt ?? lastSyncAt;
     if (refTime == null) return 'N/A';
     final diff = DateTime.now().difference(refTime);
-    if (diff.isNegative || diff.inMinutes < 1) return 'Just now';
-    final hours = diff.inHours;
+    if (diff.isNegative || diff.inMinutes < 1) return '< 1m';
+    final days = diff.inDays;
+    final hours = diff.inHours % 24;
     final minutes = diff.inMinutes % 60;
-    if (hours > 0) {
-      return '${hours}Hour${minutes}Minute';
+    if (days > 0) {
+      return hours > 0 ? '${days}d ${hours}h' : '${days}d';
     }
-    return '${minutes}Minute';
+    if (hours > 0) {
+      return minutes > 0 ? '${hours}h ${minutes}m' : '${hours}h';
+    }
+    return '${minutes}m';
   }
 }
 
