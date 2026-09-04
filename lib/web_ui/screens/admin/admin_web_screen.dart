@@ -2288,7 +2288,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               owner_role,
               operator_id,
               is_partner_vehicle,
-              partner_id
+              partner_id,
+              image_url,
+              vehicle_images(image_url, display_order)
             ),
             renter:renter_id (id, full_name, email, phone),
             drivers:drivers!bookings_driver_id_fkey (
@@ -2299,7 +2301,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ''')
           .order('created_at', ascending: false);
 
-      final rawBookings = List<Map<String, dynamic>>.from(response);
+      var rawBookings = List<Map<String, dynamic>>.from(response);
+      try {
+        rawBookings = await BookingService().hydrateBookingVehicles(rawBookings);
+      } catch (hErr) {
+        debugPrint('Admin bookings vehicle hydration note: $hErr');
+      }
 
       // Load partner profiles mapping
       final partnerMap = <String, Map<String, dynamic>>{};
@@ -8618,17 +8625,60 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  String _adminPrimaryVehicleImageUrl(Map<String, dynamic> vehicle) {
-    final direct = vehicle['image_url']?.toString().trim() ?? '';
-    if (direct.isNotEmpty) return direct;
-    final images = vehicle['vehicle_images'];
-    if (images is! List) return '';
-    for (final image in images) {
-      if (image is! Map) continue;
-      final url = image['image_url']?.toString().trim() ?? '';
-      if (url.isNotEmpty) return url;
+  String _adminPrimaryVehicleImageUrl(Map<String, dynamic>? vehicle, [Map<String, dynamic>? booking]) {
+    if (vehicle != null) {
+      final direct = (vehicle['image_url'] ??
+              vehicle['imageUrl'] ??
+              vehicle['photo_url'] ??
+              vehicle['vehicle_image_url'] ??
+              vehicle['thumbnail_url'])
+          ?.toString()
+          .trim() ?? '';
+      if (direct.isNotEmpty) return direct;
+      final rawImages = vehicle['vehicle_images'] ?? vehicle['images'] ?? vehicle['photos'];
+      if (rawImages is List) {
+        for (final image in rawImages) {
+          if (image is! Map) continue;
+          final url = (image['image_url'] ?? image['url'] ?? image['image'])?.toString().trim() ?? '';
+          if (url.isNotEmpty) return url;
+        }
+      }
+    }
+    if (booking != null) {
+      final bDirect = (booking['vehicle_image_url'] ??
+              booking['image_url'] ??
+              booking['photo_url'])
+          ?.toString()
+          .trim() ?? '';
+      if (bDirect.isNotEmpty) return bDirect;
+      final pv = booking['partner_vehicles'] ?? booking['partner_vehicle'];
+      if (pv is Map<String, dynamic>) {
+        final pvUrl = _adminPrimaryVehicleImageUrl(pv);
+        if (pvUrl.isNotEmpty) return pvUrl;
+      }
+      final bv = booking['vehicles'];
+      if (bv is Map<String, dynamic> && bv != vehicle) {
+        final bvUrl = _adminPrimaryVehicleImageUrl(bv);
+        if (bvUrl.isNotEmpty) return bvUrl;
+      }
     }
     return '';
+  }
+
+  String _resolveVehicleImage(Map<String, dynamic>? vehicle, [Map<String, dynamic>? booking]) {
+    var img = _adminPrimaryVehicleImageUrl(vehicle, booking);
+    if (img.isNotEmpty) return img;
+    final vid = (vehicle?['id'] ?? booking?['vehicle_id'] ?? booking?['partner_vehicle_id'])?.toString().trim() ?? '';
+    if (vid.isNotEmpty && _allVehicles.isNotEmpty) {
+      final found = _allVehicles.firstWhere(
+        (v) => v['id']?.toString() == vid,
+        orElse: () => {},
+      );
+      if (found.isNotEmpty) {
+        img = _adminPrimaryVehicleImageUrl(found);
+      }
+    }
+    return img;
   }
 
   Widget _buildBookingsContent(bool isDark) {
@@ -9056,6 +9106,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final withDriver = booking['with_driver'] == true;
 
+    final vehicleImageUrl = _resolveVehicleImage(vehicle, booking);
     final vBrand = vehicle?['brand']?.toString().trim() ?? '';
     final vModel = vehicle?['model']?.toString().trim() ?? '';
     final vCombo = [vBrand, vModel].where((part) => part.isNotEmpty).join(' ');
@@ -9183,17 +9234,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    // Column 1: Vehicle & Owner
+                    // Column 1: Vehicle & Owner (with Car Image Thumbnail)
                     SizedBox(
                       width: colWidth,
-                      child: _buildBookingFieldBox(
+                      child: _buildVehicleBookingFieldBox(
                         'Vehicle & License',
                         vehicleTitle,
                         isDark,
                         subtitle: plateNumber.isNotEmpty
                             ? 'Plate: $plateNumber'
                             : 'No plate specified',
-                        icon: Icons.directions_car_filled_rounded,
+                        imageUrl: vehicleImageUrl,
+                        onTapVehicle: (vehicle != null || booking['partner_vehicles'] != null)
+                            ? () {
+                                final targetVeh = vehicle ??
+                                    (booking['partner_vehicles'] as Map<String, dynamic>?);
+                                if (targetVeh != null) {
+                                  _showAdminVehicleDetailsDialog(targetVeh, isDark);
+                                }
+                              }
+                            : null,
                       ),
                     ),
 
@@ -9301,6 +9361,141 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildVehicleBookingFieldBox(
+    String label,
+    String value,
+    bool isDark, {
+    String? subtitle,
+    String? imageUrl,
+    VoidCallback? onTapVehicle,
+  }) {
+    final hasImage = imageUrl != null && imageUrl.trim().isNotEmpty;
+
+    final content = Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black26 : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.directions_car_filled_rounded,
+                size: 13,
+                color: isDark ? Colors.white54 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    letterSpacing: 0.4,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (onTapVehicle != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Icon(
+                    Icons.open_in_new_rounded,
+                    size: 12,
+                    color: isDark ? AppColors.primary : Colors.blue.shade700,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Vehicle Car Image Thumbnail
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: 58,
+                  height: 44,
+                  color: isDark ? AppColors.darkBgTertiary : Colors.grey.shade200,
+                  child: hasImage
+                      ? OptimizedNetworkImage(
+                          imageUrl: imageUrl.trim(),
+                          fit: BoxFit.cover,
+                          width: 58,
+                          height: 44,
+                          errorWidget: Icon(
+                            Icons.directions_car_rounded,
+                            size: 24,
+                            color: isDark ? Colors.grey[600] : Colors.grey.shade500,
+                          ),
+                        )
+                      : Icon(
+                          Icons.directions_car_rounded,
+                          size: 24,
+                          color: isDark ? Colors.grey[600] : Colors.grey.shade500,
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Vehicle Title & Plate Number
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (subtitle != null && subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    if (onTapVehicle != null) {
+      return Tooltip(
+        message: 'Click to view vehicle details',
+        child: InkWell(
+          onTap: onTapVehicle,
+          borderRadius: BorderRadius.circular(12),
+          hoverColor: AppColors.primary.withValues(alpha: 0.05),
+          child: content,
+        ),
+      );
+    }
+    return content;
   }
 
   Widget _buildBookingFieldBox(
@@ -9734,6 +9929,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   final total = breakdown['total_amount'] as double;
                   final isPartner = breakdown['is_partner'] == true;
                   final partnerName = breakdown['partner_name'] as String;
+                  final vehicleImg = _resolveVehicleImage(vehicle, booking);
 
                   final startDateRaw =
                       booking['start_date'] ?? booking['start_at'];
@@ -9786,46 +9982,83 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                       ),
                       DataCell(
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              vehicle != null
-                                  ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['plate_number'] != null ? "(${vehicle['plate_number']})" : ""}'
-                                  : 'Unknown Vehicle',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : Colors.black87,
-                                fontSize: 12,
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                width: 44,
+                                height: 34,
+                                color: isDark
+                                    ? AppColors.darkBgTertiary
+                                    : Colors.grey.shade200,
+                                child: vehicleImg.isNotEmpty
+                                    ? OptimizedNetworkImage(
+                                        imageUrl: vehicleImg,
+                                        fit: BoxFit.cover,
+                                        width: 44,
+                                        height: 34,
+                                        errorWidget: Icon(
+                                          Icons.directions_car_rounded,
+                                          size: 18,
+                                          color: isDark
+                                              ? Colors.grey[600]
+                                              : Colors.grey.shade500,
+                                        ),
+                                      )
+                                    : Icon(
+                                        Icons.directions_car_rounded,
+                                        size: 18,
+                                        color: isDark
+                                            ? Colors.grey[600]
+                                            : Colors.grey.shade500,
+                                      ),
                               ),
                             ),
-                            const SizedBox(height: 3),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isPartner
-                                    ? const Color(0xFF0284C7).withValues(
-                                        alpha: 0.15,
-                                      )
-                                    : AppColors.primary.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                isPartner
-                                    ? '🤝 Partner: $partnerName'
-                                    : '🏢 PSDC Fleet',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  color: isPartner
-                                      ? const Color(0xFF0284C7)
-                                      : AppColors.primary,
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  vehicle != null
+                                      ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['plate_number'] != null ? "(${vehicle['plate_number']})" : ""}'
+                                      : 'Unknown Vehicle',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? Colors.white : Colors.black87,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(height: 3),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isPartner
+                                        ? const Color(0xFF0284C7).withValues(
+                                            alpha: 0.15,
+                                          )
+                                        : AppColors.primary.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    isPartner
+                                        ? '🤝 Partner: $partnerName'
+                                        : '🏢 PSDC Fleet',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: isPartner
+                                          ? const Color(0xFF0284C7)
+                                          : AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -9968,6 +10201,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ? '#BK-${bookingId.substring(0, 8).toUpperCase()}'
         : '#BK-$bookingId';
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final vehicleImg = _resolveVehicleImage(vehicle, booking);
     final user = booking['renter'] as Map<String, dynamic>?;
     final driver = (booking['driver'] ?? booking['drivers']) as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
@@ -10383,50 +10617,89 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                     : Colors.grey.shade200,
                               ),
                             ),
-                            child: Column(
+                            child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.directions_car_rounded,
-                                      size: 16,
-                                      color: AppColors.primary,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Vehicle Info',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: isDark
-                                            ? Colors.white
-                                            : Colors.black87,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  vehicle != null
-                                      ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['year'] ?? ''}'
-                                      : 'Unknown Vehicle',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    width: 72,
+                                    height: 56,
                                     color: isDark
-                                        ? Colors.white
-                                        : Colors.black87,
+                                        ? AppColors.darkBgTertiary
+                                        : Colors.grey.shade200,
+                                    child: vehicleImg.isNotEmpty
+                                        ? OptimizedNetworkImage(
+                                            imageUrl: vehicleImg,
+                                            fit: BoxFit.cover,
+                                            width: 72,
+                                            height: 56,
+                                            errorWidget: Icon(
+                                              Icons.directions_car_rounded,
+                                              size: 26,
+                                              color: isDark
+                                                  ? Colors.grey[600]
+                                                  : Colors.grey.shade500,
+                                            ),
+                                          )
+                                        : Icon(
+                                            Icons.directions_car_rounded,
+                                            size: 26,
+                                            color: isDark
+                                                ? Colors.grey[600]
+                                                : Colors.grey.shade500,
+                                          ),
                                   ),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Plate Number: ${vehicle?['plate_number'] ?? 'No Plate'}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isDark
-                                        ? Colors.grey.shade400
-                                        : Colors.grey.shade600,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.directions_car_rounded,
+                                            size: 16,
+                                            color: AppColors.primary,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            'Vehicle Info',
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: isDark
+                                                  ? Colors.white
+                                                  : Colors.black87,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        vehicle != null
+                                            ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['year'] ?? ''}'
+                                            : 'Unknown Vehicle',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark
+                                              ? Colors.white
+                                              : Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Plate Number: ${vehicle?['plate_number'] ?? 'No Plate'}',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: isDark
+                                              ? Colors.grey.shade400
+                                              : Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
