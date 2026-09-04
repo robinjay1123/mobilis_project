@@ -251,15 +251,39 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     final dropoffLat = (bookingMap?['dropoff_latitude'] ?? booking['dropoff_latitude'] as num?)?.toDouble();
     final dropoffLng = (bookingMap?['dropoff_longitude'] ?? booking['dropoff_longitude'] as num?)?.toDouble();
 
-    final vehicleName =
-        [vehicle?['vehicle_name'], vehicle?['brand'], vehicle?['model']]
-            .where((part) => part != null && part.toString().trim().isNotEmpty)
-            .join(' ');
-    final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
+    final vehicleBrand = vehicle?['brand']?.toString().trim() ?? '';
+    final vehicleModel = vehicle?['model']?.toString().trim() ?? '';
+    final rawVehicleName = vehicle?['vehicle_name']?.toString().trim() ??
+        booking['vehicle_name']?.toString().trim() ??
+        '';
+
+    final String resolvedVehicleName;
+    if (rawVehicleName.isNotEmpty &&
+        rawVehicleName.toLowerCase() != 'partner vehicle' &&
+        rawVehicleName.toLowerCase() != 'vehicle request' &&
+        rawVehicleName.toLowerCase() != 'vehicle') {
+      resolvedVehicleName = rawVehicleName;
+    } else {
+      final combo = [vehicleBrand, vehicleModel]
+          .where((part) => part.isNotEmpty)
+          .join(' ');
+      resolvedVehicleName = combo.isNotEmpty
+          ? combo
+          : (rawVehicleName.isNotEmpty ? rawVehicleName : 'Tracked Vehicle');
+    }
+    final plateNumber = vehicle?['plate_number']?.toString().trim() ??
+        booking['plate_number']?.toString().trim() ??
+        '';
     final renterName =
         renter?['full_name']?.toString().trim().isNotEmpty == true
-        ? renter!['full_name'].toString().trim()
-        : widget.recipientName;
+            ? renter!['full_name'].toString().trim()
+            : (widget.recipientName.trim().isNotEmpty
+                ? widget.recipientName.trim()
+                : 'Renter');
+    final renterAvatarUrl =
+        renter?['avatar_url']?.toString().trim() ??
+        renter?['profile_picture_url']?.toString().trim() ??
+        booking['user_avatar_url']?.toString().trim();
 
     return Scaffold(
       backgroundColor: const Color(0xFF071E2D),
@@ -295,7 +319,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                               'LIVE TRACKING',
                               style: TextStyle(
                                 color: AppColors.primary,
-                                fontSize: 24,
+                                fontSize: 20,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 1.4,
                               ),
@@ -413,9 +437,8 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                     bottom: 18,
                     child: _buildBottomSheet(
                       renterName: renterName,
-                      vehicleName: vehicleName.isEmpty
-                          ? 'Tracked Vehicle'
-                          : vehicleName,
+                      renterAvatarUrl: renterAvatarUrl,
+                      vehicleName: resolvedVehicleName,
                       plateNumber: plateNumber,
                       destination: destination,
                       speedKph: speedKph,
@@ -625,292 +648,394 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     required Color motionColor,
     required String heading,
     required String updatedAt,
+    String? renterAvatarUrl,
   }) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-      decoration: const BoxDecoration(
-        color: Color(0xFF082A4C),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 52,
-            height: 5,
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              borderRadius: BorderRadius.circular(999),
-            ),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF082A4C),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white12),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 18,
+            offset: Offset(0, 4),
           ),
-          const SizedBox(height: 16),
-          Row(
+        ],
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.58,
+        ),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.primary, width: 2),
-                  color: const Color(0xFF15395A),
-                ),
-                child: const Icon(
-                  Icons.person,
-                  color: AppColors.textPrimary,
-                  size: 28,
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Current Renter',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 13,
-                      ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.primary, width: 2),
+                      color: const Color(0xFF15395A),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      renterName,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    child: ClipOval(
+                      child: renterAvatarUrl != null && renterAvatarUrl.isNotEmpty
+                          ? Image.network(
+                              renterAvatarUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => const Icon(
+                                Icons.person,
+                                color: AppColors.textPrimary,
+                                size: 24,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.person,
+                              color: AppColors.textPrimary,
+                              size: 24,
+                            ),
                     ),
-                    const SizedBox(height: 4),
-                    const Row(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.star, color: AppColors.primary, size: 14),
-                        SizedBox(width: 4),
-                        Text(
-                          '4.9 PRO',
+                        const Text(
+                          'Current Renter',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: AppColors.primary,
-                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          renterName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.star, color: AppColors.primary, size: 13),
+                            SizedBox(width: 3),
+                            Text(
+                              '4.9 PRO',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Vehicle',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          vehicleName,
+                          textAlign: TextAlign.right,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.textPrimaryOf(context),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (plateNumber.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              plateNumber,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                color: AppColors.textSecondaryOf(context),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceOf(context),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppColors.cardBorderOf(context)),
+                  boxShadow: AppColors.cardShadowOf(context),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildMetric(
+                        label: 'SPEED',
+                        value: '$speedKph km/h',
+                      ),
+                    ),
+                    Expanded(
+                      child: _buildMetric(
+                        label: 'STATUS',
+                        value: motionStatusLabel.contains('MOVING')
+                            ? 'Moving'
+                            : (motionStatusLabel.contains('ENGINE OFF')
+                                ? 'Parked'
+                                : 'Parked'),
+                      ),
+                    ),
+                    Expanded(
+                      child: _buildMetric(label: 'HEADING', value: heading),
+                    ),
+                    Expanded(
+                      child: _buildMetric(label: 'UPDATED', value: updatedAt),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.location_on_outlined,
+                            color: AppColors.primary,
+                            size: 19,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Destination',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                destination,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const Text(
-                    'Vehicle',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    vehicleName,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: AppColors.textPrimaryOf(context),
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (plateNumber.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      plateNumber,
-                      style: TextStyle(
-                        color: AppColors.textSecondaryOf(context),
-                        fontSize: 12,
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Text(
+                        'Location',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                        ),
                       ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceOf(context),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: AppColors.cardBorderOf(context)),
-              boxShadow: AppColors.cardShadowOf(context),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildMetric(
-                    label: 'SPEED',
-                    value: '$speedKph km/h',
-                  ),
-                ),
-                Expanded(
-                  child: _buildMetric(
-                    label: 'STATUS',
-                    value: motionStatusLabel.contains('MOVING')
-                        ? 'Moving'
-                        : (motionStatusLabel.contains('ENGINE OFF')
-                            ? 'Parked (Off)'
-                            : 'Parked'),
-                  ),
-                ),
-                Expanded(
-                  child: _buildMetric(label: 'HEADING', value: heading),
-                ),
-                Expanded(
-                  child: _buildMetric(label: 'UPDATED', value: updatedAt),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.location_on_outlined,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(height: 2),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text(
-                            'Destination',
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 13,
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _trackingLocation == null
+                                  ? Colors.grey
+                                  : const Color(0xFF00E676),
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(width: 5),
                           Text(
-                            destination,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 16,
+                            _trackingLocation == null ? 'Unavailable' : 'Live',
+                            style: TextStyle(
+                              color: _trackingLocation == null
+                                  ? Colors.white70
+                                  : const Color(0xFF00E676),
+                              fontSize: 13,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: 16),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              const SizedBox(height: 16),
+              Row(
                 children: [
-                  const Text(
-                    'Location',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: widget.conversationId.trim().isEmpty
+                          ? null
+                          : _openConversation,
+                      icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                      label: const Text('Message Renter'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        minimumSize: const Size.fromHeight(46),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _trackingLocation == null ? 'Unavailable' : 'Live',
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                  const SizedBox(width: 10),
+                  InkWell(
+                    onTap: () {
+                      _loadTrackingLocation(showLoader: false);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Refreshing live GPS telemetry...'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: 48,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2A2248),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0x55FF4F8B)),
+                      ),
+                      child: const Icon(
+                        Icons.podcasts_rounded,
+                        color: Color(0xFFFF4F8B),
+                        size: 22,
+                      ),
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: widget.conversationId.trim().isEmpty
-                      ? null
-                      : _openConversation,
-                  icon: const Icon(Icons.chat_bubble_outline, size: 20),
-                  label: const Text('Message Renter'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.black,
-                    minimumSize: const Size.fromHeight(52),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    final bId = widget.booking['id']?.toString() ?? '';
+                    if (bId.isNotEmpty) {
+                      TripRouteHistoryDialog.show(
+                        context: context,
+                        bookingId: bId,
+                        vehicleName: vehicleName,
+                        plateNumber: plateNumber,
+                        renterName: renterName,
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.route_rounded, size: 17, color: AppColors.primary),
+                  label: const Text(
+                    'Audit Traveled Route & GPS Playback',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary, width: 1.5),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    textStyle: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2A2248),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0x55FF4F8B)),
-                ),
-                child: const Icon(
-                  Icons.podcasts_rounded,
-                  color: Color(0xFFFF4F8B),
-                ),
-              ),
             ],
           ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                final bId = widget.booking['id']?.toString() ?? '';
-                if (bId.isNotEmpty) {
-                  TripRouteHistoryDialog.show(
-                    context: context,
-                    bookingId: bId,
-                    vehicleName: vehicleName,
-                    plateNumber: plateNumber,
-                    renterName: renterName,
-                  );
-                }
-              },
-              icon: const Icon(Icons.route_rounded, size: 18, color: AppColors.primary),
-              label: const Text(
-                'Audit Traveled Route & GPS Playback',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                side: const BorderSide(color: AppColors.primary, width: 1.5),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -921,18 +1046,22 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
       children: [
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: AppColors.textSecondary,
             fontSize: 11,
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Text(
           value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: AppColors.textPrimary,
-            fontSize: 17,
+            fontSize: 14,
             fontWeight: FontWeight.w700,
           ),
         ),
