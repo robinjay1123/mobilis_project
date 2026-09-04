@@ -542,14 +542,45 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final pid = partnerId ?? AuthService().currentUser?.id;
     if (pid == null || pid.isEmpty) return;
     try {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Text('Syncing live GPS telemetry...'),
+              ],
+            ),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
       final liveLocations = await TrackingService().getPartnerActiveTrackingLocations(pid);
       if (mounted) {
         setState(() {
           trackingLocations = liveLocations;
         });
+        if (!silent) {
+          _showSuccessSnackBar(
+            liveLocations.isNotEmpty
+                ? 'GPS updated: ${liveLocations.length} vehicle(s) tracked'
+                : 'GPS refreshed. Awaiting live signal from tracker.',
+          );
+        }
       }
     } catch (e) {
       debugPrint('Error refreshing partner live tracking: $e');
+      if (!silent && mounted) {
+        _showErrorSnackBar('Failed to refresh GPS telemetry');
+      }
     }
   }
 
