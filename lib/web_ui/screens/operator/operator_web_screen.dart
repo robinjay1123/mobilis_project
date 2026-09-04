@@ -2265,14 +2265,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               reservation_payment_method,
               paid_amount,
               refund_status,
-              refund_amount,
-              refund_completed,
-              refund_ref,
-              refund_notes,
-              refund_method,
-              refund_receipt_url,
-              refund_reason,
-              refunded_at,
+              refund_processed_at,
+              refund_phone,
               late_return_days,
               late_return_fee,
               emergency_contact_name,
@@ -17728,6 +17722,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final directQrUrl = (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty)
           ? discoveredQrUrl
           : (renter['qr_code_url']?.toString() ?? renter['gcash_qr_url']?.toString() ?? renter['payout_qr_url']?.toString() ?? booking['renter_qr_url']?.toString());
+
+      // Pre-load refund details from booking_refunds table if not already on booking map
+      if (booking['refund_ref'] == null || booking['refund_amount'] == null) {
+        try {
+          final refundRow = await _supabase
+              .from('booking_refunds')
+              .select('*')
+              .eq('booking_id', bookingId)
+              .maybeSingle();
+          if (refundRow != null) {
+            final isProcessed = refundRow['status'] == 'processed';
+            if (isProcessed) {
+              booking['refund_status'] = 'refunded';
+              booking['refund_completed'] = true;
+            }
+            booking['refund_ref'] ??= refundRow['payment_reference'];
+            final bAmount = (refundRow['amount'] as num?)?.toDouble();
+            if (bAmount != null && bAmount > 0) {
+              booking['refund_amount'] = bAmount;
+            }
+            booking['refund_notes'] ??= refundRow['reason'];
+          }
+        } catch (_) {}
+      }
 
       final isAlreadyRefunded = booking['refund_status'] == 'refunded' || booking['refund_completed'] == true;
       final defaultRefundAmount = resolveBookingRefundAmount(booking);

@@ -1882,18 +1882,48 @@ class BookingService {
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
 
-    await supabase.from('bookings').update({
-      'refund_status': 'refunded',
-      'refund_completed': true,
-      'refund_amount': amount,
-      'refund_method': method,
-      'refund_ref': reference,
-      if (receiptUrl != null && receiptUrl.isNotEmpty) 'refund_receipt_url': receiptUrl,
-      if (notes != null && notes.isNotEmpty) 'refund_notes': notes,
-      if (operatorId != null && operatorId.isNotEmpty) 'refunded_by': operatorId,
-      'refunded_at': now,
-      'updated_at': now,
-    }).eq('id', bookingId);
+    // 1. Record/upsert into booking_refunds table if available
+    try {
+      await supabase.from('booking_refunds').upsert({
+        'booking_id': bookingId,
+        'renter_id': booking['renter_id'],
+        'amount': amount,
+        'payment_reference': reference,
+        'status': 'processed',
+        'reason': (notes != null && notes.isNotEmpty)
+            ? notes
+            : 'Refund settled by PSDC Operator',
+        'processed_at': now,
+        'updated_at': now,
+      }, onConflict: 'booking_id');
+    } catch (e) {
+      debugPrint('[settleBookingRefund] Warning upserting booking_refunds: $e');
+    }
+
+    // 2. Update bookings table with safe fallback if refund_amount is not yet in schema cache
+    try {
+      await supabase.from('bookings').update({
+        'refund_status': 'refunded',
+        'refund_completed': true,
+        'refund_amount': amount,
+        'refund_method': method,
+        'refund_ref': reference,
+        'refund_reference': reference,
+        if (receiptUrl != null && receiptUrl.isNotEmpty) 'refund_receipt_url': receiptUrl,
+        if (notes != null && notes.isNotEmpty) 'refund_notes': notes,
+        if (operatorId != null && operatorId.isNotEmpty) 'refunded_by': operatorId,
+        'refunded_at': now,
+        'refund_processed_at': now,
+        'updated_at': now,
+      }).eq('id', bookingId);
+    } catch (e) {
+      debugPrint('[settleBookingRefund] Full update hit PostgREST schema cache: $e. Falling back to guaranteed columns.');
+      await supabase.from('bookings').update({
+        'refund_status': 'refunded',
+        'refund_processed_at': now,
+        'updated_at': now,
+      }).eq('id', bookingId);
+    }
 
     // Notify renter that refund is disbursed
     final renterId = booking['renter_id']?.toString();
@@ -2358,10 +2388,22 @@ class BookingService {
       updatePayload['refund_amount'] = paidAmount;
     }
 
-    await supabase
-        .from('bookings')
-        .update(updatePayload)
-        .eq('id', bookingId);
+    try {
+      await supabase
+          .from('bookings')
+          .update(updatePayload)
+          .eq('id', bookingId);
+    } catch (e) {
+      if (updatePayload.containsKey('refund_amount')) {
+        updatePayload.remove('refund_amount');
+        await supabase
+            .from('bookings')
+            .update(updatePayload)
+            .eq('id', bookingId);
+      } else {
+        rethrow;
+      }
+    }
 
     // Cancel driver assignment in parallel if any
     final assignedDriverId = booking['driver_id']?.toString();
@@ -2601,23 +2643,33 @@ class BookingService {
           ((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 0) > 0 ||
           refundAmount > 0;
 
-      final now = DateTime.now().toIso8601String();
-      await supabase
-          .from('bookings')
-          .update({
-            'status': 'rejected',
-            'rejection_reason': reason,
-            'rejected_at': now,
-            'updated_at': now,
-            if (hasPaidOrVerified && refundAmount > 0) ...{
-              'refund_status': 'refund_needed',
-              'refund_amount': refundAmount,
-              'refund_reason': 'Booking rejected by operator: $reason',
-            } else ...{
-              'refund_status': null,
-            },
-          })
-          .eq('id', bookingId);
+      final updatePayload = <String, dynamic>{
+        'status': 'rejected',
+        'rejection_reason': reason,
+        'rejected_at': now,
+        'updated_at': now,
+        if (hasPaidOrVerified && refundAmount > 0) ...{
+          'refund_status': 'refund_needed',
+          'refund_amount': refundAmount,
+          'refund_reason': 'Booking rejected by operator: $reason',
+        } else ...{
+          'refund_status': null,
+        },
+      };
+
+      try {
+        await supabase
+            .from('bookings')
+            .update(updatePayload)
+            .eq('id', bookingId);
+      } catch (e) {
+        updatePayload.remove('refund_amount');
+        updatePayload.remove('refund_reason');
+        await supabase
+            .from('bookings')
+            .update(updatePayload)
+            .eq('id', bookingId);
+      }
 
       final assignedDriverId = booking['driver_id']?.toString();
       if (assignedDriverId != null && assignedDriverId.isNotEmpty) {
@@ -6036,16 +6088,41 @@ class BookingService {
 
       final now = DateTime.now();
 
-      await supabase.from('bookings').update({
-        'refund_status': 'refunded',
-        'refund_reference': cleanRef,
-        'refund_amount': amount,
-        'refund_notes': notes?.trim(),
-        'refund_processed_at': now.toIso8601String(),
-        if (operatorId != null && operatorId.isNotEmpty)
-          'refund_operator_id': operatorId,
-        'updated_at': now.toIso8601String(),
-      }).eq('id', bookingId);
+      try {
+        await supabase.from('booking_refunds').upsert({
+          'booking_id': bookingId,
+          'renter_id': renterId,
+          'amount': amount,
+          'payment_reference': cleanRef,
+          'status': 'processed',
+          'reason': notes?.trim() ?? 'Refund disbursed by Operator',
+          'processed_at': now.toIso8601String(),
+          'updated_at': now.toIso8601String(),
+        }, onConflict: 'booking_id');
+      } catch (e) {
+        debugPrint('[processRefundDisbursement] booking_refunds notice: $e');
+      }
+
+      try {
+        await supabase.from('bookings').update({
+          'refund_status': 'refunded',
+          'refund_reference': cleanRef,
+          'refund_ref': cleanRef,
+          'refund_amount': amount,
+          'refund_notes': notes?.trim(),
+          'refund_processed_at': now.toIso8601String(),
+          if (operatorId != null && operatorId.isNotEmpty)
+            'refund_operator_id': operatorId,
+          'updated_at': now.toIso8601String(),
+        }).eq('id', bookingId);
+      } catch (e) {
+        debugPrint('[processRefundDisbursement] Full update error: $e, falling back to core columns');
+        await supabase.from('bookings').update({
+          'refund_status': 'refunded',
+          'refund_processed_at': now.toIso8601String(),
+          'updated_at': now.toIso8601String(),
+        }).eq('id', bookingId);
+      }
 
       // 1. Notify Renter
       if (renterId.isNotEmpty) {
