@@ -21074,6 +21074,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       _conversations = conversationsMap.values.toList();
 
+      // Hydrate missing booking and vehicle data using _recentBookings and cached lists
+      for (final item in _conversations) {
+        final bId = (item['booking_id'] ?? (item['bookings'] is Map ? item['bookings']['id'] : null))?.toString().trim() ?? '';
+        if (bId.isNotEmpty) {
+          final cached = _recentBookings.firstWhere(
+            (rb) => rb['id']?.toString().trim() == bId,
+            orElse: () => {},
+          );
+          if (cached.isNotEmpty) {
+            final currentB = item['bookings'] is Map
+                ? Map<String, dynamic>.from(item['bookings'] as Map)
+                : <String, dynamic>{};
+            final merged = <String, dynamic>{...cached, ...currentB};
+            if (currentB['vehicles'] == null ||
+                (currentB['vehicles'] is Map && (currentB['vehicles'] as Map).isEmpty)) {
+              merged['vehicles'] = cached['vehicles'];
+            }
+            if (currentB['renter'] == null && (cached['users'] != null || cached['renter'] != null)) {
+              merged['renter'] = cached['users'] ?? cached['renter'];
+            }
+            item['bookings'] = merged;
+          }
+        }
+      }
+
       // Batch-fetch any missing renter profiles to ensure renter name is always visible
       final missingRenterIds = <String>{};
       for (final item in _conversations) {
@@ -21114,30 +21139,77 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       // Batch-fetch any missing vehicle or partner vehicle details and images
       final missingVehicleIds = <String>{};
       final missingPartnerVehicleIds = <String>{};
+      final missingBookingIdsForVehicles = <String>{};
+
       for (final item in _conversations) {
         final b = item['bookings'];
+        final bId = (item['booking_id'] ?? (b is Map ? b['id'] : null))?.toString().trim() ?? '';
         if (b is Map) {
           final v = (b['vehicles'] ?? b['partner_vehicles'] ?? b['partner_vehicle']) as Map<String, dynamic>?;
-          final vid = b['vehicle_id']?.toString().trim() ?? '';
+          final vid = (b['vehicle_id'] ?? b['partner_vehicle_id'])?.toString().trim() ?? '';
           final pvid = b['partner_vehicle_id']?.toString().trim() ?? '';
           final vImg = _operatorVehicleImageUrl(v ?? {}, item, b is Map<String, dynamic> ? b : null);
-          if (v == null || vImg.isEmpty) {
+          if (v == null || vImg.isEmpty || (v['brand'] == null && v['vehicle_name'] == null)) {
             if (vid.isNotEmpty) missingVehicleIds.add(vid);
             if (pvid.isNotEmpty) missingPartnerVehicleIds.add(pvid);
+            if (vid.isEmpty && pvid.isEmpty && bId.isNotEmpty) {
+              missingBookingIdsForVehicles.add(bId);
+            }
           }
+        } else if (bId.isNotEmpty) {
+          missingBookingIdsForVehicles.add(bId);
         }
       }
 
-      if (missingVehicleIds.isNotEmpty || missingPartnerVehicleIds.isNotEmpty) {
+      if (missingBookingIdsForVehicles.isNotEmpty) {
         try {
-          final vehiclesMap = <String, Map<String, dynamic>>{};
+          final bRows = await _supabase
+              .from('bookings')
+              .select('id, vehicle_id, partner_vehicle_id, renter_id, status')
+              .inFilter('id', missingBookingIdsForVehicles.toList());
+          for (final bRow in List<Map<String, dynamic>>.from(bRows)) {
+            final id = bRow['id']?.toString() ?? '';
+            final vid = (bRow['vehicle_id'] ?? bRow['partner_vehicle_id'])?.toString().trim() ?? '';
+            final pvid = bRow['partner_vehicle_id']?.toString().trim() ?? '';
+            if (vid.isNotEmpty) missingVehicleIds.add(vid);
+            if (pvid.isNotEmpty) missingPartnerVehicleIds.add(pvid);
+            for (final item in _conversations) {
+              final itemBId = (item['booking_id'] ?? (item['bookings'] is Map ? item['bookings']['id'] : null))?.toString();
+              if (itemBId == id) {
+                if (item['bookings'] is Map) {
+                  item['bookings']['vehicle_id'] ??= vid;
+                  item['bookings']['partner_vehicle_id'] ??= pvid;
+                } else {
+                  item['bookings'] = Map<String, dynamic>.from(bRow);
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
 
-          if (missingVehicleIds.isNotEmpty) {
+      // Seed vehicles map with in-memory vehicle caches first
+      final vehiclesMap = <String, Map<String, dynamic>>{};
+      for (final v in _vehicles) {
+        final id = v['id']?.toString() ?? '';
+        if (id.isNotEmpty) vehiclesMap[id] = v;
+      }
+      for (final pv in _partnerVehicles) {
+        final id = pv['id']?.toString() ?? '';
+        if (id.isNotEmpty) vehiclesMap[id] = pv;
+      }
+
+      final fetchVehicleIds = missingVehicleIds.where((id) => !vehiclesMap.containsKey(id)).toList();
+      final fetchPartnerVehicleIds = missingPartnerVehicleIds.where((id) => !vehiclesMap.containsKey(id)).toList();
+
+      if (fetchVehicleIds.isNotEmpty || fetchPartnerVehicleIds.isNotEmpty || vehiclesMap.isNotEmpty) {
+        try {
+          if (fetchVehicleIds.isNotEmpty) {
             try {
               final vRows = await _supabase
                   .from('vehicles')
                   .select('id, brand, model, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order)')
-                  .inFilter('id', missingVehicleIds.toList());
+                  .inFilter('id', fetchVehicleIds);
               for (final v in List<Map<String, dynamic>>.from(vRows)) {
                 final id = v['id']?.toString() ?? '';
                 if (id.isNotEmpty) vehiclesMap[id] = v;
@@ -21147,7 +21219,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final vRows = await _supabase
                     .from('vehicles')
                     .select('id, brand, model, vehicle_name, plate_number, image_url')
-                    .inFilter('id', missingVehicleIds.toList());
+                    .inFilter('id', fetchVehicleIds);
                 for (final v in List<Map<String, dynamic>>.from(vRows)) {
                   final id = v['id']?.toString() ?? '';
                   if (id.isNotEmpty) vehiclesMap[id] = v;
@@ -21157,8 +21229,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           }
 
           final partnerIdsToFetch = {
-            ...missingPartnerVehicleIds,
-            ...missingVehicleIds.where((id) => !vehiclesMap.containsKey(id)),
+            ...fetchPartnerVehicleIds,
+            ...fetchVehicleIds.where((id) => !vehiclesMap.containsKey(id)),
           }.toList();
 
           if (partnerIdsToFetch.isNotEmpty) {
@@ -21211,7 +21283,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           for (final item in _conversations) {
             final b = item['bookings'];
             if (b is Map) {
-              final vid = b['vehicle_id']?.toString().trim() ?? '';
+              final vid = (b['vehicle_id'] ?? b['partner_vehicle_id'])?.toString().trim() ?? '';
               final pvid = b['partner_vehicle_id']?.toString().trim() ?? '';
               if (vid.isNotEmpty && vehiclesMap.containsKey(vid)) {
                 b['vehicles'] = vehiclesMap[vid];
@@ -22322,15 +22394,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         break;
       }
     }
-    final selectedBooking =
+    var selectedBooking =
         selectedConversation?['bookings'] as Map<String, dynamic>?;
+    final selectedBookingId = (selectedConversation?['booking_id'] ?? selectedBooking?['id'])?.toString().trim() ?? '';
+    if ((selectedBooking == null || selectedBooking['vehicles'] == null) && selectedBookingId.isNotEmpty) {
+      final cached = _recentBookings.firstWhere(
+        (b) => b['id']?.toString().trim() == selectedBookingId,
+        orElse: () => {},
+      );
+      if (cached.isNotEmpty) {
+        selectedBooking = <String, dynamic>{...cached, ...?selectedBooking};
+        if (selectedBooking['vehicles'] == null && cached['vehicles'] != null) {
+          selectedBooking['vehicles'] = cached['vehicles'];
+        }
+      }
+    }
     final selectedRenter =
-        selectedBooking?['renter'] as Map<String, dynamic>? ?? {};
-    final selectedVehicle = (selectedBooking?['vehicles'] ??
+        selectedBooking?['renter'] as Map<String, dynamic>? ?? (selectedBooking?['users'] as Map<String, dynamic>?) ?? {};
+    var selectedVehicle = (selectedBooking?['vehicles'] ??
             selectedBooking?['partner_vehicles'] ??
             selectedBooking?['partner_vehicle'] ??
             selectedBooking?['vehicle']) as Map<String, dynamic>? ??
         {};
+    if (selectedVehicle.isEmpty ||
+        ((selectedVehicle['brand'] == null || selectedVehicle['brand'].toString().trim().isEmpty) &&
+            (selectedVehicle['vehicle_name'] == null || selectedVehicle['vehicle_name'].toString().trim().isEmpty))) {
+      final vid = (selectedBooking?['vehicle_id'] ?? selectedBooking?['partner_vehicle_id'])?.toString().trim() ?? '';
+      if (vid.isNotEmpty) {
+        final found = _vehicles.firstWhere(
+          (v) => v['id']?.toString() == vid,
+          orElse: () => _partnerVehicles.firstWhere(
+            (pv) => pv['id']?.toString() == vid,
+            orElse: () => {},
+          ),
+        );
+        if (found.isNotEmpty) {
+          selectedVehicle = found;
+        }
+      }
+    }
     final selectedStatus =
         selectedBooking?['status']?.toString().toLowerCase() ?? 'active';
     final conversationStatus =
@@ -22536,13 +22638,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isDark,
   ) {
     final conversationId = conversation['id']?.toString() ?? '';
-    final booking = conversation['bookings'] as Map<String, dynamic>? ?? {};
-    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
-    final vehicle = (booking['vehicles'] ??
+    var booking = conversation['bookings'] as Map<String, dynamic>? ?? {};
+    final bookingId = (conversation['booking_id'] ?? booking['id'])?.toString().trim() ?? '';
+    if ((booking.isEmpty || booking['vehicles'] == null) && bookingId.isNotEmpty) {
+      final cached = _recentBookings.firstWhere(
+        (b) => b['id']?.toString().trim() == bookingId,
+        orElse: () => {},
+      );
+      if (cached.isNotEmpty) {
+        booking = <String, dynamic>{...cached, ...booking};
+        if (booking['vehicles'] == null && cached['vehicles'] != null) {
+          booking['vehicles'] = cached['vehicles'];
+        }
+      }
+    }
+    final renter = booking['renter'] as Map<String, dynamic>? ?? (booking['users'] as Map<String, dynamic>?) ?? {};
+    var vehicle = (booking['vehicles'] ??
             booking['partner_vehicles'] ??
             booking['partner_vehicle'] ??
             booking['vehicle']) as Map<String, dynamic>? ??
         {};
+    if (vehicle.isEmpty ||
+        ((vehicle['brand'] == null || vehicle['brand'].toString().trim().isEmpty) &&
+            (vehicle['vehicle_name'] == null || vehicle['vehicle_name'].toString().trim().isEmpty))) {
+      final vid = (booking['vehicle_id'] ?? booking['partner_vehicle_id'])?.toString().trim() ?? '';
+      if (vid.isNotEmpty) {
+        final found = _vehicles.firstWhere(
+          (v) => v['id']?.toString() == vid,
+          orElse: () => _partnerVehicles.firstWhere(
+            (pv) => pv['id']?.toString() == vid,
+            orElse: () => {},
+          ),
+        );
+        if (found.isNotEmpty) {
+          vehicle = found;
+        }
+      }
+    }
     
     var renterName = renter['full_name']?.toString()?.trim() ?? '';
     if (renterName.isEmpty || renterName.toLowerCase() == 'unknown renter') {
@@ -22581,9 +22713,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? vehicleName
         : (vehicle['vehicle_name']?.toString().trim().isNotEmpty == true
             ? vehicle['vehicle_name'].toString().trim()
-            : '');
+            : (vehicle['plate_number']?.toString().trim().isNotEmpty == true
+                ? 'Vehicle (${vehicle['plate_number'].toString().trim()})'
+                : ''));
     final status = booking['status']?.toString() ?? 'pending';
-    final imageUrl = _operatorVehicleImageUrl(vehicle, conversation, booking);
+    var imageUrl = _operatorVehicleImageUrl(vehicle, conversation, booking);
+    if (imageUrl.isEmpty) {
+      final vid = (vehicle['id'] ?? booking['vehicle_id'] ?? booking['partner_vehicle_id'])?.toString() ?? '';
+      if (vid.isNotEmpty) {
+        final found = _vehicles.firstWhere(
+          (v) => v['id']?.toString() == vid,
+          orElse: () => _partnerVehicles.firstWhere(
+            (pv) => pv['id']?.toString() == vid,
+            orElse: () => {},
+          ),
+        );
+        if (found.isNotEmpty) {
+          imageUrl = _operatorVehicleImageUrl(found, conversation, booking);
+        }
+      }
+    }
     final selected = conversationId == _selectedConversationId;
     final shortId = conversation['booking_id']?.toString() ?? conversationId;
     final displayId = shortId.length > 8
@@ -22749,14 +22898,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              vehicleDisplay.isEmpty ? 'Booking conversation' : vehicleDisplay,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                fontSize: 11,
-              ),
+            Builder(
+              builder: (context) {
+                final plate = vehicle['plate_number']?.toString().trim() ?? '';
+                final displayWithPlate = vehicleDisplay.isNotEmpty && plate.isNotEmpty && !vehicleDisplay.contains(plate)
+                    ? '$vehicleDisplay • $plate'
+                    : vehicleDisplay;
+                return Text(
+                  displayWithPlate.isEmpty ? 'Booking conversation' : displayWithPlate,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    fontSize: 11,
+                  ),
+                );
+              },
             ),
             if (hasViolation || isFrozen) ...[
               const SizedBox(height: 6),
@@ -22913,21 +23070,49 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             const SizedBox(width: 4),
           ],
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: hasViolation ? Colors.red.shade900 : _operatorNavy,
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: Icon(
-              hasViolation ? Icons.gavel_rounded : Icons.chat_bubble_outline,
-              color: hasViolation ? Colors.white : _operatorGold,
-              size: 19,
-            ),
+          Builder(
+            builder: (context) {
+              final headerImg = _operatorVehicleImageUrl(vehicle, conversation);
+              if (headerImg.isNotEmpty && !hasViolation) {
+                return Container(
+                  width: 40,
+                  height: 40,
+                  margin: const EdgeInsets.only(right: 12),
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: OptimizedNetworkImage(
+                    imageUrl: headerImg,
+                    width: 40,
+                    height: 40,
+                    fit: BoxFit.cover,
+                    borderRadius: BorderRadius.circular(11),
+                    errorWidget: const Icon(
+                      Icons.directions_car_outlined,
+                      size: 20,
+                    ),
+                  ),
+                );
+              }
+              return Container(
+                width: 38,
+                height: 38,
+                margin: const EdgeInsets.only(right: 12),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: hasViolation ? Colors.red.shade900 : _operatorNavy,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  hasViolation ? Icons.gavel_rounded : Icons.directions_car_rounded,
+                  color: hasViolation ? Colors.white : _operatorGold,
+                  size: 19,
+                ),
+              );
+            },
           ),
-          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -22954,14 +23139,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         : (vehicle['vehicle_name']?.toString().trim().isNotEmpty == true
                             ? vehicle['vehicle_name'].toString().trim()
                             : '');
-                    final suffix = carName.isNotEmpty ? ' - $carName' : '';
+                    final plate = vehicle['plate_number']?.toString().trim() ?? '';
+                    final carWithPlate = carName.isNotEmpty && plate.isNotEmpty
+                        ? '$carName ($plate)'
+                        : (carName.isNotEmpty ? carName : plate);
+                    final rName = (renter['full_name'] ?? renter['name'] ?? 'Renter').toString().trim();
+                    final subtitle = carWithPlate.isNotEmpty
+                        ? '$rName • $carWithPlate'
+                        : rName;
                     return Text(
-                      '${renter['full_name'] ?? 'Renter'}$suffix',
+                      subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                        fontSize: 10,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
                       ),
                     );
                   },

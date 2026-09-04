@@ -170,6 +170,11 @@ class ChatService {
                 id,
                 status,
                 renter_id,
+                vehicle_id,
+                partner_vehicle_id,
+                start_at,
+                end_at,
+                total_amount,
                 renter:users!bookings_renter_id_fkey (
                   id,
                   full_name,
@@ -182,6 +187,8 @@ class ChatService {
                   brand,
                   model,
                   vehicle_name,
+                  plate_number,
+                  image_url,
                   vehicle_images(image_url, display_order)
                 )
               )
@@ -190,9 +197,64 @@ class ChatService {
             .order('updated_at', ascending: false);
 
         debugPrint('Fetched ${response.length} conversations');
-        return _normalizeConversationRows(
-          List<Map<String, dynamic>>.from(response),
-        );
+        final rawList = List<Map<String, dynamic>>.from(response);
+
+        // Hydrate any missing vehicles or partner vehicles on bookings
+        final bookingsToHydrate = <Map<String, dynamic>>[];
+        final missingBookingIds = <String>{};
+
+        for (final c in rawList) {
+          final b = c['bookings'];
+          if (b is Map<String, dynamic>) {
+            final v = b['vehicles'];
+            final hasVehicleDetails = v is Map &&
+                ((v['brand']?.toString().trim().isNotEmpty == true) ||
+                    (v['vehicle_name']?.toString().trim().isNotEmpty == true));
+            if (!hasVehicleDetails) {
+              bookingsToHydrate.add(b);
+            }
+          } else {
+            final bId = c['booking_id']?.toString().trim() ?? '';
+            if (bId.isNotEmpty) {
+              missingBookingIds.add(bId);
+            }
+          }
+        }
+
+        if (missingBookingIds.isNotEmpty) {
+          try {
+            final fetchedBookings = await supabase
+                .from('bookings')
+                .select('*')
+                .inFilter('id', missingBookingIds.toList());
+            for (final row in List<Map<String, dynamic>>.from(fetchedBookings)) {
+              bookingsToHydrate.add(row);
+            }
+          } catch (bErr) {
+            debugPrint('Missing booking lookup note: $bErr');
+          }
+        }
+
+        if (bookingsToHydrate.isNotEmpty) {
+          try {
+            final hydrated = await BookingService().hydrateBookingVehicles(bookingsToHydrate);
+            final hydratedMap = {
+              for (final b in hydrated)
+                b['id']?.toString().trim() ?? '': b
+            };
+            for (final c in rawList) {
+              final b = c['bookings'];
+              final bId = (b is Map ? b['id'] : c['booking_id'])?.toString().trim() ?? '';
+              if (bId.isNotEmpty && hydratedMap.containsKey(bId)) {
+                c['bookings'] = hydratedMap[bId];
+              }
+            }
+          } catch (hErr) {
+            debugPrint('ChatService vehicle hydration note: $hErr');
+          }
+        }
+
+        return _normalizeConversationRows(rawList);
       } catch (e) {
         debugPrint(
           'Conversation embed failed; loading related rows separately: $e',
@@ -537,6 +599,25 @@ class ChatService {
             }
           }
           bookingsById[id] = booking;
+        }
+
+        final needHydration = bookingsList.where((b) {
+          final v = b['vehicles'];
+          return v == null ||
+              (v is Map &&
+                  (v['brand']?.toString().trim().isEmpty ?? true) &&
+                  (v['vehicle_name']?.toString().trim().isEmpty ?? true));
+        }).toList();
+        if (needHydration.isNotEmpty) {
+          try {
+            final hydrated = await BookingService().hydrateBookingVehicles(needHydration);
+            for (final hb in hydrated) {
+              final hid = hb['id']?.toString() ?? '';
+              if (hid.isNotEmpty && bookingsById.containsKey(hid)) {
+                bookingsById[hid] = hb;
+              }
+            }
+          } catch (_) {}
         }
       } catch (bErr) {
         debugPrint('Bookings lookup note: $bErr');
