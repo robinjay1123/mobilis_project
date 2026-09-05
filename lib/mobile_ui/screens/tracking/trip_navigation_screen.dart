@@ -98,22 +98,22 @@ class _TripNavigationScreenState extends State<TripNavigationScreen> {
               'latitude': livePos.latitude,
               'longitude': livePos.longitude,
               'speed_kph': livePos.speedKph,
-              'recorded_at': livePos.timestamp?.toIso8601String() ??
-                  DateTime.now().toIso8601String(),
+              'recorded_at': (livePos.gpsTime ?? livePos.receivedAt).toIso8601String(),
               'source': 'vehicle_gps_tracker',
               'provider': tracker.provider,
             };
           }
         } catch (_) {}
 
-        if (tracker.latitude != null &&
-            tracker.longitude != null &&
-            (tracker.latitude != 0 || tracker.longitude != 0)) {
+        if (tracker.lastLatitude != null &&
+            tracker.lastLongitude != null &&
+            (tracker.lastLatitude != 0 || tracker.lastLongitude != 0)) {
           return {
-            'latitude': tracker.latitude,
-            'longitude': tracker.longitude,
-            'speed_kph': tracker.speedKph,
-            'recorded_at': tracker.lastLocationUpdate?.toIso8601String() ??
+            'latitude': tracker.lastLatitude,
+            'longitude': tracker.lastLongitude,
+            'speed_kph': tracker.lastSpeed,
+            'recorded_at': tracker.lastLocationAt?.toIso8601String() ??
+                tracker.lastSyncAt?.toIso8601String() ??
                 DateTime.now().toIso8601String(),
             'source': 'vehicle_gps_tracker',
             'provider': tracker.provider,
@@ -1188,3 +1188,4 @@ class _ErrorState extends StatelessWidget {
           ),
         ),
       );
+}
