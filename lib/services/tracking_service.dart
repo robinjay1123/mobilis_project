@@ -166,7 +166,17 @@ class TrackingService {
 
       final booking = Map<String, dynamic>.from(bookingResponse);
       final status = booking['status']?.toString().trim().toLowerCase() ?? '';
-      if (!{'active', 'ongoing'}.contains(status)) return null;
+      if (!{
+        'active',
+        'ongoing',
+        'confirmed',
+        'approved',
+        'driver_accepted',
+        'pending_inspection',
+        'return_pending_inspection',
+        'in_progress',
+        'awaiting_completion',
+      }.contains(status)) return null;
 
       final isRenter = booking['renter_id']?.toString() == currentUserId;
       final driverReference = booking['driver_id']?.toString() ?? '';

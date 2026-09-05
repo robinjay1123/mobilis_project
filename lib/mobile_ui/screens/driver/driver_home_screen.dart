@@ -1616,7 +1616,21 @@ class __DashboardTabState extends State<_DashboardTab> {
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: widget.onOpenBookings,
+                      onPressed: () {
+                        final bookingId = booking['id']?.toString() ?? '';
+                        if (bookingId.isNotEmpty) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => TripNavigationScreen(
+                                bookingId: bookingId,
+                                participantRole: 'driver',
+                              ),
+                            ),
+                          );
+                        } else {
+                          widget.onOpenBookings();
+                        }
+                      },
                       icon: const Icon(Icons.navigation, color: Colors.black),
                       label: const FittedBox(
                         fit: BoxFit.scaleDown,
