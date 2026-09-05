@@ -1689,6 +1689,11 @@ class __DashboardTabState extends State<_DashboardTab> {
           onTap: widget.onOpenBookings,
         ),
         _DriverQuickActionCard(
+          icon: Icons.event_available_rounded,
+          label: 'Set Availability',
+          onTap: widget.onOpenAvailability,
+        ),
+        _DriverQuickActionCard(
           icon: Icons.assignment_turned_in_outlined,
           label: 'Application',
           onTap: widget.onOpenApplication,
@@ -1702,6 +1707,11 @@ class __DashboardTabState extends State<_DashboardTab> {
           icon: Icons.star_outline_rounded,
           label: 'Review & Ratings',
           onTap: widget.onOpenRatings,
+        ),
+        _DriverQuickActionCard(
+          icon: Icons.chat_bubble_outline_rounded,
+          label: 'Messages',
+          onTap: widget.onOpenMessages,
         ),
       ],
     );
@@ -1824,25 +1834,35 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   Widget _buildUnavailableNotice(Map<String, dynamic> stats) {
     final isAvailable = stats['is_available'] == true;
-    if (isAvailable) return const SizedBox.shrink();
-
-    final isVerified = _isVerifiedFromStats(stats) || _isCertifiedFromStats(stats);
-    if (!isVerified) return const SizedBox.shrink();
+    final accentColor =
+        isAvailable ? const Color(0xFF10B981) : const Color(0xFFFFB300);
+    final cardBgColor =
+        isAvailable ? const Color(0xFF06281E) : const Color(0xFF1C1304);
+    final subtextColor =
+        isAvailable ? const Color(0xFFA7F3D0) : const Color(0xFFFFE082);
+    final iconData = isAvailable
+        ? Icons.check_circle_rounded
+        : Icons.pause_circle_filled_rounded;
+    final titleText =
+        isAvailable ? 'YOU ARE AVAILABLE' : 'YOU ARE UNAVAILABLE';
+    final subtitleText = isAvailable
+        ? 'Active for trips! Tap to update dates or schedule.'
+        : 'Set your availability now to receive job assignments!';
 
     return Container(
       margin: const EdgeInsets.only(top: 16),
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1C1304),
+        color: cardBgColor,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: const Color(0xFFFFB300),
+          color: accentColor,
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFFFB300).withValues(alpha: 0.15),
+            color: accentColor.withValues(alpha: 0.15),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -1854,12 +1874,12 @@ class __DashboardTabState extends State<_DashboardTab> {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: const Color(0xFFFFB300).withValues(alpha: 0.18),
+              color: accentColor.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(
-              Icons.pause_circle_filled_rounded,
-              color: Color(0xFFFFB300),
+            child: Icon(
+              iconData,
+              color: accentColor,
               size: 26,
             ),
           ),
@@ -1867,21 +1887,34 @@ class __DashboardTabState extends State<_DashboardTab> {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'YOU ARE UNAVAILABLE',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.3,
-                  ),
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      titleText,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: accentColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
                 ),
-                SizedBox(height: 3),
+                const SizedBox(height: 3),
                 Text(
-                  'Set your availability now to receive job assignments!',
+                  subtitleText,
                   style: TextStyle(
-                    color: Color(0xFFFFE082),
+                    color: subtextColor,
                     fontSize: 11.5,
                     fontWeight: FontWeight.w600,
                     height: 1.3,
@@ -1894,7 +1927,7 @@ class __DashboardTabState extends State<_DashboardTab> {
           ElevatedButton(
             onPressed: widget.onOpenAvailability,
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFB300),
+              backgroundColor: accentColor,
               foregroundColor: Colors.black,
               padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
               shape: RoundedRectangleBorder(
