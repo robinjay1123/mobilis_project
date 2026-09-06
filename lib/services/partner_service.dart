@@ -101,10 +101,26 @@ class PartnerService {
     try {
       debugPrint('Fetching vehicle applications for partner: $partnerId');
 
+      final partnerIds = <String>{partnerId.trim()};
+      try {
+        final partnerRows = await supabase
+            .from('partners')
+            .select('id, user_id')
+            .or('user_id.eq.$partnerId,id.eq.$partnerId');
+        for (final p in List<Map<String, dynamic>>.from(partnerRows)) {
+          final id = p['id']?.toString().trim();
+          final uId = p['user_id']?.toString().trim();
+          if (id != null && id.isNotEmpty) partnerIds.add(id);
+          if (uId != null && uId.isNotEmpty) partnerIds.add(uId);
+        }
+      } catch (e) {
+        debugPrint('Error resolving partner IDs in getVehicleApplications: $e');
+      }
+
       final response = await supabase
           .from('partner_vehicle_applications')
           .select()
-          .eq('partner_id', partnerId)
+          .inFilter('partner_id', partnerIds.toList())
           .order('created_at', ascending: false);
 
       debugPrint('Fetched ${response.length} vehicle applications');

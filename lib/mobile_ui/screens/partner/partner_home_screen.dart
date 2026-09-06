@@ -5938,6 +5938,64 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final query = _partnerTrackingSearchController.text.trim().toLowerCase();
     var list = List<Map<String, dynamic>>.from(trackingLocations);
 
+    // 🔒 STRICT PARTNER VEHICLE ISOLATION:
+    // Ensure that only the partner's registered or applied vehicles can be shown
+    if (applications.isNotEmpty || bookings.isNotEmpty) {
+      final allowedIds = <String>{};
+      final allowedPlates = <String>{};
+
+      for (final app in applications) {
+        final id = app['id']?.toString().trim();
+        final pvid = app['partner_vehicle_id']?.toString().trim();
+        final cvid = app['created_vehicle_id']?.toString().trim();
+        final plate = (app['plate_number'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase()
+            .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+        if (id != null && id.isNotEmpty) allowedIds.add(id);
+        if (pvid != null && pvid.isNotEmpty) allowedIds.add(pvid);
+        if (cvid != null && cvid.isNotEmpty) allowedIds.add(cvid);
+        if (plate.isNotEmpty) allowedPlates.add(plate);
+      }
+
+      for (final b in bookings) {
+        final bId = b['id']?.toString().trim();
+        final bVid = b['vehicle_id']?.toString().trim();
+        final vMap = b['vehicles'] as Map<String, dynamic>?;
+        final vId = vMap?['id']?.toString().trim();
+        final plate = (vMap?['plate_number'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase()
+            .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+        if (bId != null && bId.isNotEmpty) allowedIds.add(bId);
+        if (bVid != null && bVid.isNotEmpty) allowedIds.add(bVid);
+        if (vId != null && vId.isNotEmpty) allowedIds.add(vId);
+        if (plate.isNotEmpty) allowedPlates.add(plate);
+      }
+
+      list = list.where((loc) {
+        final vid = loc['vehicle_id']?.toString().trim() ?? '';
+        final b = loc['bookings'] as Map<String, dynamic>?;
+        final bId = (b?['id'] ?? loc['booking_id'])?.toString().trim() ?? '';
+        final bVid = (b?['vehicle_id'] ?? b?['vehicles']?['id'])?.toString().trim() ?? '';
+        final vMap = (loc['vehicle'] ?? b?['vehicles']) as Map<String, dynamic>?;
+        final vId = vMap?['id']?.toString().trim() ?? '';
+        final plate = (vMap?['plate_number'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase()
+            .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+
+        return allowedIds.contains(vid) ||
+            allowedIds.contains(bId) ||
+            allowedIds.contains(bVid) ||
+            allowedIds.contains(vId) ||
+            (plate.isNotEmpty && allowedPlates.contains(plate));
+      }).toList();
+    }
+
     // Filter by tab: all, active, idle
     if (_partnerTrackingFilter == 'active') {
       list = list.where((loc) => loc['has_active_booking'] == true).toList();
@@ -6780,7 +6838,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            hasActiveBooking ? 'On Active Rental Trip' : 'Available • Parked / Idle',
+                            hasActiveBooking
+                                ? 'On Active Rental Trip'
+                                : (location['is_applied_pending'] == true
+                                    ? 'Application Pending Approval • Standby'
+                                    : 'Available • Parked / Idle'),
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
