@@ -1840,14 +1840,32 @@ class BookingService {
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
 
-    await supabase.from('bookings').update({
+    final payloadWithDetails = <String, dynamic>{
       'reservation_payment_status': 'verified',
       'payment_verified': true,
       'payment_verified_at': now,
-      if (operatorId != null && operatorId.isNotEmpty) 'payment_verified_by': operatorId,
-      if (notes != null && notes.isNotEmpty) 'payment_verification_notes': notes,
+      if (operatorId != null && operatorId.isNotEmpty)
+        'payment_verified_by': operatorId,
+      if (notes != null && notes.isNotEmpty)
+        'payment_verification_notes': notes,
       'updated_at': now,
-    }).eq('id', bookingId);
+    };
+
+    try {
+      await supabase
+          .from('bookings')
+          .update(payloadWithDetails)
+          .eq('id', bookingId);
+    } catch (e) {
+      debugPrint(
+        'Extended payment verification columns not available in schema cache yet, falling back: $e',
+      );
+      // Resilient fallback updating guaranteed reservation_payment_status column
+      await supabase.from('bookings').update({
+        'reservation_payment_status': 'verified',
+        'updated_at': now,
+      }).eq('id', bookingId);
+    }
 
     // Notify renter that payment was verified
     final renterId = booking['renter_id']?.toString();
@@ -2247,7 +2265,6 @@ class BookingService {
     // If reservation payment was already verified, lock it
     if (booking['reservation_payment_status'] == 'verified') {
       updatePayload['reservation_payment_status'] = 'verified';
-      updatePayload['payment_verified'] = true;
     }
 
     await supabase
@@ -2301,7 +2318,7 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, status, renter_id, vehicle_id, driver_id, partner_id, paid_amount, reservation_fee_amount, total_price, total_amount, reservation_payment_status, final_payment_status, payment_verified, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+            'id, status, renter_id, vehicle_id, driver_id, partner_id, paid_amount, reservation_fee_amount, total_price, total_amount, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
           )
           .eq('id', bookingId)
           .maybeSingle();
