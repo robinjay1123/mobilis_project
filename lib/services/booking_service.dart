@@ -12,6 +12,7 @@ import 'trip_rating_service.dart';
 import 'loyalty_service.dart';
 import 'vehicle_turnaround_service.dart';
 import 'transaction_logger.dart';
+import 'operator_activity_logger.dart';
 import '../utils/pricing_policy.dart';
 import '../utils/philippine_geocoding.dart';
 import '../utils/booking_status.dart';
@@ -1341,6 +1342,14 @@ class BookingService {
       final bookingId = response['id']?.toString();
       if (bookingId != null && bookingId.isNotEmpty) {
         unawaited(
+          TransactionLogger.logBookingCreated(
+            bookingId: bookingId,
+            vehicleId: vehicleId,
+            pickupDate: startAt,
+            returnDate: endAt,
+          ),
+        );
+        unawaited(
           Future<void>(() async {
             final createdBooking = await getBookingById(bookingId) ?? response;
             final vehicle = createdBooking['vehicles'] as Map<String, dynamic>?;
@@ -2304,6 +2313,18 @@ class BookingService {
             ),
       );
     }
+    // Log partner confirmation
+    unawaited(
+      TransactionLogger.logPartnerTransaction(
+        transactionType: 'booking_confirmed',
+        description: 'Partner confirmed booking availability',
+        bookingId: bookingId,
+        vehicleId: booking['vehicle_id']?.toString(),
+        renterId: booking['renter_id']?.toString(),
+        metadata: {'confirmed_by': partnerId, 'timestamp': DateTime.now().toIso8601String()},
+        suppressErrors: true,
+      ),
+    );
   }
 
   /// Partner rejects the booking for their vehicle before operator approval.
@@ -2482,6 +2503,18 @@ class BookingService {
         ),
       );
     }
+
+    unawaited(
+      TransactionLogger.logPartnerTransaction(
+        transactionType: 'booking_rejected',
+        description: 'Partner rejected booking: $reason',
+        bookingId: bookingId,
+        vehicleId: booking['vehicle_id']?.toString(),
+        renterId: renterId,
+        metadata: {'reason': reason, 'timestamp': DateTime.now().toIso8601String()},
+        suppressErrors: true,
+      ),
+    );
   }
 
   // ================== OPERATOR WORKFLOW ==================
@@ -2608,6 +2641,14 @@ class BookingService {
       await finalizeBooking(bookingId: bookingId, operatorId: operatorId);
 
       debugPrint('Booking approved');
+
+      // Log operator approval
+      unawaited(
+        OperatorActivityLogger.logBookingApproved(
+          bookingId: bookingId,
+          reason: operatorNotes.isNotEmpty ? operatorNotes : 'Operator approved booking',
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error approving booking: ${e.message}');
       rethrow;
@@ -2779,6 +2820,13 @@ class BookingService {
           }
         } catch (_) {}
       }
+
+      unawaited(
+        OperatorActivityLogger.logBookingRejected(
+          bookingId: bookingId,
+          reason: reason,
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error rejecting booking: ${e.message}');
       rethrow;
@@ -3055,6 +3103,14 @@ class BookingService {
       } catch (e) {
         debugPrint('⚠️ Error sending driver notification: $e');
       }
+
+      unawaited(
+        OperatorActivityLogger.logDriverAssigned(
+          bookingId: bookingId,
+          driverId: driverId,
+          tripFee: effectiveTripFee,
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error assigning driver: ${e.message}');
       rethrow;
@@ -3275,6 +3331,13 @@ class BookingService {
       }
 
       debugPrint('Driver unassigned from booking');
+      unawaited(
+        OperatorActivityLogger.logDriverRemoved(
+          bookingId: bookingId,
+          driverId: driverId ?? '',
+          reason: 'Driver unassigned by operator',
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error unassigning driver: ${e.message}');
       rethrow;
@@ -3705,6 +3768,14 @@ class BookingService {
       );
 
       debugPrint('Booking marked as active');
+      unawaited(
+        TransactionLogger.logDriverTransaction(
+          transactionType: 'vehicle_picked_up',
+          description: 'Driver marked vehicle as picked up',
+          bookingId: bookingId,
+          suppressErrors: true,
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error marking pickup: ${e.message}');
       rethrow;
@@ -3797,6 +3868,14 @@ class BookingService {
       );
 
       debugPrint('Booking return is awaiting the after checklist');
+      unawaited(
+        TransactionLogger.logDriverTransaction(
+          transactionType: 'vehicle_returned',
+          description: 'Driver marked vehicle as returned',
+          bookingId: bookingId,
+          suppressErrors: true,
+        ),
+      );
       return recalculatedTotal;
     } on PostgrestException catch (e) {
       debugPrint('Database error completing return: ${e.message}');
@@ -3880,6 +3959,15 @@ class BookingService {
         data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
       );
     }
+
+    unawaited(
+      OperatorActivityLogger.logActivity(
+        activityType: 'trip_started',
+        description: 'Trip started after pre-inspection',
+        bookingId: bookingId,
+        suppressErrors: true,
+      ),
+    );
   }
 
   /// Records the returned vehicle after the responsible operator or partner
@@ -4028,6 +4116,23 @@ class BookingService {
     } catch (turnaroundErr) {
       debugPrint('Could not initiate vehicle turnaround: $turnaroundErr');
     }
+
+    unawaited(
+      OperatorActivityLogger.logActivity(
+        activityType: 'booking_completed',
+        description: 'Booking completed after return inspection',
+        bookingId: bookingId,
+        suppressErrors: true,
+      ),
+    );
+    unawaited(
+      TransactionLogger.logRenterTransaction(
+        transactionType: 'booking_completed',
+        description: 'Trip completed after return inspection',
+        bookingId: bookingId,
+        suppressErrors: true,
+      ),
+    );
   }
 
   Future<void> _postInspectionAuditToBookingChat({
@@ -6685,6 +6790,22 @@ class BookingService {
       } catch (e) {
         debugPrint('Could not notify partner for payout: $e');
       }
+
+      unawaited(
+        OperatorActivityLogger.logActivity(
+          activityType: 'partner_payout_disbursed',
+          description: 'Disbursed PHP ${netAmount.toStringAsFixed(2)} to partner for booking $bookingId',
+          bookingId: bookingId,
+          metadata: {
+            'net_amount': netAmount,
+            'commission_amount': commissionAmount,
+            'payment_method': paymentMethod,
+            'reference_number': referenceNumber,
+            'partner_user_id': partnerUserId,
+          },
+          suppressErrors: true,
+        ),
+      );
     }
   }
 
@@ -6815,6 +6936,23 @@ class BookingService {
       } catch (e) {
         debugPrint('Could not notify driver for payout: $e');
       }
+
+      unawaited(
+        OperatorActivityLogger.logActivity(
+          activityType: 'driver_payout_disbursed',
+          description: 'Disbursed PHP ${netAmount.toStringAsFixed(2)} to driver for booking $bookingId',
+          bookingId: bookingId,
+          driverId: resolvedDriverUserId,
+          metadata: {
+            'net_amount': netAmount,
+            'commission_amount': commissionAmount,
+            'payment_method': paymentMethod,
+            'reference_number': referenceNumber,
+            'driver_user_id': resolvedDriverUserId,
+          },
+          suppressErrors: true,
+        ),
+      );
     }
   }
 

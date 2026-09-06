@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
@@ -6,6 +7,7 @@ import 'user_restriction_service.dart';
 import 'admin_service.dart';
 import 'image_optimization_service.dart';
 import 'booking_service.dart';
+import 'transaction_logger.dart';
 
 class PartnerService {
   static final PartnerService _instance = PartnerService._internal();
@@ -405,6 +407,20 @@ class PartnerService {
           .single();
 
       debugPrint('Vehicle application submitted successfully');
+      unawaited(
+        TransactionLogger.logPartnerTransaction(
+          transactionType: 'vehicle_application_submitted',
+          description: 'Submitted vehicle application for $vehicleName ($plateNumber)',
+          metadata: {
+            'application_id': response['id'],
+            'brand': brand,
+            'model': model,
+            'plate_number': plateNumber,
+            'year': year,
+          },
+          suppressErrors: true,
+        ),
+      );
       return response;
     } on PostgrestException catch (e) {
       debugPrint('Database error submitting application: ${e.message}');

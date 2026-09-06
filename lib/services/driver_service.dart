@@ -8,6 +8,7 @@ import 'booking_service.dart';
 import 'chat_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
+import 'transaction_logger.dart';
 
 class DriverService {
   static final DriverService _instance = DriverService._internal();
@@ -280,6 +281,14 @@ class DriverService {
       }
 
       debugPrint('Availability updated successfully');
+      unawaited(
+        TransactionLogger.logDriverTransaction(
+          transactionType: 'availability_changed',
+          description: 'Driver set availability to ${available ? "available" : "unavailable"}',
+          metadata: {'is_available': available, 'timestamp': DateTime.now().toIso8601String()},
+          suppressErrors: true,
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error updating availability: ${e.message}');
       rethrow;
@@ -740,6 +749,13 @@ class DriverService {
       );
 
       debugPrint('Job offer accepted successfully');
+      unawaited(
+        TransactionLogger.logJobAccepted(
+          bookingId: bookingId,
+          renterId: renterId ?? '',
+          tripFee: (assignment['trip_fee'] as num?)?.toDouble(),
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error accepting offer: ${e.message}');
       rethrow;
@@ -911,6 +927,19 @@ class DriverService {
       }
 
       debugPrint('Job offer declined successfully');
+      unawaited(
+        TransactionLogger.logDriverTransaction(
+          transactionType: 'job_declined',
+          description: 'Declined job offer: ${reason ?? "Unavailable"}',
+          bookingId: bookingId,
+          metadata: {
+            'job_assignment_id': jobAssignmentId,
+            'reason': reason,
+            'declined_at': now,
+          },
+          suppressErrors: true,
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error declining offer: ${e.message}');
       rethrow;
@@ -1031,6 +1060,14 @@ class DriverService {
           .eq('id', tripId);
 
       debugPrint('Trip started');
+      unawaited(
+        TransactionLogger.logDriverTransaction(
+          transactionType: 'trip_started',
+          description: 'Driver started trip $tripId',
+          metadata: {'trip_id': tripId},
+          suppressErrors: true,
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error starting trip: ${e.message}');
       rethrow;
@@ -1060,6 +1097,18 @@ class DriverService {
           .eq('id', tripId);
 
       debugPrint('Trip completed');
+      unawaited(
+        TransactionLogger.logDriverTransaction(
+          transactionType: 'trip_completed',
+          description: 'Driver completed trip $tripId',
+          metadata: {
+            'trip_id': tripId,
+            'distance_km': distanceKm,
+            'duration_minutes': durationMinutes,
+          },
+          suppressErrors: true,
+        ),
+      );
     } on PostgrestException catch (e) {
       debugPrint('Database error completing trip: ${e.message}');
       rethrow;
