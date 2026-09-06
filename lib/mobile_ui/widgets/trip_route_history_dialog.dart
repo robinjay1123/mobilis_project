@@ -93,9 +93,13 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
   Future<void> _loadRouteData() async {
     setState(() => _isLoading = true);
     try {
-      final data = await _trackingService
-          .evaluateTripDestinationCompliance(widget.bookingId)
-          .timeout(const Duration(seconds: 5));
+      Map<String, dynamic> data = {};
+      final bId = widget.bookingId?.trim() ?? '';
+      if (bId.isNotEmpty) {
+        data = await _trackingService
+            .evaluateTripDestinationCompliance(bId)
+            .timeout(const Duration(seconds: 5));
+      }
       if (mounted) {
         setState(() {
           _auditData = data;
@@ -306,14 +310,24 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                   ],
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  widget.vehicleName != null && widget.vehicleName!.isNotEmpty
-                      ? '${widget.vehicleName} (${widget.plateNumber ?? ''}) • Booking #${widget.bookingId.substring(0, widget.bookingId.length > 8 ? 8 : widget.bookingId.length)}'
-                      : 'Booking #${widget.bookingId.substring(0, widget.bookingId.length > 8 ? 8 : widget.bookingId.length)}',
-                  style: const TextStyle(
-                    color: Colors.white60,
-                    fontSize: 12,
-                  ),
+                Builder(
+                  builder: (context) {
+                    final bId = widget.bookingId ?? '';
+                    final shortBooking = bId.length > 8 ? bId.substring(0, 8) : bId;
+                    final subText = shortBooking.isNotEmpty
+                        ? 'Booking #$shortBooking'
+                        : 'Standby / Telemetry Playback';
+                    final titleText = widget.vehicleName != null && widget.vehicleName!.isNotEmpty
+                        ? '${widget.vehicleName} (${widget.plateNumber ?? ''}) • $subText'
+                        : subText;
+                    return Text(
+                      titleText,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 12,
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
