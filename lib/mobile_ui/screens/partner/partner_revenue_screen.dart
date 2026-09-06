@@ -212,7 +212,7 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                   const SizedBox(height: 14),
                   _buildPayoutMethodsSection(),
                   const SizedBox(height: 34),
-                  _buildSectionHeader('Earnings Breakdown', action: 'View All'),
+                  _buildSectionHeader('Disbursement History', action: null),
                   const SizedBox(height: 14),
                   if (snapshot.hasError)
                     _buildErrorPanel(snapshot.error)
@@ -419,7 +419,7 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title, {required String action, VoidCallback? onActionTap}) {
+  Widget _buildSectionHeader(String title, {String? action, VoidCallback? onActionTap}) {
     return Row(
       children: [
         Expanded(
@@ -432,16 +432,17 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
             ),
           ),
         ),
-        GestureDetector(
-          onTap: onActionTap,
-          child: Text(
-            action,
-            style: const TextStyle(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w800,
+        if (action != null)
+          GestureDetector(
+            onTap: onActionTap,
+            child: Text(
+              action,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -1192,6 +1193,256 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     );
   }
 
+  void _showDisbursementReceiptDialog(
+    BuildContext context,
+    Map<String, dynamic> payout,
+  ) {
+    final booking = _bookingForPayout(payout);
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final vehicleName =
+        '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''}'.trim();
+    final gross = (payout['gross_amount'] as num?)?.toDouble() ?? 0;
+    final deductions = (payout['deductions'] as num?)?.toDouble() ?? 0;
+    final net = (payout['net_amount'] as num?)?.toDouble() ?? 0;
+    final releasedAt = payout['released_at']?.toString();
+    final bookingId = payout['booking_id']?.toString() ?? '—';
+    final metadata = payout['metadata'] as Map<String, dynamic>? ?? {};
+    final commissionRate =
+        (metadata['commission_rate'] as num?)?.toInt() ?? 5;
+    final depositDeduction =
+        (metadata['security_deposit_deduction'] as num?)?.toDouble() ?? 0;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          decoration: BoxDecoration(
+            color: const Color(0xFF071D31),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Header ──────────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 20, 12, 16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.primary.withValues(alpha: 0.18),
+                      AppColors.primary.withValues(alpha: 0.04),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(24),
+                    topRight: Radius.circular(24),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.receipt_long_rounded,
+                        color: AppColors.primary,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Disbursement Receipt',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            vehicleName.isEmpty
+                                ? 'Booking #${bookingId.substring(0, bookingId.length.clamp(0, 8))}'
+                                : vehicleName,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(dialogCtx),
+                      icon: const Icon(Icons.close, color: Colors.white54),
+                    ),
+                  ],
+                ),
+              ),
+              // ── Body ────────────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  children: [
+                    _receiptRow(
+                      'Release Date',
+                      _formatDateTime(releasedAt),
+                      icon: Icons.calendar_today_outlined,
+                    ),
+                    _receiptDivider(),
+                    _receiptRow(
+                      'Booking ID',
+                      '#${bookingId.substring(0, bookingId.length.clamp(0, 8)).toUpperCase()}',
+                      icon: Icons.confirmation_number_outlined,
+                    ),
+                    _receiptDivider(),
+                    _receiptRow(
+                      'Gross Amount',
+                      _currency(gross),
+                      icon: Icons.attach_money_rounded,
+                    ),
+                    if (commissionRate > 0) ...[
+                      _receiptDivider(),
+                      _receiptRow(
+                        'PSDC Commission ($commissionRate%)',
+                        '− ${_currency(deductions - depositDeduction)}',
+                        valueColor: AppColors.error.withValues(alpha: 0.85),
+                        icon: Icons.percent_rounded,
+                      ),
+                    ],
+                    if (depositDeduction > 0) ...[
+                      _receiptDivider(),
+                      _receiptRow(
+                        'Security Deposit Deduction',
+                        '− ${_currency(depositDeduction)}',
+                        valueColor: AppColors.error.withValues(alpha: 0.85),
+                        icon: Icons.security_rounded,
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    // Net amount highlight
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppColors.success.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            color: AppColors.success,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'Net Disbursed',
+                            style: TextStyle(
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            _currency(net),
+                            style: const TextStyle(
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(dialogCtx),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text(
+                          'Close Receipt',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _receiptRow(
+    String label,
+    String value, {
+    IconData? icon,
+    Color? valueColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          if (icon != null) ...[
+            Icon(icon, color: AppColors.textTertiary, size: 16),
+            const SizedBox(width: 8),
+          ],
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor ?? AppColors.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _receiptDivider() =>
+      Divider(color: AppColors.borderColor.withValues(alpha: 0.5), height: 1);
+
   Widget _buildEarningRow(Map<String, dynamic> payout) {
     final booking = _bookingForPayout(payout);
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
@@ -1201,67 +1452,81 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     final deductions = (payout['deductions'] as num?)?.toDouble() ?? 0;
     final net = (payout['net_amount'] as num?)?.toDouble() ?? 0;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF071D31),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: const Color(0xFF06233A),
-              borderRadius: BorderRadius.circular(14),
+    return GestureDetector(
+      onTap: () => _showDisbursementReceiptDialog(context, payout),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF071D31),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFF06233A),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(Icons.directions_car, color: AppColors.primary),
             ),
-            child: const Icon(Icons.directions_car, color: AppColors.primary),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    vehicleName.isEmpty ? 'Completed Trip' : vehicleName,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  Text(
+                    _formatDateTime(
+                      payout['released_at']?.toString() ??
+                          booking['completed_at']?.toString(),
+                    ),
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    'Gross ${_currency(gross)}  •  Commission ${_currency(deductions)}',
+                    style: const TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  vehicleName.isEmpty ? 'Completed Trip' : vehicleName,
+                  '+${_currency(net)}',
                   style: const TextStyle(
-                    color: AppColors.textPrimary,
+                    color: AppColors.success,
                     fontSize: 15,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                Text(
-                  _formatDateTime(
-                    payout['released_at']?.toString() ??
-                        booking['completed_at']?.toString(),
-                  ),
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Gross ${_currency(gross)}  -  Commission ${_currency(deductions)}',
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 10,
-                  ),
+                const SizedBox(height: 4),
+                const Icon(
+                  Icons.receipt_long_outlined,
+                  size: 14,
+                  color: AppColors.primary,
                 ),
               ],
             ),
-          ),
-          Text(
-            '+${_currency(net)}',
-            style: const TextStyle(
-              color: AppColors.success,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

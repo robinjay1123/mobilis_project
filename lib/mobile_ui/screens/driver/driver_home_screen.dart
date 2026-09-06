@@ -15,6 +15,7 @@ import '../../../services/driver_service.dart';
 import '../../../services/notification_permission_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/payout_method_service.dart';
+import '../../../services/booking_settlement_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
@@ -5757,7 +5758,9 @@ class _EarningsTab extends StatefulWidget {
 class __EarningsTabState extends State<_EarningsTab> {
   late Future<double> earningsFuture;
   late Future<List<PayoutMethod>> payoutMethodsFuture;
+  late Future<List<Map<String, dynamic>>> disbursementsFuture;
   final PayoutMethodService _payoutMethodService = PayoutMethodService();
+  final BookingSettlementService _settlementService = BookingSettlementService();
   String _selectedPeriod = 'Month';
   static const List<String> _periodOptions = ['Day', 'Week', 'Month', 'Year'];
 
@@ -5766,6 +5769,7 @@ class __EarningsTabState extends State<_EarningsTab> {
     super.initState();
     _loadEarnings();
     _loadPayoutMethods();
+    _loadDisbursements();
   }
 
   void _loadPayoutMethods() {
@@ -5773,10 +5777,33 @@ class __EarningsTabState extends State<_EarningsTab> {
     payoutMethodsFuture = _payoutMethodService.getPayoutMethods(userId);
   }
 
+  void _loadDisbursements() {
+    final userId = AuthService().currentUser?.id ?? '';
+    if (userId.isEmpty) {
+      disbursementsFuture = Future.value(const []);
+      return;
+    }
+    disbursementsFuture = _settlementService.getReleasedPayoutsForUser(
+      userId: userId,
+      recipientRole: 'driver',
+    );
+  }
+
   Future<void> _refreshPayoutMethods() async {
     final userId = AuthService().currentUser?.id ?? '';
     final req = _payoutMethodService.getPayoutMethods(userId);
     setState(() => payoutMethodsFuture = req);
+    await req;
+  }
+
+  Future<void> _refreshDisbursements() async {
+    final userId = AuthService().currentUser?.id ?? '';
+    if (userId.isEmpty) return;
+    final req = _settlementService.getReleasedPayoutsForUser(
+      userId: userId,
+      recipientRole: 'driver',
+    );
+    setState(() => disbursementsFuture = req);
     await req;
   }
 
@@ -5908,7 +5935,15 @@ class __EarningsTabState extends State<_EarningsTab> {
   }
 
   Widget _buildRevenueView() {
-    return ListView(
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () async {
+        await Future.wait([
+          _refreshPayoutMethods(),
+          _refreshDisbursements(),
+        ]);
+      },
+      child: ListView(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
       children: [
         Row(
@@ -5973,15 +6008,410 @@ class __EarningsTabState extends State<_EarningsTab> {
         ),
         const SizedBox(height: 12),
         _buildPayoutMethodsSection(),
-        const SizedBox(height: 18),
-        _buildSectionHeader('Earnings Breakdown', action: 'View All'),
+        const SizedBox(height: 26),
+        _buildSectionHeader('Disbursement History', action: null),
         const SizedBox(height: 12),
-        _buildEmptyPanel(
-          icon: Icons.receipt_long_outlined,
-          text: 'Completed trip earnings will appear here.',
-        ),
+        _buildDisbursementHistorySection(),
       ],
+      ),
     );
+  }
+
+  Widget _buildDisbursementHistorySection() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: disbursementsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _driverCardColor(context),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.error.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline, color: AppColors.error),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Could not load disbursement history.',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => setState(() => _loadDisbursements()),
+                  icon: const Icon(Icons.refresh, color: AppColors.primary),
+                ),
+              ],
+            ),
+          );
+        }
+        final payouts = snapshot.data ?? const [];
+        if (payouts.isEmpty) {
+          return _buildEmptyPanel(
+            icon: Icons.receipt_long_outlined,
+            text: 'No disbursements released yet.',
+          );
+        }
+        return Column(
+          children: payouts
+              .map((p) => _buildDisbursementRow(p))
+              .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildDisbursementRow(Map<String, dynamic> payout) {
+    final gross = (payout['gross_amount'] as num?)?.toDouble() ?? 0;
+    final deductions = (payout['deductions'] as num?)?.toDouble() ?? 0;
+    final net = (payout['net_amount'] as num?)?.toDouble() ?? 0;
+    final bookingId = payout['booking_id']?.toString() ?? '';
+    final releasedAt = _formatDriverDate(payout['released_at']?.toString());
+
+    return GestureDetector(
+      onTap: () => _showDriverReceiptDialog(payout),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _driverCardColor(context),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _driverBorderColor(context)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Icon(
+                Icons.payments_rounded,
+                color: AppColors.success,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    bookingId.isEmpty
+                        ? 'Trip Disbursement'
+                        : 'Trip #${bookingId.substring(0, bookingId.length.clamp(0, 8)).toUpperCase()}',
+                    style: TextStyle(
+                      color: _driverPrimaryText(context),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    releasedAt,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    'Gross ${_currency(gross)}  •  Commission ${_currency(deductions)}',
+                    style: const TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '+${_currency(net)}',
+                  style: const TextStyle(
+                    color: AppColors.success,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Icon(
+                  Icons.receipt_long_outlined,
+                  size: 14,
+                  color: AppColors.primary,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDriverReceiptDialog(Map<String, dynamic> payout) {
+    final gross = (payout['gross_amount'] as num?)?.toDouble() ?? 0;
+    final deductions = (payout['deductions'] as num?)?.toDouble() ?? 0;
+    final net = (payout['net_amount'] as num?)?.toDouble() ?? 0;
+    final releasedAt = payout['released_at']?.toString();
+    final bookingId = payout['booking_id']?.toString() ?? '—';
+    final metadata = payout['metadata'] as Map<String, dynamic>? ?? {};
+    final commissionRate = (metadata['commission_rate'] as num?)?.toInt() ?? 15;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          decoration: BoxDecoration(
+            color: _driverCardColor(context),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: _driverBorderColor(context)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Header ──────────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 20, 12, 16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.primary.withValues(alpha: 0.15),
+                      AppColors.primary.withValues(alpha: 0.03),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(24),
+                    topRight: Radius.circular(24),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.receipt_long_rounded,
+                        color: AppColors.primary,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Disbursement Receipt',
+                            style: TextStyle(
+                              color: _driverPrimaryText(context),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            'Booking #${bookingId.substring(0, bookingId.length.clamp(0, 8)).toUpperCase()}',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(dialogCtx),
+                      icon: Icon(
+                        Icons.close,
+                        color: _driverSecondaryText(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // ── Body ────────────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  children: [
+                    _driverReceiptRow(
+                      'Release Date',
+                      _formatDriverDate(releasedAt),
+                      icon: Icons.calendar_today_outlined,
+                    ),
+                    _driverReceiptDivider(),
+                    _driverReceiptRow(
+                      'Booking ID',
+                      '#${bookingId.substring(0, bookingId.length.clamp(0, 8)).toUpperCase()}',
+                      icon: Icons.confirmation_number_outlined,
+                    ),
+                    _driverReceiptDivider(),
+                    _driverReceiptRow(
+                      'Trip Fee (Gross)',
+                      _currency(gross),
+                      icon: Icons.attach_money_rounded,
+                    ),
+                    _driverReceiptDivider(),
+                    _driverReceiptRow(
+                      'PSDC Commission ($commissionRate%)',
+                      '− ${_currency(deductions)}',
+                      valueColor: AppColors.error.withValues(alpha: 0.85),
+                      icon: Icons.percent_rounded,
+                    ),
+                    const SizedBox(height: 14),
+                    // Net amount highlight
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppColors.success.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            color: AppColors.success,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'Net Disbursed',
+                            style: TextStyle(
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            _currency(net),
+                            style: const TextStyle(
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(dialogCtx),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text(
+                          'Close Receipt',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _driverReceiptRow(
+    String label,
+    String value, {
+    IconData? icon,
+    Color? valueColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          if (icon != null) ...[
+            Icon(icon, color: AppColors.textTertiary, size: 16),
+            const SizedBox(width: 8),
+          ],
+          Text(
+            label,
+            style: TextStyle(color: _driverSecondaryText(context), fontSize: 13),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor ?? _driverPrimaryText(context),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _driverReceiptDivider() => Divider(
+        color: _driverBorderColor(context).withValues(alpha: 0.6),
+        height: 1,
+      );
+
+  String _formatDriverDate(String? value) {
+    if (value == null || value.isEmpty) return 'No date';
+    try {
+      final date = DateTime.parse(value).toLocal();
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      final hour = date.hour == 0
+          ? 12
+          : date.hour > 12
+          ? date.hour - 12
+          : date.hour;
+      final minute = date.minute.toString().padLeft(2, '0');
+      final period = date.hour >= 12 ? 'PM' : 'AM';
+      return '${months[date.month - 1]} ${date.day}, ${date.year} – $hour:$minute $period';
+    } catch (_) {
+      return value;
+    }
   }
 
   Widget _buildPeriodDropdown() {
