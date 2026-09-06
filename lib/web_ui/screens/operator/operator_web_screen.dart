@@ -2437,8 +2437,122 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .order('created_at', ascending: false)
           .limit(100);
 
+      final combinedRawList = List<Map<String, dynamic>>.from(response);
+      try {
+        final List<dynamic> extQuery = await _supabase
+            .from('bookings')
+            .select('''
+              id,
+              status,
+              start_date,
+              end_date,
+              start_at,
+              end_at,
+              total_price,
+              totalCost,
+              rental_type,
+              rentalType,
+              days,
+              payment_status,
+              reservation_payment_status,
+              payment_verified,
+              safety_freeze,
+              extension_status,
+              extension_days,
+              extension_additional_price,
+              extension_requested_at,
+              extension_requested_end_at,
+              extension_requested_destination,
+              extension_payment_status,
+              extension_payment_method,
+              extension_payment_reference,
+              extension_payment_proof_url,
+              extension_payment_submitted_at,
+              extension_payment_verified_at,
+              extension_payment_verified_by,
+              extension_finalized_at,
+              extension_finalized_by,
+              extension_rejection_reason,
+              extension_conversation_id,
+              vehicles:vehicle_id (
+                id,
+                brand,
+                model,
+                year,
+                plate_number,
+                owner_id,
+                owner_role,
+                operator_id,
+                location,
+                vehicle_name,
+                price_per_day,
+                transmission,
+                vehicle_type,
+                seats,
+                owner:owner_id (
+                  id,
+                  role,
+                  full_name,
+                  email,
+                  phone
+                ),
+                vehicle_images(id, image_url, display_order)
+              ),
+              partner_vehicles:partner_vehicle_id (
+                id,
+                brand,
+                model,
+                year,
+                plate_number,
+                vehicle_name,
+                price_per_day,
+                transmission,
+                vehicle_type,
+                seats,
+                location,
+                partners:partner_id (
+                  id,
+                  business_name,
+                  business_phone,
+                  users:user_id (
+                    id,
+                    full_name,
+                    email,
+                    phone
+                  )
+                ),
+                vehicle_images(id, image_url, display_order)
+              ),
+              renter:users!bookings_renter_id_fkey (
+                id,
+                full_name,
+                email,
+                phone,
+                avatar_url,
+                profile_picture_url
+              )
+            ''')
+            .neq('extension_status', 'none')
+            .not('extension_status', 'is', null)
+            .order('updated_at', ascending: false)
+            .limit(50);
+
+        final existingIds = Set<String>.from(
+          combinedRawList.map((e) => e['id']?.toString() ?? ''),
+        );
+        for (final item in List<Map<String, dynamic>>.from(extQuery)) {
+          final id = item['id']?.toString() ?? '';
+          if (id.isNotEmpty && !existingIds.contains(id)) {
+            combinedRawList.add(item);
+            existingIds.add(id);
+          }
+        }
+      } catch (extErr) {
+        debugPrint('[Bookings] Non-critical: error fetching extension bookings: $extErr');
+      }
+
       final hydratedList = await BookingService().hydrateBookingVehicles(
-        List<Map<String, dynamic>>.from(response),
+        combinedRawList,
       );
 
       _recentBookings = hydratedList.map((
@@ -9287,16 +9401,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         .take(_bookingPageSize)
         .toList();
 
-    final extensionRequestsCount = _recentBookings.where((b) {
-      final ext = b['extension_status']?.toString().toLowerCase().trim();
-      return ext != null && ext.isNotEmpty && ext != 'none';
-    }).length;
+    final extensionRequestsCount = _recentBookings.where(_hasTripExtension).length;
     final pendingExtensionRequestsCount = _recentBookings.where((b) {
-      final ext = b['extension_status']?.toString().toLowerCase().trim();
-      return ext == 'pending' ||
-          ext == 'pending_operator' ||
-          ext == 'pending_partner' ||
-          ext == 'payment_completed';
+      final category = _getExtensionCategory(b);
+      return category == 'pending_review' ||
+          category == 'payment_review' ||
+          category == 'payment_approved';
     }).length;
 
     return SingleChildScrollView(
@@ -9542,13 +9652,105 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  Widget _buildExtensionFilterTab(String key, String label, bool isDark) {
-    final isSelected = _extensionFilter == key;
+  bool _hasTripExtension(Map<String, dynamic> booking) {
+    final extStatus =
+        booking['extension_status']?.toString().toLowerCase().trim() ?? '';
+    if (extStatus.isNotEmpty && extStatus != 'none') return true;
+    final extReqAt =
+        booking['extension_requested_at']?.toString().trim() ?? '';
+    final extEndAt =
+        booking['extension_requested_end_at']?.toString().trim() ?? '';
+    final extDays = booking['extension_days'];
+    if ((extReqAt.isNotEmpty || extEndAt.isNotEmpty) &&
+        extDays != null &&
+        (extDays is num && extDays > 0)) {
+      return true;
+    }
+    return false;
+  }
+
+  String _getExtensionCategory(Map<String, dynamic> booking) {
+    final extStatus =
+        booking['extension_status']?.toString().toLowerCase().trim() ?? '';
+    final payStatus =
+        booking['extension_payment_status']?.toString().toLowerCase().trim() ?? '';
+    final proofUrl =
+        booking['extension_payment_proof_url']?.toString().trim() ?? '';
+
+    // 1. Finalized
+    if (extStatus == 'finalized' ||
+        extStatus == 'approved' ||
+        extStatus == 'completed') {
+      return 'finalized';
+    }
+
+    // 2. Rejected / Cancelled
+    if (extStatus == 'rejected' ||
+        extStatus == 'cancelled' ||
+        extStatus == 'declined') {
+      return 'rejected';
+    }
+
+    // 3. Payment Approved (Payment confirmed, awaiting final schedule confirmation)
+    if (extStatus == 'pending_final_confirmation' ||
+        extStatus == 'payment_approved' ||
+        extStatus == 'payment_verified' ||
+        payStatus == 'verified') {
+      return 'payment_approved';
+    }
+
+    // 4. Payment Review (Renter uploaded payment proof, awaiting operator verification)
+    if (extStatus == 'payment_completed' ||
+        extStatus == 'payment_submitted' ||
+        extStatus == 'pending_payment_review' ||
+        payStatus == 'pending_review' ||
+        (proofUrl.isNotEmpty && payStatus != 'paid' && payStatus != 'verified')) {
+      return 'payment_review';
+    }
+
+    // 5. Pending Payment (Accepted, waiting for renter to pay)
+    if (extStatus == 'accepted' ||
+        extStatus == 'payment_pending' ||
+        extStatus == 'pending_payment' ||
+        extStatus == 'awaiting_payment') {
+      return 'payment_pending';
+    }
+
+    // 6. Pending Review (Initial request, waiting for operator/partner approval)
+    if (extStatus == 'pending' ||
+        extStatus == 'pending_operator' ||
+        extStatus == 'pending_partner' ||
+        extStatus == 'under_review' ||
+        extStatus == 'requested') {
+      return 'pending_review';
+    }
+
+    if (_hasTripExtension(booking)) {
+      return 'pending_review';
+    }
+
+    return 'none';
+  }
+
+  Widget _buildExtensionFilterTab(
+    String key,
+    String label,
+    bool isDark, {
+    int? count,
+  }) {
+    final isSelected = _extensionFilter == key ||
+        (key == 'pending_review' && _extensionFilter == 'pending') ||
+        (key == 'payment_pending' && _extensionFilter == 'pending_payment') ||
+        (key == 'payment_review' && _extensionFilter == 'payment_completed') ||
+        (key == 'payment_approved' && _extensionFilter == 'pending_final_confirmation');
+    final countText = count != null ? ' ($count)' : '';
+    final displayText = label.contains('(') ? label : '$label$countText';
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: ChoiceChip(
         label: Text(
-          label,
+          displayText,
           style: TextStyle(
             color: isSelected
                 ? _operatorNavyDeep
@@ -9576,25 +9778,39 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildExtendTripRequestsSection(bool isDark) {
     try {
-      final allExtensionBookings = _recentBookings.where((b) {
-        final ext = b['extension_status']?.toString().toLowerCase().trim();
-        return ext != null && ext.isNotEmpty && ext != 'none';
-      }).toList();
+      final allExtensionBookings =
+          _recentBookings.where(_hasTripExtension).toList();
+
+      final pendingReviewCount = allExtensionBookings
+          .where((b) => _getExtensionCategory(b) == 'pending_review')
+          .length;
+      final paymentPendingCount = allExtensionBookings
+          .where((b) => _getExtensionCategory(b) == 'payment_pending')
+          .length;
+      final paymentReviewCount = allExtensionBookings
+          .where((b) => _getExtensionCategory(b) == 'payment_review')
+          .length;
+      final paymentApprovedCount = allExtensionBookings
+          .where((b) => _getExtensionCategory(b) == 'payment_approved')
+          .length;
+      final finalizedCount = allExtensionBookings
+          .where((b) => _getExtensionCategory(b) == 'finalized')
+          .length;
+      final rejectedCount = allExtensionBookings
+          .where((b) => _getExtensionCategory(b) == 'rejected')
+          .length;
 
       final filteredExtensions = allExtensionBookings.where((booking) {
-        final status =
-            booking['extension_status']?.toString().toLowerCase().trim() ?? '';
+        final category = _getExtensionCategory(booking);
         final matchesFilter = switch (_extensionFilter) {
           'all' => true,
-          'pending' => status == 'pending' ||
-              status == 'pending_operator' ||
-              status == 'pending_partner',
-          'payment_pending' =>
-              status == 'accepted' || status == 'payment_pending',
-          'payment_completed' => status == 'payment_completed',
-          'pending_final_confirmation' => status == 'pending_final_confirmation',
-          'finalized' => status == 'finalized' || status == 'approved',
-          'rejected' => status == 'rejected' || status == 'cancelled',
+          'pending' || 'pending_review' => category == 'pending_review',
+          'payment_pending' || 'pending_payment' => category == 'payment_pending',
+          'payment_completed' || 'payment_review' => category == 'payment_review',
+          'pending_final_confirmation' || 'payment_approved' =>
+            category == 'payment_approved',
+          'finalized' => category == 'finalized',
+          'rejected' => category == 'rejected',
           _ => true,
         };
         if (!matchesFilter) return false;
@@ -9652,30 +9868,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 children: [
                   _buildExtensionFilterTab(
                     'all',
-                    'All Requests (${allExtensionBookings.length})',
+                    'All Requests',
                     isDark,
+                    count: allExtensionBookings.length,
                   ),
-                  _buildExtensionFilterTab('pending', 'Pending Review', isDark),
+                  _buildExtensionFilterTab(
+                    'pending_review',
+                    'Pending Review',
+                    isDark,
+                    count: pendingReviewCount,
+                  ),
                   _buildExtensionFilterTab(
                     'payment_pending',
-                    'Payment Pending',
+                    'Pending Payment',
                     isDark,
+                    count: paymentPendingCount,
                   ),
                   _buildExtensionFilterTab(
-                    'payment_completed',
+                    'payment_review',
                     'Payment Review',
                     isDark,
+                    count: paymentReviewCount,
                   ),
                   _buildExtensionFilterTab(
-                    'pending_final_confirmation',
-                    'Pending Confirmation',
+                    'payment_approved',
+                    'Payment Approved',
                     isDark,
+                    count: paymentApprovedCount,
                   ),
-                  _buildExtensionFilterTab('finalized', 'Finalized', isDark),
+                  _buildExtensionFilterTab(
+                    'finalized',
+                    'Finalized',
+                    isDark,
+                    count: finalizedCount,
+                  ),
                   _buildExtensionFilterTab(
                     'rejected',
                     'Rejected / Cancelled',
                     isDark,
+                    count: rejectedCount,
                   ),
                 ],
               ),
@@ -9846,6 +10077,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         booking['extension_status']?.toString().toLowerCase().trim() ?? 'pending';
     final payStatus =
         booking['extension_payment_status']?.toString().toLowerCase().trim() ?? 'unpaid';
+    final category = _getExtensionCategory(booking);
 
     final requestedAt = DateTime.tryParse(
       booking['extension_requested_at']?.toString() ?? '',
@@ -10170,7 +10402,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        _buildExtensionStatusPill(extStatus),
+                        _buildExtensionStatusPill(extStatus, booking: booking),
                         const SizedBox(height: 6),
                         _buildExtensionPaymentStatusPill(payStatus, method: paymentMethod),
                       ],
@@ -10267,7 +10499,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
                     // Actionable buttons for Operator vs Read-only for Partner
                     if (!isPartner) ...[
-                      if (extStatus == 'pending' || extStatus == 'pending_operator') ...[
+                      if (category == 'pending_review') ...[
                         OutlinedButton.icon(
                           onPressed: () => _showOperatorRejectExtensionDialog(booking),
                           icon: const Icon(Icons.cancel_outlined, size: 16),
@@ -10295,35 +10527,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ),
                           ),
                         ),
-                      ] else if (extStatus == 'payment_completed') ...[
-                        ElevatedButton.icon(
-                          onPressed: () => _handleOperatorVerifyExtensionPayment(booking),
-                          icon: const Icon(Icons.verified_user_rounded, size: 16),
-                          label: const Text('Verify Payment Proof'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF38BDF8),
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                        ),
-                      ] else if (extStatus == 'pending_final_confirmation') ...[
-                        ElevatedButton.icon(
-                          onPressed: () => _handleOperatorFinalizeExtension(booking),
-                          icon: const Icon(Icons.task_alt_rounded, size: 16),
-                          label: const Text('Confirm & Finalize Extension'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF10B981),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                        ),
-                      ] else if (extStatus == 'accepted' || extStatus == 'payment_pending') ...[
+                      ] else if (category == 'payment_pending') ...[
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
@@ -10347,7 +10551,87 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ],
                           ),
                         ),
-                      ] else if (extStatus == 'finalized') ...[
+                        const SizedBox(width: 10),
+                        OutlinedButton.icon(
+                          onPressed: () => _handleOperatorRecordCashPayment(booking),
+                          icon: const Icon(Icons.payments_outlined, size: 16),
+                          label: const Text('Verify Cash/Desk Payment'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF10B981),
+                            side: const BorderSide(color: Color(0xFF10B981)),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ] else if (category == 'payment_review') ...[
+                        OutlinedButton.icon(
+                          onPressed: () => _showOperatorRejectExtensionPaymentDialog(booking),
+                          icon: const Icon(Icons.cancel_outlined, size: 16),
+                          label: const Text('Reject Payment Proof'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.redAccent,
+                            side: const BorderSide(color: Colors.redAccent),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton.icon(
+                          onPressed: () => _handleOperatorVerifyExtensionPayment(booking),
+                          icon: const Icon(Icons.verified_user_rounded, size: 16),
+                          label: const Text('Verify & Approve Payment'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF38BDF8),
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ] else if (category == 'payment_approved') ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFF10B981).withOpacity(0.35)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF10B981)),
+                              SizedBox(width: 6),
+                              Text(
+                                'Payment Approved • Ready to Finalize',
+                                style: TextStyle(
+                                  color: Color(0xFF10B981),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton.icon(
+                          onPressed: () => _handleOperatorFinalizeExtension(booking),
+                          icon: const Icon(Icons.task_alt_rounded, size: 16),
+                          label: const Text('Confirm & Finalize Extension'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ] else if (category == 'finalized') ...[
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
@@ -10364,6 +10648,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 'Extension Finalized & Committed',
                                 style: TextStyle(
                                   color: Color(0xFF10B981),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else if (category == 'rejected') ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.redAccent.withOpacity(0.35)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.cancel_outlined, size: 16, color: Colors.redAccent),
+                              const SizedBox(width: 6),
+                              Text(
+                                booking['extension_rejection_reason']?.toString().trim().isNotEmpty == true
+                                    ? 'Declined: ${booking['extension_rejection_reason']}'
+                                    : 'Extension Request Declined',
+                                style: const TextStyle(
+                                  color: Colors.redAccent,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
                                 ),
@@ -10656,39 +10966,66 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  Widget _buildExtensionStatusPill(String status) {
+  Widget _buildExtensionStatusPill(
+    String status, {
+    Map<String, dynamic>? booking,
+  }) {
+    final category = booking != null
+        ? _getExtensionCategory(booking)
+        : switch (status) {
+            'pending' ||
+            'pending_operator' ||
+            'pending_partner' ||
+            'under_review' ||
+            'requested' =>
+              'pending_review',
+            'accepted' ||
+            'payment_pending' ||
+            'pending_payment' ||
+            'awaiting_payment' =>
+              'payment_pending',
+            'payment_completed' ||
+            'payment_submitted' ||
+            'pending_payment_review' =>
+              'payment_review',
+            'pending_final_confirmation' ||
+            'payment_approved' ||
+            'payment_verified' =>
+              'payment_approved',
+            'finalized' || 'approved' || 'completed' => 'finalized',
+            'rejected' => 'rejected',
+            'cancelled' || 'declined' => 'cancelled',
+            _ => status,
+          };
+
     Color bg;
     Color fg;
     String label;
 
-    switch (status) {
-      case 'pending':
-      case 'pending_operator':
-      case 'pending_partner':
+    switch (category) {
+      case 'pending_review':
         bg = const Color(0xFFF59E0B).withOpacity(0.15);
         fg = const Color(0xFFF59E0B);
         label = 'Pending Review';
         break;
-      case 'accepted':
       case 'payment_pending':
         bg = const Color(0xFF38BDF8).withOpacity(0.15);
         fg = const Color(0xFF38BDF8);
-        label = 'Payment Pending';
+        label = 'Pending Payment';
         break;
-      case 'payment_completed':
+      case 'payment_review':
         bg = const Color(0xFFA855F7).withOpacity(0.15);
         fg = const Color(0xFFA855F7);
-        label = 'Payment Submitted (Review)';
+        label = 'Payment Review';
         break;
-      case 'pending_final_confirmation':
-        bg = const Color(0xFF6366F1).withOpacity(0.15);
-        fg = const Color(0xFF6366F1);
-        label = 'Pending Confirmation';
-        break;
-      case 'finalized':
-      case 'approved':
+      case 'payment_approved':
         bg = const Color(0xFF10B981).withOpacity(0.15);
         fg = const Color(0xFF10B981);
+        label = 'Payment Approved';
+        break;
+      case 'finalized':
+        bg = const Color(0xFF059669).withOpacity(0.15);
+        fg = const Color(0xFF059669);
         label = 'Finalized';
         break;
       case 'rejected':
@@ -10910,6 +11247,176 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  Future<void> _showOperatorRejectExtensionPaymentDialog(
+    Map<String, dynamic> booking,
+  ) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bookingId = booking['id']?.toString() ?? '';
+    final reasonController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Reject Payment Proof'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Please specify why this extension payment receipt is being declined. The renter will be notified to re-upload a valid proof:',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText:
+                      'e.g. Unreadable receipt screenshot or reference number not found.',
+                  filled: true,
+                  fillColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () async {
+                final operatorId =
+                    Supabase.instance.client.auth.currentUser?.id ?? '';
+                Navigator.pop(dialogContext);
+                try {
+                  await BookingService().rejectExtensionPayment(
+                    bookingId: bookingId,
+                    reviewerId: operatorId,
+                    reason: reasonController.text.trim(),
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Payment proof rejected. Renter notified to submit valid receipt.',
+                        ),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                    _loadDashboardData();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    _showErrorSnackBar('Error rejecting payment proof: $e');
+                  }
+                }
+              },
+              child: const Text('Reject Proof'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _handleOperatorRecordCashPayment(
+    Map<String, dynamic> booking,
+  ) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bookingId = booking['id']?.toString() ?? '';
+    final refController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Record Cash / Desk Payment'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Confirm receipt of extension fee paid in cash or at the service desk:',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: refController,
+                decoration: InputDecoration(
+                  labelText: 'Receipt / Reference # (Optional)',
+                  hintText: 'e.g. CASH-DESK-001',
+                  filled: true,
+                  fillColor: isDark ? Colors.white10 : Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () async {
+                final operatorId =
+                    Supabase.instance.client.auth.currentUser?.id ?? '';
+                Navigator.pop(dialogContext);
+                try {
+                  await BookingService().verifyCashExtensionPayment(
+                    bookingId: bookingId,
+                    verifierId: operatorId,
+                    reference: refController.text.trim(),
+                    verifierRole: 'operator',
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Cash payment verified! Request is ready for final confirmation.',
+                        ),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                    _loadDashboardData();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    _showErrorSnackBar('Error recording cash payment: $e');
+                  }
+                }
+              },
+              child: const Text('Verify & Approve Payment'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   String _formatDateShort(String? raw) {
     if (raw == null || raw.isEmpty) return 'N/A';
     final dt = DateTime.tryParse(raw)?.toLocal();
@@ -10934,9 +11441,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   bool _bookingFilterMatches(Map<String, dynamic> booking, String filter) {
     if (filter == 'all') return true;
     if (filter == 'extension_requests' || filter == 'extension') {
-      final extStatus =
-          booking['extension_status']?.toString().toLowerCase().trim();
-      return extStatus == 'pending_operator' || extStatus == 'pending';
+      return _hasTripExtension(booking);
     }
     final group = bookingStatusGroup(booking['status']);
     return switch (filter) {

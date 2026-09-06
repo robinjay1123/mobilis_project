@@ -5537,6 +5537,107 @@ class BookingService {
     }
   }
 
+  /// Verify cash or on-desk payment for trip extension (Operator or Partner).
+  Future<void> verifyCashExtensionPayment({
+    required String bookingId,
+    required String verifierId,
+    String? reference,
+    String? verifierRole,
+  }) async {
+    try {
+      final booking = await getBookingById(bookingId);
+      if (booking == null) throw Exception('Booking not found');
+
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+
+      if (isPartnerVehicle && verifierRole == 'operator') {
+        throw Exception(
+          'Operator cannot verify payment for a Partner-owned vehicle. Only the Partner can verify.',
+        );
+      }
+
+      final effectiveRef = reference?.trim().isNotEmpty == true
+          ? reference!.trim()
+          : 'CASH-DESK-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+
+      await supabase
+          .from('bookings')
+          .update({
+            'extension_payment_method': 'Cash / Desk',
+            'extension_payment_reference': effectiveRef,
+            'extension_payment_status': 'verified',
+            'extension_payment_verified_at': DateTime.now().toIso8601String(),
+            'extension_payment_verified_by': verifierId,
+            'extension_status': 'pending_final_confirmation',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      final conversation = await ChatService().getConversationBookingContext(
+        bookingId,
+      );
+      if (conversation != null) {
+        final conversationId = conversation['id']?.toString();
+        if (conversationId != null) {
+          await ChatService().sendMessage(
+            conversationId: conversationId,
+            senderId: verifierId,
+            content:
+                'Extension Cash Payment Recorded: Payment of extension fee received in cash (Ref: $effectiveRef). Ready for final extension confirmation.',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error recording cash extension payment: $e');
+      rethrow;
+    }
+  }
+
+  /// Reject submitted extension payment proof (asks renter to re-upload or fix payment).
+  Future<void> rejectExtensionPayment({
+    required String bookingId,
+    String? reviewerId,
+    String? reason,
+  }) async {
+    try {
+      final effectiveReviewerId =
+          reviewerId ?? supabase.auth.currentUser?.id ?? '';
+      final rejectionReason = reason?.trim().isNotEmpty == true
+          ? reason!.trim()
+          : 'Payment proof could not be verified. Please upload a clear and valid receipt.';
+
+      await supabase
+          .from('bookings')
+          .update({
+            'extension_payment_status': 'unpaid',
+            'extension_status': 'payment_pending',
+            'extension_payment_proof_url': null,
+            'extension_payment_rejection_reason': rejectionReason,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      final conversation = await ChatService().getConversationBookingContext(
+        bookingId,
+      );
+      if (conversation != null) {
+        final conversationId = conversation['id']?.toString();
+        if (conversationId != null) {
+          await ChatService().sendMessage(
+            conversationId: conversationId,
+            senderId: effectiveReviewerId,
+            content:
+                'Extension Payment Rejected: $rejectionReason. Please submit a valid payment receipt in the app.',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error rejecting extension payment: $e');
+      rethrow;
+    }
+  }
+
   /// Finalize trip extension (commits new dates, destination, and fee to booking).
   Future<void> finalizeTripExtension({
     required String bookingId,
