@@ -10,33 +10,49 @@ import '../screens/partner/trip_route_history_screen.dart';
 export '../screens/partner/trip_route_history_screen.dart';
 
 class TripRouteHistoryDialog extends StatefulWidget {
-  final String bookingId;
+  final String? bookingId;
+  final String? vehicleId;
+  final String? trackerDeviceId;
   final String? vehicleName;
   final String? plateNumber;
   final String? renterName;
+  final double? initialLat;
+  final double? initialLng;
 
   const TripRouteHistoryDialog({
     super.key,
-    required this.bookingId,
+    this.bookingId,
+    this.vehicleId,
+    this.trackerDeviceId,
     this.vehicleName,
     this.plateNumber,
     this.renterName,
+    this.initialLat,
+    this.initialLng,
   });
 
   static Future<void> show({
     required BuildContext context,
-    required String bookingId,
+    String? bookingId,
+    String? vehicleId,
+    String? trackerDeviceId,
     String? vehicleName,
     String? plateNumber,
     String? renterName,
+    double? initialLat,
+    double? initialLng,
   }) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (context) => TripRouteHistoryScreen(
           bookingId: bookingId,
+          vehicleId: vehicleId,
+          trackerDeviceId: trackerDeviceId,
           vehicleName: vehicleName,
           plateNumber: plateNumber,
           renterName: renterName,
+          initialLat: initialLat,
+          initialLng: initialLng,
         ),
       ),
     );

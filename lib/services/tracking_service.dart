@@ -2393,6 +2393,38 @@ class TrackingService {
     }
   }
 
+  /// Fetches complete chronological GPS route trail for a vehicle across bookings or in standby
+  Future<List<Map<String, dynamic>>> getVehicleLocationHistory({
+    required String vehicleId,
+    String? trackerDeviceId,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 300,
+  }) async {
+    if (vehicleId.isEmpty && (trackerDeviceId == null || trackerDeviceId.isEmpty)) {
+      return [];
+    }
+    try {
+      var query = supabase.from('tracking_location_logs').select('*');
+      if (vehicleId.isNotEmpty) {
+        query = query.eq('vehicle_id', vehicleId);
+      } else if (trackerDeviceId != null && trackerDeviceId.isNotEmpty) {
+        query = query.eq('tracked_user_id', trackerDeviceId);
+      }
+      if (startDate != null) {
+        query = query.gte('recorded_at', startDate.toUtc().toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('recorded_at', endDate.toUtc().toIso8601String());
+      }
+      final rows = await query.order('recorded_at', ascending: true).limit(limit);
+      return List<Map<String, dynamic>>.from(rows);
+    } catch (e) {
+      debugPrint('Error fetching vehicle location history for $vehicleId: $e');
+      return [];
+    }
+  }
+
   /// Pure math geodesic distance in meters (fast, works synchronously on all platforms/web)
   double _distanceBetweenMeters(
     double lat1,

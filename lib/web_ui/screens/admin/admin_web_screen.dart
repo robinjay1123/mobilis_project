@@ -11683,22 +11683,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               onPlayback: () {
                                 final bk = focusedLoc['bookings']
                                     as Map<String, dynamic>?;
-                                if (bk?['id'] != null) {
-                                  final veh = (bk?['vehicles'] ??
-                                      focusedLoc['vehicle']) as Map<String,
-                                      dynamic>?;
-                                  final vehName =
-                                      _resolveTrackingVehicleName(focusedLoc);
-                                  TripRouteHistoryDialog.show(
-                                    context: context,
-                                    bookingId: bk!['id'].toString(),
-                                    vehicleName: vehName,
-                                    plateNumber:
-                                        veh?['plate_number']?.toString(),
-                                    renterName:
-                                        bk['renter']?['full_name']?.toString(),
-                                  );
-                                }
+                                final veh = (bk?['vehicles'] ??
+                                    focusedLoc['vehicle']) as Map<String,
+                                    dynamic>?;
+                                final vehName =
+                                    _resolveTrackingVehicleName(focusedLoc);
+                                TripRouteHistoryDialog.show(
+                                  context: context,
+                                  bookingId: bk?['id']?.toString(),
+                                  vehicleId: focusedLoc['vehicle_id']?.toString() ??
+                                      focusedLoc['tracker']?['vehicle_id']?.toString() ??
+                                      veh?['id']?.toString(),
+                                  trackerDeviceId: focusedLoc['tracker_device_id']?.toString() ??
+                                      focusedLoc['tracker']?['device_id']?.toString() ??
+                                      focusedLoc['tracker']?['imei']?.toString(),
+                                  vehicleName: vehName,
+                                  plateNumber: veh?['plate_number']?.toString() ??
+                                      focusedLoc['plate_number']?.toString(),
+                                  renterName: bk?['renter']?['full_name']?.toString(),
+                                  initialLat: (focusedLoc['latitude'] as num?)?.toDouble(),
+                                  initialLng: (focusedLoc['longitude'] as num?)?.toDouble(),
+                                );
                               },
                               onMore: () {
                                 var veh = (focusedLoc['bookings']?['vehicles'] ??
@@ -12297,15 +12302,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     });
                   },
                   onPlayback: () {
-                    if (booking?['id'] != null) {
-                      TripRouteHistoryDialog.show(
-                        context: context,
-                        bookingId: booking!['id'].toString(),
-                        vehicleName: vehicleName,
-                        plateNumber: vehicle?['plate_number']?.toString(),
-                        renterName: renter?['full_name']?.toString(),
-                      );
-                    }
+                    TripRouteHistoryDialog.show(
+                      context: context,
+                      bookingId: booking?['id']?.toString(),
+                      vehicleId: location['vehicle_id']?.toString() ??
+                          location['tracker']?['vehicle_id']?.toString() ??
+                          vehicle?['id']?.toString(),
+                      trackerDeviceId: location['tracker_device_id']?.toString() ??
+                          location['tracker']?['device_id']?.toString() ??
+                          location['tracker']?['imei']?.toString(),
+                      vehicleName: vehicleName,
+                      plateNumber: vehicle?['plate_number']?.toString() ??
+                          location['plate_number']?.toString(),
+                      renterName: renter?['full_name']?.toString(),
+                      initialLat: lat,
+                      initialLng: lng,
+                    );
                   },
                   onGeofence: () {
                     setState(() {

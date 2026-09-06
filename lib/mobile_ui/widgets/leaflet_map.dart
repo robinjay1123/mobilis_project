@@ -52,9 +52,30 @@ class MobilisMapPoint {
   LatLng get point => LatLng(latitude, longitude);
 }
 
+class MobilisMapCircle {
+  final double latitude;
+  final double longitude;
+  final double radiusMeters;
+  final Color color;
+  final Color borderColor;
+  final double borderStrokeWidth;
+
+  const MobilisMapCircle({
+    required this.latitude,
+    required this.longitude,
+    required this.radiusMeters,
+    this.color = const Color(0x280284C7),
+    this.borderColor = const Color(0xFF0284C7),
+    this.borderStrokeWidth = 2.0,
+  });
+
+  LatLng get point => LatLng(latitude, longitude);
+}
+
 class MobilisLeafletMap extends StatelessWidget {
   final List<MobilisMapMarker> markers;
   final List<MobilisMapPoint> routePoints;
+  final List<MobilisMapCircle> circles;
   final Color routeColor;
   final double fallbackLatitude;
   final double fallbackLongitude;
@@ -70,6 +91,7 @@ class MobilisLeafletMap extends StatelessWidget {
     super.key,
     this.markers = const [],
     this.routePoints = const [],
+    this.circles = const [],
     this.routeColor = AppColors.primary,
     this.fallbackLatitude = 15.9758,
     this.fallbackLongitude = 120.5719,
@@ -162,6 +184,21 @@ class MobilisLeafletMap extends StatelessWidget {
               MobilisMapStyle.terrain => 17,
             },
           ),
+          if (circles.isNotEmpty)
+            CircleLayer(
+              circles: circles
+                  .map(
+                    (circle) => CircleMarker(
+                      point: circle.point,
+                      radius: circle.radiusMeters,
+                      useRadiusInMeter: true,
+                      color: circle.color,
+                      borderColor: circle.borderColor,
+                      borderStrokeWidth: circle.borderStrokeWidth,
+                    ),
+                  )
+                  .toList(),
+            ),
           if (routePoints.length >= 2)
             PolylineLayer(
               polylines: [

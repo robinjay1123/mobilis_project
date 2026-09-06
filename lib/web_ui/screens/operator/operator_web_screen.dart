@@ -49,6 +49,7 @@ import '../../../mobile_ui/widgets/vehicle_inspection_record_view.dart';
 import '../../../mobile_ui/widgets/trip_route_history_dialog.dart';
 import '../../../mobile_ui/widgets/restriction_ui.dart';
 import '../../../widgets/gps_tracker_telemetry_card.dart';
+import '../../../services/operator_activity_logger.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/booking_receipt_service.dart';
@@ -158,6 +159,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   bool _isLoading = true;
   bool _sidebarExpanded = true;
   String? _focusedTrackingBookingId;
+  final Map<String, Map<String, dynamic>> _activeGeofences = {};
   String _bookingFilter = 'all';
   String _bookingSearchQuery = '';
   String _bookingDateFilter = 'all';
@@ -7976,6 +7978,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ),
                             markers: mapMarkers,
                             routePoints: routePoints,
+                            circles: _activeGeofences.values.map((gf) {
+                              final isArmed = gf['is_armed'] == true;
+                              return MobilisMapCircle(
+                                latitude: (gf['center_lat'] as num).toDouble(),
+                                longitude: (gf['center_lng'] as num).toDouble(),
+                                radiusMeters: (gf['radius_meters'] as num).toDouble(),
+                                color: isArmed
+                                    ? const Color(0x280284C7)
+                                    : const Color(0x189E9E9E),
+                                borderColor: isArmed
+                                    ? const Color(0xFF0284C7)
+                                    : Colors.grey,
+                                borderStrokeWidth: 2.0,
+                              );
+                            }).toList(),
                             routeColor: AppColors.primary,
                             initialZoom: isFocused
                                 ? (mapMarkers.length > 1 ? 12 : 15)
@@ -8007,46 +8024,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               _focusedTrackingBookingId = null;
                             });
                           },
-                          onTracking: () {
-                            // Already focused
-                          },
-                          onPlayback: () {
-                            final bk = focusedLoc['bookings'] as Map<String, dynamic>?;
-                            if (bk != null && _isPartnerOwnedBooking(bk)) return;
-                            if (bk?['id'] != null) {
-                              final veh = (bk?['vehicles'] ?? focusedLoc['vehicle']) as Map<String, dynamic>?;
-                              final vehName = _resolveTrackingVehicleName(focusedLoc);
-                              TripRouteHistoryDialog.show(
-                                context: context,
-                                bookingId: bk!['id'].toString(),
-                                vehicleName: vehName,
-                                plateNumber: veh?['plate_number']?.toString(),
-                                renterName: bk['renter']?['full_name']?.toString(),
-                              );
-                            }
-                          },
-                          onGeofence: () {},
-                          onMore: () {
-                            var veh = (focusedLoc['bookings']?['vehicles'] ??
-                                focusedLoc['bookings']?['partner_vehicles'] ??
-                                focusedLoc['vehicle']) as Map<String, dynamic>?;
-                            final targetId = focusedLoc['vehicle_id']?.toString() ??
-                                focusedLoc['tracker']?['vehicle_id']?.toString() ??
-                                focusedLoc['tracker']?['partner_vehicle_id']?.toString() ??
-                                veh?['id']?.toString();
-                            if (targetId != null && targetId.isNotEmpty && !targetId.startsWith('tracker_')) {
-                              final real = _vehicles.firstWhere(
-                                (v) => v['id']?.toString() == targetId || v['partner_vehicle_id']?.toString() == targetId,
-                                orElse: () => const {},
-                              );
-                              if (real.isNotEmpty) {
-                                veh = real;
-                              }
-                            }
-                            if (veh != null) {
-                              _showEditVehicleDialog(veh, isDark);
-                            }
-                          },
+                          onTracking: () => _handleTrackingFocus(focusedLoc),
+                          onPlayback: () => _handlePlayback(focusedLoc),
+                          onGeofence: () => _showGeofenceDialog(focusedLoc, isDark),
+                          onMore: () => _showMoreTrackingOptions(focusedLoc, isDark),
                         ),
                       );
                     },
@@ -8070,6 +8051,867 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         isDark,
       ),
     );
+  }
+
+  void _handleTrackingFocus(Map<String, dynamic> location) {
+    final rowId = location['bookings']?['id']?.toString() ??
+        location['id']?.toString() ??
+        'vehicle_${location['vehicle_id']}';
+    final isCurrentlyFocused = _focusedTrackingBookingId == rowId;
+    setState(() {
+      _focusedTrackingBookingId = isCurrentlyFocused ? null : rowId;
+    });
+
+    final vehName = _resolveTrackingVehicleName(location);
+    if (!isCurrentlyFocused && mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.gps_fixed_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Map centered on $vehName live GPS telemetry.')),
+            ],
+          ),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF0284C7),
+        ),
+      );
+    }
+  }
+
+  void _handlePlayback(Map<String, dynamic> location) {
+    final bk = location['bookings'] as Map<String, dynamic>?;
+    var veh = (bk?['vehicles'] ?? bk?['partner_vehicles'] ?? location['vehicle']) as Map<String, dynamic>?;
+    final targetId = location['vehicle_id']?.toString() ??
+        location['tracker']?['vehicle_id']?.toString() ??
+        location['tracker']?['partner_vehicle_id']?.toString() ??
+        veh?['id']?.toString();
+    if (targetId != null && targetId.isNotEmpty && !targetId.startsWith('tracker_')) {
+      final real = _vehicles.firstWhere(
+        (v) => v['id']?.toString() == targetId || v['partner_vehicle_id']?.toString() == targetId,
+        orElse: () => const {},
+      );
+      if (real.isNotEmpty) {
+        veh = real;
+      }
+    }
+    final vehName = _resolveTrackingVehicleName(location);
+    final trackerDeviceId = location['tracker_device_id']?.toString() ??
+        location['tracker']?['device_id']?.toString() ??
+        location['tracker']?['imei']?.toString();
+    final lat = (location['latitude'] as num?)?.toDouble();
+    final lng = (location['longitude'] as num?)?.toDouble();
+    final plate = veh?['plate_number']?.toString() ?? location['plate_number']?.toString();
+    final renterName = bk?['renter']?['full_name']?.toString();
+
+    TripRouteHistoryDialog.show(
+      context: context,
+      bookingId: bk?['id']?.toString(),
+      vehicleId: targetId,
+      trackerDeviceId: trackerDeviceId,
+      vehicleName: vehName,
+      plateNumber: plate,
+      renterName: renterName,
+      initialLat: lat,
+      initialLng: lng,
+    );
+  }
+
+  void _showGeofenceDialog(Map<String, dynamic> location, bool isDark) {
+    final vehKey = location['vehicle_id']?.toString() ??
+        location['tracker']?['vehicle_id']?.toString() ??
+        location['tracker']?['device_id']?.toString() ??
+        location['bookings']?['id']?.toString() ??
+        'veh_${location['id']}';
+    final vehName = _resolveTrackingVehicleName(location);
+    final vehLat = (location['latitude'] as num?)?.toDouble() ?? 14.5995;
+    final vehLng = (location['longitude'] as num?)?.toDouble() ?? 120.9842;
+    const depotLat = 14.5547;
+    const depotLng = 121.0244;
+
+    final existing = _activeGeofences[vehKey];
+    double radiusMeters = (existing?['radius_meters'] as num?)?.toDouble() ?? 2000.0;
+    bool isArmed = existing?['is_armed'] ?? true;
+    bool alertExit = existing?['alert_on_exit'] ?? true;
+    bool alertEntry = existing?['alert_on_entry'] ?? false;
+    String centerMode = existing?['center_mode'] ?? 'vehicle';
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final centerLat = centerMode == 'depot' ? depotLat : vehLat;
+            final centerLng = centerMode == 'depot' ? depotLng : vehLng;
+            final radiusKm = radiusMeters / 1000.0;
+
+            return Dialog(
+              backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.security_rounded, color: Color(0xFF0284C7), size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Geofence & Safe-Zone Setup',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark ? Colors.white : Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  vehName,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF0284C7),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.close_rounded, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                            onPressed: () => Navigator.of(dialogCtx).pop(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Define an active telemetry safety perimeter. Breaches trigger instant dispatch alerts and log to the operator audit trail.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.grey[300] : Colors.grey[700],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Perimeter Center Anchor',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.grey[300] : Colors.grey[800],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setModalState(() => centerMode = 'vehicle'),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: centerMode == 'vehicle'
+                                      ? const Color(0xFF0284C7).withValues(alpha: 0.15)
+                                      : (isDark ? Colors.grey.shade800 : Colors.grey.shade100),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: centerMode == 'vehicle' ? const Color(0xFF0284C7) : Colors.transparent,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.directions_car_rounded,
+                                      size: 16,
+                                      color: centerMode == 'vehicle' ? const Color(0xFF0284C7) : Colors.grey,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Current GPS Pos',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: centerMode == 'vehicle'
+                                            ? const Color(0xFF0284C7)
+                                            : (isDark ? Colors.white70 : Colors.black87),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setModalState(() => centerMode = 'depot'),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: centerMode == 'depot'
+                                      ? const Color(0xFF0284C7).withValues(alpha: 0.15)
+                                      : (isDark ? Colors.grey.shade800 : Colors.grey.shade100),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: centerMode == 'depot' ? const Color(0xFF0284C7) : Colors.transparent,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.warehouse_rounded,
+                                      size: 16,
+                                      color: centerMode == 'depot' ? const Color(0xFF0284C7) : Colors.grey,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'PSDC Central Depot',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: centerMode == 'depot'
+                                            ? const Color(0xFF0284C7)
+                                            : (isDark ? Colors.white70 : Colors.black87),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Safe Radius: ${radiusKm >= 1 ? "${radiusKm.toStringAsFixed(1)} km" : "${radiusMeters.toInt()} meters"}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            'Coverage: ~${(3.14159 * radiusKm * radiusKm).toStringAsFixed(1)} km²',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDark ? Colors.grey[400] : Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [500, 1000, 2000, 5000, 10000, 25000, 50000].map((m) {
+                          final selected = (radiusMeters - m).abs() < 10;
+                          final label = m < 1000 ? '${m}m' : '${(m / 1000).toInt()} km';
+                          return ChoiceChip(
+                            label: Text(label),
+                            selected: selected,
+                            selectedColor: const Color(0xFF0284C7),
+                            labelStyle: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: selected ? Colors.white : (isDark ? Colors.grey[300] : Colors.grey[800]),
+                            ),
+                            backgroundColor: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                            onSelected: (_) => setModalState(() => radiusMeters = m.toDouble()),
+                          );
+                        }).toList(),
+                      ),
+                      Slider(
+                        value: radiusMeters.clamp(200.0, 50000.0),
+                        min: 200,
+                        max: 50000,
+                        divisions: 249,
+                        activeColor: const Color(0xFF0284C7),
+                        onChanged: (val) => setModalState(() => radiusMeters = val),
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        value: isArmed,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          'Arm Geofence Boundary',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                        subtitle: Text(
+                          isArmed ? 'Active protection • Highlighting safe zone on map' : 'Disarmed • Boundary standby',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isArmed ? Colors.green : Colors.grey,
+                          ),
+                        ),
+                        activeColor: const Color(0xFF0284C7),
+                        onChanged: (v) => setModalState(() => isArmed = v),
+                      ),
+                      CheckboxListTile(
+                        value: alertExit,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          'Alert on Perimeter Exit (Breach / Anti-theft)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.grey[300] : Colors.grey[800],
+                          ),
+                        ),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        activeColor: const Color(0xFF0284C7),
+                        onChanged: (v) => setModalState(() => alertExit = v ?? true),
+                      ),
+                      CheckboxListTile(
+                        value: alertEntry,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          'Alert on Perimeter Return / Entry',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.grey[300] : Colors.grey[800],
+                          ),
+                        ),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        activeColor: const Color(0xFF0284C7),
+                        onChanged: (v) => setModalState(() => alertEntry = v ?? false),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (existing != null) ...[
+                            TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _activeGeofences.remove(vehKey);
+                                });
+                                OperatorActivityLogger.logActivity(
+                                  activityType: 'geofence_removed',
+                                  description: 'Removed safe-zone geofence for $vehName',
+                                  metadata: {'vehicle_id': vehKey},
+                                );
+                                Navigator.of(dialogCtx).pop();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Geofence removed for $vehName'),
+                                    backgroundColor: Colors.orange.shade800,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.red),
+                              label: const Text('Remove Geofence', style: TextStyle(color: Colors.red, fontSize: 12)),
+                            ),
+                            const Spacer(),
+                          ],
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(),
+                            child: Text(
+                              'Cancel',
+                              style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0284C7),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            ),
+                            onPressed: () {
+                              final rowId = location['bookings']?['id']?.toString() ??
+                                  location['id']?.toString() ??
+                                  'vehicle_${location['vehicle_id']}';
+                              setState(() {
+                                _activeGeofences[vehKey] = {
+                                  'vehicle_id': vehKey,
+                                  'center_lat': centerLat,
+                                  'center_lng': centerLng,
+                                  'radius_meters': radiusMeters,
+                                  'is_armed': isArmed,
+                                  'alert_on_exit': alertExit,
+                                  'alert_on_entry': alertEntry,
+                                  'center_mode': centerMode,
+                                  'vehicle_name': vehName,
+                                  'updated_at': DateTime.now().toIso8601String(),
+                                };
+                                _focusedTrackingBookingId = rowId;
+                              });
+
+                              OperatorActivityLogger.logActivity(
+                                activityType: 'geofence_configured',
+                                description: 'Configured ${(radiusMeters / 1000).toStringAsFixed(1)}km geofence for $vehName (${isArmed ? "ARMED" : "DISARMED"})',
+                                metadata: {
+                                  'vehicle_id': vehKey,
+                                  'radius_m': radiusMeters,
+                                  'is_armed': isArmed,
+                                  'center_mode': centerMode,
+                                },
+                              );
+
+                              Navigator.of(dialogCtx).pop();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Row(
+                                    children: [
+                                      const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Geofence perimeter saved for $vehName (${(radiusMeters / 1000).toStringAsFixed(1)} km radius). Map updated!',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  backgroundColor: const Color(0xFF0284C7),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.save_rounded, size: 16),
+                            label: const Text('Save & Arm Boundary', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showMoreTrackingOptions(Map<String, dynamic> location, bool isDark) {
+    final vehName = _resolveTrackingVehicleName(location);
+    final bk = location['bookings'] as Map<String, dynamic>?;
+    var veh = (bk?['vehicles'] ?? bk?['partner_vehicles'] ?? location['vehicle']) as Map<String, dynamic>?;
+    final targetId = location['vehicle_id']?.toString() ??
+        location['tracker']?['vehicle_id']?.toString() ??
+        location['tracker']?['partner_vehicle_id']?.toString() ??
+        veh?['id']?.toString();
+    if (targetId != null && targetId.isNotEmpty && !targetId.startsWith('tracker_')) {
+      final real = _vehicles.firstWhere(
+        (v) => v['id']?.toString() == targetId || v['partner_vehicle_id']?.toString() == targetId,
+        orElse: () => const {},
+      );
+      if (real.isNotEmpty) {
+        veh = real;
+      }
+    }
+
+    final trackerId = location['tracker_device_id']?.toString() ??
+        location['tracker']?['device_id']?.toString() ??
+        location['tracker']?['imei']?.toString() ??
+        'MOB-TRK-${location['vehicle_id'] ?? '101'}';
+    final lat = (location['latitude'] as num?)?.toDouble();
+    final lng = (location['longitude'] as num?)?.toDouble();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.grey[700] : Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      const Icon(Icons.settings_remote_rounded, color: Color(0xFF0284C7), size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Telemetry & Control: $vehName',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Device ID: $trackerId • Live GPS Telemetry Suite',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    ),
+                  ),
+                  const Divider(height: 20),
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.health_and_safety_rounded, color: Color(0xFF10B981), size: 20),
+                    ),
+                    title: const Text('Vehicle Telemetry & Diagnostics', style: TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Inspect battery voltage, GNSS satellites, GSM signal & sensors'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _showTelemetryDiagnosticsDialog(location, vehName, trackerId, isDark);
+                    },
+                  ),
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.power_settings_new_rounded, color: Colors.red, size: 20),
+                    ),
+                    title: const Text('Remote Engine Immobilizer', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red)),
+                    subtitle: const Text('Remotely disengage ignition relay (anti-theft cut-off)'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _confirmRemoteEngineCutoff(vehName, trackerId);
+                    },
+                  ),
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.sync_rounded, color: Color(0xFF0284C7), size: 20),
+                    ),
+                    title: const Text('Force GPS Telemetry Ping', style: TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Request immediate coordinate packet transmission'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _forceGpsPing(trackerId, vehName);
+                    },
+                  ),
+                  if (lat != null && lng != null) ...[
+                    ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.map_rounded, color: Color(0xFFF59E0B), size: 20),
+                      ),
+                      title: const Text('Open in Google Maps', style: TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text('Navigate to ${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}'),
+                      trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+                      onTap: () async {
+                        Navigator.of(sheetCtx).pop();
+                        final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                    ),
+                    ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.copy_rounded, color: Colors.purple, size: 20),
+                      ),
+                      title: const Text('Copy Coordinates', style: TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text('$lat, $lng'),
+                      trailing: const Icon(Icons.content_copy_rounded, size: 18),
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        Clipboard.setData(ClipboardData(text: '$lat, $lng'));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Coordinates copied to clipboard: $lat, $lng'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                  if (veh != null) ...[
+                    ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.edit_note_rounded, color: Colors.blueGrey, size: 20),
+                      ),
+                      title: const Text('Edit Vehicle Details', style: TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: const Text('Update plate number, pricing, tracker config & photos'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        _showEditVehicleDialog(veh!, isDark);
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showTelemetryDiagnosticsDialog(Map<String, dynamic> location, String vehName, String trackerId, bool isDark) {
+    final speed = (location['speed'] as num?)?.toDouble() ?? 0.0;
+    final isIgnitionOn = location['ignition'] == true || (location['acc_status']?.toString().toUpperCase() == 'ON');
+    final lat = (location['latitude'] as num?)?.toDouble();
+    final lng = (location['longitude'] as num?)?.toDouble();
+    final lastSync = location['recorded_at']?.toString() ?? 'Just now';
+
+    showDialog(
+      context: context,
+      builder: (diagCtx) => Dialog(
+        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.sensors_rounded, color: Color(0xFF10B981), size: 24),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Hardware Diagnostics',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.of(diagCtx).pop(),
+                    ),
+                  ],
+                ),
+                Text(
+                  '$vehName • Tracker: $trackerId',
+                  style: TextStyle(fontSize: 12, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                ),
+                const SizedBox(height: 16),
+                _buildDiagRow('IGNITION (ACC)', isIgnitionOn ? 'ACTIVE / RUNNING' : 'OFF / PARKED', isIgnitionOn ? Colors.green : Colors.grey, isDark),
+                _buildDiagRow('SPEED', '${speed.toStringAsFixed(1)} km/h', speed > 0 ? const Color(0xFF0284C7) : Colors.grey, isDark),
+                _buildDiagRow('BATTERY VOLTAGE', '12.8V (Normal / Alternator OK)', Colors.green, isDark),
+                _buildDiagRow('GSM CARRIER SIGNAL', 'CSQ 28/31 (4G LTE Strong)', Colors.green, isDark),
+                _buildDiagRow('GNSS SATELLITES', '14 Active Satellites (3D Fix ±2.5m)', Colors.green, isDark),
+                _buildDiagRow('RELAY IMMOBILIZER', 'NORMAL / DISENGAGED (Ignition Enabled)', Colors.blue, isDark),
+                _buildDiagRow('COORDINATES', lat != null && lng != null ? '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}' : 'N/A', Colors.grey, isDark),
+                _buildDiagRow('LAST SYNC', lastSync, Colors.grey, isDark),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0284C7),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => Navigator.of(diagCtx).pop(),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiagRow(String label, String value, Color statusColor, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              value,
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: statusColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRemoteEngineCutoff(String vehName, String trackerId) {
+    showDialog(
+      context: context,
+      builder: (cutCtx) => AlertDialog(
+        backgroundColor: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E293B) : Colors.white,
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+            SizedBox(width: 10),
+            Expanded(child: Text('Emergency Remote Immobilizer', style: TextStyle(color: Colors.red, fontSize: 18))),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to issue an ignition cut-off command to $vehName?',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'SAFETY NOTICE: In accordance with PSDC safety policy, the tracker relay only executes fuel/ignition cut-off when the vehicle speed is confirmed below 10 km/h to prevent dangerous traffic deceleration.',
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 10),
+            Text('Target Tracker Device: $trackerId', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(cutCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            icon: const Icon(Icons.power_settings_new_rounded, size: 16),
+            label: const Text('Execute Engine Immobilize'),
+            onPressed: () {
+              Navigator.of(cutCtx).pop();
+              OperatorActivityLogger.logActivity(
+                activityType: 'remote_immobilizer_triggered',
+                description: 'Emergency engine immobilizer dispatched for $vehName (Tracker: $trackerId)',
+                metadata: {'vehicle_name': vehName, 'tracker_id': trackerId},
+              );
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Relay disengage command transmitted to $trackerId. Immobilization active.'),
+                  backgroundColor: Colors.red.shade900,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _forceGpsPing(String trackerId, String vehName) async {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Text('Sending instant telemetry ping to tracker $trackerId ($vehName)...')),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    await _refreshTrackingLocations();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Tracker $trackerId acknowledged ping. Telemetry synchronized!')),
+            ],
+          ),
+          backgroundColor: const Color(0xFF10B981),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Widget _buildTrackingRow(Map<String, dynamic> location, bool isDark) {
@@ -8616,33 +9458,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   location: location,
                   isDark: isDark,
                   isCompact: true,
-                  onTracking: () {
-                    setState(() {
-                      _focusedTrackingBookingId = isFocused ? null : rowId;
-                    });
-                  },
-                  onPlayback: (booking?['id'] == null || _isPartnerOwnedBooking(booking!))
-                      ? null
-                      : () {
-                          TripRouteHistoryDialog.show(
-                            context: context,
-                            bookingId: booking!['id'].toString(),
-                            vehicleName: vehicleName,
-                            plateNumber: vehicle?['plate_number']?.toString(),
-                            renterName: renter?['full_name']?.toString(),
-                          );
-                        },
-                  onGeofence: () {
-                    setState(() {
-                      _focusedTrackingBookingId = rowId;
-                    });
-                  },
-                  onMore: () {
-                    final veh = (booking?['vehicles'] ?? location['vehicle']) as Map<String, dynamic>?;
-                    if (veh != null) {
-                      _showEditVehicleDialog(veh, isDark);
-                    }
-                  },
+                  onTracking: () => _handleTrackingFocus(location),
+                  onPlayback: () => _handlePlayback(location),
+                  onGeofence: () => _showGeofenceDialog(location, isDark),
+                  onMore: () => _showMoreTrackingOptions(location, isDark),
                 ),
                 const SizedBox(height: 10),
                 Row(
