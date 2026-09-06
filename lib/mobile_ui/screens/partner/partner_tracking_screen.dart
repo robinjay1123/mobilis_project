@@ -169,11 +169,11 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
       setState(() {
         if (dLat != null && dLng != null && (dLat != 0.0 || dLng != 0.0)) {
           _resolvedDestinationPoint =
-              MobilisMapPoint(latitude: dLat!, longitude: dLng!);
+              MobilisMapPoint(latitude: dLat, longitude: dLng);
         }
         if (pLat != null && pLng != null && (pLat != 0.0 || pLng != 0.0)) {
           _resolvedPickupPoint =
-              MobilisMapPoint(latitude: pLat!, longitude: pLng!);
+              MobilisMapPoint(latitude: pLat, longitude: pLng);
         }
       });
     }
@@ -315,7 +315,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
       }
     });
 
-    if (lat != null && lng != null && _autoFollow) {
+    if (_autoFollow) {
       try {
         _mapController.move(LatLng(lat, lng), _zoom);
       } catch (_) {}
@@ -553,7 +553,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
             bookingId: bookingId,
             participantIds: [currentUserId, renterId],
           );
-          convId = conv?['id']?.toString() ?? '';
+          convId = conv['id']?.toString() ?? '';
         } catch (e) {
           debugPrint('Error finding/creating conversation: $e');
         }
@@ -1051,8 +1051,10 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
   void _showRenterContactModal() {
     final renter = widget.booking['users'] as Map<String, dynamic>? ??
         widget.booking['renter'] as Map<String, dynamic>?;
-    final name = renter?['full_name']?.toString() ??
-        widget.recipientName.isNotEmpty ? widget.recipientName : 'Renter';
+    final renterName = renter?['full_name']?.toString();
+    final name = (renterName != null && renterName.trim().isNotEmpty)
+        ? renterName.trim()
+        : (widget.recipientName.isNotEmpty ? widget.recipientName : 'Renter');
     final phone = renter?['phone']?.toString() ??
         widget.booking['user_phone']?.toString() ??
         '';

@@ -176,7 +176,9 @@ class TrackingService {
         'return_pending_inspection',
         'in_progress',
         'awaiting_completion',
-      }.contains(status)) return null;
+      }.contains(status)) {
+        return null;
+      }
 
       final isRenter = booking['renter_id']?.toString() == currentUserId;
       final driverReference = booking['driver_id']?.toString() ?? '';
