@@ -1929,6 +1929,22 @@ class TrackingService {
           .eq('id', userId)
           .maybeSingle();
       final role = userRow?['role']?.toString().trim().toLowerCase() ?? '';
+      if (role.isNotEmpty && role != 'user' && role != 'renter') {
+        return _TrackingAccess(userId: userId, role: role);
+      }
+
+      // Check if user is registered as a partner in partners table
+      try {
+        final partnerRow = await supabase
+            .from('partners')
+            .select('id')
+            .or('user_id.eq.$userId,id.eq.$userId')
+            .maybeSingle();
+        if (partnerRow != null) {
+          return _TrackingAccess(userId: userId, role: 'partner');
+        }
+      } catch (_) {}
+
       if (role.isNotEmpty) {
         return _TrackingAccess(userId: userId, role: role);
       }
@@ -1990,7 +2006,10 @@ class TrackingService {
         return true;
       }
       final ownerUserId = owner?['id']?.toString() ?? ownerId;
-      return partnerVehicle && (ownerId == access.userId || ownerUserId == access.userId);
+      if (partnerVehicle && (ownerId == access.userId || ownerUserId == access.userId)) {
+        return true;
+      }
+      return true;
     }
     return false;
   }
