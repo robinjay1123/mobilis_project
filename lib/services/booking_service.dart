@@ -6595,8 +6595,8 @@ class BookingService {
 
   /// Disburse partner net earnings / commission for a completed partner booking.
   /// Calculation:
-  /// Partner Earnings = Rental Total - 5% PSDC Commission
-  /// Final Disbursement = Partner Earnings - Security Deposit Deduction (Conditional)
+  /// Partner Rental Earnings = Rental Total - 5% PSDC Commission
+  /// Final Disbursement = Partner Rental Earnings + Security Deposit Deduction (Damage Compensation)
   Future<void> disbursePartnerCommission({
     required String bookingId,
     required String operatorId,
@@ -6607,6 +6607,7 @@ class BookingService {
     required double commissionAmount,
     double securityDepositDeduction = 0.0,
     String? partnerUserId,
+    String? vehicleTitle,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
 
@@ -6641,8 +6642,8 @@ class BookingService {
           'booking_id': bookingId,
           'recipient_user_id': partnerUserId,
           'recipient_role': 'partner',
-          'gross_amount': netAmount + commissionAmount + securityDepositDeduction,
-          'deductions': commissionAmount + securityDepositDeduction,
+          'gross_amount': netAmount + commissionAmount,
+          'deductions': commissionAmount,
           'net_amount': netAmount,
           'status': 'released',
           'released_at': now,
@@ -6652,6 +6653,8 @@ class BookingService {
             'payment_method': paymentMethod,
             'reference_number': referenceNumber,
             'receipt_url': receiptUrl,
+            if (vehicleTitle != null && vehicleTitle.isNotEmpty)
+              'vehicle_title': vehicleTitle,
           },
           'updated_at': now,
         };
@@ -6676,6 +6679,7 @@ class BookingService {
           amount: netAmount,
           paymentMethod: paymentMethod,
           referenceNumber: referenceNumber,
+          vehicleTitle: vehicleTitle,
           receiptUrl: receiptUrl,
         );
       } catch (e) {

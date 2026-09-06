@@ -38,7 +38,7 @@ class BookingSettlementAmounts {
         ? (ownerServiceAmount - partnerCommission).clamp(0.0, double.infinity).toDouble()
         : 0.0;
     final partnerNet = isPartnerVehicle
-        ? (partnerEarnings - securityDepositDeduction).clamp(0.0, double.infinity).toDouble()
+        ? (partnerEarnings + securityDepositDeduction).clamp(0.0, double.infinity).toDouble()
         : 0.0;
     final driverCommission = driverGross * 0.05;
     return BookingSettlementAmounts(

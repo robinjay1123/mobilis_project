@@ -3599,7 +3599,7 @@ class _BookingCard extends StatelessWidget {
     final depositDeduction = (booking['partner_security_deposit_deduction'] as num?)?.toDouble() ??
         ((booking['partner_payout_deposit_deduction'] as num?)?.toDouble() ??
             ((booking['security_deposit_refund_deduction'] as num?)?.toDouble() ?? 0.0));
-    final netPayout = (partnerEarnings - depositDeduction).clamp(0.0, double.infinity);
+    final netPayout = (partnerEarnings + depositDeduction).clamp(0.0, double.infinity);
 
     final payoutAmountController =
         TextEditingController(text: netPayout.toStringAsFixed(2));
@@ -3798,20 +3798,20 @@ class _BookingCard extends StatelessWidget {
                           children: [
                             Row(
                               children: [
-                                const Text('Security Deposit Deduction', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                const Text('Security Deposit Deduction (Damage Compensation)', style: TextStyle(fontSize: 12, color: Colors.green)),
                                 const SizedBox(width: 4),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                                   decoration: BoxDecoration(
-                                    color: depositDeduction > 0 ? Colors.red.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.15),
+                                    color: depositDeduction > 0 ? Colors.green.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
-                                    depositDeduction > 0 ? 'Applied' : '₱0 (None)',
+                                    depositDeduction > 0 ? '+ Added' : '₱0 (None)',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
-                                      color: depositDeduction > 0 ? Colors.red : Colors.grey,
+                                      color: depositDeduction > 0 ? Colors.green : Colors.grey,
                                     ),
                                   ),
                                 ),
@@ -3819,12 +3819,12 @@ class _BookingCard extends StatelessWidget {
                             ),
                             Text(
                               depositDeduction > 0
-                                  ? '- PHP ${depositDeduction.toStringAsFixed(2)}'
+                                  ? '+ PHP ${depositDeduction.toStringAsFixed(2)}'
                                   : 'PHP 0.00',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
-                                color: depositDeduction > 0 ? Colors.red : Colors.grey,
+                                color: depositDeduction > 0 ? Colors.green : Colors.grey,
                               ),
                             ),
                           ],
@@ -3982,6 +3982,7 @@ class _BookingCard extends StatelessWidget {
                                   commissionAmount: commission,
                                   securityDepositDeduction: depositDeduction,
                                   partnerUserId: partnerUserId,
+                                  vehicleTitle: vehicleTitle,
                                 );
 
                                 booking['partner_payout_disbursed'] = true;

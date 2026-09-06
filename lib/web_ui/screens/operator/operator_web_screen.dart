@@ -19316,7 +19316,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final depositDeduction = (booking['partner_security_deposit_deduction'] as num?)?.toDouble() ??
         ((booking['partner_payout_deposit_deduction'] as num?)?.toDouble() ??
         ((booking['security_deposit_refund_deduction'] as num?)?.toDouble() ?? 0.0));
-    final netPayout = (partnerEarnings - depositDeduction).clamp(0.0, double.infinity);
+    final netPayout = (partnerEarnings + depositDeduction).clamp(0.0, double.infinity);
 
     final isAlreadyDisbursed = booking['partner_payout_disbursed'] == true ||
         booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed';
@@ -19587,33 +19587,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     children: [
                                       Row(
                                         children: [
-                                          const Text('Security Deposit Deduction', style: TextStyle(fontSize: 12)),
+                                          const Text('Security Deposit Deduction (Damage Compensation)', style: TextStyle(fontSize: 12)),
                                           const SizedBox(width: 5),
                                           Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                                             decoration: BoxDecoration(
                                               color: depositDeduction > 0
-                                                  ? Colors.red.withValues(alpha: 0.15)
+                                                  ? Colors.green.withValues(alpha: 0.15)
                                                   : Colors.grey.withValues(alpha: 0.15),
                                               borderRadius: BorderRadius.circular(4),
                                             ),
                                             child: Text(
-                                              'Conditional',
+                                              depositDeduction > 0 ? '+ Added' : 'None',
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.bold,
-                                                color: depositDeduction > 0 ? Colors.redAccent : Colors.grey,
+                                                color: depositDeduction > 0 ? Colors.greenAccent : Colors.grey,
                                               ),
                                             ),
                                           ),
                                         ],
                                       ),
                                       Text(
-                                        '- PHP ${_formatCurrency(depositDeduction)}',
+                                        '+ PHP ${_formatCurrency(depositDeduction)}',
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700,
-                                          color: depositDeduction > 0 ? Colors.redAccent : Colors.grey,
+                                          color: depositDeduction > 0 ? Colors.greenAccent : Colors.grey,
                                         ),
                                       ),
                                     ],
@@ -19866,6 +19866,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           commissionAmount: commission,
                                           securityDepositDeduction: depositDeduction,
                                           partnerUserId: partnerUserId,
+                                          vehicleTitle: vehicleName,
                                         );
 
                                         booking['partner_payout_disbursed'] = true;
