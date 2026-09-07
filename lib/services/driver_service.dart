@@ -298,6 +298,19 @@ class DriverService {
     }
   }
 
+  Future<String> _resolveDriverUserId(String id) async {
+    try {
+      final dRow = await supabase
+          .from('drivers')
+          .select('user_id')
+          .eq('id', id)
+          .maybeSingle();
+      final uId = dRow?['user_id']?.toString();
+      if (uId != null && uId.isNotEmpty) return uId;
+    } catch (_) {}
+    return id;
+  }
+
   /// Add availability schedule entry
   Future<Map<String, dynamic>> addScheduleEntry({
     required String driverId,
@@ -308,12 +321,13 @@ class DriverService {
     bool isAvailable = true,
   }) async {
     try {
-      debugPrint('Adding schedule entry for driver: $driverId');
+      final targetUserId = await _resolveDriverUserId(driverId);
+      debugPrint('Adding schedule entry for driver: $targetUserId');
 
       final response = await supabase
           .from('driver_availability_schedule')
           .insert({
-            'driver_id': driverId,
+            'driver_id': targetUserId,
             'day_of_week': dayOfWeek,
             'start_time': startTime,
             'end_time': endTime,
@@ -336,12 +350,13 @@ class DriverService {
   /// Get driver schedule
   Future<List<Map<String, dynamic>>> getSchedule(String driverId) async {
     try {
-      debugPrint('Fetching schedule for driver: $driverId');
+      final targetUserId = await _resolveDriverUserId(driverId);
+      debugPrint('Fetching schedule for driver: $targetUserId');
 
       final response = await supabase
           .from('driver_availability_schedule')
           .select()
-          .eq('driver_id', driverId)
+          .or('driver_id.eq.$targetUserId,driver_id.eq.$driverId')
           .order('day_of_week', ascending: true);
 
       return List<Map<String, dynamic>>.from(response);
@@ -363,12 +378,13 @@ class DriverService {
     bool isAvailable = true,
   }) async {
     try {
-      debugPrint('Replacing date schedule for driver: $driverId');
+      final targetUserId = await _resolveDriverUserId(driverId);
+      debugPrint('Replacing date schedule for driver: $targetUserId');
 
       await supabase
           .from('driver_availability_schedule')
           .delete()
-          .eq('driver_id', driverId)
+          .or('driver_id.eq.$targetUserId,driver_id.eq.$driverId')
           .not('date', 'is', null);
 
       final rows = dates
@@ -376,7 +392,7 @@ class DriverService {
           .toSet()
           .map(
             (date) => {
-              'driver_id': driverId,
+              'driver_id': targetUserId,
               'date': date.toIso8601String().split('T')[0],
               'day_of_week': _dayName(date.weekday),
               'start_time': startTime ?? '08:00',
@@ -609,13 +625,13 @@ class DriverService {
             .maybeSingle(),
       ]);
 
-      final driverProfile = prefetchResults[0] as Map<String, dynamic>?;
+      final driverProfile = prefetchResults[0];
       final driverProfileId = driverProfile?['id']?.toString();
 
       final validDriverIds = {currentUserId};
       if (driverProfileId != null) validDriverIds.add(driverProfileId);
 
-      final assignment = prefetchResults[1] as Map<String, dynamic>?;
+      final assignment = prefetchResults[1];
       if (assignment == null) throw Exception('Job offer not found');
 
       final assignedDriverId = assignment['driver_id']?.toString() ?? '';
@@ -656,11 +672,16 @@ class DriverService {
             })
             .eq('id', bookingId),
 
-        // 3. Mark driver busy
+        // 3. Mark driver busy in both users and drivers tables
         supabase
             .from('users')
             .update({'is_available': false})
             .eq('id', currentUserId)
+            .catchError((_) => null),
+        supabase
+            .from('drivers')
+            .update({'is_available': false})
+            .eq('user_id', currentUserId)
             .catchError((_) => null),
 
         // 4. Fetch driver name for notifications
@@ -804,13 +825,13 @@ class DriverService {
             .maybeSingle(),
       ]);
 
-      final driverProfile = prefetchResults[0] as Map<String, dynamic>?;
+      final driverProfile = prefetchResults[0];
       final driverProfileId = driverProfile?['id']?.toString();
 
       final validDriverIds = {currentUserId};
       if (driverProfileId != null) validDriverIds.add(driverProfileId);
 
-      final assignment = prefetchResults[1] as Map<String, dynamic>?;
+      final assignment = prefetchResults[1];
       if (assignment == null) throw Exception('Job offer not found');
 
       final assignedDriverId = assignment['driver_id']?.toString() ?? '';
@@ -855,11 +876,16 @@ class DriverService {
         else
           Future<dynamic>.value(null),
 
-        // 3. Mark driver available
+        // 3. Mark driver available in both users and drivers tables
         supabase
             .from('users')
             .update({'is_available': true})
             .eq('id', currentUserId)
+            .catchError((_) => null),
+        supabase
+            .from('drivers')
+            .update({'is_available': true})
+            .eq('user_id', currentUserId)
             .catchError((_) => null),
 
         // 4. Fetch driver name (needed for notifications)
@@ -987,6 +1013,7 @@ class DriverService {
   }) async {
     try {
       debugPrint('Fetching completed trips for driver: $driverId');
+      final targetUserId = await _resolveDriverUserId(driverId);
 
       final response = await supabase
           .from('driver_trips')
@@ -998,7 +1025,7 @@ class DriverService {
               renter:renter_id (full_name)
             )
           ''')
-          .eq('driver_id', driverId)
+          .or('driver_id.eq.$driverId,driver_id.eq.$targetUserId')
           .eq('status', 'completed')
           .order('dropoff_time', ascending: false)
           .limit(limit);
@@ -1097,6 +1124,25 @@ class DriverService {
           .eq('id', tripId);
 
       debugPrint('Trip completed');
+
+      // Free driver up so they can receive future offers
+      try {
+        final tripRow = await supabase
+            .from('driver_trips')
+            .select('driver_id')
+            .eq('id', tripId)
+            .maybeSingle();
+        final dId = tripRow?['driver_id']?.toString();
+        if (dId != null && dId.isNotEmpty) {
+          final targetUserId = await _resolveDriverUserId(dId);
+          await supabase.from('users').update({'is_available': true}).eq('id', targetUserId);
+          await supabase.from('drivers').update({'is_available': true}).eq('user_id', targetUserId);
+          await supabase.from('drivers').update({'is_available': true}).eq('id', dId);
+        }
+      } catch (err) {
+        debugPrint('Note freeing driver after trip completion: $err');
+      }
+
       unawaited(
         TransactionLogger.logDriverTransaction(
           transactionType: 'trip_completed',

@@ -188,19 +188,6 @@ class VehicleService {
         status != 'rejected';
   }
 
-  bool _isPartnerOwned(
-    Map<String, dynamic> vehicle, [
-    Set<String> knownPartnerOwnerIds = const <String>{},
-  ]) {
-    final ownerRole = vehicle['owner_role']?.toString().trim().toLowerCase();
-    final source = vehicle['source']?.toString().trim().toLowerCase();
-    final ownerId = vehicle['owner_id']?.toString().trim();
-    return ownerRole == 'partner' ||
-        source == 'partner' ||
-        vehicle['is_partner_vehicle'] == true ||
-        (ownerId != null && knownPartnerOwnerIds.contains(ownerId));
-  }
-
   bool _isApprovedForRenterListing(
     Map<String, dynamic> vehicle,
     Map<String, Set<String>> approvedLinks,
@@ -316,19 +303,6 @@ class VehicleService {
       'plate_numbers': plateNumbers,
       'partner_owner_ids': partnerOwnerIds,
     };
-  }
-
-  bool _hasApprovedPartnerApplication(
-    Map<String, dynamic> vehicle,
-    Map<String, Set<String>> approvedLinks, {
-    required bool legacyPartnerVehicle,
-  }) {
-    final id = vehicle['id']?.toString().trim() ?? '';
-    final plate =
-        vehicle['plate_number']?.toString().trim().toUpperCase() ?? '';
-    final idKey = legacyPartnerVehicle ? 'partner_vehicle_ids' : 'vehicle_ids';
-    return approvedLinks[idKey]!.contains(id) ||
-        (plate.isNotEmpty && approvedLinks['plate_numbers']!.contains(plate));
   }
 
   // ---------------------------------------------------------------------------
@@ -1179,7 +1153,7 @@ class VehicleService {
         if (!candidate.isAfter(now)) continue;
         if (selectingEnd && !candidate.isAfter(rentalStart!)) continue;
         if (selectingEnd && rentalStart != null) {
-          final diffMinutes = candidate.difference(rentalStart!).inMinutes;
+          final diffMinutes = candidate.difference(rentalStart).inMinutes;
           // Allow hourly return slots starting from 1 hour up to 23 hours.
           // Note: When under 12 hours, the minimum 12-hour billing policy applies.
           if (diffMinutes < 60 || diffMinutes > 23 * 60) {
@@ -1628,7 +1602,11 @@ class VehicleService {
         .update(updates)
         .eq('id', vehicleId)
         .select(_vehicleSelect)
-        .single();
+        .maybeSingle();
+
+    if (response == null) {
+      throw Exception('Vehicle not found or could not be updated: $vehicleId');
+    }
 
     return _normalizeVehicleRecord(Map<String, dynamic>.from(response));
   }

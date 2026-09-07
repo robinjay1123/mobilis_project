@@ -90,9 +90,11 @@ class EmergencyContactService {
           .eq('id', contactId)
           .eq('user_id', user.id)
           .select()
-          .single();
-      debugPrint('Emergency contact updated for ${user.id}');
-      return Map<String, dynamic>.from(response);
+          .maybeSingle();
+      if (response != null) {
+        debugPrint('Emergency contact updated for ${user.id}');
+        return Map<String, dynamic>.from(response);
+      }
     }
 
     payload['created_at'] = DateTime.now().toIso8601String();
