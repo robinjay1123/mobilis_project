@@ -436,9 +436,24 @@ class AdminService {
   Future<void> approveDriverApplication(String driverId, String notes) async {
     try {
       debugPrint('Approving driver application: $driverId');
+      // Update users table by id
       await supabase
           .from('users')
-          .update({'application_status': 'approved'})
+          .update({
+            'application_status': 'approved',
+            'verification_status': 'verified',
+            'role': 'driver',
+          })
+          .eq('id', driverId);
+
+      // In case driverId is a drivers.id or users.id, update drivers table too
+      await supabase
+          .from('drivers')
+          .update({'verification_status': 'approved'})
+          .eq('user_id', driverId);
+      await supabase
+          .from('drivers')
+          .update({'verification_status': 'approved'})
           .eq('id', driverId);
 
       // Log approval action
@@ -465,6 +480,15 @@ class AdminService {
       await supabase
           .from('users')
           .update({'application_status': 'rejected'})
+          .eq('id', driverId);
+
+      await supabase
+          .from('drivers')
+          .update({'verification_status': 'rejected'})
+          .eq('user_id', driverId);
+      await supabase
+          .from('drivers')
+          .update({'verification_status': 'rejected'})
           .eq('id', driverId);
 
       // Log rejection action
@@ -509,15 +533,33 @@ class AdminService {
   Future<List<Map<String, dynamic>>> getPendingVehicleApplications() async {
     try {
       debugPrint('Fetching pending vehicle applications');
-      final response = await supabase
-          .from('partner_vehicle_applications')
-          .select(
-            'id, partner_id, brand, model, year, plate_number, seats, fuel_type, transmission, vehicle_photo_url, application_status, created_at, users(full_name, email)',
-          )
-          .eq('application_status', 'pending')
-          .order('created_at', ascending: false);
+      try {
+        final response = await supabase
+            .from('partner_vehicle_applications')
+            .select(
+              'id, partner_id, brand, model, year, plate_number, seats, fuel_type, transmission, vehicle_photo_url, application_status, created_at, partner:partner_id(id, full_name, email)',
+            )
+            .eq('application_status', 'pending')
+            .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response);
+        final list = List<Map<String, dynamic>>.from(response);
+        for (var app in list) {
+          if (app['users'] == null && app['partner'] != null) {
+            app['users'] = app['partner'];
+          }
+        }
+        return list;
+      } catch (e) {
+        debugPrint('Fallback fetching vehicle applications: $e');
+        final response = await supabase
+            .from('partner_vehicle_applications')
+            .select(
+              'id, partner_id, brand, model, year, plate_number, seats, fuel_type, transmission, vehicle_photo_url, application_status, created_at',
+            )
+            .eq('application_status', 'pending')
+            .order('created_at', ascending: false);
+        return List<Map<String, dynamic>>.from(response);
+      }
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching vehicle applications: ${e.message}');
       return [];
@@ -964,11 +1006,27 @@ class AdminService {
       List<Map<String, dynamic>> usersWithExpiring = [];
 
       for (var driverId in driverIds) {
-        final userResponse = await supabase
+        var userResponse = await supabase
             .from('users')
             .select('id, email, full_name, role')
             .eq('id', driverId)
             .maybeSingle();
+
+        if (userResponse == null) {
+          final driverRow = await supabase
+              .from('drivers')
+              .select('user_id')
+              .eq('id', driverId)
+              .maybeSingle();
+          final uid = driverRow?['user_id']?.toString();
+          if (uid != null && uid.isNotEmpty) {
+            userResponse = await supabase
+                .from('users')
+                .select('id, email, full_name, role')
+                .eq('id', uid)
+                .maybeSingle();
+          }
+        }
 
         if (userResponse != null) {
           usersWithExpiring.add({
@@ -994,10 +1052,25 @@ class AdminService {
   /// Check if driver is eligible (documents valid)
   Future<bool> isDriverEligible(String driverId) async {
     try {
-      final docs = await supabase
+      var docs = await supabase
           .from('driver_documents')
           .select('expiry_date')
           .eq('driver_id', driverId);
+
+      if (docs.isEmpty) {
+        final driverProfile = await supabase
+            .from('drivers')
+            .select('id')
+            .eq('user_id', driverId)
+            .maybeSingle();
+        final profileId = driverProfile?['id']?.toString();
+        if (profileId != null && profileId.isNotEmpty) {
+          docs = await supabase
+              .from('driver_documents')
+              .select('expiry_date')
+              .eq('driver_id', profileId);
+        }
+      }
 
       if (docs.isEmpty) return false;
 
@@ -1960,40 +2033,88 @@ class AdminService {
 
       // Get pending driver documents
       if (docType == null || docType == 'driver') {
-        final driverDocs = await supabase
-            .from('driver_documents')
-            .select('*, drivers(user_id), users(full_name, email)')
-            .eq('status', 'pending')
-            .order('created_at', ascending: false);
+        try {
+          final driverDocs = await supabase
+              .from('driver_documents')
+              .select('*, drivers:driver_id(user_id, users:user_id(full_name, email))')
+              .eq('status', 'pending')
+              .order('created_at', ascending: false);
 
-        for (var doc in driverDocs) {
-          pendingDocs.add({...doc, 'document_type': 'driver_documents'});
+          for (var doc in driverDocs) {
+            final driverMap = doc['drivers'] is Map ? doc['drivers'] as Map<String, dynamic> : null;
+            final userMap = driverMap?['users'] is Map ? driverMap!['users'] as Map<String, dynamic> : null;
+            pendingDocs.add({
+              ...doc,
+              'document_type': 'driver_documents',
+              if (userMap != null) 'users': userMap,
+            });
+          }
+        } catch (e) {
+          debugPrint('Falling back for driver docs in pending renewals: $e');
+          try {
+            final driverDocs = await supabase
+                .from('driver_documents')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', ascending: false);
+            for (var doc in driverDocs) {
+              pendingDocs.add({...doc, 'document_type': 'driver_documents'});
+            }
+          } catch (_) {}
         }
       }
 
       // Get pending vehicle documents
       if (docType == null || docType == 'vehicle') {
-        final vehicleDocs = await supabase
-            .from('vehicle_documents')
-            .select('*, vehicles(brand, model), users(full_name, email, role)')
-            .eq('status', 'pending')
-            .order('created_at', ascending: false);
+        try {
+          final vehicleDocs = await supabase
+              .from('vehicle_documents')
+              .select('*, vehicles(brand, model)')
+              .eq('status', 'pending')
+              .order('created_at', ascending: false);
 
-        for (var doc in vehicleDocs) {
-          pendingDocs.add({...doc, 'document_type': 'vehicle_documents'});
+          for (var doc in vehicleDocs) {
+            pendingDocs.add({...doc, 'document_type': 'vehicle_documents'});
+          }
+        } catch (e) {
+          debugPrint('Falling back for vehicle docs in pending renewals: $e');
+          try {
+            final vehicleDocs = await supabase
+                .from('vehicle_documents')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', ascending: false);
+            for (var doc in vehicleDocs) {
+              pendingDocs.add({...doc, 'document_type': 'vehicle_documents'});
+            }
+          } catch (_) {}
         }
       }
 
       // Get pending renter documents
       if (docType == null || docType == 'renter') {
-        final renterDocs = await supabase
-            .from('renter_verification_documents')
-            .select('*, users(full_name, email)')
-            .eq('status', 'pending')
-            .order('created_at', ascending: false);
+        try {
+          final renterDocs = await supabase
+              .from('renter_verification_documents')
+              .select('*, users(full_name, email)')
+              .eq('status', 'pending')
+              .order('created_at', ascending: false);
 
-        for (var doc in renterDocs) {
-          pendingDocs.add({...doc, 'document_type': 'renter_documents'});
+          for (var doc in renterDocs) {
+            pendingDocs.add({...doc, 'document_type': 'renter_documents'});
+          }
+        } catch (e) {
+          debugPrint('Falling back for renter docs in pending renewals: $e');
+          try {
+            final renterDocs = await supabase
+                .from('renter_verification_documents')
+                .select('*')
+                .eq('status', 'pending')
+                .order('created_at', ascending: false);
+            for (var doc in renterDocs) {
+              pendingDocs.add({...doc, 'document_type': 'renter_documents'});
+            }
+          } catch (_) {}
         }
       }
 
@@ -2462,13 +2583,31 @@ class AdminService {
     try {
       debugPrint('Fetching all pending driver documents');
 
-      final response = await supabase
-          .from('driver_documents')
-          .select('*, drivers(user_id), users(full_name, email)')
-          .eq('status', 'pending')
-          .order('created_at', ascending: false);
+      try {
+        final response = await supabase
+            .from('driver_documents')
+            .select('*, drivers:driver_id(user_id, users:user_id(full_name, email))')
+            .eq('status', 'pending')
+            .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response);
+        final list = List<Map<String, dynamic>>.from(response);
+        for (var doc in list) {
+          final driverMap = doc['drivers'] is Map ? doc['drivers'] as Map<String, dynamic> : null;
+          final userMap = driverMap?['users'] is Map ? driverMap!['users'] as Map<String, dynamic> : null;
+          if (userMap != null && doc['users'] == null) {
+            doc['users'] = userMap;
+          }
+        }
+        return list;
+      } catch (e) {
+        debugPrint('Fallback fetching pending driver documents: $e');
+        final response = await supabase
+            .from('driver_documents')
+            .select('*')
+            .eq('status', 'pending')
+            .order('created_at', ascending: false);
+        return List<Map<String, dynamic>>.from(response);
+      }
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching pending documents: ${e.message}');
       return [];
@@ -2485,15 +2624,34 @@ class AdminService {
     try {
       debugPrint('Fetching driver document for review: $documentId');
 
-      final response = await supabase
-          .from('driver_documents')
-          .select(
-            '*, drivers(user_id, license_number, verification_status), users(full_name, email)',
-          )
-          .eq('id', documentId)
-          .maybeSingle();
+      try {
+        final response = await supabase
+            .from('driver_documents')
+            .select(
+              '*, drivers:driver_id(user_id, license_number, verification_status, users:user_id(full_name, email))',
+            )
+            .eq('id', documentId)
+            .maybeSingle();
 
-      return response;
+        if (response != null) {
+          final doc = Map<String, dynamic>.from(response);
+          final driverMap = doc['drivers'] is Map ? doc['drivers'] as Map<String, dynamic> : null;
+          final userMap = driverMap?['users'] is Map ? driverMap!['users'] as Map<String, dynamic> : null;
+          if (userMap != null && doc['users'] == null) {
+            doc['users'] = userMap;
+          }
+          return doc;
+        }
+        return null;
+      } catch (e) {
+        debugPrint('Fallback fetching single driver document: $e');
+        final response = await supabase
+            .from('driver_documents')
+            .select('*')
+            .eq('id', documentId)
+            .maybeSingle();
+        return response;
+      }
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching document: ${e.message}');
       return null;
@@ -2553,7 +2711,17 @@ class AdminService {
       }
 
       if (driverUpdate.isNotEmpty) {
-        await supabase.from('drivers').update(driverUpdate).eq('id', driverId);
+        final updateRes = await supabase
+            .from('drivers')
+            .update(driverUpdate)
+            .eq('id', driverId)
+            .select('id');
+        if (updateRes.isEmpty) {
+          await supabase
+              .from('drivers')
+              .update(driverUpdate)
+              .eq('user_id', driverId);
+        }
       }
 
       debugPrint('Document verified successfully');

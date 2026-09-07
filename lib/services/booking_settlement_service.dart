@@ -119,6 +119,7 @@ class BookingSettlementService {
           status,
           final_payment_status,
           operator_id,
+          partner_id,
           driver_id,
           total_price,
           total_cost,
@@ -157,9 +158,10 @@ class BookingSettlementService {
         ? Map<String, dynamic>.from(booking['vehicles'])
         : <String, dynamic>{};
     final ownerRole = vehicle['owner_role']?.toString().trim().toLowerCase();
-    final partnerId = ownerRole == 'partner'
-        ? vehicle['owner_id']?.toString()
-        : null;
+    final partnerId = (ownerRole == 'partner' ? vehicle['owner_id']?.toString() : null) ??
+        nonEmpty(booking['partner_id']) ??
+        nonEmpty(vehicle['partner_id']) ??
+        (ownerRole == 'partner' ? nonEmpty(booking['owner_id']) : null);
     final operatorId =
         nonEmpty(booking['operator_id']) ??
         nonEmpty(vehicle['operator_id']) ??

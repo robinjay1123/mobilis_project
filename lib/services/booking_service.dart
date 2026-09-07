@@ -28,38 +28,6 @@ class BookingService {
   BookingService._internal();
 
   SupabaseClient get supabase => Supabase.instance.client;
-  static const List<String> _bookingBlockingStatuses = [
-    'pending',
-    'Pending',
-    'PENDING',
-    'requested',
-    'Requested',
-    'REQUESTED',
-    'reserved',
-    'Reserved',
-    'RESERVED',
-    'approved',
-    'Approved',
-    'APPROVED',
-    'confirmed',
-    'Confirmed',
-    'CONFIRMED',
-    'active',
-    'Active',
-    'ACTIVE',
-    'ongoing',
-    'Ongoing',
-    'ONGOING',
-    'paid',
-    'Paid',
-    'PAID',
-    'unpaid',
-    'Unpaid',
-    'UNPAID',
-    'in_progress',
-    'In_Progress',
-    'IN_PROGRESS',
-  ];
 
   static const Set<String> _nonBlockingStatuses = {
     'cancelled',
@@ -68,6 +36,8 @@ class BookingService {
     'completed',
     'returned',
     'expired',
+    'refunded',
+    'failed',
   };
 
   static bool _isBlockingStatus(String? status) {
@@ -3050,6 +3020,13 @@ class BookingService {
           .update({'is_available': false})
           .eq('id', driverUserId);
 
+      try {
+        await supabase
+            .from('drivers')
+            .update({'is_available': false})
+            .or('id.eq.$driverUserId,user_id.eq.$driverUserId');
+      } catch (_) {}
+
       debugPrint('Driver job offer created for booking');
 
       // ✅ Send notification to renter about driver assignment
@@ -3153,11 +3130,15 @@ class BookingService {
         throw Exception('Select a driver before finalizing this booking');
       }
 
+      final driverTarget = await _getDriverAssignmentTarget(driverId);
+      final driverUserId = driverTarget?['user_id']?.toString() ?? driverId;
+      final driverProfileId = driverTarget?['driver_id']?.toString() ?? driverId;
+
       final assignmentRows = await supabase
           .from('driver_job_assignments')
           .select('id, status, driver_id, replied_at')
           .eq('booking_id', bookingId)
-          .eq('driver_id', driverId)
+          .or('driver_id.eq.$driverUserId,driver_id.eq.$driverProfileId')
           .order('created_at', ascending: false)
           .limit(1);
       if (assignmentRows.isNotEmpty) {
@@ -3324,10 +3305,18 @@ class BookingService {
           .eq('booking_id', bookingId)
           .inFilter('status', ['pending_offer', 'assigned', 'accepted']);
       if (driverId != null && driverId.isNotEmpty) {
-        await supabase
-            .from('users')
-            .update({'is_available': true})
-            .eq('id', driverId);
+        try {
+          await supabase
+              .from('users')
+              .update({'is_available': true})
+              .eq('id', driverId);
+        } catch (_) {}
+        try {
+          await supabase
+              .from('drivers')
+              .update({'is_available': true})
+              .or('id.eq.$driverId,user_id.eq.$driverId');
+        } catch (_) {}
       }
 
       debugPrint('Driver unassigned from booking');
@@ -3365,13 +3354,14 @@ class BookingService {
       }
 
       final effectiveStart = (startDate ?? bookingDate ?? DateTime.now()).toLocal();
-      final effectiveEnd = (endDate ?? (startDate != null ? startDate : (bookingDate ?? DateTime.now()))).toLocal();
+      final effectiveEnd = (endDate ?? startDate ?? bookingDate ?? DateTime.now()).toLocal();
 
       final reqStartDay = DateTime(effectiveStart.year, effectiveStart.month, effectiveStart.day);
       final reqEndDay = DateTime(effectiveEnd.year, effectiveEnd.month, effectiveEnd.day, 23, 59, 59);
 
       // 1. Check which drivers already have active / confirmed / ongoing bookings on overlapping dates
       final Set<String> busyDriverIds = {};
+
       try {
         var bookingsQuery = supabase
             .from('bookings')
@@ -3385,7 +3375,7 @@ class BookingService {
 
         final overlappingBookings = await bookingsQuery;
         for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
-          final dId = b['driver_id']?.toString()?.trim() ?? '';
+          final dId = b['driver_id']?.toString().trim() ?? '';
           if (dId.isEmpty) continue;
 
           final bStart = DateTime.tryParse((b['start_at'] ?? b['start_date'])?.toString() ?? '')?.toLocal();
@@ -3419,7 +3409,7 @@ class BookingService {
 
         final activeOffers = await pendingAssignmentsQuery;
         for (final row in List<Map<String, dynamic>>.from(activeOffers)) {
-          final dId = row['driver_id']?.toString()?.trim() ?? '';
+          final dId = row['driver_id']?.toString().trim() ?? '';
           if (dId.isEmpty) continue;
           final b = row['bookings'] as Map<String, dynamic>?;
           if (b != null) {
@@ -3478,11 +3468,11 @@ class BookingService {
             .select('driver_id, is_available, date, day_of_week');
 
         for (final row in List<Map<String, dynamic>>.from(scheduleResponse)) {
-          final dId = row['driver_id']?.toString()?.trim();
+          final dId = row['driver_id']?.toString().trim();
           if (dId == null || dId.isEmpty) continue;
           final isAvail = row['is_available'] != false;
-          final dateVal = row['date']?.toString()?.trim();
-          final dayVal = row['day_of_week']?.toString()?.toLowerCase().trim();
+          final dateVal = row['date']?.toString().trim();
+          final dayVal = row['day_of_week']?.toString().toLowerCase().trim();
 
           if (dateVal != null && dateVal.isNotEmpty) {
             final normalizedDate = dateVal.split('T')[0];
@@ -3595,8 +3585,8 @@ class BookingService {
             // Only reject if both are explicitly false (or one is false and other is not true).
             final userAvail = user['is_available'];
             final driverAvail = driver['is_available'];
-            if (userAvail == false && driverAvail != true) return false;
-            if (driverAvail == false && userAvail != true) return false;
+            if (_isExplicitlyUnavailable(userAvail) && driverAvail != true) return false;
+            if (_isExplicitlyUnavailable(driverAvail) && userAvail != true) return false;
 
             final driverUserId = driver['user_id']?.toString() ?? '';
             final driverProfileId = driver['id']?.toString() ?? '';
@@ -4413,13 +4403,6 @@ class BookingService {
     };
   }
 
-  int _inclusiveRentalDays(DateTime startDate, DateTime endDate) {
-    final startDay = DateTime(startDate.year, startDate.month, startDate.day);
-    final endDay = DateTime(endDate.year, endDate.month, endDate.day);
-    final calendarDays = endDay.difference(startDay).inDays + 1;
-    return calendarDays < 1 ? 1 : calendarDays;
-  }
-
   double? _asDouble(dynamic value) {
     if (value is num) return value.toDouble();
     if (value is String) return double.tryParse(value);
@@ -4959,24 +4942,6 @@ class BookingService {
       'ID: ${user?['id'] ?? fallbackId}',
     ];
     return parts.join(' | ');
-  }
-
-  Future<void> _sendBookingGroupMessage({
-    required String bookingId,
-    required String senderId,
-    required String content,
-  }) async {
-    final conversation = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('booking_id', bookingId)
-        .maybeSingle();
-    if (conversation == null) return;
-    await ChatService().sendMessage(
-      conversationId: conversation['id'] as String,
-      senderId: senderId,
-      content: content,
-    );
   }
 
   String _formatBookingDateTime(String? value) {
@@ -6548,7 +6513,7 @@ class BookingService {
             .select('id, start_at, end_at, status')
             .or('vehicle_id.eq.$resolvedVehicleId,partner_vehicle_id.eq.$resolvedVehicleId')
             .neq('id', bookingId)
-            .inFilter('status', ['pending', 'approved', 'ongoing'])
+            .inFilter('status', ['pending', 'approved', 'confirmed', 'active', 'ongoing', 'in_progress'])
             .lte('start_at', newEndAt.toIso8601String())
             .gte('end_at', newStartAt.toIso8601String());
 
@@ -6641,10 +6606,18 @@ class BookingService {
               .update({'status': 'cancelled', 'updated_at': now})
               .eq('booking_id', bookingId)
               .inFilter('status', ['pending_offer', 'assigned', 'accepted']);
-          await supabase
-              .from('users')
-              .update({'is_available': true})
-              .eq('id', driverId);
+          try {
+            await supabase
+                .from('users')
+                .update({'is_available': true})
+                .eq('id', driverId);
+          } catch (_) {}
+          try {
+            await supabase
+                .from('drivers')
+                .update({'is_available': true})
+                .or('id.eq.$driverId,user_id.eq.$driverId');
+          } catch (_) {}
         } catch (e) {
           debugPrint('Could not update driver availability on cancellation: $e');
         }
@@ -6656,7 +6629,10 @@ class BookingService {
             vehicleTitle: vehicleTitle,
             role: 'driver',
             reason: cancellationReason,
-          ).catchError((e) => debugPrint('Error notifying driver on cancellation: $e')),
+          ).catchError((e) {
+            debugPrint('Error notifying driver on cancellation: $e');
+            return false;
+          }),
         );
       }
 
@@ -6680,7 +6656,10 @@ class BookingService {
             vehicleTitle: vehicleTitle,
             role: 'partner',
             reason: cancellationReason,
-          ).catchError((e) => debugPrint('Error notifying partner on cancellation: $e')),
+          ).catchError((e) {
+            debugPrint('Error notifying partner on cancellation: $e');
+            return false;
+          }),
         );
       }
 
