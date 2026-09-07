@@ -3357,8 +3357,15 @@ class BookingService {
     bool prioritizePsdc = false,
   }) async {
     try {
+      // 0. Auto-expire any stale driver offers (>10 min) so drivers are freed up
+      try {
+        await checkAndExpireDriverAssignments();
+      } catch (expireErr) {
+        debugPrint('checkAndExpireDriverAssignments note: $expireErr');
+      }
+
       final effectiveStart = (startDate ?? bookingDate ?? DateTime.now()).toLocal();
-      final effectiveEnd = (endDate ?? (startDate != null ? startDate.add(const Duration(days: 1)) : bookingDate?.add(const Duration(days: 1)) ?? DateTime.now().add(const Duration(days: 1)))).toLocal();
+      final effectiveEnd = (endDate ?? (startDate != null ? startDate : (bookingDate ?? DateTime.now()))).toLocal();
 
       final reqStartDay = DateTime(effectiveStart.year, effectiveStart.month, effectiveStart.day);
       final reqEndDay = DateTime(effectiveEnd.year, effectiveEnd.month, effectiveEnd.day, 23, 59, 59);
@@ -3370,7 +3377,7 @@ class BookingService {
             .from('bookings')
             .select('id, driver_id, status, start_at, end_at, start_date, end_date')
             .not('driver_id', 'is', null)
-            .not('status', 'in', '(cancelled,rejected,completed,refunded,failed)');
+            .inFilter('status', ['confirmed', 'approved', 'ongoing', 'active', 'in_progress', 'started']);
 
         if (excludeBookingId != null && excludeBookingId.isNotEmpty) {
           bookingsQuery = bookingsQuery.neq('id', excludeBookingId);
@@ -3386,7 +3393,7 @@ class BookingService {
 
           if (bStart != null) {
             final bStartDay = DateTime(bStart.year, bStart.month, bStart.day);
-            final bEffectiveEnd = bEnd ?? bStart.add(const Duration(days: 1));
+            final bEffectiveEnd = bEnd ?? bStart;
             final bEndDay = DateTime(bEffectiveEnd.year, bEffectiveEnd.month, bEffectiveEnd.day, 23, 59, 59);
 
             final isOverlap = !bEndDay.isBefore(reqStartDay) && !bStartDay.isAfter(reqEndDay);
@@ -3397,6 +3404,43 @@ class BookingService {
         }
       } catch (err) {
         debugPrint('Driver overlapping bookings check note: $err');
+      }
+
+      // Also check active pending offers in driver_job_assignments
+      try {
+        var pendingAssignmentsQuery = supabase
+            .from('driver_job_assignments')
+            .select('driver_id, status, bookings(id, start_at, end_at, start_date, end_date)')
+            .inFilter('status', ['pending_offer', 'assigned', 'accepted']);
+
+        if (excludeBookingId != null && excludeBookingId.isNotEmpty) {
+          pendingAssignmentsQuery = pendingAssignmentsQuery.neq('booking_id', excludeBookingId);
+        }
+
+        final activeOffers = await pendingAssignmentsQuery;
+        for (final row in List<Map<String, dynamic>>.from(activeOffers)) {
+          final dId = row['driver_id']?.toString()?.trim() ?? '';
+          if (dId.isEmpty) continue;
+          final b = row['bookings'] as Map<String, dynamic>?;
+          if (b != null) {
+            final bStart = DateTime.tryParse((b['start_at'] ?? b['start_date'])?.toString() ?? '')?.toLocal();
+            final bEnd = DateTime.tryParse((b['end_at'] ?? b['end_date'])?.toString() ?? '')?.toLocal();
+            if (bStart != null) {
+              final bStartDay = DateTime(bStart.year, bStart.month, bStart.day);
+              final bEffectiveEnd = bEnd ?? bStart;
+              final bEndDay = DateTime(bEffectiveEnd.year, bEffectiveEnd.month, bEffectiveEnd.day, 23, 59, 59);
+              if (!bEndDay.isBefore(reqStartDay) && !bStartDay.isAfter(reqEndDay)) {
+                busyDriverIds.add(dId);
+              }
+            } else {
+              busyDriverIds.add(dId);
+            }
+          } else {
+            busyDriverIds.add(dId);
+          }
+        }
+      } catch (err) {
+        debugPrint('Active pending assignments check note: $err');
       }
 
       // 2. Check driver availability schedule (date-based and day-of-week)
@@ -3418,10 +3462,8 @@ class BookingService {
           'sunday',
         ];
         var cur = DateTime(reqStartDay.year, reqStartDay.month, reqStartDay.day);
-        // Only check up to (but NOT including) the end day — the end date is the
-        // return/drop-off day and the driver is not required to be scheduled then.
         final endCheck = DateTime(reqEndDay.year, reqEndDay.month, reqEndDay.day);
-        while (cur.isBefore(endCheck)) {
+        while (!cur.isAfter(endCheck)) {
           datesToCheck.add(
             '${cur.year.toString().padLeft(4, '0')}-${cur.month.toString().padLeft(2, '0')}-${cur.day.toString().padLeft(2, '0')}',
           );
@@ -3429,15 +3471,6 @@ class BookingService {
             dayNamesToCheck.add(dayNames[cur.weekday - 1]);
           }
           cur = cur.add(const Duration(days: 1));
-        }
-        // If start == end (same-day booking) still add the start date
-        if (datesToCheck.isEmpty) {
-          datesToCheck.add(
-            '${reqStartDay.year.toString().padLeft(4, '0')}-${reqStartDay.month.toString().padLeft(2, '0')}-${reqStartDay.day.toString().padLeft(2, '0')}',
-          );
-          if (reqStartDay.weekday >= 1 && reqStartDay.weekday <= 7) {
-            dayNamesToCheck.add(dayNames[reqStartDay.weekday - 1]);
-          }
         }
 
         final scheduleResponse = await supabase
@@ -3463,7 +3496,8 @@ class BookingService {
                   .putIfAbsent(dId, () => <String>{})
                   .add(normalizedDate);
             }
-          } else if (dayVal != null && dayVal.isNotEmpty) {
+          }
+          if (dayVal != null && dayVal.isNotEmpty) {
             driverDayOfWeekSchedule
                 .putIfAbsent(dId, () => <String, bool>{})[dayVal] = isAvail;
           }
@@ -3472,26 +3506,81 @@ class BookingService {
         debugPrint('Driver availability schedule lookup note: $scheduleErr');
       }
 
-      List<Map<String, dynamic>> rawDriverRows = [];
-
       // 3. Query verified & approved drivers directly from public.drivers joined with public.users
+      final Map<String, Map<String, dynamic>> driverMap = {};
+
       try {
         final response = await supabase
             .from('drivers')
             .select(
-              'id, user_id, verification_status, driver_tier, rating, total_trips, is_available, users(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active)',
-            )
-            .or('verification_status.eq.approved,verification_status.eq.verified');
+              'id, user_id, verification_status, driver_tier, rating, total_trips, is_available, preferred_days, license_verified, nbi_verified, users:user_id(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active)',
+            );
         for (final row in List<Map<String, dynamic>>.from(response)) {
           final u = row['users'] as Map<String, dynamic>?;
           final uId = row['user_id']?.toString() ?? u?['id']?.toString();
           if (u != null && uId != null && uId.isNotEmpty && u['is_active'] != false) {
-            rawDriverRows.add(row);
+            driverMap[uId] = Map<String, dynamic>.from(row);
           }
         }
       } catch (joinErr) {
-        debugPrint('Direct drivers table query note: $joinErr');
+        debugPrint('Direct drivers table query with join note: $joinErr');
+        // Fallback: fetch drivers and users separately if PostgREST relation fails
+        try {
+          final driversList = await supabase.from('drivers').select();
+          final usersList = await supabase
+              .from('users')
+              .select()
+              .eq('role', 'driver')
+              .not('is_active', 'is', false);
+          final usersById = {
+            for (final u in List<Map<String, dynamic>>.from(usersList))
+              u['id']?.toString(): u
+          };
+          for (final d in List<Map<String, dynamic>>.from(driversList)) {
+            final uId = d['user_id']?.toString() ?? '';
+            final u = usersById[uId];
+            if (u != null) {
+              final copy = Map<String, dynamic>.from(d);
+              copy['users'] = u;
+              driverMap[uId] = copy;
+            }
+          }
+        } catch (fbErr) {
+          debugPrint('Drivers fallback query error: $fbErr');
+        }
       }
+
+      // Also ensure all users registered with role == 'driver' are included in driverMap
+      try {
+        final usersResponse = await supabase
+            .from('users')
+            .select(
+              'id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active',
+            )
+            .eq('role', 'driver')
+            .not('is_active', 'is', false);
+
+        for (final u in List<Map<String, dynamic>>.from(usersResponse)) {
+          final uId = u['id']?.toString() ?? '';
+          if (uId.isEmpty) continue;
+          if (!driverMap.containsKey(uId)) {
+            driverMap[uId] = {
+              'id': uId,
+              'user_id': uId,
+              'verification_status': u['verification_status'] ?? 'verified',
+              'driver_tier': 'standard',
+              'rating': 5.0,
+              'total_trips': 0,
+              'is_available': u['is_available'] ?? true,
+              'users': u,
+            };
+          }
+        }
+      } catch (usersErr) {
+        debugPrint('Users table query note: $usersErr');
+      }
+
+      final rawDriverRows = driverMap.values.toList();
 
       final drivers = rawDriverRows
           .where((driver) {
@@ -3502,12 +3591,12 @@ class BookingService {
             if (user['is_active'] == false) return false;
 
             // Reject drivers who have master availability explicitly turned off.
-            // A null value means "not yet set" which is fine if the schedule allows it.
+            // If either user or driver table indicates available (true), the driver is available.
+            // Only reject if both are explicitly false (or one is false and other is not true).
             final userAvail = user['is_available'];
             final driverAvail = driver['is_available'];
-            if (userAvail == false || driverAvail == false) {
-              return false;
-            }
+            if (userAvail == false && driverAvail != true) return false;
+            if (driverAvail == false && userAvail != true) return false;
 
             final driverUserId = driver['user_id']?.toString() ?? '';
             final driverProfileId = driver['id']?.toString() ?? '';
@@ -3518,42 +3607,25 @@ class BookingService {
               return false;
             }
 
-            // Check if driver has calendar date availability configured
-            final hasDateSchedule =
-                driversWithDateSchedules.contains(driverUserId) ||
-                driversWithDateSchedules.contains(driverProfileId);
-
-            if (hasDateSchedule) {
-              final availDates = <String>{
-                ...?driverAvailableDates[driverUserId],
-                ...?driverAvailableDates[driverProfileId],
-              };
-              final unavailDates = <String>{
-                ...?driverUnavailableDates[driverUserId],
-                ...?driverUnavailableDates[driverProfileId],
-              };
-
-              // If driver has date schedule, every requested date must be explicitly in available dates and not in unavailDates
-              if (availDates.isEmpty) return false;
-              for (final dStr in datesToCheck) {
-                if (unavailDates.contains(dStr) || !availDates.contains(dStr)) {
-                  return false;
-                }
-              }
-            } else {
-              // If no calendar dates set, check day-of-week schedule if configured
-              final daySchedule = <String, bool>{
-                ...?driverDayOfWeekSchedule[driverUserId],
-                ...?driverDayOfWeekSchedule[driverProfileId],
-              };
-              if (daySchedule.isEmpty) {
-                // Driver has not selected their availability yet; cannot be assigned
+            // Check if driver explicitly marked ANY of the requested dates as UNAVAILABLE (off-duty)
+            final unavailDates = <String>{
+              ...?driverUnavailableDates[driverUserId],
+              ...?driverUnavailableDates[driverProfileId],
+            };
+            for (final dStr in datesToCheck) {
+              if (unavailDates.contains(dStr)) {
                 return false;
               }
-              for (final dName in dayNamesToCheck) {
-                if (daySchedule[dName] != true) {
-                  return false;
-                }
+            }
+
+            // Check day-of-week schedule: if explicitly marked false, driver is off-duty
+            final daySchedule = <String, bool>{
+              ...?driverDayOfWeekSchedule[driverUserId],
+              ...?driverDayOfWeekSchedule[driverProfileId],
+            };
+            for (final dName in dayNamesToCheck) {
+              if (daySchedule[dName] == false) {
+                return false;
               }
             }
 
@@ -3593,6 +3665,26 @@ class BookingService {
           .map((driver) {
             final normalized = Map<String, dynamic>.from(driver);
             final user = Map<String, dynamic>.from(driver['users'] as Map<String, dynamic>? ?? {});
+            final driverUserId = driver['user_id']?.toString() ?? '';
+            final driverProfileId = driver['id']?.toString() ?? '';
+
+            final availDates = <String>{
+              ...?driverAvailableDates[driverUserId],
+              ...?driverAvailableDates[driverProfileId],
+            };
+            final daySchedule = <String, bool>{
+              ...?driverDayOfWeekSchedule[driverUserId],
+              ...?driverDayOfWeekSchedule[driverProfileId],
+            };
+            final preferredDaysStr = (driver['preferred_days']?.toString() ?? '').toLowerCase();
+
+            bool hasScheduleMatch = false;
+            if (datesToCheck.isNotEmpty) {
+              hasScheduleMatch = datesToCheck.any((d) => availDates.contains(d)) ||
+                  dayNamesToCheck.any((d) => daySchedule[d] == true || preferredDaysStr.contains(d));
+            }
+            normalized['has_explicit_schedule_match'] = hasScheduleMatch;
+
             final isPsdc =
                 driver['is_psdc_driver'] == true ||
                 user['is_psdc_driver'] == true ||
@@ -3629,6 +3721,12 @@ class BookingService {
           .toList();
 
       drivers.sort((a, b) {
+        // Schedule matching priority
+        final aMatch = a['has_explicit_schedule_match'] == true;
+        final bMatch = b['has_explicit_schedule_match'] == true;
+        if (aMatch && !bMatch) return -1;
+        if (!aMatch && bMatch) return 1;
+
         if (prioritizeProximity) {
           final aDistance = (a['distance_km'] as num?)?.toDouble();
           final bDistance = (b['distance_km'] as num?)?.toDouble();
