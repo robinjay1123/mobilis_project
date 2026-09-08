@@ -38,7 +38,7 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
         if (role == 'partner') {
           Navigator.of(context).pushReplacementNamed('/partner-home');
         } else if (role == 'driver') {
-          Navigator.of(context).pushReplacementNamed('/driver-license-upload');
+          Navigator.of(context).pushReplacementNamed('/driver-home');
         } else {
           Navigator.of(context).pushReplacementNamed('/dashboard');
         }
@@ -76,7 +76,7 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
     final authService = AuthService();
     await authService.updateUserApplicationStatus(status: 'pending');
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed('/driver-license-upload');
+    Navigator.of(context).pushReplacementNamed('/driver-identity-verification');
   }
 
   @override

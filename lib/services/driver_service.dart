@@ -1501,7 +1501,11 @@ class DriverService {
       ].any((status) => status == 'rejected' || status == 'declined')) {
         return 'rejected';
       }
-      if ([userStatus].any(
+      if ([
+        userStatus,
+        driverStatus,
+        verificationStatus,
+      ].any(
         (status) =>
             status == 'pending' ||
             status == 'submitted' ||

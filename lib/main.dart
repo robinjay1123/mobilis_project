@@ -693,11 +693,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
       return route;
     }
     if (role == 'driver') {
-      final route = applicationApproved
-          ? '/driver-home'
-          : '/driver-identity-verification';
-      debugPrint('✅ Route: DRIVER ($route)');
-      return route;
+      debugPrint('✅ Route: DRIVER (/driver-home)');
+      return '/driver-home';
     }
     debugPrint('⚠️ Default route: UNAUTHENTICATED (role was: "$role")');
     return kIsWeb ? '/welcome' : '/login';
@@ -796,9 +793,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
         if (role == 'driver') {
           if (kIsWeb) {
             return const MobileOnlyAccessScreen(role: 'Driver');
-          }
-          if (!applicationApproved) {
-            return const IdentityVerificationFormScreen(userRole: 'driver');
           }
           return DriverHomeScreen(
             onThemeToggle: widget.onThemeToggle,

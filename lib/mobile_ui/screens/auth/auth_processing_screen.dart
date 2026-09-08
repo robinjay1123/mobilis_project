@@ -124,9 +124,7 @@ class _AuthProcessingScreenState extends State<AuthProcessingScreen>
             ? '/partner-home'
             : '/identity-verification-form';
       case 'driver':
-        return applicationApproved
-            ? '/driver-home'
-            : '/driver-identity-verification';
+        return '/driver-home';
       case 'renter':
         return '/dashboard';
       default:

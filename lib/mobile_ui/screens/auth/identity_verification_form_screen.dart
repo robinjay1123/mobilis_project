@@ -200,10 +200,17 @@ class _IdentityVerificationFormScreenState
           _previousCompaniesController.text =
               verification['driver_previous_companies']?.toString() ?? '';
           if (widget.userRole == 'driver') {
-            _driverApplicationStatus = driverApplicationStatus ?? 'basic';
+            final isVerificationPending = status == 'pending' ||
+                (verification['verification_status']?.toString().toLowerCase() == 'pending') ||
+                (combinedRecord['verification_status']?.toString().toLowerCase() == 'pending');
+            _driverApplicationStatus = driverApplicationStatus ??
+                (isVerificationPending ? 'pending' : 'basic');
+            if (isVerificationPending && _driverApplicationStatus == 'basic') {
+              _driverApplicationStatus = 'pending';
+            }
             _verificationStatus = _driverScreenStatusForApplication(
               _driverApplicationStatus,
-            );
+            ) ?? (isVerificationPending ? 'pending' : null);
           } else {
             _verificationStatus = status;
           }
@@ -244,11 +251,14 @@ class _IdentityVerificationFormScreenState
           });
         }
       } else if (widget.userRole == 'driver') {
+        final isDriverPending = driverApplicationStatus == 'pending' ||
+            (combinedRecord['verification_status']?.toString().toLowerCase() == 'pending');
         setState(() {
-          _driverApplicationStatus = driverApplicationStatus ?? 'basic';
+          _driverApplicationStatus = driverApplicationStatus ??
+              (isDriverPending ? 'pending' : 'basic');
           _verificationStatus = _driverScreenStatusForApplication(
             _driverApplicationStatus,
-          );
+          ) ?? (isDriverPending ? 'pending' : null);
         });
       } else if (status == 'verified') {
         setState(() {
@@ -842,8 +852,13 @@ class _IdentityVerificationFormScreenState
                         label: 'Go to Dashboard',
                         onPressed: () {
                           Navigator.pop(context); // Close dialog
+                          final targetRoute = widget.userRole == 'driver'
+                              ? '/driver-home'
+                              : widget.userRole == 'partner'
+                                  ? '/partner-home'
+                                  : '/dashboard';
                           Navigator.of(this.context).pushNamedAndRemoveUntil(
-                            '/dashboard',
+                            targetRoute,
                             (route) => false,
                           );
                         },
@@ -2672,6 +2687,13 @@ class _IdentityVerificationFormScreenState
           icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
           onPressed: _handleBackNavigation,
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: AppColors.textSecondary),
+            tooltip: 'Logout',
+            onPressed: () => _handleLogout(context),
+          ),
+        ],
         title: Text(
           isVerified ? 'Application Status' : 'Partnership',
           style: const TextStyle(
@@ -2774,6 +2796,43 @@ class _IdentityVerificationFormScreenState
         ),
       ),
     );
+  }
+
+  Future<void> _handleLogout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Logout', style: TextStyle(color: AppColors.textPrimary)),
+        content: const Text(
+          'Are you sure you want to logout of your account?',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/auth-processing',
+        (route) => false,
+        arguments: {'mode': 'logout'},
+      );
+    }
   }
 
   Widget _buildDriverStatusRecord({

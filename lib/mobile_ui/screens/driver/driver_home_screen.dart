@@ -967,7 +967,9 @@ class __DashboardTabState extends State<_DashboardTab> {
       setState(() {
         verificationStatus = nextVerificationStatus;
         certificationStatus = nextCertificationStatus;
-        hasPendingVerification = verificationRecordStatus == 'pending';
+        hasPendingVerification = verificationRecordStatus == 'pending' ||
+            nextVerificationStatus == 'pending' ||
+            nextCertificationStatus == 'pending';
         hasLoadedDriverStatus = true;
       });
 
@@ -982,9 +984,13 @@ class __DashboardTabState extends State<_DashboardTab> {
   bool _hasCheckedAvailabilityPrompt = false;
 
   void _showVerificationPopupIfNeeded() {
-    // 1. Only show popup if not yet verified and skip count is less than 3
+    final isPending = hasPendingVerification ||
+        verificationStatus == 'pending' ||
+        verificationStatus == 'submitted' ||
+        certificationStatus == 'pending';
+    // 1. Only show popup if not yet verified and not pending and skip count is less than 3
     if (!_isVerified &&
-        !hasPendingVerification &&
+        !isPending &&
         verificationSkipCount % 3 == 0) {
       _showVerificationPopup();
       return;
@@ -1763,14 +1769,22 @@ class __DashboardTabState extends State<_DashboardTab> {
     final isCertified = _isCertifiedFromStats(stats);
     if (isCertified) return const SizedBox.shrink();
 
+    final isPending = hasPendingVerification ||
+        verificationStatus == 'pending' ||
+        verificationStatus == 'submitted' ||
+        certificationStatus == 'pending';
     final isVerified = _isVerifiedFromStats(stats);
-    final title = isVerified
-        ? 'Apply as a Driver'
-        : 'Start Driver Application';
-    final subtitle = isVerified
-        ? 'Submit your driver requirements and documents for final review.'
-        : 'Complete identity verification and submit the documents needed to become a Mobilis driver.';
-    final buttonLabel = 'Apply';
+    final title = isPending
+        ? 'Application Under Review'
+        : isVerified
+            ? 'Apply as a Driver'
+            : 'Start Driver Application';
+    final subtitle = isPending
+        ? 'Your driver requirements and documents are currently under admin review.'
+        : isVerified
+            ? 'Submit your driver requirements and documents for final review.'
+            : 'Complete identity verification and submit the documents needed to become a Mobilis driver.';
+    final buttonLabel = isPending ? 'Check Status' : 'Apply';
 
     return Container(
       width: double.infinity,
@@ -1789,8 +1803,10 @@ class __DashboardTabState extends State<_DashboardTab> {
               color: AppColors.primary.withOpacity(0.18),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(
-              Icons.assignment_turned_in_outlined,
+            child: Icon(
+              isPending
+                  ? Icons.hourglass_top_rounded
+                  : Icons.assignment_turned_in_outlined,
               color: AppColors.primary,
             ),
           ),
