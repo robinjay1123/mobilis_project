@@ -1189,10 +1189,23 @@ class BookingService {
             .trim();
       }
 
-      bookingPayload['co_traveler_signature_url'] = coTravelerSignatureUrl
-          .trim();
-      bookingPayload['co_traveler_valid_id_url'] = coTravelerValidIdUrl.trim();
-      bookingPayload['co_traveler_selfie_url'] = coTravelerSelfieUrl.trim();
+      if (coTravelerSignatureUrl != null &&
+          coTravelerSignatureUrl.trim().isNotEmpty) {
+        bookingPayload['co_traveler_signature_url'] =
+            coTravelerSignatureUrl.trim();
+      }
+
+      if (coTravelerValidIdUrl != null &&
+          coTravelerValidIdUrl.trim().isNotEmpty) {
+        bookingPayload['co_traveler_valid_id_url'] =
+            coTravelerValidIdUrl.trim();
+      }
+
+      if (coTravelerSelfieUrl != null &&
+          coTravelerSelfieUrl.trim().isNotEmpty) {
+        bookingPayload['co_traveler_selfie_url'] =
+            coTravelerSelfieUrl.trim();
+      }
 
       Map<String, dynamic> response;
       var currentPayload = Map<String, dynamic>.from(bookingPayload);
