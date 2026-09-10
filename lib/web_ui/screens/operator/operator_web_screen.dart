@@ -2257,6 +2257,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               delivery_distance_km,
               delivery_rate_per_km,
               delivery_fee,
+              daily_destination_surcharge,
+              destination_fee,
+              destination_fee_notes,
               reservation_fee_amount,
               reservation_payment_type,
               reservation_payment_covers_total,
@@ -3192,10 +3195,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
   }
 
-  /// ✅ Approve booking with optional driver assignment
+  /// ✅ Approve booking with optional driver assignment and destination surcharge
   Future<void> _approveBooking(
     Map<String, dynamic> booking, {
     String? driverId,
+    double? dailyDestinationSurcharge,
+    double? destinationFee,
+    String? destinationFeeNotes,
+    double? updatedTotalPrice,
+    double? updatedRentalSubtotal,
+    double? updatedPrincipalTotalPrice,
   }) async {
     _showOperationLoading(
       driverId != null
@@ -3218,14 +3227,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       final bookingService = BookingService();
 
+      final updatePayload = <String, dynamic>{
+        'operator_id': operatorId,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (dailyDestinationSurcharge != null) {
+        updatePayload['daily_destination_surcharge'] = dailyDestinationSurcharge;
+      }
+      if (destinationFee != null) {
+        updatePayload['destination_fee'] = destinationFee;
+      }
+      if (destinationFeeNotes != null && destinationFeeNotes.trim().isNotEmpty) {
+        updatePayload['destination_fee_notes'] = destinationFeeNotes.trim();
+      }
+      if (updatedTotalPrice != null) {
+        updatePayload['total_price'] = updatedTotalPrice;
+      }
+      if (updatedRentalSubtotal != null) {
+        updatePayload['rental_subtotal'] = updatedRentalSubtotal;
+      }
+      if (updatedPrincipalTotalPrice != null) {
+        updatePayload['principal_total_price'] = updatedPrincipalTotalPrice;
+      }
+
+      await _supabase
+          .from('bookings')
+          .update(updatePayload)
+          .eq('id', bookingId);
+
       if (driverId != null) {
-        await _supabase
-            .from('bookings')
-            .update({
-              'operator_id': operatorId,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', bookingId);
         await bookingService.assignDriver(bookingId, driverId, 0.0);
       } else {
         await bookingService.finalizeBooking(
@@ -13791,31 +13821,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    final approvalData = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Approve booking?'),
-        content: const Text(
-          'This will finalize the booking and create its conversation.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.shade600,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Approve'),
-          ),
-        ],
+      builder: (dialogContext) => _OperatorBookingApprovalDialog(
+        booking: booking,
+        state: this,
       ),
     );
-    if (confirmed == true && mounted) {
-      await _approveBooking(booking);
+    if (approvalData != null && mounted) {
+      await _approveBooking(
+        booking,
+        dailyDestinationSurcharge: approvalData['daily_destination_surcharge'] as double?,
+        destinationFee: approvalData['destination_fee'] as double?,
+        destinationFeeNotes: approvalData['destination_fee_notes'] as String?,
+        updatedTotalPrice: approvalData['updated_total_price'] as double?,
+        updatedRentalSubtotal: approvalData['updated_rental_subtotal'] as double?,
+        updatedPrincipalTotalPrice: approvalData['updated_principal_total_price'] as double?,
+      );
     }
   }
 
@@ -16919,7 +16941,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     (!withDriver || driverAccepted) &&
                                     !_isPartnerOwnedBooking(booking))
                                   ElevatedButton.icon(
-                                    onPressed: () => _approveBooking(booking),
+                                    onPressed: () => _handleQuickApproveBooking(
+                                      booking,
+                                      needsDriver: withDriver,
+                                      driverAccepted: driverAccepted,
+                                    ),
                                     icon: const Icon(Icons.check, size: 16),
                                     label: const Text('Finalize'),
                                     style: ElevatedButton.styleFrom(
@@ -36169,6 +36195,527 @@ class _OperatorLivePulseDotState extends State<_OperatorLivePulseDot>
           ),
         );
       },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operator Booking Approval Dialog with Destination Surcharge Adjustment
+// ─────────────────────────────────────────────────────────────────────────────
+class _OperatorBookingApprovalDialog extends StatefulWidget {
+  final Map<String, dynamic> booking;
+  final _OperatorWebScreenState state;
+
+  const _OperatorBookingApprovalDialog({
+    required this.booking,
+    required this.state,
+  });
+
+  @override
+  State<_OperatorBookingApprovalDialog> createState() =>
+      _OperatorBookingApprovalDialogState();
+}
+
+class _OperatorBookingApprovalDialogState
+    extends State<_OperatorBookingApprovalDialog> {
+  double _dailySurcharge = 0.0;
+  bool _isCustom = false;
+  final TextEditingController _customController = TextEditingController();
+  final TextEditingController _notesController = TextEditingController();
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final vehicle = widget.booking['vehicles'] as Map<String, dynamic>? ??
+        (widget.booking['vehicle'] as Map<String, dynamic>? ?? {});
+
+    final destination = (widget.booking['dropoff_location']?.toString().trim().isNotEmpty == true)
+        ? widget.booking['dropoff_location'].toString().trim()
+        : 'Destination not specified';
+
+    DateTime? startDate = DateTime.tryParse(widget.booking['start_date']?.toString() ?? widget.booking['start_at']?.toString() ?? '');
+    DateTime? endDate = DateTime.tryParse(widget.booking['end_date']?.toString() ?? widget.booking['end_at']?.toString() ?? '');
+    final days = widget.state._inclusiveRentalDays(startDate, endDate).clamp(1, 365);
+
+    final originalTotalPrice = (widget.booking['total_price'] as num?)?.toDouble() ?? 0.0;
+    final originalRentalSubtotal = (widget.booking['rental_subtotal'] as num?)?.toDouble() ?? originalTotalPrice;
+    final originalPrincipalTotalPrice = (widget.booking['principal_total_price'] as num?)?.toDouble() ?? originalRentalSubtotal;
+
+    final vehiclePricePerDay = (vehicle['price_per_day'] as num?)?.toDouble() ??
+        (vehicle['daily_rate'] as num?)?.toDouble() ??
+        (days > 0 ? (originalRentalSubtotal / days) : originalRentalSubtotal);
+
+    final isFullPayment = widget.booking['reservation_payment_type']?.toString().toLowerCase() == 'full_payment' ||
+        widget.booking['is_full_payment'] == true ||
+        widget.booking['is_full_payment']?.toString().toLowerCase() == 'true';
+
+    final reservationFeeAmount = (widget.booking['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0;
+    final paidAmount = isFullPayment ? originalTotalPrice : reservationFeeAmount;
+
+    final effectiveDailyRate = vehiclePricePerDay + _dailySurcharge;
+    final destinationFee = _dailySurcharge * days;
+    final newRentalSubtotal = originalRentalSubtotal + destinationFee;
+    final newTotalPrice = originalTotalPrice + destinationFee;
+    final newPrincipalTotalPrice = originalPrincipalTotalPrice + destinationFee;
+    final remainingBalance = (newTotalPrice - paidAmount).clamp(0.0, double.infinity);
+
+    return Dialog(
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 580, maxHeight: 760),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.verified_rounded,
+                      color: Colors.green,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Review & Approve Booking',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          'Booking #${widget.booking['id']?.toString().substring(0, (widget.booking['id']?.toString().length ?? 0).clamp(0, 8)) ?? ''}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.white60 : Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Trip details card
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.place_rounded, size: 18, color: Colors.redAccent),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Trip Destination:',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        destination,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                const Icon(Icons.directions_car_rounded, size: 16, color: Colors.blueGrey),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    widget.state._vehicleTitle(vehicle),
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '$days Day${days > 1 ? 's' : ''}',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.blue,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Base Rate: ₱${vehiclePricePerDay.toStringAsFixed(2)}/day',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark ? Colors.white70 : Colors.black87,
+                                  ),
+                                ),
+                                Text(
+                                  'Paid Upfront: ₱${paidAmount.toStringAsFixed(2)} (${isFullPayment ? 'Full' : 'Reservation'})',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: isFullPayment ? Colors.green : Colors.amber.shade800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Destination addition section
+                      const Text(
+                        'Set Daily Destination Surcharge',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Destination pricing formula: (Base Rate + Destination Addition) × $days Days',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: isDark ? Colors.white60 : Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('₱0/day (Local / Included)'),
+                            selected: !_isCustom && _dailySurcharge == 0.0,
+                            selectedColor: Colors.green.withValues(alpha: 0.2),
+                            onSelected: (val) {
+                              setState(() {
+                                _isCustom = false;
+                                _dailySurcharge = 0.0;
+                              });
+                            },
+                          ),
+                          ChoiceChip(
+                            label: const Text('+₱500/day (Mountain / Mid)'),
+                            selected: !_isCustom && _dailySurcharge == 500.0,
+                            selectedColor: Colors.amber.withValues(alpha: 0.2),
+                            onSelected: (val) {
+                              setState(() {
+                                _isCustom = false;
+                                _dailySurcharge = 500.0;
+                              });
+                            },
+                          ),
+                          ChoiceChip(
+                            label: const Text('+₱1,000/day (Long Distance)'),
+                            selected: !_isCustom && _dailySurcharge == 1000.0,
+                            selectedColor: Colors.deepOrange.withValues(alpha: 0.2),
+                            onSelected: (val) {
+                              setState(() {
+                                _isCustom = false;
+                                _dailySurcharge = 1000.0;
+                              });
+                            },
+                          ),
+                          ChoiceChip(
+                            label: Text(_isCustom ? 'Custom: ₱${_dailySurcharge.toStringAsFixed(0)}/day' : 'Custom Amount'),
+                            selected: _isCustom,
+                            selectedColor: Colors.blue.withValues(alpha: 0.2),
+                            onSelected: (val) {
+                              setState(() {
+                                _isCustom = true;
+                                _dailySurcharge = double.tryParse(_customController.text) ?? 0.0;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+
+                      if (_isCustom) ...[
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _customController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: InputDecoration(
+                            labelText: 'Custom daily surcharge per day (PHP)',
+                            prefixText: '₱ ',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            isDense: true,
+                          ),
+                          onChanged: (val) {
+                            setState(() {
+                              _dailySurcharge = double.tryParse(val) ?? 0.0;
+                            });
+                          },
+                        ),
+                      ],
+
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _notesController,
+                        decoration: InputDecoration(
+                          labelText: 'Destination surcharge notes / reason (optional)',
+                          hintText: 'e.g. Baguio steep mountain terrain wear',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Live Calculation Summary Card
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: _dailySurcharge > 0
+                              ? Colors.amber.withValues(alpha: 0.08)
+                              : Colors.green.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _dailySurcharge > 0
+                                ? Colors.amber.withValues(alpha: 0.4)
+                                : Colors.green.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.calculate_outlined,
+                                  size: 16,
+                                  color: _dailySurcharge > 0 ? Colors.amber.shade800 : Colors.green,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Live Computation Breakdown ($days Day${days > 1 ? 's' : ''})',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: _dailySurcharge > 0 ? Colors.amber.shade900 : Colors.green.shade800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Base Daily Rate:', style: TextStyle(fontSize: 12)),
+                                Text('₱${vehiclePricePerDay.toStringAsFixed(2)}/day', style: const TextStyle(fontSize: 12)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Destination Daily Addition:', style: TextStyle(fontSize: 12)),
+                                Text(
+                                  '+ ₱${_dailySurcharge.toStringAsFixed(2)}/day',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: _dailySurcharge > 0 ? Colors.amber.shade800 : Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Effective Daily Rate:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                Text(
+                                  '₱${effectiveDailyRate.toStringAsFixed(2)}/day',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Total Destination Fee ($days days):', style: const TextStyle(fontSize: 12)),
+                                Text(
+                                  '₱${destinationFee.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: _dailySurcharge > 0 ? Colors.amber.shade900 : Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('New Rental Subtotal:', style: TextStyle(fontSize: 12)),
+                                Text('₱${newRentalSubtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('New Total Booking Price:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                Text('₱${newTotalPrice.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Less Upfront Payment (${isFullPayment ? 'Paid in Full' : 'Reservation Fee'}):', style: const TextStyle(fontSize: 12)),
+                                Text('- ₱${paidAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            const Divider(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Handover Balance to Collect:',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                Text(
+                                  '₱${remainingBalance.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (isFullPayment && destinationFee > 0) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '* Renter paid base rent upfront. The ₱${destinationFee.toStringAsFixed(2)} destination surcharge will be collected upon vehicle turnover.',
+                                style: const TextStyle(
+                                  fontSize: 10.5,
+                                  fontStyle: FontStyle.italic,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+
+              // Action buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context, {
+                        'daily_destination_surcharge': _dailySurcharge,
+                        'destination_fee': destinationFee,
+                        'destination_fee_notes': _notesController.text.trim(),
+                        'updated_total_price': newTotalPrice,
+                        'updated_rental_subtotal': newRentalSubtotal,
+                        'updated_principal_total_price': newPrincipalTotalPrice,
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade600,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                    label: const Text(
+                      'Confirm & Approve Booking',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

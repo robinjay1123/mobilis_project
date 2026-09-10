@@ -114,6 +114,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   XFile? _selfiePhoto;
   XFile? _coTravelerValidIdPhoto;
   XFile? _coTravelerSelfiePhoto;
+  bool _noCoTraveler = false;
 
   @override
   void initState() {
@@ -1854,8 +1855,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
 
     final pickup = _getPickupLocation();
-    final dropoff = _getDropoffLocation();
-    if (pickup.trim().isEmpty || dropoff.trim().isEmpty) return;
+    if (pickup.trim().isEmpty) return;
 
     setState(() {
       _isCalculatingDeliveryFee = true;
@@ -1868,17 +1868,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             address: pickup,
             fallbackLabel: 'Pickup location',
           );
-      final dropoffPosition =
-          _dropoffMapPin ??
-          await _resolveLocationPin(
-            address: dropoff,
-            fallbackLabel: 'Trip destination',
-          );
       final meters = Geolocator.distanceBetween(
+        PhilippineLocations.psdcGarageLatitude,
+        PhilippineLocations.psdcGarageLongitude,
         pickupPosition.latitude,
         pickupPosition.longitude,
-        dropoffPosition.latitude,
-        dropoffPosition.longitude,
       );
 
       if (!mounted) return;
@@ -2156,82 +2150,92 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    final coTravelerName = toTitleCaseName(_coTravelerNameController.text);
-    final coTravelerPhone = normalizePhilippineMobile(
-      _coTravelerPhoneController.text,
-    );
-    final coTravelerLicense = _coTravelerLicenseController.text.trim();
-    if (coTravelerName.isEmpty ||
-        coTravelerPhone.isEmpty ||
-        coTravelerLicense.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Co-traveler name, phone number, and license number are required.',
-          ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
+    final String? coTravelerName;
+    final String? coTravelerPhone;
+    final String? coTravelerLicense;
 
-    if (!_isValidPhilippinePhone(coTravelerPhone)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Co-traveler phone must be 11 digits, e.g. 09171234567.',
+    if (_noCoTraveler) {
+      coTravelerName = null;
+      coTravelerPhone = null;
+      coTravelerLicense = null;
+    } else {
+      coTravelerName = toTitleCaseName(_coTravelerNameController.text);
+      coTravelerPhone = normalizePhilippineMobile(
+        _coTravelerPhoneController.text,
+      );
+      coTravelerLicense = _coTravelerLicenseController.text.trim();
+      if (coTravelerName.isEmpty ||
+          coTravelerPhone.isEmpty ||
+          coTravelerLicense.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Co-traveler name, phone number, and license number are required, or check "I don\'t have a co-traveler".',
+            ),
+            backgroundColor: AppColors.warning,
           ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
+        );
+        return;
+      }
 
-    if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(coTravelerLicense)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Driver's License Number must be 6-13 letters/numbers and may include hyphens.",
+      if (!_isValidPhilippinePhone(coTravelerPhone)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Co-traveler phone must be 11 digits, e.g. 09171234567.',
+            ),
+            backgroundColor: AppColors.warning,
           ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
+        );
+        return;
+      }
 
-    if (_coTravelerSignatureBytes == null ||
-        _coTravelerSignatureBytes!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please draw the co-traveler digital signature.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    if (_validIdPhoto == null || _selfiePhoto == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Please upload a valid ID photo and capture a clear selfie before booking.',
+      if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(coTravelerLicense)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Driver's License Number must be 6-13 letters/numbers and may include hyphens.",
+            ),
+            backgroundColor: AppColors.warning,
           ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
+        );
+        return;
+      }
 
-    if (_coTravelerValidIdPhoto == null || _coTravelerSelfiePhoto == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Please upload the co-traveler valid ID and capture their selfie.',
+      if (_coTravelerSignatureBytes == null ||
+          _coTravelerSignatureBytes!.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please draw the co-traveler digital signature.'),
+            backgroundColor: AppColors.warning,
           ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
+        );
+        return;
+      }
+
+      if (_validIdPhoto == null || _selfiePhoto == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please upload a valid ID photo and capture a clear selfie before booking.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return;
+      }
+
+      if (_coTravelerValidIdPhoto == null || _coTravelerSelfiePhoto == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please upload the co-traveler valid ID and capture their selfie.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return;
+      }
     }
 
     if (requireTermsAgreement) {
@@ -2265,6 +2269,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         coTravelerName: coTravelerName,
         coTravelerPhone: coTravelerPhone,
         coTravelerLicense: coTravelerLicense,
+        noCoTraveler: _noCoTraveler,
       );
 
       if (!mounted || !detailsConfirmed) return;
@@ -2309,45 +2314,84 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             withDriver: _withDriver,
             onProcess: () async {
               final evidenceService = BookingEvidenceService();
-              final (
-                signatureUrl,
-                coTravelerSignatureUrl,
-                validIdUrl,
-                selfieUrl,
-                coTravelerValidIdUrl,
-                coTravelerSelfieUrl,
-              ) = await (
-                evidenceService.uploadEvidenceBytes(
-                  userId: currentUser.id,
-                  bytes: _signatureBytes!,
-                  evidenceType: 'signature',
-                ),
-                evidenceService.uploadEvidenceBytes(
-                  userId: currentUser.id,
-                  bytes: _coTravelerSignatureBytes!,
-                  evidenceType: 'co_traveler_signature',
-                ),
-                evidenceService.uploadEvidenceFile(
-                  userId: currentUser.id,
-                  file: _validIdPhoto!,
-                  evidenceType: 'valid_id',
-                ),
-                evidenceService.uploadEvidenceFile(
-                  userId: currentUser.id,
-                  file: _selfiePhoto!,
-                  evidenceType: 'selfie',
-                ),
-                evidenceService.uploadEvidenceFile(
-                  userId: currentUser.id,
-                  file: _coTravelerValidIdPhoto!,
-                  evidenceType: 'co_traveler_valid_id',
-                ),
-                evidenceService.uploadEvidenceFile(
-                  userId: currentUser.id,
-                  file: _coTravelerSelfiePhoto!,
-                  evidenceType: 'co_traveler_selfie',
-                ),
-              ).wait;
+              final String signatureUrl;
+              final String? coTravelerSignatureUrl;
+              final String validIdUrl;
+              final String selfieUrl;
+              final String? coTravelerValidIdUrl;
+              final String? coTravelerSelfieUrl;
+
+              if (_noCoTraveler) {
+                final (sig, vId, self) = await (
+                  evidenceService.uploadEvidenceBytes(
+                    userId: currentUser.id,
+                    bytes: _signatureBytes!,
+                    evidenceType: 'signature',
+                  ),
+                  evidenceService.uploadEvidenceFile(
+                    userId: currentUser.id,
+                    file: _validIdPhoto!,
+                    evidenceType: 'valid_id',
+                  ),
+                  evidenceService.uploadEvidenceFile(
+                    userId: currentUser.id,
+                    file: _selfiePhoto!,
+                    evidenceType: 'selfie',
+                  ),
+                ).wait;
+                signatureUrl = sig;
+                validIdUrl = vId;
+                selfieUrl = self;
+                coTravelerSignatureUrl = null;
+                coTravelerValidIdUrl = null;
+                coTravelerSelfieUrl = null;
+              } else {
+                final (
+                  sig,
+                  coSig,
+                  vId,
+                  self,
+                  coVId,
+                  coSelf,
+                ) = await (
+                  evidenceService.uploadEvidenceBytes(
+                    userId: currentUser.id,
+                    bytes: _signatureBytes!,
+                    evidenceType: 'signature',
+                  ),
+                  evidenceService.uploadEvidenceBytes(
+                    userId: currentUser.id,
+                    bytes: _coTravelerSignatureBytes!,
+                    evidenceType: 'co_traveler_signature',
+                  ),
+                  evidenceService.uploadEvidenceFile(
+                    userId: currentUser.id,
+                    file: _validIdPhoto!,
+                    evidenceType: 'valid_id',
+                  ),
+                  evidenceService.uploadEvidenceFile(
+                    userId: currentUser.id,
+                    file: _selfiePhoto!,
+                    evidenceType: 'selfie',
+                  ),
+                  evidenceService.uploadEvidenceFile(
+                    userId: currentUser.id,
+                    file: _coTravelerValidIdPhoto!,
+                    evidenceType: 'co_traveler_valid_id',
+                  ),
+                  evidenceService.uploadEvidenceFile(
+                    userId: currentUser.id,
+                    file: _coTravelerSelfiePhoto!,
+                    evidenceType: 'co_traveler_selfie',
+                  ),
+                ).wait;
+                signatureUrl = sig;
+                coTravelerSignatureUrl = coSig;
+                validIdUrl = vId;
+                selfieUrl = self;
+                coTravelerValidIdUrl = coVId;
+                coTravelerSelfieUrl = coSelf;
+              }
 
               final createdBooking = await BookingService().createBooking(
                 renterId: currentUser.id,
@@ -2398,11 +2442,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 renterSignatureUrl: signatureUrl,
                 renterValidIdUrl: validIdUrl,
                 renterSelfieUrl: selfieUrl,
-                coTravelerName: coTravelerName,
-                coTravelerPhone: coTravelerPhone,
-                coTravelerLicense: coTravelerLicense,
-                coTravelerSignatureText:
-                    'Co-traveler digital signature captured',
+                coTravelerName: _noCoTraveler ? null : coTravelerName,
+                coTravelerPhone: _noCoTraveler ? null : coTravelerPhone,
+                coTravelerLicense: _noCoTraveler ? null : coTravelerLicense,
+                coTravelerSignatureText: _noCoTraveler
+                    ? null
+                    : 'Co-traveler digital signature captured',
                 coTravelerSignatureUrl: coTravelerSignatureUrl,
                 coTravelerValidIdUrl: coTravelerValidIdUrl,
                 coTravelerSelfieUrl: coTravelerSelfieUrl,
@@ -2739,9 +2784,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   Future<bool> _showBookingDetailsReviewDialog({
     required DateTime startAt,
     required DateTime endAt,
-    required String coTravelerName,
-    required String coTravelerPhone,
-    required String coTravelerLicense,
+    String? coTravelerName,
+    String? coTravelerPhone,
+    String? coTravelerLicense,
+    bool noCoTraveler = false,
   }) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final vehicle = _vehicle ?? widget.vehicleData ?? const <String, dynamic>{};
@@ -2891,9 +2937,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     .where((value) => value.isNotEmpty)
                                     .join(' • '),
                               ),
-                              MapEntry('Co-traveler', coTravelerName),
-                              MapEntry('Co-traveler phone', coTravelerPhone),
-                              MapEntry('Driver license', coTravelerLicense),
+                              if (noCoTraveler || (coTravelerName == null || coTravelerName.trim().isEmpty)) ...[
+                                const MapEntry('Co-traveler', 'None (Solo Renter)'),
+                              ] else ...[
+                                MapEntry('Co-traveler', coTravelerName),
+                                MapEntry('Co-traveler phone', coTravelerPhone ?? 'N/A'),
+                                MapEntry('Driver license', coTravelerLicense ?? 'N/A'),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 14),
@@ -2901,13 +2951,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             isComplete:
                                 emergencyName.isNotEmpty &&
                                 emergencyPhone.isNotEmpty &&
-                                coTravelerName.trim().isNotEmpty &&
-                                coTravelerPhone.trim().isNotEmpty &&
-                                coTravelerLicense.trim().isNotEmpty,
+                                (noCoTraveler ||
+                                    (coTravelerName != null &&
+                                        coTravelerName.trim().isNotEmpty &&
+                                        coTravelerPhone != null &&
+                                        coTravelerPhone.trim().isNotEmpty &&
+                                        coTravelerLicense != null &&
+                                        coTravelerLicense.trim().isNotEmpty)),
                             completeLabel: 'Safety information complete',
                             incompleteLabel: 'Safety information incomplete',
-                            completeDetail:
-                                'Emergency contact and co-traveler details are ready.',
+                            completeDetail: noCoTraveler
+                                ? 'Emergency contact verified for solo renter.'
+                                : 'Emergency contact and co-traveler details are ready.',
                             incompleteDetail:
                                 'Review the missing emergency contact or co-traveler information.',
                           ),
@@ -3879,7 +3934,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 Text(
                                   _withDriver
                                       ? 'Unavailable when a driver is hired.'
-                                      : 'Have the vehicle delivered without hiring a driver.',
+                                      : 'Set a custom meet-up location where the vehicle will be delivered.',
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: AppColors.textSecondary,
@@ -3916,24 +3971,71 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
                   if (_requiresPickupMap) ...[
                     const SizedBox(height: 24),
-                    Text(
-                      _withDriver
-                          ? 'Pick-up Location'
-                          : 'Delivery / Pick-up Location',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _withDriver
+                                    ? 'Pick-up Location'
+                                    : 'Pick-up / Meet-up Location',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _withDriver
+                                    ? 'Specify where the driver will pick you up.'
+                                    : 'Set where you want to meet or receive the vehicle.',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _isLocatingPickup ? null : _useCurrentPickupLocation,
+                          icon: _isLocatingPickup
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.primary,
+                                  ),
+                                )
+                              : const Icon(Icons.my_location, size: 16),
+                          label: Text(
+                            _isLocatingPickup ? 'Locating...' : 'Use My GPS',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 12),
                     _buildMapLocationField(
                       label: _withDriver
                           ? 'Exact pick-up address'
-                          : 'Exact delivery / pickup address',
+                          : 'Meet-up / pick-up address',
                       hint: _withDriver
                           ? 'Search or pin your pick-up location'
-                          : 'Search or pin the pickup location',
+                          : 'Enter address or use map pin below',
                       controller: _pickupFreetextController,
                       pin: _pickupMapPin,
                       onChanged: (value) {
@@ -3944,6 +4046,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         });
                       },
                       onMapTap: () => _openLocationPicker(isPickup: true),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildLocationMapCard(
+                      title: _withDriver
+                          ? 'Pick-up Map Pin'
+                          : 'Pick-up / Meet-up Map Pin',
+                      pin: _pickupMapPin,
+                      fallbackAddress: _getPickupLocation(),
+                      actionLabel: _pickupMapPin == null
+                          ? 'Pin meet-up location on map'
+                          : 'Change meet-up map pin',
+                      onTap: () => _openLocationPicker(isPickup: true),
                     ),
                   ],
 
@@ -3978,6 +4092,55 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       });
                     },
                     onMapTap: () => _openLocationPicker(isPickup: false),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppColors.primary.withOpacity(0.25),
+                      ),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.only(top: 2),
+                          child: Icon(
+                            Icons.info_outline_rounded,
+                            size: 16,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Destination Rate Notice',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Daily rental rates may vary depending on your destination (e.g. mountainous terrain or out-of-province trips). The operator will review your route upon booking; any applicable daily addition (typically +₱500/day or +₱1,000/day) will be applied across your trip duration: (Base Rate + Destination Surcharge) × Days.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: AppColors.textSecondary,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
 
                   if (_vehicleDelivery && !_withDriver) ...[
@@ -5131,80 +5294,178 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           const SizedBox(height: 16),
           const Divider(color: AppColors.borderColor),
           const SizedBox(height: 12),
-          const Text(
-            'Co-traveler information (required)',
+          Text(
+            _noCoTraveler
+                ? 'Co-traveler information (Optional - Solo Trip)'
+                : 'Co-traveler information (required)',
             style: TextStyle(
-              color: AppColors.textPrimary,
+              color: _noCoTraveler
+                  ? AppColors.textSecondary
+                  : AppColors.textPrimary,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 12),
-          _buildBookingEvidenceField(
-            controller: _coTravelerNameController,
-            label: 'Full name',
-            hint: 'Co-traveler legal name',
-            icon: Icons.person_add_alt_1_outlined,
-            textCapitalization: TextCapitalization.words,
-          ),
-          const SizedBox(height: 12),
-          _buildBookingEvidenceField(
-            controller: _coTravelerPhoneController,
-            label: 'Phone',
-            hint: '09171234567',
-            icon: Icons.phone_outlined,
-            keyboardType: TextInputType.phone,
-            inputFormatters: philippineMobileInputFormatters,
-          ),
-          const SizedBox(height: 12),
-          _buildBookingEvidenceField(
-            controller: _coTravelerLicenseController,
-            label: "Driver's License Number",
-            hint: 'e.g. N01-23-456789',
-            icon: Icons.credit_card_outlined,
-            maxLength: 13,
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
-              LengthLimitingTextInputFormatter(13),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildSignatureCaptureButton(
-            signatureBytes: _coTravelerSignatureBytes,
-            label: 'Co-traveler digital signature *',
-            onTap: () => _openSignatureCapture(coTraveler: true),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildEvidenceButton(
-                  label: _coTravelerValidIdPhoto == null
-                      ? 'Co-traveler ID'
-                      : 'Co-traveler ID ready',
-                  icon: Icons.badge_outlined,
-                  isReady: _coTravelerValidIdPhoto != null,
-                  onTap: () => _pickBookingEvidencePhoto(
-                    isSelfie: false,
-                    isCoTraveler: true,
-                  ),
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: () {
+              setState(() {
+                _noCoTraveler = !_noCoTraveler;
+                if (_noCoTraveler) {
+                  _coTravelerNameController.clear();
+                  _coTravelerPhoneController.clear();
+                  _coTravelerLicenseController.clear();
+                  _coTravelerSignatureBytes = null;
+                  _coTravelerValidIdPhoto = null;
+                  _coTravelerSelfiePhoto = null;
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: _noCoTraveler
+                    ? AppColors.primary.withOpacity(0.12)
+                    : AppColors.darkBgTertiary,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _noCoTraveler
+                      ? AppColors.primary
+                      : AppColors.borderColor,
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildEvidenceButton(
-                  label: _coTravelerSelfiePhoto == null
-                      ? 'Co-traveler selfie'
-                      : 'Selfie ready',
-                  icon: Icons.face_retouching_natural_outlined,
-                  isReady: _coTravelerSelfiePhoto != null,
-                  onTap: () => _pickBookingEvidencePhoto(
-                    isSelfie: true,
-                    isCoTraveler: true,
+              child: Row(
+                children: [
+                  SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: Checkbox(
+                      value: _noCoTraveler,
+                      activeColor: AppColors.primary,
+                      checkColor: AppColors.darkBg,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _noCoTraveler = value ?? false;
+                          if (_noCoTraveler) {
+                            _coTravelerNameController.clear();
+                            _coTravelerPhoneController.clear();
+                            _coTravelerLicenseController.clear();
+                            _coTravelerSignatureBytes = null;
+                            _coTravelerValidIdPhoto = null;
+                            _coTravelerSelfiePhoto = null;
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      "I don't have a co-traveler (Traveling solo)",
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (!_noCoTraveler) ...[
+            const SizedBox(height: 12),
+            _buildBookingEvidenceField(
+              controller: _coTravelerNameController,
+              label: 'Full name',
+              hint: 'Co-traveler legal name',
+              icon: Icons.person_add_alt_1_outlined,
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 12),
+            _buildBookingEvidenceField(
+              controller: _coTravelerPhoneController,
+              label: 'Phone',
+              hint: '09171234567',
+              icon: Icons.phone_outlined,
+              keyboardType: TextInputType.phone,
+              inputFormatters: philippineMobileInputFormatters,
+            ),
+            const SizedBox(height: 12),
+            _buildBookingEvidenceField(
+              controller: _coTravelerLicenseController,
+              label: "Driver's License Number",
+              hint: 'e.g. N01-23-456789',
+              icon: Icons.credit_card_outlined,
+              maxLength: 13,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
+                LengthLimitingTextInputFormatter(13),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildSignatureCaptureButton(
+              signatureBytes: _coTravelerSignatureBytes,
+              label: 'Co-traveler digital signature *',
+              onTap: () => _openSignatureCapture(coTraveler: true),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildEvidenceButton(
+                    label: _coTravelerValidIdPhoto == null
+                        ? 'Co-traveler ID'
+                        : 'Co-traveler ID ready',
+                    icon: Icons.badge_outlined,
+                    isReady: _coTravelerValidIdPhoto != null,
+                    onTap: () => _pickBookingEvidencePhoto(
+                      isSelfie: false,
+                      isCoTraveler: true,
+                    ),
                   ),
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildEvidenceButton(
+                    label: _coTravelerSelfiePhoto == null
+                        ? 'Co-traveler selfie'
+                        : 'Selfie ready',
+                    icon: Icons.face_retouching_natural_outlined,
+                    isReady: _coTravelerSelfiePhoto != null,
+                    onTap: () => _pickBookingEvidencePhoto(
+                      isSelfie: true,
+                      isCoTraveler: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.darkBgTertiary,
+                borderRadius: BorderRadius.circular(8),
               ),
-            ],
-          ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: AppColors.textSecondary),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Co-traveler details and photos are waived for solo renter.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

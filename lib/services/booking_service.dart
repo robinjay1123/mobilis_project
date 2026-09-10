@@ -855,26 +855,30 @@ class BookingService {
         throw Exception('A valid ID photo is required before booking');
       }
 
-      final coTravelerFields = [
-        coTravelerName?.trim() ?? '',
-        coTravelerPhone?.trim() ?? '',
-        coTravelerLicense?.trim() ?? '',
-      ];
-      if (coTravelerFields.any((value) => value.isEmpty)) {
-        throw Exception(
-          'Co-traveler name, phone number, and license number are required',
-        );
-      }
+      final hasCoTraveler =
+          coTravelerName != null && coTravelerName.trim().isNotEmpty;
+      if (hasCoTraveler) {
+        final coTravelerFields = [
+          coTravelerName.trim(),
+          coTravelerPhone?.trim() ?? '',
+          coTravelerLicense?.trim() ?? '',
+        ];
+        if (coTravelerFields.any((value) => value.isEmpty)) {
+          throw Exception(
+            'Co-traveler name, phone number, and license number are required when adding a co-traveler',
+          );
+        }
 
-      if (coTravelerSignatureUrl == null ||
-          coTravelerSignatureUrl.trim().isEmpty ||
-          coTravelerValidIdUrl == null ||
-          coTravelerValidIdUrl.trim().isEmpty ||
-          coTravelerSelfieUrl == null ||
-          coTravelerSelfieUrl.trim().isEmpty) {
-        throw Exception(
-          'Co-traveler signature, valid ID, and selfie are required',
-        );
+        if (coTravelerSignatureUrl == null ||
+            coTravelerSignatureUrl.trim().isEmpty ||
+            coTravelerValidIdUrl == null ||
+            coTravelerValidIdUrl.trim().isEmpty ||
+            coTravelerSelfieUrl == null ||
+            coTravelerSelfieUrl.trim().isEmpty) {
+          throw Exception(
+            'Co-traveler signature, valid ID, and selfie are required when adding a co-traveler',
+          );
+        }
       }
 
       final cleanDestination = dropoffLocation?.trim() ?? '';
@@ -2591,7 +2595,16 @@ class BookingService {
   }
 
   /// Approve booking (operator action)
-  Future<void> approveBooking(String bookingId, String operatorNotes) async {
+  Future<void> approveBooking(
+    String bookingId,
+    String operatorNotes, {
+    double? dailyDestinationSurcharge,
+    double? destinationFee,
+    String? destinationFeeNotes,
+    double? updatedTotalPrice,
+    double? updatedRentalSubtotal,
+    double? updatedPrincipalTotalPrice,
+  }) async {
     try {
       debugPrint('Approving booking: $bookingId');
       final operatorId = supabase.auth.currentUser?.id;
@@ -2599,14 +2612,34 @@ class BookingService {
         throw Exception('Operator is not authenticated');
       }
 
+      final updatePayload = <String, dynamic>{
+        'operator_notes': operatorNotes,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      if (dailyDestinationSurcharge != null) {
+        updatePayload['daily_destination_surcharge'] = dailyDestinationSurcharge;
+      }
+      if (destinationFee != null) {
+        updatePayload['destination_fee'] = destinationFee;
+      }
+      if (destinationFeeNotes != null && destinationFeeNotes.trim().isNotEmpty) {
+        updatePayload['destination_fee_notes'] = destinationFeeNotes.trim();
+      }
+      if (updatedTotalPrice != null) {
+        updatePayload['total_price'] = updatedTotalPrice;
+      }
+      if (updatedRentalSubtotal != null) {
+        updatePayload['rental_subtotal'] = updatedRentalSubtotal;
+      }
+      if (updatedPrincipalTotalPrice != null) {
+        updatePayload['principal_total_price'] = updatedPrincipalTotalPrice;
+      }
+
       // Keep every approval entry point behind finalizeBooking so a
       // driver-required reservation cannot bypass assignment/acceptance.
       await supabase
           .from('bookings')
-          .update({
-            'operator_notes': operatorNotes,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
+          .update(updatePayload)
           .eq('id', bookingId);
       await finalizeBooking(bookingId: bookingId, operatorId: operatorId);
 

@@ -55,6 +55,19 @@
 	<string>This app needs your location to help you find nearby cars.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>This app needs your location to help you find nearby cars.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Mobilis needs camera access so you can take photos of your driver's license, government ID, vehicle documents, and profile picture.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Mobilis needs access to your photo library so you can upload documents, receipts, and profile photos.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Mobilis needs microphone access for video capture if recording vehicle inspection videos.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>http</string>
+		<string>tel</string>
+		<string>mailto</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

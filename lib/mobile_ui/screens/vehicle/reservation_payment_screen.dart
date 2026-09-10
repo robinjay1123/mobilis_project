@@ -1344,6 +1344,31 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                       height: 1.3,
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.lightbulb_outline_rounded, size: 14, color: Color(0xFF3B82F6)),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Recommended: Lock in your vehicle with the ₱1,000 reservation fee. Once the operator reviews your destination and confirms the final daily rate, your remaining balance will be updated for settlement upon vehicle handover.',
+                            style: TextStyle(
+                              color: isDark ? Colors.white70 : const Color(0xFF1E3A8A),
+                              fontSize: 10.5,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1356,19 +1381,49 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF10B981)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Full Payment Mode: Paying Principal Rent + Refundable Security Deposit upfront (No reservation fee required).',
-                      style: TextStyle(
-                        color: isDark ? Colors.white70 : const Color(0xFF065F46),
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        height: 1.3,
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF10B981)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Full Payment Mode: Paying Principal Rent + Refundable Security Deposit upfront (No reservation fee required).',
+                          style: TextStyle(
+                            color: isDark ? Colors.white70 : const Color(0xFF065F46),
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.3,
+                          ),
+                        ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, size: 14, color: Colors.amber),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Notice for Full Payment: You are paying the base rental in full. If the operator assigns a daily destination surcharge upon route review, that additional balance (₱/day × rental days) will be collected upon vehicle handover / pickup.',
+                            style: TextStyle(
+                              color: isDark ? Colors.white70 : const Color(0xFF78350F),
+                              fontSize: 10.5,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

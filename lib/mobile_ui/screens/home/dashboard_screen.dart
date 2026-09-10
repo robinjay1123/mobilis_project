@@ -6684,6 +6684,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               amount:
                   '₱${formatAmount(booking['totalCost'] as num, decimalDigits: 0)}',
             ),
+            if (((booking['destination_fee'] ?? booking['destinationFee']) as num?)?.toDouble() != null &&
+                ((booking['destination_fee'] ?? booking['destinationFee']) as num).toDouble() > 0)
+              CostBreakdownRow(
+                label: 'Destination Surcharge (${booking['days'] ?? 1} days)',
+                amount:
+                    '₱${formatAmount(((booking['destination_fee'] ?? booking['destinationFee']) as num).toDouble(), decimalDigits: 0)}',
+              ),
             const CostBreakdownRow(label: 'Insurance', amount: '₱50'),
             CostBreakdownRow(
               label: 'Tax (10%)',
