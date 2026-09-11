@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../utils/pricing_policy.dart';
+import '../../utils/booking_status.dart';
 
 class BookingReturnCountdown extends StatefulWidget {
   const BookingReturnCountdown({
@@ -73,9 +74,27 @@ class _BookingReturnCountdownState extends State<BookingReturnCountdown> {
     final returnedAtRaw = widget.booking['returned_at']?.toString() ??
         widget.booking['returnedAt']?.toString();
     final statusRaw = (widget.booking['status'] ?? widget.booking['rawStatus'] ?? '').toString().toLowerCase();
+    final group = bookingStatusGroup(statusRaw);
 
     final isReturned = returnedAtRaw != null ||
         const {'return_pending_inspection', 'awaiting_completion', 'completed'}.contains(statusRaw);
+
+    final isOngoing = group == BookingStatusGroup.ongoing ||
+        const {
+          'ongoing',
+          'active',
+          'picked_up',
+          'in_progress',
+          'return_pending_inspection',
+          'awaiting_completion',
+          'awaiting_ratings',
+        }.contains(statusRaw);
+
+    // If the booking is not yet on an ongoing trip and not returned (e.g. approved, pending, confirmed),
+    // do not show a return countdown.
+    if (!isOngoing && !isReturned) {
+      return const SizedBox.shrink();
+    }
 
     if (isReturned) {
       return Container(

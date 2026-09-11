@@ -1921,6 +1921,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         group == BookingStatusGroup.ongoing;
   }
 
+  bool _isOngoingBooking(Map<String, dynamic> booking) {
+    final status = (booking['status'] as String? ?? '').toLowerCase();
+    final group = bookingStatusGroup(booking['status']);
+    return group == BookingStatusGroup.ongoing ||
+        status == 'active' ||
+        status == 'ongoing' ||
+        status == 'in_progress' ||
+        status == 'picked_up' ||
+        status == 'return_pending_inspection' ||
+        status == 'awaiting_completion';
+  }
+
   Future<void> _openBookingConversation(Map<String, dynamic> booking) async {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
@@ -13050,7 +13062,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: primaryColor, fontSize: 11),
                       ),
-                      if (_canTrackBooking(booking)) ...[
+                      if (_isOngoingBooking(booking)) ...[
                         const SizedBox(height: 5),
                         FittedBox(
                           fit: BoxFit.scaleDown,
@@ -14999,7 +15011,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             const SizedBox(height: 14),
             UpcomingReleaseCountdownBadge(booking: booking, isDark: isDark),
           ],
-          if (_canTrackBooking(booking)) ...[
+          if (_isOngoingBooking(booking)) ...[
             const SizedBox(height: 14),
             BookingReturnCountdown(booking: booking, lightBackground: !isDark),
           ],
