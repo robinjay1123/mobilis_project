@@ -92,7 +92,6 @@ class TripRatingService {
               model,
               year,
               vehicle_name,
-              image_url,
               transmission,
               fuel_type,
               seats
@@ -140,7 +139,7 @@ class TripRatingService {
           final fetchedVehicle = await supabase
               .from('vehicles')
               .select(
-                'id, owner_id, owner_role, operator_id, brand, model, year, vehicle_name, image_url, transmission, fuel_type, seats',
+                'id, owner_id, owner_role, operator_id, brand, model, year, vehicle_name, transmission, fuel_type, seats',
               )
               .eq('id', rawVehicleId)
               .maybeSingle();
@@ -165,7 +164,7 @@ class TripRatingService {
               final parentV = await supabase
                   .from('vehicles')
                   .select(
-                    'id, owner_id, owner_role, operator_id, brand, model, year, vehicle_name, image_url, transmission, fuel_type, seats',
+                    'id, owner_id, owner_role, operator_id, brand, model, year, vehicle_name, transmission, fuel_type, seats',
                   )
                   .eq('id', parentVId)
                   .maybeSingle();
@@ -758,31 +757,20 @@ class TripRatingService {
       if (mainUrl.isEmpty || vehicleImages.isEmpty) {
         if (vid.isNotEmpty) {
           try {
-            // 1. Fetch from vehicles table
-            final vehicleRow = await supabase
-                .from('vehicles')
-                .select('image_url')
-                .eq('id', vid)
-                .maybeSingle();
-            var fetchedUrl = _normalizeVehicleImageUrl(vehicleRow?['image_url']);
-
-            // 2. If empty, fetch from partner_vehicles table
-            if (fetchedUrl.isEmpty) {
-              try {
-                final pvRow = await supabase
-                    .from('partner_vehicles')
-                    .select('image_url, vehicle_image')
-                    .eq('id', vid)
-                    .maybeSingle();
-                fetchedUrl = _normalizeVehicleImageUrl(pvRow?['image_url'] ?? pvRow?['vehicle_image']);
-              } catch (_) {}
-            }
-
-            if (fetchedUrl.isNotEmpty && mainUrl.isEmpty) {
-              mainUrl = fetchedUrl;
-              target['avatarUrl'] = mainUrl;
-              target['imageUrl'] = mainUrl;
-            }
+            // 1. Fetch fallback photo if present on partner_vehicles
+            try {
+              final pvRow = await supabase
+                  .from('partner_vehicles')
+                  .select('vehicle_photo_url, photo_url')
+                  .eq('id', vid)
+                  .maybeSingle();
+              final fetchedUrl = _normalizeVehicleImageUrl(pvRow?['vehicle_photo_url'] ?? pvRow?['photo_url']);
+              if (fetchedUrl.isNotEmpty && mainUrl.isEmpty) {
+                mainUrl = fetchedUrl;
+                target['avatarUrl'] = mainUrl;
+                target['imageUrl'] = mainUrl;
+              }
+            } catch (_) {}
 
             // 3. Fetch additional images from vehicle_images table
             final imgRows = await supabase

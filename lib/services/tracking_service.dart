@@ -723,8 +723,7 @@ class TrackingService {
                   model,
                   plate_number,
                   vehicle_name,
-                  image_url,
-                  vehicle_images,
+                  vehicle_images(id, image_url, display_order),
                   owner_id,
                   owner:owner_id (id, role)
                 ),
@@ -764,7 +763,6 @@ class TrackingService {
                     model,
                     plate_number,
                     vehicle_name,
-                    image_url,
                     owner_id
                   ),
                   renter:renter_id (id, full_name, email)
@@ -826,8 +824,7 @@ class TrackingService {
                 model,
                 plate_number,
                 vehicle_name,
-                image_url,
-                vehicle_images,
+                vehicle_images(id, image_url, display_order),
                 owner_id,
                 latitude,
                 longitude,
@@ -879,7 +876,6 @@ class TrackingService {
                   model,
                   plate_number,
                   vehicle_name,
-                  image_url,
                   owner_id,
                   latitude,
                   longitude
@@ -1064,12 +1060,12 @@ class TrackingService {
             try {
               vehRows = await supabase
                   .from('vehicles')
-                  .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url, vehicle_images(id, image_url, display_order)')
+                  .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, vehicle_images(id, image_url, display_order)')
                   .inFilter('id', filteredIds);
             } catch (_) {
               vehRows = await supabase
                   .from('vehicles')
-                  .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url')
+                  .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude')
                   .inFilter('id', filteredIds);
             }
             for (final v in List<Map<String, dynamic>>.from(vehRows)) {
@@ -1094,7 +1090,7 @@ class TrackingService {
           try {
             final pVehRows = await supabase
                 .from('partner_vehicles')
-                .select('id, brand, model, plate_number, vehicle_name, partner_id, status, latitude, longitude, image_url')
+                .select('id, brand, model, plate_number, vehicle_name, partner_id, status, latitude, longitude')
                 .inFilter('id', filteredIds);
             for (final pv in List<Map<String, dynamic>>.from(pVehRows)) {
               final brand = pv['brand']?.toString().trim() ?? '';
@@ -1108,7 +1104,7 @@ class TrackingService {
           try {
             final pAppRows = await supabase
                 .from('partner_vehicle_applications')
-                .select('id, brand, model, plate_number, vehicle_name, partner_id, partner_vehicle_id, status, latitude, longitude, photo_url')
+                .select('id, brand, model, plate_number, vehicle_name, partner_id, partner_vehicle_id, application_status, vehicle_photo_url')
                 .inFilter('id', filteredIds);
             for (final pva in List<Map<String, dynamic>>.from(pAppRows)) {
               final brand = pva['brand']?.toString().trim() ?? '';
@@ -1217,7 +1213,7 @@ class TrackingService {
         } catch (_) {
           allVehicles = await supabase
               .from('vehicles')
-              .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url')
+              .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude')
               .not('latitude', 'is', null)
               .not('longitude', 'is', null);
         }
@@ -1266,7 +1262,7 @@ class TrackingService {
         try {
           final allPartnerVehicles = await supabase
               .from('partner_vehicles')
-              .select('id, brand, model, vehicle_name, plate_number, partner_id, status, latitude, longitude, image_url')
+              .select('id, brand, model, vehicle_name, plate_number, partner_id, status, latitude, longitude')
               .not('latitude', 'is', null)
               .not('longitude', 'is', null);
 

@@ -2322,7 +2322,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               operator_id,
               is_partner_vehicle,
               partner_id,
-              image_url,
               vehicle_images(image_url, display_order)
             ),
             renter:renter_id (id, full_name, email, phone),

@@ -2326,7 +2326,7 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, status, renter_id, vehicle_id, driver_id, partner_id, paid_amount, reservation_fee_amount, total_price, total_amount, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+            'id, status, renter_id, vehicle_id, driver_id, partner_id, reservation_fee_amount, total_price, total_amount, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
           )
           .eq('id', bookingId)
           .maybeSingle();
@@ -2691,7 +2691,7 @@ class BookingService {
         final response = await supabase
             .from('bookings')
             .select(
-              'id, status, renter_id, vehicle_id, driver_id, total_price, total_cost, paid_amount, reservation_fee_amount, reservation_payment_type, reservation_payment_covers_total, reservation_payment_reference, reservation_payment_proof_url, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model)',
+              'id, status, renter_id, vehicle_id, driver_id, total_price, total_cost, reservation_fee_amount, reservation_payment_type, reservation_payment_covers_total, reservation_payment_reference, reservation_payment_proof_url, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model)',
             )
             .eq('id', bookingId)
             .maybeSingle();

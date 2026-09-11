@@ -1557,11 +1557,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         try {
           final appRows = await _supabase
               .from('partner_vehicle_applications')
-              .select('id, vehicle_photo_url, photo_url, image_url')
+              .select('id, vehicle_photo_url')
               .inFilter('id', missingAppIds.toList());
           for (final row in List<Map<String, dynamic>>.from(appRows)) {
             final id = row['id']?.toString();
-            final img = _normalizeVehicleImageUrl(row['vehicle_photo_url'] ?? row['photo_url'] ?? row['image_url']);
+            final img = _normalizeVehicleImageUrl(row['vehicle_photo_url']);
             if (id != null && img.isNotEmpty) {
               for (final r in list) {
                 final d = r['data'] is Map ? Map<String, dynamic>.from(r['data'] as Map) : <String, dynamic>{};
@@ -1579,11 +1579,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         try {
           final pvRows = await _supabase
               .from('partner_vehicles')
-              .select('id, vehicle_photo_url, photo_url, image_url')
+              .select('id, vehicle_photo_url, photo_url')
               .inFilter('id', missingPartnerVehIds.toList());
           for (final row in List<Map<String, dynamic>>.from(pvRows)) {
             final id = row['id']?.toString();
-            final img = _normalizeVehicleImageUrl(row['vehicle_photo_url'] ?? row['photo_url'] ?? row['image_url']);
+            final img = _normalizeVehicleImageUrl(row['vehicle_photo_url'] ?? row['photo_url']);
             if (id != null && img.isNotEmpty) {
               for (final r in list) {
                 final d = r['data'] is Map ? Map<String, dynamic>.from(r['data'] as Map) : <String, dynamic>{};
@@ -2290,7 +2290,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               reservation_payment_submitted_at,
               reservation_payment_proof_url,
               reservation_payment_method,
-              paid_amount,
               refund_status,
               refund_processed_at,
               refund_phone,
@@ -23237,7 +23236,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             try {
               final vRows = await _supabase
                   .from('vehicles')
-                  .select('id, brand, model, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order)')
+                  .select('id, brand, model, vehicle_name, plate_number, vehicle_images(image_url, display_order)')
                   .inFilter('id', fetchVehicleIds);
               for (final v in List<Map<String, dynamic>>.from(vRows)) {
                 final id = v['id']?.toString() ?? '';
@@ -23247,7 +23246,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               try {
                 final vRows = await _supabase
                     .from('vehicles')
-                    .select('id, brand, model, vehicle_name, plate_number, image_url')
+                    .select('id, brand, model, vehicle_name, plate_number')
                     .inFilter('id', fetchVehicleIds);
                 for (final v in List<Map<String, dynamic>>.from(vRows)) {
                   final id = v['id']?.toString() ?? '';
@@ -23266,7 +23265,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             try {
               final pvRows = await _supabase
                   .from('partner_vehicles')
-                  .select('id, brand, model, vehicle_name, plate_number, image_url')
+                  .select('id, brand, model, vehicle_name, plate_number')
                   .inFilter('id', partnerIdsToFetch);
               for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
                 final id = pv['id']?.toString() ?? '';

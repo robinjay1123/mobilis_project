@@ -503,7 +503,7 @@ class ChatService {
             final vehicleRows = await supabase
                 .from('vehicles')
                 .select(
-                  'id, brand, model, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order)',
+                  'id, brand, model, vehicle_name, plate_number, vehicle_images(image_url, display_order)',
                 )
                 .inFilter('id', vehicleIds);
             for (final v in List<Map<String, dynamic>>.from(vehicleRows)) {
@@ -514,7 +514,7 @@ class ChatService {
             try {
               final vehicleRows = await supabase
                   .from('vehicles')
-                  .select('id, brand, model, vehicle_name, plate_number, image_url')
+                  .select('id, brand, model, vehicle_name, plate_number')
                   .inFilter('id', vehicleIds);
               for (final v in List<Map<String, dynamic>>.from(vehicleRows)) {
                 final vid = v['id']?.toString() ?? '';
@@ -534,7 +534,7 @@ class ChatService {
             try {
               final pvRows = await supabase
                   .from('partner_vehicles')
-                  .select('id, brand, model, vehicle_name, plate_number, image_url')
+                  .select('id, brand, model, vehicle_name, plate_number')
                   .inFilter('id', allPartnerIds);
               for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
                 final vid = pv['id']?.toString() ?? '';
