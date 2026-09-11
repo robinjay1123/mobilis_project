@@ -12175,6 +12175,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   await BookingService().rejectExtensionPayment(
                     bookingId: bookingId,
                     reviewerId: operatorId,
+                    reviewerRole: 'operator',
                     reason: reasonController.text.trim(),
                   );
                   if (mounted) {

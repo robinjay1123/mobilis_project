@@ -5350,7 +5350,7 @@ class BookingService {
           0.0;
 
       final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle, booking);
 
       await safeUpdateBooking(bookingId, {
         'extension_requested_end_at': newEndAt.toIso8601String(),
@@ -5568,22 +5568,122 @@ class BookingService {
     );
   }
 
-  bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) {
+  bool _isPartnerBookingVehicle(
+    Map<String, dynamic> vehicle, [
+    Map<String, dynamic>? booking,
+  ]) {
     final ownerRole = vehicle['owner_role']?.toString().toLowerCase().trim();
     if (ownerRole == 'partner') return true;
+
+    final source = vehicle['source']?.toString().toLowerCase().trim();
+    if (source == 'partner') return true;
+
+    if (vehicle['is_partner_vehicle'] == true) return true;
+
+    final partnerVehicleId = vehicle['partner_vehicle_id']?.toString().trim();
+    if (partnerVehicleId != null && partnerVehicleId.isNotEmpty) return true;
+
+    final partnerName = vehicle['partner_name']?.toString().trim();
+    if (partnerName != null && partnerName.isNotEmpty) return true;
+
+    final partnerId = vehicle['partner_id']?.toString().trim();
+    if (partnerId != null && partnerId.isNotEmpty) return true;
+
     final owner = vehicle['owner'] as Map<String, dynamic>?;
     final role = owner?['role']?.toString().toLowerCase().trim();
     if (role == 'partner') return true;
-    final partnerId = vehicle['partner_id']?.toString().trim();
-    if (partnerId != null && partnerId.isNotEmpty) return true;
-    final ownerId = vehicle['owner_id']?.toString().trim();
-    return ownerId != null &&
-        ownerId.isNotEmpty &&
-        ownerRole != 'operator' &&
-        ownerRole != 'admin';
+
+    if (booking != null) {
+      if (booking['is_partner_booking'] == true) return true;
+      if (booking['is_partner_vehicle'] == true) return true;
+      final bPartnerId = booking['partner_id']?.toString().trim();
+      if (bPartnerId != null && bPartnerId.isNotEmpty) return true;
+      final bPartnerVehicleId =
+          booking['partner_vehicle_id']?.toString().trim();
+      if (bPartnerVehicleId != null && bPartnerVehicleId.isNotEmpty) return true;
+    }
+
+    return false;
   }
 
-  /// Accept an extension request (Partner for partner vehicle, Operator for operator vehicle).
+  /// Verifies whether the actor is the sole partner owner of this partner-owned vehicle.
+  Future<bool> _isPartnerVehicleOwner({
+    required Map<String, dynamic> booking,
+    required Map<String, dynamic> vehicle,
+    required String actorId,
+  }) async {
+    final trimmedActorId = actorId.trim();
+    if (trimmedActorId.isEmpty) return false;
+
+    final possibleOwnerIds = <String>{};
+
+    void addId(dynamic id) {
+      final s = id?.toString().trim();
+      if (s != null && s.isNotEmpty) {
+        possibleOwnerIds.add(s);
+      }
+    }
+
+    addId(booking['partner_id']);
+    addId(booking['owner_id']);
+    addId(vehicle['partner_id']);
+    addId(vehicle['owner_id']);
+    addId((vehicle['owner'] as Map?)?['id']);
+    addId((vehicle['owner'] as Map?)?['user_id']);
+    addId((vehicle['partner'] as Map?)?['id']);
+    addId((vehicle['partner'] as Map?)?['user_id']);
+    addId((vehicle['partners'] as Map?)?['id']);
+    addId((vehicle['partners'] as Map?)?['user_id']);
+
+    if (possibleOwnerIds.contains(trimmedActorId)) {
+      return true;
+    }
+
+    // Check if actorId matches a partner record id or user_id in the partners table
+    try {
+      final partnerRecord = await supabase
+          .from('partners')
+          .select('id, user_id')
+          .or('id.eq.$trimmedActorId,user_id.eq.$trimmedActorId')
+          .maybeSingle();
+
+      if (partnerRecord != null) {
+        final pId = partnerRecord['id']?.toString().trim();
+        final uId = partnerRecord['user_id']?.toString().trim();
+        if (pId != null && possibleOwnerIds.contains(pId)) return true;
+        if (uId != null && possibleOwnerIds.contains(uId)) return true;
+      }
+    } catch (e) {
+      debugPrint('Error verifying partner ownership in _isPartnerVehicleOwner: $e');
+    }
+
+    return false;
+  }
+
+  /// Resolves the user's role if not explicitly provided.
+  Future<String> _resolveReviewerRole({
+    required String actorId,
+    String? explicitRole,
+  }) async {
+    final role = explicitRole?.trim().toLowerCase();
+    if (role != null && role.isNotEmpty) return role;
+
+    if (actorId.trim().isEmpty) return 'operator';
+
+    try {
+      final userRow = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', actorId.trim())
+          .maybeSingle();
+      final uRole = userRow?['role']?.toString().trim().toLowerCase();
+      if (uRole != null && uRole.isNotEmpty) return uRole;
+    } catch (_) {}
+
+    return 'operator';
+  }
+
+  /// Accept an extension request (Partner owner for partner vehicle, Operator/Admin for company vehicle).
   Future<void> acceptTripExtension({
     required String bookingId,
     String? reviewerId,
@@ -5591,19 +5691,42 @@ class BookingService {
     String? reviewerRole,
   }) async {
     final effectiveReviewerId = reviewerId ?? operatorId ?? '';
-    final effectiveRole = reviewerRole ?? (operatorId != null ? 'operator' : 'partner');
+    final effectiveRole = await _resolveReviewerRole(
+      actorId: effectiveReviewerId,
+      explicitRole: reviewerRole ?? (operatorId != null ? 'operator' : null),
+    );
 
     try {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
 
       final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle, booking);
 
-      if (isPartnerVehicle && effectiveRole == 'operator') {
-        throw Exception(
-          'Operator cannot accept extension for a Partner-owned vehicle. Only the Partner can accept.',
-        );
+      if (isPartnerVehicle) {
+        if (effectiveRole == 'operator') {
+          throw Exception(
+            'Operator cannot accept extension for a Partner-owned vehicle. Only the Partner owner can accept.',
+          );
+        }
+        if (effectiveRole == 'partner') {
+          final isOwner = await _isPartnerVehicleOwner(
+            booking: booking,
+            vehicle: vehicle,
+            actorId: effectiveReviewerId,
+          );
+          if (!isOwner) {
+            throw Exception(
+              'Only the partner who owns this vehicle can accept this trip extension.',
+            );
+          }
+        }
+      } else {
+        if (effectiveRole == 'partner') {
+          throw Exception(
+            'Partner cannot accept extension for a company-owned vehicle. Only the Operator or Admin can accept.',
+          );
+        }
       }
 
       final addPrice =
@@ -5701,7 +5824,7 @@ class BookingService {
     }
   }
 
-  /// Verify extension payment (Operator for operator vehicle, Partner for partner vehicle).
+  /// Verify extension payment (Operator/Admin for company vehicle, Partner owner for partner vehicle).
   Future<void> verifyExtensionPayment({
     required String bookingId,
     required String verifierId,
@@ -5711,13 +5834,38 @@ class BookingService {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
 
-      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+      final effectiveRole = await _resolveReviewerRole(
+        actorId: verifierId,
+        explicitRole: verifierRole,
+      );
 
-      if (isPartnerVehicle && verifierRole == 'operator') {
-        throw Exception(
-          'Operator cannot verify payment for a Partner-owned vehicle. Only the Partner can verify.',
-        );
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle, booking);
+
+      if (isPartnerVehicle) {
+        if (effectiveRole == 'operator') {
+          throw Exception(
+            'Operator cannot verify payment for a Partner-owned vehicle. Only the Partner owner can verify.',
+          );
+        }
+        if (effectiveRole == 'partner') {
+          final isOwner = await _isPartnerVehicleOwner(
+            booking: booking,
+            vehicle: vehicle,
+            actorId: verifierId,
+          );
+          if (!isOwner) {
+            throw Exception(
+              'Only the partner who owns this vehicle can verify this extension payment.',
+            );
+          }
+        }
+      } else {
+        if (effectiveRole == 'partner') {
+          throw Exception(
+            'Partner cannot verify payment for a company-owned vehicle. Only the Operator or Admin can verify.',
+          );
+        }
       }
 
       await supabase
@@ -5751,7 +5899,7 @@ class BookingService {
     }
   }
 
-  /// Verify cash or on-desk payment for trip extension (Operator or Partner).
+  /// Verify cash or on-desk payment for trip extension (Operator/Admin for company vehicle, Partner owner for partner vehicle).
   Future<void> verifyCashExtensionPayment({
     required String bookingId,
     required String verifierId,
@@ -5762,13 +5910,38 @@ class BookingService {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
 
-      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+      final effectiveRole = await _resolveReviewerRole(
+        actorId: verifierId,
+        explicitRole: verifierRole,
+      );
 
-      if (isPartnerVehicle && verifierRole == 'operator') {
-        throw Exception(
-          'Operator cannot verify payment for a Partner-owned vehicle. Only the Partner can verify.',
-        );
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle, booking);
+
+      if (isPartnerVehicle) {
+        if (effectiveRole == 'operator') {
+          throw Exception(
+            'Operator cannot verify payment for a Partner-owned vehicle. Only the Partner owner can verify.',
+          );
+        }
+        if (effectiveRole == 'partner') {
+          final isOwner = await _isPartnerVehicleOwner(
+            booking: booking,
+            vehicle: vehicle,
+            actorId: verifierId,
+          );
+          if (!isOwner) {
+            throw Exception(
+              'Only the partner who owns this vehicle can verify this extension payment.',
+            );
+          }
+        }
+      } else {
+        if (effectiveRole == 'partner') {
+          throw Exception(
+            'Partner cannot verify payment for a company-owned vehicle. Only the Operator or Admin can verify.',
+          );
+        }
       }
 
       final effectiveRef = reference?.trim().isNotEmpty == true
@@ -5812,11 +5985,49 @@ class BookingService {
   Future<void> rejectExtensionPayment({
     required String bookingId,
     String? reviewerId,
+    String? reviewerRole,
     String? reason,
   }) async {
     try {
       final effectiveReviewerId =
           reviewerId ?? supabase.auth.currentUser?.id ?? '';
+      final effectiveRole = await _resolveReviewerRole(
+        actorId: effectiveReviewerId,
+        explicitRole: reviewerRole,
+      );
+
+      final booking = await getBookingById(bookingId);
+      if (booking == null) throw Exception('Booking not found');
+
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle, booking);
+
+      if (isPartnerVehicle) {
+        if (effectiveRole == 'operator') {
+          throw Exception(
+            'Operator cannot reject payment for a Partner-owned vehicle. Only the Partner owner can reject.',
+          );
+        }
+        if (effectiveRole == 'partner') {
+          final isOwner = await _isPartnerVehicleOwner(
+            booking: booking,
+            vehicle: vehicle,
+            actorId: effectiveReviewerId,
+          );
+          if (!isOwner) {
+            throw Exception(
+              'Only the partner who owns this vehicle can reject this extension payment.',
+            );
+          }
+        }
+      } else {
+        if (effectiveRole == 'partner') {
+          throw Exception(
+            'Partner cannot reject payment for a company-owned vehicle. Only the Operator or Admin can reject.',
+          );
+        }
+      }
+
       final rejectionReason = reason?.trim().isNotEmpty == true
           ? reason!.trim()
           : 'Payment proof could not be verified. Please upload a clear and valid receipt.';
@@ -5862,13 +6073,38 @@ class BookingService {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
 
-      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+      final effectiveRole = await _resolveReviewerRole(
+        actorId: finalizerId,
+        explicitRole: finalizerRole,
+      );
 
-      if (isPartnerVehicle && finalizerRole == 'operator') {
-        throw Exception(
-          'Operator cannot finalize extension for a Partner-owned vehicle. Only the Partner can finalize.',
-        );
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle, booking);
+
+      if (isPartnerVehicle) {
+        if (effectiveRole == 'operator') {
+          throw Exception(
+            'Operator cannot finalize extension for a Partner-owned vehicle. Only the Partner owner can finalize.',
+          );
+        }
+        if (effectiveRole == 'partner') {
+          final isOwner = await _isPartnerVehicleOwner(
+            booking: booking,
+            vehicle: vehicle,
+            actorId: finalizerId,
+          );
+          if (!isOwner) {
+            throw Exception(
+              'Only the partner who owns this vehicle can finalize this trip extension.',
+            );
+          }
+        }
+      } else {
+        if (effectiveRole == 'partner') {
+          throw Exception(
+            'Partner cannot finalize extension for a company-owned vehicle. Only the Operator or Admin can finalize.',
+          );
+        }
       }
 
       final newEndAtRaw = booking['extension_requested_end_at']?.toString();
@@ -5960,32 +6196,42 @@ class BookingService {
     Map<String, dynamic>? cachedBooking,
   }) async {
     final effectiveReviewerId = reviewerId ?? operatorId ?? '';
-    final effectiveRole =
-        reviewerRole ?? (operatorId != null ? 'operator' : 'partner');
+    final effectiveRole = await _resolveReviewerRole(
+      actorId: effectiveReviewerId,
+      explicitRole: reviewerRole ?? (operatorId != null ? 'operator' : null),
+    );
 
     try {
-      Map<String, dynamic>? booking = cachedBooking;
-      if (booking == null) {
-        final response = await supabase
-            .from('bookings')
-            .select(
-              '*, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
-            )
-            .eq('id', bookingId)
-            .maybeSingle();
-        if (response != null) {
-          booking = Map<String, dynamic>.from(response);
-        }
-      }
+      final booking = cachedBooking ?? await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
 
       final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle, booking);
 
-      if (isPartnerVehicle && effectiveRole == 'operator') {
-        throw Exception(
-          'Operator cannot reject extension for a Partner-owned vehicle. Only the Partner can reject.',
-        );
+      if (isPartnerVehicle) {
+        if (effectiveRole == 'operator') {
+          throw Exception(
+            'Operator cannot reject extension for a Partner-owned vehicle. Only the Partner owner can reject.',
+          );
+        }
+        if (effectiveRole == 'partner') {
+          final isOwner = await _isPartnerVehicleOwner(
+            booking: booking,
+            vehicle: vehicle,
+            actorId: effectiveReviewerId,
+          );
+          if (!isOwner) {
+            throw Exception(
+              'Only the partner who owns this vehicle can reject this trip extension.',
+            );
+          }
+        }
+      } else {
+        if (effectiveRole == 'partner') {
+          throw Exception(
+            'Partner cannot reject extension for a company-owned vehicle. Only the Operator or Admin can reject.',
+          );
+        }
       }
 
       final payStatus =
