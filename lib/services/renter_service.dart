@@ -42,7 +42,7 @@ class RenterService {
       final response = await supabase.from('renters').insert({
         'id': userId,
         'user_id': userId,
-        'rating': 5.0,
+        'rating': 0.0,
         'rating_count': 0,
         'created_at': DateTime.now().toIso8601String(),
       }).select();

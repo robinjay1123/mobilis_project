@@ -3751,6 +3751,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               'owner_is_driver': application['owner_is_driver'] ?? false,
               'owner_name': partnerName,
               'owner_role': 'partner',
+              'rating': 0.0,
+              'rating_count': 0,
               'is_available': true,
               'is_posted': true,
               'status': 'available',
@@ -4077,7 +4079,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'is_available': false,
             'verification_status': 'verified',
             'driver_tier': 'standard',
-            'rating': 5.0,
+            'rating': 0.0,
             'total_trips': 0,
           });
         } else {
@@ -4268,7 +4270,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 'phone': userDetails!['phone'],
               if (userDetails?['location'] != null)
                 'address': userDetails!['location'],
-              'rating': 5.0,
+              'rating': 0.0,
               'rating_count': 0,
               'created_at': DateTime.now().toIso8601String(),
             });
@@ -4339,7 +4341,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'verification_status': 'verified',
             'is_psdc_driver': newStatus,
             'driver_tier': newStatus ? 'psdc' : 'standard',
-            'rating': 5.0,
+            'rating': 0.0,
             'total_trips': 0,
           });
         } catch (insertErr) {
@@ -4354,7 +4356,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'nbi_verified': true,
             'verification_status': 'verified',
             'driver_tier': newStatus ? 'psdc' : 'standard',
-            'rating': 5.0,
+            'rating': 0.0,
             'total_trips': 0,
           });
         }

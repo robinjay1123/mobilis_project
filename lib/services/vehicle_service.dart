@@ -134,9 +134,13 @@ class VehicleService {
     merged['vehicle_images'] = normalizedImages;
     final rawRating = (merged['rating'] as num?)?.toDouble() ?? 0.0;
     final rawCount = (merged['rating_count'] as num?)?.toInt() ?? 0;
-    merged['rating'] = rawRating;
-    // Only use the actual stored count — never fabricate a count of 1.
-    merged['rating_count'] = rawCount;
+    if (rawCount <= 0) {
+      merged['rating'] = 0.0;
+      merged['rating_count'] = 0;
+    } else {
+      merged['rating'] = rawRating;
+      merged['rating_count'] = rawCount;
+    }
 
     // Pick primary image_url — prefer vehicle_images relation, fall back to column
     String? primaryUrl;

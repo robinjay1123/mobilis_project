@@ -714,6 +714,8 @@ class AdminService {
               'owner_is_driver': application['owner_is_driver'] ?? false,
               'owner_name': partnerName,
               'owner_role': 'partner',
+              'rating': 0.0,
+              'rating_count': 0,
               'is_available': true,
               'is_posted': true,
               'status': 'available',

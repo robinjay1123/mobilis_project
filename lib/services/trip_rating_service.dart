@@ -1701,7 +1701,7 @@ class TripRatingService {
       }
 
       if (rows.isEmpty) {
-        // Fallback: check stored rating on vehicles table
+        // Fallback: check stored rating on vehicles table only if actual reviews exist
         try {
           final vRow = await supabase
               .from('vehicles')
@@ -1711,10 +1711,10 @@ class TripRatingService {
           if (vRow != null) {
             final storedRating = (vRow['rating'] as num?)?.toDouble() ?? 0.0;
             final storedCount = (vRow['rating_count'] as num?)?.toInt() ?? 0;
-            if (storedRating > 0) {
+            if (storedCount > 0 && storedRating > 0) {
               return {
                 'average': storedRating,
-                'count': storedCount > 0 ? storedCount : 1,
+                'count': storedCount,
               };
             }
           }
@@ -1793,9 +1793,12 @@ class TripRatingService {
         } else {
           final rawRating = (v['rating'] as num?)?.toDouble() ?? 0.0;
           final rawCount = (v['rating_count'] as num?)?.toInt() ?? 0;
-          if (rawRating > 0) {
+          if (rawCount > 0 && rawRating > 0) {
             v['rating'] = rawRating;
-            v['rating_count'] = rawCount > 0 ? rawCount : 1;
+            v['rating_count'] = rawCount;
+          } else {
+            v['rating'] = 0.0;
+            v['rating_count'] = 0;
           }
         }
       }

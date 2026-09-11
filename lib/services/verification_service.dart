@@ -621,7 +621,7 @@ class VerificationService {
         'license_number': _placeholderLicenseNumber(userId),
         'license_expiry': _placeholderLicenseExpiry,
         'driver_tier': 'standard',
-        'rating': 5.0,
+        'rating': 0.0,
         'total_trips': 0,
       });
     } else {
@@ -668,7 +668,7 @@ class VerificationService {
       if (existingRenter == null) {
         await supabase.from('renters').insert({
           ...payload,
-          'rating': 5.0,
+          'rating': 0.0,
           'rating_count': 0,
           'created_at': DateTime.now().toIso8601String(),
         });

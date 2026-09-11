@@ -13860,7 +13860,7 @@ class _PartnerAssignDriverModalState extends State<_PartnerAssignDriverModal> {
                           final distance =
                               (driver['distance_km'] as num?)?.toDouble();
                           final rating =
-                              (driver['rating'] as num?)?.toDouble() ?? 5.0;
+                              (driver['rating'] as num?)?.toDouble() ?? 0.0;
                           final trips =
                               (driver['total_trips'] as num?)?.toInt() ?? 0;
                           final locationStr = user['location']
@@ -14613,7 +14613,7 @@ class _PartnerEnlargedDriverMapDialogState
                                       final rating =
                                           (driver['rating'] as num?)
                                                   ?.toDouble() ??
-                                              5.0;
+                                              0.0;
                                       final trips =
                                           (driver['total_trips'] as num?)
                                                   ?.toInt() ??

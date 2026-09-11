@@ -3605,7 +3605,7 @@ class BookingService {
               'user_id': uId,
               'verification_status': u['verification_status'] ?? 'verified',
               'driver_tier': 'standard',
-              'rating': 5.0,
+              'rating': 0.0,
               'total_trips': 0,
               'is_available': u['is_available'] ?? true,
               'users': u,

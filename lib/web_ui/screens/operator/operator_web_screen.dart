@@ -29564,6 +29564,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 'is_available': status == 'active',
                 'is_posted': false,
                 'owner_id': currentUserId,
+                'rating': 0.0,
+                'rating_count': 0,
               })
               .select('id')
               .single();
@@ -37172,7 +37174,7 @@ class _OperatorAssignDriverDialogState
                                       _selectedDriverId == driverId;
                                   final rating =
                                       (driver['rating'] as num?)?.toDouble() ??
-                                          5.0;
+                                          0.0;
                                   final trips =
                                       (driver['total_trips'] as num?)?.toInt() ??
                                           0;
@@ -37982,7 +37984,7 @@ class _OperatorEnlargedDriverMapDialogState
                                       final rating =
                                           (driver['rating'] as num?)
                                                   ?.toDouble() ??
-                                              5.0;
+                                              0.0;
                                       final trips =
                                           (driver['total_trips'] as num?)
                                                   ?.toInt() ??
