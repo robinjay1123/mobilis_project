@@ -463,6 +463,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _verificationSearchQuery = '';
   String _applicationTypeFilter = 'all'; // 'all', 'vehicle', 'driver'
   String _applicationSearchQuery = '';
+  bool _revealAllApplicationDocuments = false;
+  bool _revealAllVerificationDocuments = false;
+  final Set<String> _revealedCardIds = {};
   Timer? _verificationsAndApplicationsRefreshTimer;
   Timer? _verificationsRealtimeDebounce;
   RealtimeChannel? _verificationsSubscription;
@@ -12638,6 +12641,53 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _revealAllVerificationDocuments =
+                              !_revealAllVerificationDocuments;
+                        });
+                      },
+                      icon: Icon(
+                        _revealAllVerificationDocuments
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                        size: 16,
+                        color: _revealAllVerificationDocuments
+                            ? Colors.amber
+                            : (isDark ? Colors.white70 : Colors.black87),
+                      ),
+                      label: Text(
+                        _revealAllVerificationDocuments
+                            ? 'Hide All Documents'
+                            : 'Reveal All Documents',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _revealAllVerificationDocuments
+                              ? Colors.amber
+                              : (isDark ? Colors.white70 : Colors.black87),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        side: BorderSide(
+                          color: _revealAllVerificationDocuments
+                              ? Colors.amber.withValues(alpha: 0.6)
+                              : (isDark ? Colors.white24 : Colors.grey.shade300),
+                        ),
+                        backgroundColor: _revealAllVerificationDocuments
+                            ? Colors.amber.withValues(alpha: 0.12)
+                            : Colors.transparent,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -12868,76 +12918,57 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final isNarrow = constraints.maxWidth < 900;
-                            final cardWidth = isNarrow
-                                ? constraints.maxWidth
-                                : (constraints.maxWidth - 24) / 3;
 
-                            return Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: [
-                                SizedBox(
-                                  width: cardWidth,
-                                  child: _buildDetailCard(
-                                    'Price Per Day',
-                                    'PHP ${pricePerDay.toStringAsFixed(0)}',
-                                    isDark,
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: cardWidth,
-                                  child: _buildDetailCard(
-                                    'Price Per Hour',
-                                    'PHP ${pricePerHour.toStringAsFixed(0)}',
-                                    isDark,
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: cardWidth,
-                                  child: _buildDetailCard(
-                                    'Submitted',
-                                    _formatDate(submittedAt),
-                                    isDark,
-                                  ),
-                                ),
-                                if (orUrl.isNotEmpty)
-                                  SizedBox(
-                                    width: cardWidth,
-                                    child: _buildDocumentPreview(
-                                      title: 'OR Document',
-                                      url: orUrl,
-                                      isDark: isDark,
-                                      context: context,
-                                    ),
-                                  ),
-                                if (crUrl.isNotEmpty)
-                                  SizedBox(
-                                    width: cardWidth,
-                                    child: _buildDocumentPreview(
-                                      title: 'CR Document',
-                                      url: crUrl,
-                                      isDark: isDark,
-                                      context: context,
-                                    ),
-                                  ),
-                                if (vehiclePhotoUrl.isNotEmpty)
-                                  SizedBox(
-                                    width: cardWidth,
-                                    child: _buildDocumentPreview(
-                                      title: 'Vehicle Photo',
-                                      url: vehiclePhotoUrl,
-                                      isDark: isDark,
-                                      context: context,
-                                    ),
-                                  ),
-                              ],
-                            );
-                          },
+                        // Specs Collage Grid
+                        _buildSpecsCollageGrid([
+                          AdminSpecItem(
+                            label: 'Price Per Day',
+                            value: 'PHP ${pricePerDay.toStringAsFixed(0)}',
+                            icon: Icons.payments_outlined,
+                            highlightColor: Colors.green,
+                          ),
+                          AdminSpecItem(
+                            label: 'Price Per Hour',
+                            value: 'PHP ${pricePerHour.toStringAsFixed(0)}',
+                            icon: Icons.access_time_rounded,
+                            highlightColor: Colors.teal,
+                          ),
+                          AdminSpecItem(
+                            label: 'Submitted',
+                            value: _formatDate(submittedAt),
+                            icon: Icons.calendar_today_rounded,
+                          ),
+                        ], isDark, maxColumns: 3),
+
+                        // Documents & Media Collage
+                        _buildDocumentAndMediaCollage(
+                          context: context,
+                          cardId: 'vehicle_verif_${record['id']}',
+                          title: 'Vehicle Documents & Photo Inspection',
+                          items: [
+                            AdminCollageItem(
+                              title: 'OR Document',
+                              url: orUrl,
+                              subtitle: 'Official Receipt',
+                              placeholderIcon: Icons.description_outlined,
+                            ),
+                            AdminCollageItem(
+                              title: 'CR Document',
+                              url: crUrl,
+                              subtitle: 'Certificate of Registration',
+                              placeholderIcon: Icons.badge_outlined,
+                            ),
+                            AdminCollageItem(
+                              title: 'Vehicle Photo',
+                              url: vehiclePhotoUrl,
+                              subtitle: 'Listing Photo Proof',
+                              placeholderIcon: Icons.directions_car_outlined,
+                            ),
+                          ],
+                          isDark: isDark,
+                          isGlobalRevealed: _revealAllVerificationDocuments,
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
                         Row(
                           children: [
                             FilledButton.icon(
@@ -13138,6 +13169,53 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             ),
                           ),
                         ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _revealAllApplicationDocuments =
+                              !_revealAllApplicationDocuments;
+                        });
+                      },
+                      icon: Icon(
+                        _revealAllApplicationDocuments
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                        size: 16,
+                        color: _revealAllApplicationDocuments
+                            ? Colors.amber
+                            : (isDark ? Colors.white70 : Colors.black87),
+                      ),
+                      label: Text(
+                        _revealAllApplicationDocuments
+                            ? 'Hide All Documents'
+                            : 'Reveal All Documents',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _revealAllApplicationDocuments
+                              ? Colors.amber
+                              : (isDark ? Colors.white70 : Colors.black87),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        side: BorderSide(
+                          color: _revealAllApplicationDocuments
+                              ? Colors.amber.withValues(alpha: 0.6)
+                              : (isDark ? Colors.white24 : Colors.grey.shade300),
+                        ),
+                        backgroundColor: _revealAllApplicationDocuments
+                            ? Colors.amber.withValues(alpha: 0.12)
+                            : Colors.transparent,
                       ),
                     ),
                   ],
@@ -13761,91 +13839,55 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   },
                 ),
 
-                const SizedBox(height: 24),
-                Text(
-                  'DRIVER DOCUMENT INSPECTION (TAP IMAGE TO ZOOM / INSPECT)',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.1,
-                    color: isDark ? Colors.white54 : Colors.grey.shade600,
-                  ),
-                ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 20),
 
-                // 3. Document Proof Inspection Grid
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isNarrow = constraints.maxWidth < 800;
-                    final cardWidth = isNarrow
-                        ? constraints.maxWidth
-                        : (constraints.maxWidth - 36) / 4;
-
-                    final docList = <Widget>[
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildDocumentPreview(
-                          title: 'Driver License (Front)',
-                          url: idFrontUrl,
-                          isDark: isDark,
-                          context: context,
-                        ),
+                // 3. Document Proof Inspection Collage
+                _buildDocumentAndMediaCollage(
+                  context: context,
+                  cardId: 'driver_app_${record['id']}',
+                  title: 'Driver Documents & Identification Gallery',
+                  items: [
+                    AdminCollageItem(
+                      title: 'Driver License (Front)',
+                      url: idFrontUrl,
+                      subtitle: 'Official Driver License',
+                      placeholderIcon: Icons.badge_outlined,
+                    ),
+                    AdminCollageItem(
+                      title: 'Driver License (Back)',
+                      url: idBackUrl,
+                      subtitle: 'License Restrictions & Serial',
+                      placeholderIcon: Icons.badge_outlined,
+                    ),
+                    AdminCollageItem(
+                      title: 'Face Selfie (Liveness)',
+                      url: faceSelfieUrl,
+                      subtitle: 'Facial Verification',
+                      placeholderIcon: Icons.face_rounded,
+                    ),
+                    AdminCollageItem(
+                      title: 'Selfie Holding License',
+                      url: selfieWithIdUrl,
+                      subtitle: 'Identity Verification Proof',
+                      placeholderIcon: Icons.portrait_rounded,
+                    ),
+                    if (driverSignatureUrl.isNotEmpty)
+                      AdminCollageItem(
+                        title: 'Digital Signature',
+                        url: driverSignatureUrl,
+                        subtitle: 'Driver Signature',
+                        placeholderIcon: Icons.draw_rounded,
                       ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildDocumentPreview(
-                          title: 'Driver License (Back)',
-                          url: idBackUrl,
-                          isDark: isDark,
-                          context: context,
-                        ),
+                    if (driverNbiUrl.isNotEmpty)
+                      AdminCollageItem(
+                        title: 'NBI Clearance Proof',
+                        url: driverNbiUrl,
+                        subtitle: 'Background Check Clearance',
+                        placeholderIcon: Icons.verified_outlined,
                       ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildDocumentPreview(
-                          title: 'Face Selfie (Liveness)',
-                          url: faceSelfieUrl,
-                          isDark: isDark,
-                          context: context,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildDocumentPreview(
-                          title: 'Selfie Holding License',
-                          url: selfieWithIdUrl,
-                          isDark: isDark,
-                          context: context,
-                        ),
-                      ),
-                      if (driverSignatureUrl.isNotEmpty)
-                        SizedBox(
-                          width: cardWidth,
-                          child: _buildDocumentPreview(
-                            title: 'Digital Signature',
-                            url: driverSignatureUrl,
-                            isDark: isDark,
-                            context: context,
-                          ),
-                        ),
-                      if (driverNbiUrl.isNotEmpty)
-                        SizedBox(
-                          width: cardWidth,
-                          child: _buildDocumentPreview(
-                            title: 'NBI Clearance Proof',
-                            url: driverNbiUrl,
-                            isDark: isDark,
-                            context: context,
-                          ),
-                        ),
-                    ];
-
-                    return Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: docList,
-                    );
-                  },
+                  ],
+                  isDark: isDark,
+                  isGlobalRevealed: _revealAllApplicationDocuments,
                 ),
               ],
             ),
@@ -13887,39 +13929,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 final photoUrls = List<String>.from(
                   (record['photo_urls'] as List?) ?? const <String>[],
                 );
-                final detailPairs = <MapEntry<String, String>>[
-                  MapEntry(
-                    'Price Per Day',
-                    'PHP ${((record['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                  ),
-                  MapEntry(
-                    'Price Per Hour',
-                    'PHP ${((record['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                  ),
-                  MapEntry('Seats', record['seats']?.toString() ?? 'N/A'),
-                  MapEntry(
-                    'Fuel Type',
-                    record['fuel_type']?.toString() ?? 'N/A',
-                  ),
-                  MapEntry(
-                    'Transmission',
-                    record['transmission']?.toString() ?? 'N/A',
-                  ),
-                  MapEntry(
-                    'Driver Setup',
-                    record['owner_is_driver'] == true
-                        ? 'Owner will drive'
-                        : 'Vehicle only',
-                  ),
-                  MapEntry(
-                    'Submitted',
-                    _formatDate(record['created_at']?.toString() ?? ''),
-                  ),
-                  MapEntry(
-                    'Application Status',
-                    record['application_status']?.toString() ?? 'pending',
-                  ),
-                ];
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 16),
@@ -13965,96 +13974,93 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               : Colors.grey.shade800,
                         ),
                       ),
-                      if (photoUrls.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          height: 150,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: photoUrls.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(width: 12),
-                            itemBuilder: (context, index) => InkWell(
-                              onTap: () => _showImageLightbox(
-                                context,
-                                'Vehicle Photo ${index + 1}',
-                                photoUrls[index],
-                                isDark,
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(14),
-                                child: Container(
-                                  width: 220,
-                                  color: isDark
-                                      ? AppColors.darkBg
-                                      : Colors.grey.shade100,
-                                  child: OptimizedNetworkImage(
-                                    imageUrl: photoUrls[index],
-                                    fit: BoxFit.cover,
-                                    errorWidget: const Center(
-                                      child: Icon(
-                                        Icons.image_not_supported_outlined,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
+                      const SizedBox(height: 14),
+
+                      // 1. Details & Specs Collage Grid
+                      _buildSpecsCollageGrid([
+                        AdminSpecItem(
+                          label: 'Price Per Day',
+                          value:
+                              'PHP ${((record['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                          icon: Icons.payments_outlined,
+                          highlightColor: Colors.green,
+                        ),
+                        AdminSpecItem(
+                          label: 'Price Per Hour',
+                          value:
+                              'PHP ${((record['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                          icon: Icons.access_time_rounded,
+                          highlightColor: Colors.teal,
+                        ),
+                        AdminSpecItem(
+                          label: 'Seats',
+                          value: record['seats']?.toString() ?? 'N/A',
+                          icon: Icons.airline_seat_recline_normal_rounded,
+                        ),
+                        AdminSpecItem(
+                          label: 'Fuel Type',
+                          value: record['fuel_type']?.toString() ?? 'N/A',
+                          icon: Icons.local_gas_station_rounded,
+                        ),
+                        AdminSpecItem(
+                          label: 'Transmission',
+                          value: record['transmission']?.toString() ?? 'N/A',
+                          icon: Icons.settings_rounded,
+                        ),
+                        AdminSpecItem(
+                          label: 'Driver Setup',
+                          value: record['owner_is_driver'] == true
+                              ? 'Owner will drive'
+                              : 'Vehicle only',
+                          icon: Icons.person_pin_rounded,
+                        ),
+                        AdminSpecItem(
+                          label: 'Submitted',
+                          value: _formatDate(record['created_at']?.toString() ?? ''),
+                          icon: Icons.calendar_today_rounded,
+                        ),
+                        AdminSpecItem(
+                          label: 'Application Status',
+                          value: record['application_status']?.toString() ?? 'pending',
+                          icon: Icons.info_outline_rounded,
+                          highlightColor: record['application_status'] == 'approved'
+                              ? Colors.green
+                              : (record['application_status'] == 'rejected'
+                                  ? Colors.red
+                                  : Colors.orange),
+                        ),
+                      ], isDark, maxColumns: 4),
+
+                      // 2. Documents & Media Collage
+                      _buildDocumentAndMediaCollage(
+                        context: context,
+                        cardId: 'vehicle_app_${record['id']}',
+                        title: 'Vehicle Documents & Gallery',
+                        items: [
+                          AdminCollageItem(
+                            title: 'OR Document',
+                            url: record['or_document_url']?.toString(),
+                            subtitle: 'Official Receipt',
+                            placeholderIcon: Icons.description_outlined,
+                          ),
+                          AdminCollageItem(
+                            title: 'CR Document',
+                            url: record['cr_document_url']?.toString(),
+                            subtitle: 'Certificate of Registration',
+                            placeholderIcon: Icons.badge_outlined,
+                          ),
+                          ...List.generate(
+                            photoUrls.length,
+                            (i) => AdminCollageItem(
+                              title: 'Vehicle Photo ${i + 1}',
+                              url: photoUrls[i],
+                              subtitle: i == 0 ? 'Featured Photo' : 'Gallery Image',
+                              placeholderIcon: Icons.directions_car_outlined,
                             ),
                           ),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final isNarrow = constraints.maxWidth < 900;
-                          final cardWidth = isNarrow
-                              ? constraints.maxWidth
-                              : (constraints.maxWidth - 24) / 3;
-                          return Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              ...detailPairs.map(
-                                (detail) => SizedBox(
-                                  width: cardWidth,
-                                  child: _buildDetailCard(
-                                    detail.key,
-                                    detail.value,
-                                    isDark,
-                                  ),
-                                ),
-                              ),
-                              if ((record['or_document_url'] ?? '')
-                                  .toString()
-                                  .isNotEmpty)
-                                SizedBox(
-                                  width: cardWidth,
-                                  child: _buildDocumentPreview(
-                                    title: 'OR Document',
-                                    url:
-                                        record['or_document_url']?.toString() ??
-                                        '',
-                                    isDark: isDark,
-                                    context: context,
-                                  ),
-                                ),
-                              if ((record['cr_document_url'] ?? '')
-                                  .toString()
-                                  .isNotEmpty)
-                                SizedBox(
-                                  width: cardWidth,
-                                  child: _buildDocumentPreview(
-                                    title: 'CR Document',
-                                    url:
-                                        record['cr_document_url']?.toString() ??
-                                        '',
-                                    isDark: isDark,
-                                    context: context,
-                                  ),
-                                ),
-                            ],
-                          );
-                        },
+                        ],
+                        isDark: isDark,
+                        isGlobalRevealed: _revealAllApplicationDocuments,
                       ),
                       const SizedBox(height: 14),
                       Wrap(
@@ -14852,87 +14858,55 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   },
                 ),
 
-                const SizedBox(height: 24),
-                Text(
-                  'DOCUMENT VERIFICATION INSPECTION (TAP IMAGE TO ZOOM / INSPECT)',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.1,
-                    color: isDark ? Colors.white54 : Colors.grey.shade600,
-                  ),
-                ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 20),
 
-                // 3. Document Proof Inspection Grid
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isNarrow = constraints.maxWidth < 800;
-                    final cardWidth = isNarrow
-                        ? constraints.maxWidth
-                        : (constraints.maxWidth - 36) / 4;
-
-                    final docList = <Widget>[
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildDocumentPreview(
-                          title: 'ID Card (Front)',
-                          url: idFrontUrl,
-                          isDark: isDark,
-                          context: context,
-                        ),
+                // 3. Document Proof Inspection Collage
+                _buildDocumentAndMediaCollage(
+                  context: context,
+                  cardId: 'verif_${record['id']}',
+                  title: 'Identity Verification & Proof Documents',
+                  items: [
+                    AdminCollageItem(
+                      title: 'ID Card (Front)',
+                      url: idFrontUrl,
+                      subtitle: idType.isNotEmpty ? idType : 'Front Photo',
+                      placeholderIcon: Icons.badge_outlined,
+                    ),
+                    AdminCollageItem(
+                      title: 'ID Card (Back)',
+                      url: idBackUrl,
+                      subtitle: 'Back Photo',
+                      placeholderIcon: Icons.badge_outlined,
+                    ),
+                    AdminCollageItem(
+                      title: 'Face Selfie (Liveness)',
+                      url: faceSelfieUrl,
+                      subtitle: 'Facial Verification',
+                      placeholderIcon: Icons.face_rounded,
+                    ),
+                    AdminCollageItem(
+                      title: 'Selfie Holding ID',
+                      url: selfieWithIdUrl,
+                      subtitle: 'Proof of Possession',
+                      placeholderIcon: Icons.portrait_rounded,
+                    ),
+                    if (driverSignatureUrl.isNotEmpty)
+                      AdminCollageItem(
+                        title: 'Digital Signature',
+                        url: driverSignatureUrl,
+                        subtitle: 'Signature Record',
+                        placeholderIcon: Icons.draw_rounded,
                       ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildDocumentPreview(
-                          title: 'ID Card (Back)',
-                          url: idBackUrl,
-                          isDark: isDark,
-                          context: context,
-                        ),
+                    if (driverNbiUrl.isNotEmpty)
+                      AdminCollageItem(
+                        title: 'NBI Clearance',
+                        url: driverNbiUrl,
+                        subtitle: 'Official Clearance',
+                        placeholderIcon: Icons.verified_outlined,
                       ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildDocumentPreview(
-                          title: 'Face Selfie (Liveness)',
-                          url: faceSelfieUrl,
-                          isDark: isDark,
-                          context: context,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildDocumentPreview(
-                          title: 'Selfie Holding ID',
-                          url: selfieWithIdUrl,
-                          isDark: isDark,
-                          context: context,
-                        ),
-                      ),
-                      if (driverSignatureUrl.isNotEmpty)
-                        SizedBox(
-                          width: cardWidth,
-                          child: _buildDocumentPreview(
-                            title: 'Digital Signature',
-                            url: driverSignatureUrl,
-                            isDark: isDark,
-                            context: context,
-                          ),
-                        ),
-                      if (driverNbiUrl.isNotEmpty)
-                        SizedBox(
-                          width: cardWidth,
-                          child: _buildDocumentPreview(
-                            title: 'NBI Clearance',
-                            url: driverNbiUrl,
-                            isDark: isDark,
-                            context: context,
-                          ),
-                        ),
-                    ];
-
-                    return Wrap(spacing: 12, runSpacing: 12, children: docList);
-                  },
+                  ],
+                  isDark: isDark,
+                  isGlobalRevealed: _revealAllVerificationDocuments,
                 ),
 
                 const SizedBox(height: 20),
@@ -14989,6 +14963,762 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSpecsCollageGrid(
+    List<AdminSpecItem> specs,
+    bool isDark, {
+    int minColumns = 2,
+    int maxColumns = 4,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        int columns = maxColumns;
+        if (width < 600) {
+          columns = 1;
+        } else if (width < 900) {
+          columns = minColumns.clamp(1, 2);
+        } else if (width < 1200) {
+          columns = 3.clamp(minColumns, maxColumns);
+        } else {
+          columns = maxColumns;
+        }
+
+        const spacing = 10.0;
+        final totalSpacing = spacing * (columns - 1);
+        final itemWidth = (width - totalSpacing) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: specs.map((spec) {
+            return SizedBox(
+              width: itemWidth,
+              child: _buildDetailCard(
+                spec.label,
+                spec.value,
+                isDark,
+                icon: spec.icon,
+                highlightColor: spec.highlightColor,
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildDocumentAndMediaCollage({
+    required BuildContext context,
+    required String cardId,
+    required String title,
+    required List<AdminCollageItem> items,
+    required bool isDark,
+    required bool isGlobalRevealed,
+  }) {
+    final validItems = items.where((e) => e.hasUrl).toList();
+    final isCardRevealed = isGlobalRevealed || _revealedCardIds.contains(cardId);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0D1B2A) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Collage Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.grey.shade100,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.collections_bookmark_rounded,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${validItems.length} of ${items.length} submitted',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Local Reveal / Hide toggle
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      if (_revealedCardIds.contains(cardId)) {
+                        _revealedCardIds.remove(cardId);
+                      } else {
+                        _revealedCardIds.add(cardId);
+                      }
+                    });
+                  },
+                  icon: Icon(
+                    isCardRevealed
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    size: 15,
+                    color: isCardRevealed
+                        ? Colors.amber
+                        : (isDark ? Colors.white70 : Colors.black87),
+                  ),
+                  label: Text(
+                    isCardRevealed ? 'Hide All' : 'Reveal All',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isCardRevealed
+                          ? Colors.amber
+                          : (isDark ? Colors.white70 : Colors.black87),
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+                if (validItems.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  FilledButton.tonalIcon(
+                    onPressed: () => _showCollageGalleryLightbox(
+                      context,
+                      validItems,
+                      0,
+                      isDark,
+                    ),
+                    icon: const Icon(Icons.fullscreen_rounded, size: 16),
+                    label: const Text(
+                      'Full Gallery',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Collage Grid
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                int columns = 3;
+                if (width < 600) {
+                  columns = 1;
+                } else if (width < 960) {
+                  columns = 2;
+                } else {
+                  columns = 3;
+                }
+
+                const spacing = 12.0;
+                final totalSpacing = spacing * (columns - 1);
+                final tileWidth = (width - totalSpacing) / columns;
+
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: items.map((item) {
+                    return SizedBox(
+                      width: tileWidth,
+                      child: _buildCollageTile(
+                        context: context,
+                        item: item,
+                        allValidItems: validItems,
+                        itemIndexInValid: validItems.indexOf(item),
+                        isRevealed: isCardRevealed,
+                        isDark: isDark,
+                        cardId: cardId,
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCollageTile({
+    required BuildContext context,
+    required AdminCollageItem item,
+    required List<AdminCollageItem> allValidItems,
+    required int itemIndexInValid,
+    required bool isRevealed,
+    required bool isDark,
+    required String cardId,
+  }) {
+    final hasUrl = item.hasUrl;
+    final localKey = '${cardId}_${item.title}';
+    final isLocallyRevealed =
+        isRevealed || _revealedCardIds.contains(localKey);
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black26 : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Tile Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.grey.shade100,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        item.title,
+                        style: TextStyle(
+                          fontSize: 11,
+                          letterSpacing: 0.3,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? Colors.grey.shade300
+                              : Colors.grey.shade800,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (item.subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          item.subtitle!,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isDark
+                                ? Colors.white38
+                                : Colors.grey.shade600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (hasUrl) ...[
+                  IconButton(
+                    icon: const Icon(Icons.open_in_new_rounded, size: 14),
+                    tooltip: 'Open in new tab',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    splashRadius: 16,
+                    color: isDark ? Colors.white60 : Colors.grey.shade700,
+                    onPressed: () => _openUrl(item.url!),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Media Area
+          AspectRatio(
+            aspectRatio: 16 / 10,
+            child: !hasUrl
+                ? Container(
+                    color: isDark ? Colors.black38 : Colors.grey.shade200,
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          item.placeholderIcon,
+                          size: 28,
+                          color:
+                              isDark ? Colors.white24 : Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Not submitted',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color:
+                                isDark ? Colors.white38 : Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : isLocallyRevealed
+                    ? InkWell(
+                        onTap: () {
+                          final idx =
+                              itemIndexInValid >= 0 ? itemIndexInValid : 0;
+                          _showCollageGalleryLightbox(
+                            context,
+                            allValidItems,
+                            idx,
+                            isDark,
+                          );
+                        },
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            OptimizedNetworkImage(
+                              imageUrl: item.url!,
+                              fit: BoxFit.cover,
+                              isThumbnail: false,
+                              errorWidget: Container(
+                                color: isDark
+                                    ? Colors.black45
+                                    : Colors.grey.shade200,
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.broken_image_outlined,
+                                    size: 28,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Container(
+                                padding: const EdgeInsets.all(5),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Icon(
+                                  Icons.zoom_in_rounded,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : Material(
+                        color: isDark ? Colors.black38 : Colors.grey.shade100,
+                        child: InkWell(
+                          onTap: () {
+                            setState(() {
+                              _revealedCardIds.add(localKey);
+                            });
+                          },
+                          child: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary
+                                          .withValues(alpha: 0.15),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.visibility_rounded,
+                                      size: 20,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Tap to inspect',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'or click Reveal All',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isDark
+                                          ? Colors.white38
+                                          : Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+          ),
+
+          // Indicator Bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  hasUrl ? Icons.check_circle_rounded : Icons.cancel_outlined,
+                  size: 13,
+                  color: hasUrl ? Colors.green : Colors.grey.shade500,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    hasUrl ? 'Document uploaded' : 'Missing document',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: hasUrl
+                          ? (isDark
+                              ? Colors.green.shade300
+                              : Colors.green.shade700)
+                          : (isDark ? Colors.white38 : Colors.grey.shade600),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCollageGalleryLightbox(
+    BuildContext context,
+    List<AdminCollageItem> items,
+    int initialIndex,
+    bool isDark,
+  ) {
+    if (items.isEmpty) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        int currentIndex = initialIndex.clamp(0, items.length - 1);
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final currentItem = items[currentIndex];
+            final screenHeight = MediaQuery.of(context).size.height;
+            final screenWidth = MediaQuery.of(context).size.width;
+            final maxDialogWidth = (screenWidth * 0.85).clamp(400.0, 1000.0);
+            final maxDialogHeight = (screenHeight * 0.88).clamp(450.0, 850.0);
+
+            return Dialog(
+              backgroundColor:
+                  isDark ? const Color(0xFF021F35) : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                  color: AppColors.primary.withValues(alpha: 0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: Container(
+                width: maxDialogWidth,
+                height: maxDialogHeight,
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  children: [
+                    // Lightbox Header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      currentItem.title,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 17,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary
+                                          .withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      '${currentIndex + 1} of ${items.length}',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (currentItem.subtitle != null) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  currentItem.subtitle!,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark
+                                        ? Colors.white60
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            if (currentItem.hasUrl)
+                              IconButton(
+                                icon: const Icon(Icons.open_in_new_rounded),
+                                tooltip: 'Open in browser',
+                                onPressed: () => _openUrl(currentItem.url!),
+                              ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded),
+                              tooltip: 'Close',
+                              onPressed: () => Navigator.of(dialogContext).pop(),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Image Viewer with InteractiveViewer + Left/Right arrows
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            height: double.infinity,
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.black38
+                                  : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isDark
+                                    ? AppColors.borderColor
+                                    : Colors.grey.shade300,
+                              ),
+                            ),
+                            child: InteractiveViewer(
+                              panEnabled: true,
+                              minScale: 0.5,
+                              maxScale: 4.0,
+                              child: Center(
+                                child: OptimizedNetworkImage(
+                                  imageUrl: currentItem.url ?? '',
+                                  fit: BoxFit.contain,
+                                  isThumbnail: false,
+                                  errorWidget: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.broken_image_outlined,
+                                          size: 48,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Unable to display image',
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? Colors.white54
+                                                : Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Left navigation button
+                          if (currentIndex > 0)
+                            Positioned(
+                              left: 12,
+                              top: 0,
+                              bottom: 0,
+                              child: Center(
+                                child: Material(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  shape: const CircleBorder(),
+                                  child: IconButton(
+                                    icon: const Icon(
+                                      Icons.chevron_left_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
+                                    onPressed: () {
+                                      setModalState(() {
+                                        currentIndex--;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          // Right navigation button
+                          if (currentIndex < items.length - 1)
+                            Positioned(
+                              right: 12,
+                              top: 0,
+                              bottom: 0,
+                              child: Center(
+                                child: Material(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  shape: const CircleBorder(),
+                                  child: IconButton(
+                                    icon: const Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
+                                    onPressed: () {
+                                      setModalState(() {
+                                        currentIndex++;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+
+                    // Bottom Thumbnail Strip
+                    if (items.length > 1) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 56,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: items.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(width: 8),
+                          itemBuilder: (context, idx) {
+                            final isSelected = idx == currentIndex;
+                            final itm = items[idx];
+                            return InkWell(
+                              onTap: () {
+                                setModalState(() {
+                                  currentIndex = idx;
+                                });
+                              },
+                              child: Container(
+                                width: 56,
+                                height: 56,
+                                clipBehavior: Clip.antiAlias,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : (isDark
+                                            ? Colors.white24
+                                            : Colors.grey.shade300),
+                                    width: isSelected ? 2 : 1,
+                                  ),
+                                ),
+                                child: OptimizedNetworkImage(
+                                  imageUrl: itm.url ?? '',
+                                  fit: BoxFit.cover,
+                                  isThumbnail: true,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -21450,4 +22180,34 @@ class _AdminCheckModalState extends State<_AdminCheckModal>
       ),
     );
   }
+}
+
+class AdminSpecItem {
+  final String label;
+  final String value;
+  final IconData? icon;
+  final Color? highlightColor;
+
+  const AdminSpecItem({
+    required this.label,
+    required this.value,
+    this.icon,
+    this.highlightColor,
+  });
+}
+
+class AdminCollageItem {
+  final String title;
+  final String? url;
+  final String? subtitle;
+  final IconData placeholderIcon;
+
+  const AdminCollageItem({
+    required this.title,
+    this.url,
+    this.subtitle,
+    this.placeholderIcon = Icons.insert_drive_file_outlined,
+  });
+
+  bool get hasUrl => (url ?? '').trim().isNotEmpty;
 }

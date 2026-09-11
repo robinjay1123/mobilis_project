@@ -58,6 +58,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
   bool _autoFollow = true;
   bool _isPinging = false;
   bool _isSimulating = false;
+  bool _isSheetMinimized = false;
   double _zoom = 15.0;
   MobilisMapStyle _mapStyle = MobilisMapStyle.street;
 
@@ -404,14 +405,24 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
 
     try {
       final bounds = LatLngBounds.fromPoints(points);
+      final bottomPadding = _isSheetMinimized ? 95.0 : 240.0;
       _mapController.fitCamera(
         CameraFit.bounds(
           bounds: bounds,
-          padding: const EdgeInsets.fromLTRB(40, 160, 40, 240),
+          padding: EdgeInsets.fromLTRB(40, 160, 40, bottomPadding),
         ),
       );
       setState(() => _autoFollow = false);
     } catch (_) {}
+  }
+
+  void _toggleMinimizeSheet() {
+    setState(() {
+      _isSheetMinimized = !_isSheetMinimized;
+    });
+    if (_isSheetMinimized) {
+      _fitRouteBounds();
+    }
   }
 
   Future<void> _triggerRadarPing() async {
@@ -1632,6 +1643,11 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
                             });
                           },
                         ),
+                        const SizedBox(height: 10),
+                        _buildCircleButton(
+                          icon: Icons.alt_route_rounded,
+                          onTap: _fitRouteBounds,
+                        ),
                         const SizedBox(height: 20),
                         Container(
                           decoration: BoxDecoration(
@@ -1956,119 +1972,720 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
     required String updatedAt,
     String? renterAvatarUrl,
   }) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF082A4C),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white12),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black54,
-            blurRadius: 18,
-            offset: Offset(0, 4),
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SizeTransition(
+            sizeFactor: animation,
+            axisAlignment: 1.0,
+            child: child,
           ),
-        ],
-      ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.58,
+        );
+      },
+      child: _isSheetMinimized
+          ? _buildMinimizedSheetBar(
+              key: const ValueKey('minimized_tracking_sheet'),
+              renterName: renterName,
+              vehicleName: vehicleName,
+              plateNumber: plateNumber,
+              renterAvatarUrl: renterAvatarUrl,
+              motionStatusLabel: motionStatusLabel,
+              motionColor: motionColor,
+              speedKph: speedKph,
+            )
+          : _buildExpandedSheet(
+              key: const ValueKey('expanded_tracking_sheet'),
+              renterName: renterName,
+              vehicleName: vehicleName,
+              plateNumber: plateNumber,
+              destination: destination,
+              speedKph: speedKph,
+              speedMph: speedMph,
+              motionStatusLabel: motionStatusLabel,
+              motionColor: motionColor,
+              heading: heading,
+              updatedAt: updatedAt,
+              renterAvatarUrl: renterAvatarUrl,
+            ),
+    );
+  }
+
+  Widget _buildMinimizedSheetBar({
+    Key? key,
+    required String renterName,
+    required String vehicleName,
+    required String plateNumber,
+    required String? renterAvatarUrl,
+    required String motionStatusLabel,
+    required Color motionColor,
+    required int speedKph,
+  }) {
+    return GestureDetector(
+      key: key,
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragEnd: (details) {
+        if (details.primaryVelocity != null && details.primaryVelocity! < -80) {
+          _toggleMinimizeSheet();
+        }
+      },
+      onTap: _toggleMinimizeSheet,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF082A4C),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.white12),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black54,
+              blurRadius: 16,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Center(
-                child: Container(
-                  width: 44,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 38,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: Colors.white30,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-
-              // RENTER & VEHICLE HEADER
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Renter Avatar
-                  InkWell(
-                    onTap: _showRenterContactModal,
-                    borderRadius: BorderRadius.circular(99),
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.primary, width: 2),
-                        color: const Color(0xFF15395A),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                // Renter Avatar
+                InkWell(
+                  onTap: _showRenterContactModal,
+                  borderRadius: BorderRadius.circular(99),
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.primary, width: 1.5),
+                      color: const Color(0xFF15395A),
+                    ),
+                    child: ClipOval(
+                      child: renterAvatarUrl != null &&
+                              renterAvatarUrl.isNotEmpty
+                          ? Image.network(
+                              renterAvatarUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => const Icon(
+                                Icons.person,
+                                color: AppColors.textPrimary,
+                                size: 20,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.person,
+                              color: AppColors.textPrimary,
+                              size: 20,
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // Renter & Vehicle info (tap to expand)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              renterName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          const Icon(Icons.star,
+                              color: AppColors.primary, size: 12),
+                          const SizedBox(width: 2),
+                          const Text(
+                            '4.9',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
-                      child: ClipOval(
-                        child: renterAvatarUrl != null &&
-                                renterAvatarUrl.isNotEmpty
-                            ? Image.network(
-                                renterAvatarUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Icon(
+                      const SizedBox(height: 2),
+                      Text(
+                        plateNumber.isNotEmpty
+                            ? '$vehicleName • $plateNumber'
+                            : vehicleName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Motion status badge
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: motionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: motionColor.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: motionColor,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        speedKph > 0 ? '$speedKph km/h' : 'Parked',
+                        style: TextStyle(
+                          color: motionColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                // Fit Route shortcut button
+                InkWell(
+                  onTap: _fitRouteBounds,
+                  borderRadius: BorderRadius.circular(99),
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.alt_route_rounded,
+                      color: AppColors.primary,
+                      size: 18,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                // Expand icon button
+                InkWell(
+                  onTap: _toggleMinimizeSheet,
+                  borderRadius: BorderRadius.circular(99),
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.keyboard_arrow_up_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpandedSheet({
+    Key? key,
+    required String renterName,
+    required String vehicleName,
+    required String plateNumber,
+    required String destination,
+    required int speedKph,
+    required double speedMph,
+    required String motionStatusLabel,
+    required Color motionColor,
+    required String heading,
+    required String updatedAt,
+    String? renterAvatarUrl,
+  }) {
+    return GestureDetector(
+      key: key,
+      behavior: HitTestBehavior.deferToChild,
+      onVerticalDragEnd: (details) {
+        if (details.primaryVelocity != null && details.primaryVelocity! > 80) {
+          _toggleMinimizeSheet();
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF082A4C),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white12),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black54,
+              blurRadius: 18,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.58,
+          ),
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Top Header Row with Fit Route, Centered Handle, and Minimize Button
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggleMinimizeSheet,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      children: [
+                        // Fit Route shortcut button
+                        InkWell(
+                          onTap: _fitRouteBounds,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: AppColors.primary.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  Icons.alt_route_rounded,
+                                  color: AppColors.primary,
+                                  size: 14,
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Fit Route',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        // Center Drag Pill
+                        Container(
+                          width: 44,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.white30,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        const Spacer(),
+                        // Minimize Button
+                        InkWell(
+                          onTap: _toggleMinimizeSheet,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  color: Colors.white70,
+                                  size: 16,
+                                ),
+                                SizedBox(width: 3),
+                                Text(
+                                  'Minimize',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+
+                // RENTER & VEHICLE HEADER
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Renter Avatar
+                    InkWell(
+                      onTap: _showRenterContactModal,
+                      borderRadius: BorderRadius.circular(99),
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border:
+                              Border.all(color: AppColors.primary, width: 2),
+                          color: const Color(0xFF15395A),
+                        ),
+                        child: ClipOval(
+                          child: renterAvatarUrl != null &&
+                                  renterAvatarUrl.isNotEmpty
+                              ? Image.network(
+                                  renterAvatarUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => const Icon(
+                                    Icons.person,
+                                    color: AppColors.textPrimary,
+                                    size: 24,
+                                  ),
+                                )
+                              : const Icon(
                                   Icons.person,
                                   color: AppColors.textPrimary,
                                   size: 24,
                                 ),
-                              )
-                            : const Icon(
-                                Icons.person,
-                                color: AppColors.textPrimary,
-                                size: 24,
-                              ),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
+                    const SizedBox(width: 12),
 
-                  // Renter Info
-                  Expanded(
-                    flex: 5,
-                    child: InkWell(
-                      onTap: _showRenterContactModal,
+                    // Renter Info
+                    Expanded(
+                      flex: 5,
+                      child: InkWell(
+                        onTap: _showRenterContactModal,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Current Renter',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              renterName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.star,
+                                    color: AppColors.primary, size: 13),
+                                SizedBox(width: 3),
+                                Text(
+                                  '4.9 PRO',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // Vehicle Info
+                    Expanded(
+                      flex: 5,
+                      child: InkWell(
+                        onTap: () {
+                          _showVehicleDetailsModal(
+                            vehicleName: vehicleName,
+                            plateNumber: plateNumber,
+                          );
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Vehicle',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              vehicleName,
+                              textAlign: TextAlign.right,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (plateNumber.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  plateNumber,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.right,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // METRICS ROW
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF071E2D),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () =>
+                              _loadTrackingLocation(showLoader: false),
+                          child: _buildMetric(
+                            label: 'SPEED',
+                            value: '$speedKph km/h',
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => _showTelemetryStatusModal(
+                            motionStatusLabel: motionStatusLabel,
+                            motionColor: motionColor,
+                            speedKph: speedKph,
+                            heading: heading,
+                            updatedAt: updatedAt,
+                          ),
+                          child: _buildMetric(
+                            label: 'STATUS',
+                            value: motionStatusLabel.contains('MOVING')
+                                ? 'Moving'
+                                : (motionStatusLabel.contains('SIMULATION')
+                                    ? 'Simulating'
+                                    : 'Parked'),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildMetric(label: 'HEADING', value: heading),
+                      ),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () =>
+                              _loadTrackingLocation(showLoader: false),
+                          child:
+                              _buildMetric(label: 'UPDATED', value: updatedAt),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // DESTINATION ROW
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: _centerDestination,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary
+                                    .withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.location_on_outlined,
+                                color: AppColors.primary,
+                                size: 19,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Destination',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    destination,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    InkWell(
+                      onTap: _copyCoordinates,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           const Text(
-                            'Current Renter',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            'Location',
                             style: TextStyle(
                               color: AppColors.textSecondary,
                               fontSize: 11,
                             ),
                           ),
                           const SizedBox(height: 2),
-                          Text(
-                            renterName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          const Row(
+                          Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.star, color: AppColors.primary, size: 13),
-                              SizedBox(width: 3),
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _resolvedVehiclePoint != null
+                                      ? const Color(0xFF00E676)
+                                      : Colors.grey,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
                               Text(
-                                '4.9 PRO',
+                                _resolvedVehiclePoint != null
+                                    ? 'Live'
+                                    : 'Standby',
                                 style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontSize: 11,
+                                  color: _resolvedVehiclePoint != null
+                                      ? const Color(0xFF00E676)
+                                      : Colors.white70,
+                                  fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -2077,319 +2694,100 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-
-                  // Vehicle Info
-                  Expanded(
-                    flex: 5,
-                    child: InkWell(
-                      onTap: () {
-                        _showVehicleDetailsModal(
-                          vehicleName: vehicleName,
-                          plateNumber: plateNumber,
-                        );
-                      },
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text(
-                            'Vehicle',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 11,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            vehicleName,
-                            textAlign: TextAlign.right,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          if (plateNumber.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1.5,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                plateNumber,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.right,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.4,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              // METRICS ROW
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF071E2D),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white12),
+                  ],
                 ),
-                child: Row(
+                const SizedBox(height: 16),
+
+                // ACTION BUTTONS
+                Row(
                   children: [
                     Expanded(
-                      child: InkWell(
-                        onTap: () => _loadTrackingLocation(showLoader: false),
-                        child: _buildMetric(
-                          label: 'SPEED',
-                          value: '$speedKph km/h',
+                      child: ElevatedButton.icon(
+                        onPressed: _openConversation,
+                        icon:
+                            const Icon(Icons.chat_bubble_outline, size: 18),
+                        label: const Text('Message Renter'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          minimumSize: const Size.fromHeight(46),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _showTelemetryStatusModal(
-                          motionStatusLabel: motionStatusLabel,
-                          motionColor: motionColor,
-                          speedKph: speedKph,
-                          heading: heading,
-                          updatedAt: updatedAt,
+                    const SizedBox(width: 10),
+                    // PING / RADAR BUTTON
+                    InkWell(
+                      onTap: _triggerRadarPing,
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        width: 48,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2A2248),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _isPinging
+                                ? const Color(0xFFFF4F8B)
+                                : const Color(0x55FF4F8B),
+                            width: _isPinging ? 2 : 1,
+                          ),
                         ),
-                        child: _buildMetric(
-                          label: 'STATUS',
-                          value: motionStatusLabel.contains('MOVING')
-                              ? 'Moving'
-                              : (motionStatusLabel.contains('SIMULATION')
-                                  ? 'Simulating'
-                                  : 'Parked'),
+                        child: const Icon(
+                          Icons.podcasts_rounded,
+                          color: Color(0xFFFF4F8B),
+                          size: 22,
                         ),
-                      ),
-                    ),
-                    Expanded(
-                      child: _buildMetric(label: 'HEADING', value: heading),
-                    ),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _loadTrackingLocation(showLoader: false),
-                        child: _buildMetric(label: 'UPDATED', value: updatedAt),
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 14),
+                const SizedBox(height: 10),
 
-              // DESTINATION ROW
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: _centerDestination,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.location_on_outlined,
-                              color: AppColors.primary,
-                              size: 19,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Destination',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  destination,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    height: 1.25,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                // AUDIT ROUTE & PLAYBACK BUTTON
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      final bId =
+                          widget.booking['id']?.toString() ?? '';
+                      if (bId.isNotEmpty) {
+                        TripRouteHistoryScreen.open(
+                          context: context,
+                          bookingId: bId,
+                          vehicleName: vehicleName,
+                          plateNumber: plateNumber,
+                          renterName: renterName,
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.route_rounded,
+                        size: 17, color: AppColors.primary),
+                    label: const Text(
+                      'Audit Traveled Route & GPS Playback',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 13),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  InkWell(
-                    onTap: _copyCoordinates,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        const Text(
-                          'Location',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 11,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 7,
-                              height: 7,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _resolvedVehiclePoint != null
-                                    ? const Color(0xFF00E676)
-                                    : Colors.grey,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              _resolvedVehiclePoint != null ? 'Live' : 'Standby',
-                              style: TextStyle(
-                                color: _resolvedVehiclePoint != null
-                                    ? const Color(0xFF00E676)
-                                    : Colors.white70,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // ACTION BUTTONS
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _openConversation,
-                      icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                      label: const Text('Message Renter'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
-                        minimumSize: const Size.fromHeight(46),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        textStyle: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  // PING / RADAR BUTTON
-                  InkWell(
-                    onTap: _triggerRadarPing,
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      width: 48,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2A2248),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(
+                          color: AppColors.primary, width: 1.5),
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: _isPinging
-                              ? const Color(0xFFFF4F8B)
-                              : const Color(0x55FF4F8B),
-                          width: _isPinging ? 2 : 1,
-                        ),
                       ),
-                      child: const Icon(
-                        Icons.podcasts_rounded,
-                        color: Color(0xFFFF4F8B),
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              // AUDIT ROUTE & PLAYBACK BUTTON
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    final bId = widget.booking['id']?.toString() ?? '';
-                    if (bId.isNotEmpty) {
-                      TripRouteHistoryScreen.open(
-                        context: context,
-                        bookingId: bId,
-                        vehicleName: vehicleName,
-                        plateNumber: plateNumber,
-                        renterName: renterName,
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.route_rounded,
-                      size: 17, color: AppColors.primary),
-                  label: const Text(
-                    'Audit Traveled Route & GPS Playback',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                    side:
-                        const BorderSide(color: AppColors.primary, width: 1.5),
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
