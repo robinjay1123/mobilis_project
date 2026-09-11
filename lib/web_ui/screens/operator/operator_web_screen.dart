@@ -459,6 +459,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _priceRequestFilter = 'all';
   String _priceRequestSearchQuery = '';
   List<Map<String, dynamic>> _trackingLocations = [];
+  bool _isTrackingLoading = true;
   Timer? _trackingRefreshTimer;
   Timer? _notificationsRefreshTimer;
   Timer? _bookingsSilentRefreshTimer;
@@ -1614,50 +1615,110 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Future<void> _loadTrackingLocationsFast() async {
+    if (_trackingLocations.isEmpty && mounted) {
+      setState(() => _isTrackingLoading = true);
+    }
     try {
       final locations = await TrackingService().getActiveTrackingLocations();
-      if (mounted) setState(() => _trackingLocations = locations);
+      if (mounted) {
+        setState(() {
+          _trackingLocations = locations;
+          if (locations.isNotEmpty) {
+            _isTrackingLoading = false;
+          }
+        });
+      }
       TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
         if (!mounted) return;
         final updated = await TrackingService().getActiveTrackingLocations();
-        if (mounted) setState(() => _trackingLocations = updated);
+        if (mounted) {
+          setState(() {
+            _trackingLocations = updated;
+            _isTrackingLoading = false;
+          });
+        }
       }).catchError((e) {
         debugPrint('Background GPS poll error: $e');
+        if (mounted) setState(() => _isTrackingLoading = false);
       });
     } catch (e) {
       debugPrint('Error loading tracking locations: $e');
+    } finally {
+      if (mounted && _trackingLocations.isNotEmpty) {
+        setState(() => _isTrackingLoading = false);
+      }
     }
   }
 
   Future<void> _loadTrackingLocations() async {
+    if (_trackingLocations.isEmpty && mounted) {
+      setState(() => _isTrackingLoading = true);
+    }
     try {
       final locations = await TrackingService().getActiveTrackingLocations();
-      if (mounted) setState(() => _trackingLocations = locations);
+      if (mounted) {
+        setState(() {
+          _trackingLocations = locations;
+          if (locations.isNotEmpty) {
+            _isTrackingLoading = false;
+          }
+        });
+      }
       TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
         if (!mounted) return;
         final updated = await TrackingService().getActiveTrackingLocations();
-        if (mounted) setState(() => _trackingLocations = updated);
+        if (mounted) {
+          setState(() {
+            _trackingLocations = updated;
+            _isTrackingLoading = false;
+          });
+        }
       }).catchError((e) {
         debugPrint('Operator background GPS poll error: $e');
+        if (mounted) setState(() => _isTrackingLoading = false);
       });
     } catch (e) {
       debugPrint('Error loading tracking locations: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isTrackingLoading = false);
+      }
     }
   }
 
-  Future<void> _refreshTrackingLocations() async {
+  Future<void> _refreshTrackingLocations({bool forceLoading = false}) async {
+    if ((_trackingLocations.isEmpty || forceLoading) && mounted) {
+      setState(() => _isTrackingLoading = true);
+    }
     try {
       final locations = await TrackingService().getActiveTrackingLocations();
-      if (mounted) setState(() => _trackingLocations = locations);
+      if (mounted) {
+        setState(() {
+          _trackingLocations = locations;
+          if (locations.isNotEmpty) {
+            _isTrackingLoading = false;
+          }
+        });
+      }
       TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
         if (!mounted) return;
         final updated = await TrackingService().getActiveTrackingLocations();
-        if (mounted) setState(() => _trackingLocations = updated);
+        if (mounted) {
+          setState(() {
+            _trackingLocations = updated;
+            _isTrackingLoading = false;
+          });
+        }
       }).catchError((e) {
         debugPrint('Operator background GPS poll error: $e');
+        if (mounted) setState(() => _isTrackingLoading = false);
       });
     } catch (e) {
       debugPrint('Error refreshing tracking locations: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isTrackingLoading = false);
+      }
     }
   }
 
@@ -5477,7 +5538,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _loadUnreadMessagesCount();
     }
     if (index == 6) {
-      _refreshTrackingLocations();
+      _refreshTrackingLocations(forceLoading: _trackingLocations.isEmpty);
     }
     if (index == 9) {
       _loadPriceChangeRequests();
@@ -5534,7 +5595,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _refreshCurrentSection() async {
     if (_selectedIndex == 6) {
-      await _refreshTrackingLocations();
+      setState(() => _isTrackingLoading = true);
+      await _refreshTrackingLocations(forceLoading: true);
       if (mounted) setState(() {});
       return;
     }
@@ -7873,7 +7935,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       child: _buildCard(
         isFocused
             ? 'Live Tracking (Focused Vehicle / Trip)'
-            : 'Live Tracking (${visibleLocations.length} Vehicles)',
+            : (_isTrackingLoading && visibleLocations.isEmpty
+                ? 'Live Tracking (Fetching GPS Signals...)'
+                : 'Live Tracking (${visibleLocations.length} Vehicles)'),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -7900,7 +7964,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ? (focusedHasActiveBooking
                             ? '🎯 Focused on trip with declared destination route. Click "Show All Vehicles" to reset.'
                             : '🎯 Focused on available vehicle live GPS position. Click "Show All Vehicles" to reset.')
-                        : '💡 Hover over any car icon to view its name, or click any card below to focus on its position.',
+                        : (_isTrackingLoading && visibleLocations.isEmpty
+                            ? '🛰️ Connecting to active GPS trackers and fetching telemetry. Please wait a moment...'
+                            : '💡 Hover over any car icon to view its name, or click any card below to focus on its position.'),
                     style: TextStyle(
                       color: isDark ? Colors.grey[400] : Colors.grey[700],
                       fontSize: 13,
@@ -8005,18 +8071,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     height: 420,
                     width: double.infinity,
                     color: isDark ? AppColors.darkBg : Colors.grey.shade100,
-                    child: mapMarkers.isEmpty
-                        ? Center(
-                            child: Text(
-                              _focusedTrackingBookingId == null
-                                  ? 'No active tracking locations yet'
-                                  : 'No live location yet for this vehicle',
-                              style: TextStyle(
-                                color: isDark ? Colors.grey[400] : Colors.grey[700],
-                              ),
-                            ),
+                    child: (_isTrackingLoading && mapMarkers.isEmpty)
+                        ? _TrackingRadarLoadingView(
+                            isDark: isDark,
+                            accentColor: _operatorGold,
                           )
-                        : MobilisLeafletMap(
+                        : (mapMarkers.isEmpty
+                            ? Center(
+                                child: Text(
+                                  _focusedTrackingBookingId == null
+                                      ? 'No active tracking locations yet'
+                                      : 'No live location yet for this vehicle',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.grey[400] : Colors.grey[700],
+                                  ),
+                                ),
+                              )
+                            : MobilisLeafletMap(
                             key: ValueKey(
                               '${_focusedTrackingBookingId ?? "all"}_' +
                                   mapMarkers
@@ -8048,9 +8119,51 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             initialZoom: isFocused
                                 ? (mapMarkers.length > 1 ? 12 : 15)
                                 : (mapMarkers.length > 1 ? 10 : 14),
-                          ),
+                          )),
                   ),
                 ),
+                if (_isTrackingLoading && mapMarkers.isNotEmpty)
+                  Positioned(
+                    top: 14,
+                    left: 14,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: (isDark ? _operatorNavyDeep : Colors.white).withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: _operatorGold.withValues(alpha: 0.5)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(_operatorGold),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Updating GPS telemetry...',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 if (_focusedTrackingBookingId != null && visibleLocations.isNotEmpty)
                   Builder(
                     builder: (context) {
@@ -8086,7 +8199,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            if (visibleLocations.isEmpty)
+            if (_isTrackingLoading && visibleLocations.isEmpty)
+              _buildTrackingLoadingSkeleton(isDark)
+            else if (visibleLocations.isEmpty)
               Text(
                 'No tracked vehicles or active trips found.',
                 style: TextStyle(
@@ -8101,6 +8216,77 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
         isDark,
       ),
+    );
+  }
+
+  Widget _buildTrackingLoadingSkeleton(bool isDark) {
+    final cardBg = isDark ? const Color(0xFF0A2237) : Colors.white;
+    final borderColor = isDark ? Colors.white10 : Colors.grey.shade200;
+    final shimmerColor = isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade200;
+
+    return Column(
+      children: List.generate(3, (index) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: shimmerColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.directions_car_filled_rounded,
+                  color: isDark ? Colors.white24 : Colors.grey.shade400,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 180,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: shimmerColor,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 260,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: shimmerColor,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                width: 80,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: shimmerColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 
@@ -38308,3 +38494,233 @@ class _OperatorCheckModalState extends State<_OperatorCheckModal>
   }
 }
 
+
+
+class _TrackingRadarLoadingView extends StatefulWidget {
+  final bool isDark;
+  final Color accentColor;
+
+  const _TrackingRadarLoadingView({
+    required this.isDark,
+    required this.accentColor,
+  });
+
+  @override
+  State<_TrackingRadarLoadingView> createState() => _TrackingRadarLoadingViewState();
+}
+
+class _TrackingRadarLoadingViewState extends State<_TrackingRadarLoadingView>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+  late Animation<double> _opacityAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    )..repeat();
+    _pulseAnimation = Tween<double>(begin: 0.7, end: 1.4).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeOutQuad),
+    );
+    _opacityAnimation = Tween<double>(begin: 0.7, end: 0.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeOutQuad),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final accent = widget.accentColor;
+    final bgColor = isDark ? const Color(0xFF031A2C) : const Color(0xFFF1F5F9);
+    final cardBg = isDark ? const Color(0xFF08273E) : Colors.white;
+
+    return Container(
+      width: double.infinity,
+      height: 420,
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CustomPaint(
+            size: const Size(double.infinity, 420),
+            painter: _RadarGridPainter(
+              lineColor: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.black.withValues(alpha: 0.05),
+            ),
+          ),
+          AnimatedBuilder(
+            animation: _pulseController,
+            builder: (context, child) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Transform.scale(
+                    scale: _pulseAnimation.value * 1.35,
+                    child: Container(
+                      width: 140,
+                      height: 140,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: accent.withValues(alpha: _opacityAnimation.value * 0.4),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Transform.scale(
+                    scale: _pulseAnimation.value,
+                    child: Container(
+                      width: 110,
+                      height: 110,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: accent.withValues(alpha: _opacityAnimation.value * 0.12),
+                        border: Border.all(
+                          color: accent.withValues(alpha: _opacityAnimation.value * 0.7),
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  child!,
+                ],
+              );
+            },
+            child: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: cardBg,
+                border: Border.all(color: accent, width: 2.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.35),
+                    blurRadius: 18,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 60,
+                    height: 60,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(accent),
+                    ),
+                  ),
+                  Icon(
+                    Icons.radar_rounded,
+                    size: 32,
+                    color: accent,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 36,
+            left: 24,
+            right: 24,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: (isDark ? const Color(0xFF0F172A) : Colors.white).withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: accent.withValues(alpha: 0.4)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.12),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Color(0xFF10B981),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Fetching live GPS tracker signals...',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Querying satellite telemetry & vehicle GPS units. Please wait a moment...',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RadarGridPainter extends CustomPainter {
+  final Color lineColor;
+
+  _RadarGridPainter({required this.lineColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = lineColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+
+    final center = Offset(size.width / 2, size.height / 2 - 20);
+
+    for (double r = 40; r <= 180; r += 45) {
+      canvas.drawCircle(center, r, paint);
+    }
+
+    canvas.drawLine(Offset(center.dx - 200, center.dy), Offset(center.dx + 200, center.dy), paint);
+    canvas.drawLine(Offset(center.dx, center.dy - 160), Offset(center.dx, center.dy + 160), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RadarGridPainter oldDelegate) =>
+      oldDelegate.lineColor != lineColor;
+}
