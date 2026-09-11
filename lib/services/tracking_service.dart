@@ -2645,6 +2645,72 @@ class TrackingService {
     return fallback;
   }
 
+  /// Fetches the real road route connecting multiple waypoints/stops via OSRM
+  Future<List<Map<String, double>>> getPlannedMultiStopRoadRoute(
+    List<Map<String, double>> stops,
+  ) async {
+    if (stops.isEmpty) return [];
+    if (stops.length == 1) return stops;
+    if (stops.length == 2) {
+      return getPlannedRoadRoute(
+        startLat: stops[0]['latitude']!,
+        startLng: stops[0]['longitude']!,
+        endLat: stops[1]['latitude']!,
+        endLng: stops[1]['longitude']!,
+      );
+    }
+
+    final coordinates = stops
+        .map((s) => '${s['longitude']},${s['latitude']}')
+        .join(';');
+
+    try {
+      final uri = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '$coordinates'
+        '?overview=full&geometries=geojson&steps=false',
+      );
+      final response = await http.get(uri).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        final routes = payload['routes'] as List<dynamic>? ?? const [];
+        if (routes.isNotEmpty) {
+          final first = Map<String, dynamic>.from(routes.first as Map);
+          final geometry = first['geometry'] as Map<String, dynamic>?;
+          final coordinatesList = geometry?['coordinates'] as List<dynamic>?;
+          if (coordinatesList != null && coordinatesList.length >= 2) {
+            return coordinatesList.map((coordinate) {
+              final pair = coordinate as List<dynamic>;
+              return {
+                'latitude': (pair[1] as num).toDouble(),
+                'longitude': (pair[0] as num).toDouble(),
+              };
+            }).toList();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('OSRM multi-stop route fetch: $e');
+    }
+
+    // Fallback: connect consecutive segments pairwise
+    final List<Map<String, double>> combined = [];
+    for (int i = 0; i < stops.length - 1; i++) {
+      final segment = await getPlannedRoadRoute(
+        startLat: stops[i]['latitude']!,
+        startLng: stops[i]['longitude']!,
+        endLat: stops[i + 1]['latitude']!,
+        endLng: stops[i + 1]['longitude']!,
+      );
+      if (combined.isNotEmpty && segment.isNotEmpty) {
+        combined.addAll(segment.skip(1));
+      } else {
+        combined.addAll(segment);
+      }
+    }
+    return combined.isNotEmpty ? combined : stops;
+  }
+
   /// Evaluates whether the vehicle went outside the agreed destination and computes penalties
   Future<Map<String, dynamic>> evaluateTripDestinationCompliance(
     String bookingId,
