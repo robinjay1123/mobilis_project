@@ -65,10 +65,10 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
     _activeMode = widget.mode;
   }
 
-  Future<void> _openCameraToScan() async {
+  Future<void> _openCameraToScan({ImageSource source = ImageSource.camera}) async {
     try {
       final photo = await _imagePicker.pickImage(
-        source: ImageSource.camera,
+        source: source,
         imageQuality: 85,
         preferredCameraDevice: CameraDevice.rear,
       );
@@ -80,7 +80,7 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'QR image captured. Enter the 6-digit PIN shown on the renter pass to verify.',
+              'QR image selected. Enter the 6-digit PIN shown on the renter pass to verify.',
             ),
             backgroundColor: Color(0xFF2563EB),
             duration: Duration(seconds: 3),
@@ -538,11 +538,28 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: _openCameraToScan,
+                              onPressed: () => _openCameraToScan(source: ImageSource.camera),
                               icon: const Icon(Icons.camera_alt, size: 16),
-                              label: const Text('Open Camera'),
+                              label: const Text('Camera'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF2563EB),
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => _openCameraToScan(source: ImageSource.gallery),
+                              icon: const Icon(Icons.photo_library, size: 16),
+                              label: const Text('Upload QR'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF0F172A),
                                 foregroundColor: Colors.white,
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 12),
@@ -558,7 +575,7 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
                               setState(() => _selectedTab = 0);
                             },
                             icon: const Icon(Icons.pin, size: 16),
-                            label: const Text('Use PIN'),
+                            label: const Text('PIN'),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: const Color(0xFF2563EB),
                               side: const BorderSide(
@@ -566,7 +583,7 @@ class _HandoverPinVerifierModalState extends State<HandoverPinVerifierModal> {
                               ),
                               padding: const EdgeInsets.symmetric(
                                 vertical: 12,
-                                horizontal: 14,
+                                horizontal: 10,
                               ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),

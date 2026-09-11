@@ -289,9 +289,77 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     required bool isSelfie,
     bool isCoTraveler = false,
   }) async {
+    final title = isCoTraveler
+        ? (isSelfie ? 'Co-Traveler Selfie' : 'Co-Traveler Valid ID')
+        : (isSelfie ? 'Renter Selfie' : 'Renter Valid ID');
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Select $title Source',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+                title: const Text(
+                  'Take Photo (Camera)',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(
+                  isSelfie
+                      ? 'Capture a live selfie photo'
+                      : 'Take a clear photo of physical ID',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
+                title: const Text(
+                  'Choose from Gallery (Upload)',
+                  style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Upload an existing photo from device',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
     final picker = ImagePicker();
     final file = await picker.pickImage(
-      source: isSelfie ? ImageSource.camera : ImageSource.gallery,
+      source: source,
       imageQuality: 85,
     );
     if (file == null) return;
@@ -5274,7 +5342,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             children: [
               Expanded(
                 child: _buildEvidenceButton(
-                  label: _validIdPhoto == null ? 'Upload valid ID' : 'ID ready',
+                  label: _validIdPhoto == null ? 'Add valid ID' : 'ID ready',
                   icon: Icons.badge_outlined,
                   isReady: _validIdPhoto != null,
                   onTap: () => _pickBookingEvidencePhoto(isSelfie: false),
@@ -5283,7 +5351,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: _buildEvidenceButton(
-                  label: _selfiePhoto == null ? 'Take selfie' : 'Selfie ready',
+                  label: _selfiePhoto == null ? 'Add selfie' : 'Selfie ready',
                   icon: Icons.face_retouching_natural_outlined,
                   isReady: _selfiePhoto != null,
                   onTap: () => _pickBookingEvidencePhoto(isSelfie: true),

@@ -1214,7 +1214,6 @@ class _IdentityVerificationFormScreenState
               cardColor: inputFillColor,
               textColor: textColor,
               hintTextColor: hintTextColor,
-              cameraOnly: true,
             ),
             const SizedBox(height: 16),
             _buildVerificationPhotoSection(
@@ -1227,7 +1226,6 @@ class _IdentityVerificationFormScreenState
               cardColor: inputFillColor,
               textColor: textColor,
               hintTextColor: hintTextColor,
-              cameraOnly: true,
             ),
             const SizedBox(height: 32),
 
@@ -1468,7 +1466,6 @@ class _IdentityVerificationFormScreenState
                   cardColor: inputFillColor,
                   textColor: textColor,
                   hintTextColor: hintTextColor,
-                  cameraOnly: true,
                 ),
                 const SizedBox(height: 14),
                 _buildVerificationPhotoSection(
@@ -1481,7 +1478,6 @@ class _IdentityVerificationFormScreenState
                   cardColor: inputFillColor,
                   textColor: textColor,
                   hintTextColor: hintTextColor,
-                  cameraOnly: true,
                 ),
                 const SizedBox(height: 14),
                 _buildVerificationPhotoSection(
@@ -3241,7 +3237,7 @@ class _IdentityVerificationFormScreenState
                             ImageSource.gallery,
                           ),
                           icon: const Icon(Icons.photo_library),
-                          label: const Text('Change'),
+                          label: const Text('Change Photo'),
                           style: verificationButtonStyle,
                         ),
                     ],
@@ -3291,7 +3287,7 @@ class _IdentityVerificationFormScreenState
                             ImageSource.gallery,
                           ),
                           icon: const Icon(Icons.photo_library),
-                          label: const Text('Upload'),
+                          label: const Text('Upload Photo'),
                           style: verificationButtonStyle,
                         ),
                     ],

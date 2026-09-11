@@ -353,8 +353,73 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       return;
     }
 
+    final docName = docType == 'or'
+        ? 'Official Receipt (OR)'
+        : 'Certificate of Registration (CR)';
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Upload $docName',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+                title: const Text(
+                  'Take Photo (Camera)',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Capture document with camera',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
+                title: const Text(
+                  'Choose from Gallery (Upload)',
+                  style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Select document image from device',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
     final file = await VerificationService.pickImage(
-      source: ImageSource.gallery,
+      source: source,
     );
     if (file == null) return;
 
@@ -368,21 +433,98 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   }
 
   Future<void> _pickVehiclePhotos() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Add Vehicle Photos',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+                title: const Text(
+                  'Take Photo (Camera)',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Capture vehicle photo now',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
+                title: const Text(
+                  'Choose from Gallery (Upload)',
+                  style: TextStyle(color: Colors.white),
+                ),
+                subtitle: const Text(
+                  'Select multiple photos from gallery',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
     final picker = ImagePicker();
-    final pickedFiles = await picker.pickMultiImage(imageQuality: 85);
-    if (pickedFiles.isEmpty) return;
+    if (source == ImageSource.camera) {
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+      );
+      if (pickedFile == null) return;
 
-    final existingPaths = _vehiclePhotoFiles.map((file) => file.path).toSet();
-    final newFiles = pickedFiles
-        .where((file) => !existingPaths.contains(file.path))
-        .map((file) => File(file.path))
-        .toList();
+      final existingPaths = _vehiclePhotoFiles.map((file) => file.path).toSet();
+      if (existingPaths.contains(pickedFile.path)) return;
 
-    if (newFiles.isEmpty) return;
+      setState(() {
+        _vehiclePhotoFiles.add(File(pickedFile.path));
+      });
+    } else {
+      final pickedFiles = await picker.pickMultiImage(imageQuality: 85);
+      if (pickedFiles.isEmpty) return;
 
-    setState(() {
-      _vehiclePhotoFiles.addAll(newFiles);
-    });
+      final existingPaths = _vehiclePhotoFiles.map((file) => file.path).toSet();
+      final newFiles = pickedFiles
+          .where((file) => !existingPaths.contains(file.path))
+          .map((file) => File(file.path))
+          .toList();
+
+      if (newFiles.isEmpty) return;
+
+      setState(() {
+        _vehiclePhotoFiles.addAll(newFiles);
+      });
+    }
   }
 
   Future<void> _handleSubmit() async {
