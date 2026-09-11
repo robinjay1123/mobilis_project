@@ -465,6 +465,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Timer? _countdownTickerTimer;
   Timer? _bookingFlowRefreshDebounce;
   Timer? _conversationFlowRefreshDebounce;
+  bool _hasRepairedSettlements = false;
   RealtimeChannel? _bookingFlowChannel;
   RealtimeChannel? _conversationMessagesChannel;
   Map<String, List<Map<String, dynamic>>> _messages = {};
@@ -1113,7 +1114,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) {
-        if (mounted && (_selectedIndex == 6 || _selectedIndex == 0)) {
+        if (mounted && _selectedIndex == 6) {
           _refreshTrackingLocations();
         }
       },
@@ -1184,10 +1185,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (!mounted) return;
       _bookingFlowRefreshDebounce?.cancel();
       _bookingFlowRefreshDebounce = Timer(
-        const Duration(milliseconds: 350),
+        const Duration(milliseconds: 2500),
         () {
-          _loadDashboardData(showLoading: false);
+          if (!mounted) return;
           _loadRecentBookings();
+          _loadStats();
+          _loadOperatorRevenueBookings();
+          final table = payload.table;
+          if (table == 'vehicles' ||
+              table == 'partner_vehicles' ||
+              table == 'vehicle_applications' ||
+              table == 'partner_vehicle_applications') {
+            _loadVehicles();
+          }
         },
       );
     }
@@ -1254,12 +1264,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'drivers',
-          callback: refreshDashboard,
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'tracking_locations',
           callback: refreshDashboard,
         )
         .onPostgresChanges(
@@ -1391,7 +1395,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Future<void> _loadDashboardData({bool showLoading = true}) async {
     if (showLoading && mounted) setState(() => _isLoading = true);
     try {
-      await Future.wait([
+      final tasks = <Future<void>>[
         _loadOperatorProfile(),
         _loadStats(),
         _loadNotifications(),
@@ -1400,10 +1404,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadVehicles(),
         _loadRecentBookings(),
         _loadOperatorRevenueBookings(),
-        _loadTrackingLocationsFast(),
-      ]);
+      ];
+      if (_selectedIndex == 6) {
+        tasks.add(_loadTrackingLocationsFast());
+      }
+      await Future.wait(tasks);
       await _loadOperatorSettlements();
-      _repairOperatorRevenueSettlements();
+      if (!_hasRepairedSettlements) {
+        _hasRepairedSettlements = true;
+        _repairOperatorRevenueSettlements();
+      }
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
     } finally {

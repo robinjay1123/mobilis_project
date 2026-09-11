@@ -396,6 +396,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   static const int _recentBookingsPerPage = 5;
   RealtimeChannel? _bookingsSubscription;
   Timer? _bookingsSilentRefreshTimer;
+  Timer? _bookingsRealtimeDebounce;
 
   // Vehicles tab & search state
   String _vehicleTabFilter = 'all'; // 'all', 'psdc', 'partner'
@@ -445,6 +446,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _actionLogCategoryFilter = 'all';
   String _actionLogRoleFilter = 'all';
   Timer? _actionLogsRefreshTimer;
+  Timer? _actionLogsRealtimeDebounce;
   RealtimeChannel? _actionLogsSubscription;
 
   // User Reports & Safety State
@@ -462,6 +464,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _applicationTypeFilter = 'all'; // 'all', 'vehicle', 'driver'
   String _applicationSearchQuery = '';
   Timer? _verificationsAndApplicationsRefreshTimer;
+  Timer? _verificationsRealtimeDebounce;
   RealtimeChannel? _verificationsSubscription;
   RealtimeChannel? _applicationsSubscription;
   RealtimeChannel? _driversSubscription;
@@ -567,7 +570,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) {
-        if (mounted && (_selectedIndex == 10 || _selectedIndex == 0)) {
+        if (mounted && _selectedIndex == 10) {
           _refreshTrackingLocations();
         }
       },
@@ -615,7 +618,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   void dispose() {
     _userReportsRefreshTimer?.cancel();
     _bookingsSilentRefreshTimer?.cancel();
+    _bookingsRealtimeDebounce?.cancel();
     _verificationsAndApplicationsRefreshTimer?.cancel();
+    _verificationsRealtimeDebounce?.cancel();
+    _actionLogsRealtimeDebounce?.cancel();
     _bookingsSubscription?.unsubscribe();
     _verificationsSubscription?.unsubscribe();
     _applicationsSubscription?.unsubscribe();
@@ -657,7 +663,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           table: 'bookings',
           callback: (payload) {
             if (mounted) {
-              _loadAllBookings();
+              _bookingsRealtimeDebounce?.cancel();
+              _bookingsRealtimeDebounce = Timer(
+                const Duration(milliseconds: 2000),
+                () {
+                  if (mounted) {
+                    _loadAllBookings();
+                  }
+                },
+              );
             }
           },
         )
@@ -665,17 +679,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   void _setupVerificationsAndApplicationsRealtimeListener() {
+    void handleVerificationOrAppChange(PostgresChangePayload payload) {
+      if (mounted) {
+        _verificationsRealtimeDebounce?.cancel();
+        _verificationsRealtimeDebounce = Timer(
+          const Duration(milliseconds: 2000),
+          () {
+            if (mounted) {
+              _refreshVerificationsAndApplicationsSilently();
+            }
+          },
+        );
+      }
+    }
+
     _verificationsSubscription = _supabase
         .channel('admin-verifications-realtime')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'user_verifications',
-          callback: (payload) {
-            if (mounted) {
-              _refreshVerificationsAndApplicationsSilently();
-            }
-          },
+          callback: handleVerificationOrAppChange,
         )
         .subscribe();
 
@@ -685,11 +709,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'partner_vehicle_applications',
-          callback: (payload) {
-            if (mounted) {
-              _refreshVerificationsAndApplicationsSilently();
-            }
-          },
+          callback: handleVerificationOrAppChange,
         )
         .subscribe();
 
@@ -699,11 +719,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'drivers',
-          callback: (payload) {
-            if (mounted) {
-              _refreshVerificationsAndApplicationsSilently();
-            }
-          },
+          callback: handleVerificationOrAppChange,
         )
         .subscribe();
   }
@@ -908,16 +924,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }
 
       // 2. Non-blocking progressive background hydration for secondary datasets
+      final bgHydrationTasks = <Future<void>>[
+        _loadAllVehicles(),
+        _loadPendingVerifications(),
+        _loadPendingPartnerVehicleApplications(),
+        _loadPendingDriverApplications(),
+        _loadNotifications(showLoading: false),
+        _loadAnnouncements(),
+      ];
+      if (_selectedIndex == 10) {
+        bgHydrationTasks.add(_loadTrackingLocationsFast());
+      }
       unawaited(
-        Future.wait([
-          _loadAllVehicles(),
-          _loadPendingVerifications(),
-          _loadPendingPartnerVehicleApplications(),
-          _loadPendingDriverApplications(),
-          _loadNotifications(showLoading: false),
-          _loadTrackingLocationsFast(),
-          _loadAnnouncements(),
-        ]).then((_) {
+        Future.wait(bgHydrationTasks).then((_) {
           if (mounted) {
             setState(() {
               _pendingApplicationsCount =
@@ -962,25 +981,39 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   void _setupActionLogsRealtimeListener() {
+    void handleActionLogChange(PostgresChangePayload _) {
+      if (mounted) {
+        _actionLogsRealtimeDebounce?.cancel();
+        _actionLogsRealtimeDebounce = Timer(
+          const Duration(milliseconds: 2500),
+          () {
+            if (mounted && (_selectedIndex == 12 || _selectedIndex == 0)) {
+              _loadActionLogs(showLoading: false);
+            }
+          },
+        );
+      }
+    }
+
     _actionLogsSubscription = _supabase
         .channel('admin-action-logs')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'admin_audit_logs',
-          callback: (_) => _loadActionLogs(showLoading: false),
+          callback: handleActionLogChange,
         )
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'bookings',
-          callback: (_) => _loadActionLogs(showLoading: false),
+          callback: handleActionLogChange,
         )
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'booking_vehicle_inspections',
-          callback: (_) => _loadActionLogs(showLoading: false),
+          callback: handleActionLogChange,
         )
         .subscribe();
   }
