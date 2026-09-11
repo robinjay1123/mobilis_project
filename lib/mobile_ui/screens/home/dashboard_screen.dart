@@ -13343,74 +13343,74 @@ class _LiveTripBadge extends StatelessWidget {
       ),
     );
   }
+}
 
-  Future<XFile?> _pickReceiptImageWithSource(BuildContext context) async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: AppColors.darkBgSecondary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+Future<XFile?> _pickReceiptImageWithSource(BuildContext context) async {
+  final source = await showModalBottomSheet<ImageSource>(
+    context: context,
+    backgroundColor: AppColors.darkBgSecondary,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'Upload Payment Receipt',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Upload Payment Receipt',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
               ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
-                title: const Text(
-                  'Take Photo (Camera)',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                ),
-                subtitle: const Text(
-                  'Capture receipt or payment slip',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+              title: const Text(
+                'Take Photo (Camera)',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
               ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
-                title: const Text(
-                  'Choose from Gallery (Upload)',
-                  style: TextStyle(color: Colors.white),
-                ),
-                subtitle: const Text(
-                  'Upload screenshot or saved image',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              subtitle: const Text(
+                'Capture receipt or payment slip',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
-            ],
-          ),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
+              title: const Text(
+                'Choose from Gallery (Upload)',
+                style: TextStyle(color: Colors.white),
+              ),
+              subtitle: const Text(
+                'Upload screenshot or saved image',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
         ),
       ),
-    );
+    ),
+  );
 
-    if (source == null) return null;
+  if (source == null) return null;
 
-    final picker = ImagePicker();
-    return await picker.pickImage(
-      source: source,
-      imageQuality: 85,
-    );
-  }
+  final picker = ImagePicker();
+  return await picker.pickImage(
+    source: source,
+    imageQuality: 85,
+  );
 }
