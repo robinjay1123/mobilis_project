@@ -14173,6 +14173,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         : legacyIdUrls.length > 1
         ? legacyIdUrls[1]
         : '';
+    final idType = record['id_type']?.toString().trim() ?? '';
     final faceSelfieUrl = record['face_selfie_url']?.toString().trim() ?? '';
     final selfieWithIdUrl =
         record['selfie_with_id_url']?.toString().trim() ?? '';
