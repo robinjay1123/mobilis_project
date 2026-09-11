@@ -26,6 +26,18 @@ class TrackingService {
   String? _activeBookingId;
   final Map<String, DateTime> _stationarySinceByBooking = {};
 
+  // Performance & Disk I/O Throttling State
+  final Map<String, DateTime> _lastLocationUpsertTimeByBooking = {};
+  final Map<String, DateTime> _lastLocationLogInsertTimeByBooking = {};
+  final Map<String, DateTime> _lastTrackerPollByBooking = {};
+  final Map<String, DateTime> _lastReturnReminderCheckByBooking = {};
+  final Map<String, _CachedBookingSafetyContext> _safetyContextCache = {};
+  final Set<String> _recordedEventKeys = {};
+  _TrackingAccess? _cachedAccess;
+  DateTime? _cachedAccessAt;
+  DateTime? _lastFullTrackerPollAt;
+  Future<void>? _inFlightFullTrackerPoll;
+
   static const double overspeedThresholdKph = 100;
   static const double geofenceRadiusMeters = 75000;
   static const Duration unauthorizedStopThreshold = Duration(minutes: 15);
@@ -52,6 +64,7 @@ class TrackingService {
       trackedUserId: trackedUserId,
       position: initialPosition,
       source: source,
+      force: true,
     );
 
     const settings = LocationSettings(
@@ -80,6 +93,13 @@ class TrackingService {
   Future<void> stopTracking() async {
     await _positionSubscription?.cancel();
     _positionSubscription = null;
+    if (_activeBookingId != null) {
+      _lastLocationUpsertTimeByBooking.remove(_activeBookingId);
+      _lastLocationLogInsertTimeByBooking.remove(_activeBookingId);
+      _lastTrackerPollByBooking.remove(_activeBookingId);
+      _lastReturnReminderCheckByBooking.remove(_activeBookingId);
+      _safetyContextCache.remove(_activeBookingId);
+    }
     _activeBookingId = null;
   }
 
@@ -89,42 +109,77 @@ class TrackingService {
     required String trackedUserId,
     required Position position,
     String source = 'driver_app',
+    bool force = false,
   }) async {
-    await supabase.from('tracking_locations').upsert({
-      'booking_id': bookingId,
-      'vehicle_id': vehicleId,
-      'tracked_user_id': trackedUserId,
-      'latitude': position.latitude,
-      'longitude': position.longitude,
-      'accuracy_meters': position.accuracy,
-      'speed_mps': position.speed,
-      'heading_degrees': position.heading,
-      'source': source,
-      'recorded_at': DateTime.now().toUtc().toIso8601String(),
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-    }, onConflict: 'booking_id,tracked_user_id');
+    final now = DateTime.now();
+    final speedKph = position.speed < 0 ? 0.0 : position.speed * 3.6;
+    final isCriticalSpeed = speedKph >= overspeedThresholdKph;
 
+    // 1. Throttle upsert to tracking_locations: at most once every 8s unless force or critical
+    final lastUpsert = _lastLocationUpsertTimeByBooking[bookingId];
+    final shouldUpsert = force ||
+        isCriticalSpeed ||
+        lastUpsert == null ||
+        now.difference(lastUpsert) >= const Duration(seconds: 8);
+
+    if (shouldUpsert) {
+      _lastLocationUpsertTimeByBooking[bookingId] = now;
+      try {
+        await supabase.from('tracking_locations').upsert({
+          'booking_id': bookingId,
+          'vehicle_id': vehicleId,
+          'tracked_user_id': trackedUserId,
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'accuracy_meters': position.accuracy,
+          'speed_mps': position.speed,
+          'heading_degrees': position.heading,
+          'source': source,
+          'recorded_at': now.toUtc().toIso8601String(),
+          'updated_at': now.toUtc().toIso8601String(),
+        }, onConflict: 'booking_id,tracked_user_id');
+      } catch (upsertErr) {
+        debugPrint('tracking_locations upsert error: $upsertErr');
+      }
+    }
+
+    // 2. Throttle location trail log inserts: at most once every 15s to preserve Disk I/O
+    final lastLog = _lastLocationLogInsertTimeByBooking[bookingId];
+    final shouldInsertLog = force ||
+        isCriticalSpeed ||
+        lastLog == null ||
+        now.difference(lastLog) >= const Duration(seconds: 15);
+
+    if (shouldInsertLog) {
+      _lastLocationLogInsertTimeByBooking[bookingId] = now;
+      try {
+        await supabase.from('tracking_location_logs').insert({
+          'booking_id': bookingId,
+          'vehicle_id': vehicleId,
+          'tracked_user_id': trackedUserId,
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'accuracy_meters': position.accuracy,
+          'speed_mps': position.speed,
+          'heading_degrees': position.heading,
+          'source': source,
+          'recorded_at': now.toUtc().toIso8601String(),
+        });
+      } on PostgrestException catch (error) {
+        debugPrint(
+          'Trip evidence logging is unavailable until its migration is pushed: ${error.message}',
+        );
+      } catch (error) {
+        debugPrint('tracking_location_logs insert error: $error');
+      }
+    }
+
+    // 3. Evaluate safety signals (uses in-memory cached booking context to avoid repeated SQL joins)
     try {
-      await supabase.from('tracking_location_logs').insert({
-        'booking_id': bookingId,
-        'vehicle_id': vehicleId,
-        'tracked_user_id': trackedUserId,
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-        'accuracy_meters': position.accuracy,
-        'speed_mps': position.speed,
-        'heading_degrees': position.heading,
-        'source': source,
-        'recorded_at': DateTime.now().toUtc().toIso8601String(),
-      });
       await _evaluateSafetySignals(
         bookingId: bookingId,
         vehicleId: vehicleId,
         position: position,
-      );
-    } on PostgrestException catch (error) {
-      debugPrint(
-        'Trip evidence logging is unavailable until its migration is pushed: ${error.message}',
       );
     } catch (error) {
       debugPrint(
@@ -407,12 +462,23 @@ class TrackingService {
       _stationarySinceByBooking.remove(bookingId);
     }
 
-    await _evaluateReturnReminder(context);
+    // Throttle return reminder checks to once every 2 minutes instead of every 1s
+    final lastReminderCheck = _lastReturnReminderCheckByBooking[bookingId];
+    if (lastReminderCheck == null ||
+        DateTime.now().difference(lastReminderCheck) >= const Duration(minutes: 2)) {
+      _lastReturnReminderCheckByBooking[bookingId] = DateTime.now();
+      await _evaluateReturnReminder(context);
+    }
   }
 
   Future<Map<String, dynamic>?> _loadSafetyBookingContext(
     String bookingId,
   ) async {
+    final cached = _safetyContextCache[bookingId];
+    if (cached != null && !cached.isExpired) {
+      return cached.context;
+    }
+
     final response = await supabase
         .from('bookings')
         .select('''
@@ -444,10 +510,19 @@ class TrackingService {
         ''')
         .eq('id', bookingId)
         .maybeSingle();
-    if (response == null) return null;
+    if (response == null) {
+      _safetyContextCache.remove(bookingId);
+      return null;
+    }
     final context = Map<String, dynamic>.from(response);
     final status = context['status']?.toString().trim().toLowerCase() ?? '';
-    return {'active', 'ongoing'}.contains(status) ? context : null;
+    final isActive = {'active', 'ongoing'}.contains(status);
+    if (!isActive) {
+      _safetyContextCache.remove(bookingId);
+      return null;
+    }
+    _safetyContextCache[bookingId] = _CachedBookingSafetyContext(context);
+    return context;
   }
 
   Future<void> _evaluateReturnReminder(Map<String, dynamic> context) async {
@@ -496,7 +571,11 @@ class TrackingService {
     bool notifyParticipants = false,
   }) async {
     final bookingId = context['id']?.toString() ?? '';
-    if (bookingId.isEmpty || await _eventExists(bookingId, eventType)) return;
+    final key = '$bookingId:$eventType';
+    if (bookingId.isEmpty || _recordedEventKeys.contains(key)) return;
+    if (await _eventExists(bookingId, eventType)) return;
+    _recordedEventKeys.add(key);
+
     await supabase.from('trip_safety_events').insert({
       'booking_id': bookingId,
       'vehicle_id': context['vehicle_id'],
@@ -535,13 +614,20 @@ class TrackingService {
   }
 
   Future<bool> _eventExists(String bookingId, String eventType) async {
+    final key = '$bookingId:$eventType';
+    if (_recordedEventKeys.contains(key)) return true;
+
     final rows = await supabase
         .from('trip_safety_events')
         .select('id')
         .eq('booking_id', bookingId)
         .eq('event_type', eventType)
         .limit(1);
-    return rows.isNotEmpty;
+    if (rows.isNotEmpty) {
+      _recordedEventKeys.add(key);
+      return true;
+    }
+    return false;
   }
 
   Future<Set<String>> _safetyNotificationRecipients(
@@ -2006,6 +2092,15 @@ class TrackingService {
     final userId = user.id;
     if (userId.isEmpty) return null;
 
+    if (_cachedAccess != null &&
+        _cachedAccess!.userId == userId &&
+        _cachedAccessAt != null &&
+        DateTime.now().difference(_cachedAccessAt!) < const Duration(minutes: 5)) {
+      return _cachedAccess;
+    }
+
+    _TrackingAccess access;
+
     // 1. Check database users table first (ground truth)
     try {
       final userRow = await supabase
@@ -2015,7 +2110,10 @@ class TrackingService {
           .maybeSingle();
       final role = userRow?['role']?.toString().trim().toLowerCase() ?? '';
       if (role.isNotEmpty && role != 'user' && role != 'renter') {
-        return _TrackingAccess(userId: userId, role: role);
+        access = _TrackingAccess(userId: userId, role: role);
+        _cachedAccess = access;
+        _cachedAccessAt = DateTime.now();
+        return access;
       }
 
       // Check if user is registered as a partner in partners table
@@ -2026,12 +2124,18 @@ class TrackingService {
             .or('user_id.eq.$userId,id.eq.$userId')
             .maybeSingle();
         if (partnerRow != null) {
-          return _TrackingAccess(userId: userId, role: 'partner');
+          access = _TrackingAccess(userId: userId, role: 'partner');
+          _cachedAccess = access;
+          _cachedAccessAt = DateTime.now();
+          return access;
         }
       } catch (_) {}
 
       if (role.isNotEmpty) {
-        return _TrackingAccess(userId: userId, role: role);
+        access = _TrackingAccess(userId: userId, role: role);
+        _cachedAccess = access;
+        _cachedAccessAt = DateTime.now();
+        return access;
       }
     } catch (e) {
       debugPrint('Error getting user role from DB for tracking access: $e');
@@ -2042,7 +2146,10 @@ class TrackingService {
       final prefs = await SharedPreferences.getInstance();
       final cachedRole = prefs.getString('cached_user_role_$userId');
       if (cachedRole != null && cachedRole.trim().isNotEmpty) {
-        return _TrackingAccess(userId: userId, role: cachedRole.trim().toLowerCase());
+        access = _TrackingAccess(userId: userId, role: cachedRole.trim().toLowerCase());
+        _cachedAccess = access;
+        _cachedAccessAt = DateTime.now();
+        return access;
       }
     } catch (_) {}
 
@@ -2050,10 +2157,16 @@ class TrackingService {
     final metaRole = user.userMetadata?['role']?.toString().trim().toLowerCase() ??
         (user.appMetadata['role']?.toString().trim().toLowerCase() ?? '');
     if (metaRole.isNotEmpty) {
-      return _TrackingAccess(userId: userId, role: metaRole);
+      access = _TrackingAccess(userId: userId, role: metaRole);
+      _cachedAccess = access;
+      _cachedAccessAt = DateTime.now();
+      return access;
     }
 
-    return _TrackingAccess(userId: userId, role: 'operator');
+    access = _TrackingAccess(userId: userId, role: 'operator');
+    _cachedAccess = access;
+    _cachedAccessAt = DateTime.now();
+    return access;
   }
 
   bool _canViewTracking(_TrackingAccess access, Map<String, dynamic>? booking) {
@@ -2122,6 +2235,18 @@ class TrackingService {
   /// Polls all connected GPS hardware trackers (both active bookings and idle vehicles)
   /// and updates both vehicle_trackers table and tracking_locations.
   Future<void> pollGpsTrackersForActiveBookings() async {
+    if (_inFlightFullTrackerPoll != null) {
+      return _inFlightFullTrackerPoll!;
+    }
+    if (_lastFullTrackerPollAt != null &&
+        DateTime.now().difference(_lastFullTrackerPollAt!) <
+            const Duration(seconds: 10)) {
+      return;
+    }
+
+    final completer = Completer<void>();
+    _inFlightFullTrackerPoll = completer.future;
+
     try {
       final gpsService = GpsService();
 
@@ -2185,61 +2310,72 @@ class TrackingService {
                 booking['renter_id']?.toString() ??
                 '';
 
-            await supabase.from('tracking_locations').upsert(
-              {
-                'booking_id': bookingId,
-                'vehicle_id': targetVid,
-                'tracked_user_id':
-                    trackedUserId.isEmpty ? targetVid : trackedUserId,
-                'latitude': position.latitude,
-                'longitude': position.longitude,
-                'accuracy_meters': 10.0,
-                'speed_mps': position.speedKph / 3.6,
-                'heading_degrees': 0.0,
-                'source': 'gps_tracker',
-                'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
-                    DateTime.now().toUtc().toIso8601String(),
-                'updated_at': DateTime.now().toUtc().toIso8601String(),
-              },
-              onConflict: 'booking_id,tracked_user_id',
-            );
-
-            // Append GPS movement trail log for historical route playback and auditing
-            try {
-              await supabase.from('tracking_location_logs').insert({
-                'booking_id': bookingId,
-                'vehicle_id': targetVid,
-                'tracked_user_id':
-                    trackedUserId.isEmpty ? targetVid : trackedUserId,
-                'latitude': position.latitude,
-                'longitude': position.longitude,
-                'accuracy_meters': 10.0,
-                'speed_mps': position.speedKph / 3.6,
-                'heading_degrees': 0.0,
-                'source': 'gps_tracker',
-                'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
-                    DateTime.now().toUtc().toIso8601String(),
-              });
-
-              final posObj = Position(
-                latitude: position.latitude,
-                longitude: position.longitude,
-                timestamp: position.gpsTime ?? DateTime.now(),
-                accuracy: 10.0,
-                altitude: 0.0,
-                altitudeAccuracy: 0.0,
-                heading: 0.0,
-                headingAccuracy: 0.0,
-                speed: position.speedKph / 3.6,
-                speedAccuracy: 0.0,
+            final now = DateTime.now();
+            final lastUpsert = _lastLocationUpsertTimeByBooking[bookingId];
+            if (lastUpsert == null ||
+                now.difference(lastUpsert) >= const Duration(seconds: 8)) {
+              _lastLocationUpsertTimeByBooking[bookingId] = now;
+              await supabase.from('tracking_locations').upsert(
+                {
+                  'booking_id': bookingId,
+                  'vehicle_id': targetVid,
+                  'tracked_user_id':
+                      trackedUserId.isEmpty ? targetVid : trackedUserId,
+                  'latitude': position.latitude,
+                  'longitude': position.longitude,
+                  'accuracy_meters': 10.0,
+                  'speed_mps': position.speedKph / 3.6,
+                  'heading_degrees': 0.0,
+                  'source': 'gps_tracker',
+                  'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+                      now.toUtc().toIso8601String(),
+                  'updated_at': now.toUtc().toIso8601String(),
+                },
+                onConflict: 'booking_id,tracked_user_id',
               );
-              await _evaluateSafetySignals(
-                bookingId: bookingId,
-                vehicleId: targetVid,
-                position: posObj,
-              );
-            } catch (logErr) {
-              debugPrint('GPS movement trail logging note: $logErr');
+            }
+
+            // Append GPS movement trail log (throttled to every 15s to conserve disk I/O)
+            final lastLog = _lastLocationLogInsertTimeByBooking[bookingId];
+            if (lastLog == null ||
+                now.difference(lastLog) >= const Duration(seconds: 15)) {
+              _lastLocationLogInsertTimeByBooking[bookingId] = now;
+              try {
+                await supabase.from('tracking_location_logs').insert({
+                  'booking_id': bookingId,
+                  'vehicle_id': targetVid,
+                  'tracked_user_id':
+                      trackedUserId.isEmpty ? targetVid : trackedUserId,
+                  'latitude': position.latitude,
+                  'longitude': position.longitude,
+                  'accuracy_meters': 10.0,
+                  'speed_mps': position.speedKph / 3.6,
+                  'heading_degrees': 0.0,
+                  'source': 'gps_tracker',
+                  'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+                      now.toUtc().toIso8601String(),
+                });
+
+                final posObj = Position(
+                  latitude: position.latitude,
+                  longitude: position.longitude,
+                  timestamp: position.gpsTime ?? DateTime.now(),
+                  accuracy: 10.0,
+                  altitude: 0.0,
+                  altitudeAccuracy: 0.0,
+                  heading: 0.0,
+                  headingAccuracy: 0.0,
+                  speed: position.speedKph / 3.6,
+                  speedAccuracy: 0.0,
+                );
+                await _evaluateSafetySignals(
+                  bookingId: bookingId,
+                  vehicleId: targetVid,
+                  position: posObj,
+                );
+              } catch (logErr) {
+                debugPrint('GPS movement trail logging note: $logErr');
+              }
             }
           } else {
             // Vehicle is currently IDLE (no active on-trip booking)
@@ -2266,7 +2402,7 @@ class TrackingService {
                 await supabase.from('partner_vehicles').update({
                   'latitude': position.latitude,
                   'longitude': position.longitude,
-                  'updated_at': DateTime.now().toIso8601String(),
+                  'updated_at': DateTime.now().toUtc().toIso8601String(),
                 }).eq('id', tracker.partnerVehicleId!);
               }
             } catch (idleErr) {
@@ -2279,6 +2415,10 @@ class TrackingService {
       }
     } catch (e) {
       debugPrint('Error in pollGpsTrackersForActiveBookings: $e');
+    } finally {
+      _lastFullTrackerPollAt = DateTime.now();
+      _inFlightFullTrackerPoll = null;
+      if (!completer.isCompleted) completer.complete();
     }
   }
 
@@ -2286,6 +2426,14 @@ class TrackingService {
   /// location into [tracking_locations] and [tracking_location_logs].
   Future<void> pollGpsTrackerForBooking(String bookingId) async {
     if (bookingId.isEmpty) return;
+
+    final now = DateTime.now();
+    final lastPoll = _lastTrackerPollByBooking[bookingId];
+    if (lastPoll != null && now.difference(lastPoll) < const Duration(seconds: 6)) {
+      return;
+    }
+    _lastTrackerPollByBooking[bookingId] = now;
+
     try {
       final booking = await supabase
           .from('bookings')
@@ -2317,60 +2465,68 @@ class TrackingService {
           booking['renter_id']?.toString() ??
           '';
 
-      await supabase.from('tracking_locations').upsert(
-        {
-          'booking_id': bookingId,
-          'vehicle_id': vehicleId,
-          'tracked_user_id': trackedUserId.isEmpty ? vehicleId : trackedUserId,
-          'latitude': position.latitude,
-          'longitude': position.longitude,
-          'accuracy_meters': 10.0,
-          'speed_mps': position.speedKph / 3.6,
-          'heading_degrees': 0.0,
-          'source': 'gps_tracker',
-          'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
-              DateTime.now().toUtc().toIso8601String(),
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        },
-        onConflict: 'booking_id,tracked_user_id',
-      );
-
-      // Append GPS movement trail log
-      try {
-        await supabase.from('tracking_location_logs').insert({
-          'booking_id': bookingId,
-          'vehicle_id': vehicleId,
-          'tracked_user_id':
-              trackedUserId.isEmpty ? vehicleId : trackedUserId,
-          'latitude': position.latitude,
-          'longitude': position.longitude,
-          'accuracy_meters': 10.0,
-          'speed_mps': position.speedKph / 3.6,
-          'heading_degrees': 0.0,
-          'source': 'gps_tracker',
-          'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
-              DateTime.now().toUtc().toIso8601String(),
-        });
-
-        final posObj = Position(
-          latitude: position.latitude,
-          longitude: position.longitude,
-          timestamp: position.gpsTime ?? DateTime.now(),
-          accuracy: 10.0,
-          altitude: 0.0,
-          altitudeAccuracy: 0.0,
-          heading: 0.0,
-          headingAccuracy: 0.0,
-          speed: position.speedKph / 3.6,
-          speedAccuracy: 0.0,
+      final lastUpsert = _lastLocationUpsertTimeByBooking[bookingId];
+      if (lastUpsert == null || now.difference(lastUpsert) >= const Duration(seconds: 8)) {
+        _lastLocationUpsertTimeByBooking[bookingId] = now;
+        await supabase.from('tracking_locations').upsert(
+          {
+            'booking_id': bookingId,
+            'vehicle_id': vehicleId,
+            'tracked_user_id': trackedUserId.isEmpty ? vehicleId : trackedUserId,
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'accuracy_meters': 10.0,
+            'speed_mps': position.speedKph / 3.6,
+            'heading_degrees': 0.0,
+            'source': 'gps_tracker',
+            'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+                now.toUtc().toIso8601String(),
+            'updated_at': now.toUtc().toIso8601String(),
+          },
+          onConflict: 'booking_id,tracked_user_id',
         );
-        await _evaluateSafetySignals(
-          bookingId: bookingId,
-          vehicleId: vehicleId,
-          position: posObj,
-        );
-      } catch (logErr) {
-        debugPrint('GPS movement trail logging note: $logErr');
+      }
+
+      // Append GPS movement trail log (throttled to 15s)
+      final lastLog = _lastLocationLogInsertTimeByBooking[bookingId];
+      if (lastLog == null || now.difference(lastLog) >= const Duration(seconds: 15)) {
+        _lastLocationLogInsertTimeByBooking[bookingId] = now;
+        try {
+          await supabase.from('tracking_location_logs').insert({
+            'booking_id': bookingId,
+            'vehicle_id': vehicleId,
+            'tracked_user_id':
+                trackedUserId.isEmpty ? vehicleId : trackedUserId,
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'accuracy_meters': 10.0,
+            'speed_mps': position.speedKph / 3.6,
+            'heading_degrees': 0.0,
+            'source': 'gps_tracker',
+            'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+                now.toUtc().toIso8601String(),
+          });
+
+          final posObj = Position(
+            latitude: position.latitude,
+            longitude: position.longitude,
+            timestamp: position.gpsTime ?? DateTime.now(),
+            accuracy: 10.0,
+            altitude: 0.0,
+            altitudeAccuracy: 0.0,
+            heading: 0.0,
+            headingAccuracy: 0.0,
+            speed: position.speedKph / 3.6,
+            speedAccuracy: 0.0,
+          );
+          await _evaluateSafetySignals(
+            bookingId: bookingId,
+            vehicleId: vehicleId,
+            position: posObj,
+          );
+        } catch (logErr) {
+          debugPrint('GPS movement trail logging note: $logErr');
+        }
       }
     } catch (e) {
       debugPrint('Error polling GPS tracker for booking $bookingId: $e');
@@ -2701,4 +2857,13 @@ class _TrackingAccess {
   final String role;
 
   const _TrackingAccess({required this.userId, required this.role});
+}
+
+class _CachedBookingSafetyContext {
+  final Map<String, dynamic> context;
+  final DateTime cachedAt;
+  _CachedBookingSafetyContext(this.context) : cachedAt = DateTime.now();
+
+  bool get isExpired =>
+      DateTime.now().difference(cachedAt) > const Duration(minutes: 10);
 }
