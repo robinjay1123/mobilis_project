@@ -63,6 +63,7 @@ class _IdentityVerificationFormScreenState
   bool _showDriverApplicationForm = false;
   bool _showDriverApplicationReview = false;
   bool _isInitialLoading = true;
+  bool _isUpdatingVerification = false;
 
   // ID types dropdown
   final List<String> _idTypes = [
@@ -892,15 +893,17 @@ class _IdentityVerificationFormScreenState
     final inputBorderColor = isDark ? AppColors.borderColor : Colors.grey[300]!;
     final inputFillColor = isDark ? AppColors.darkCard : Colors.white;
 
+    // Prevent verification form flashing/passing through before database state is loaded
+    if (_isInitialLoading) {
+      return Scaffold(
+        backgroundColor: bgColor,
+        body: const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
+
     if (widget.viewSubmittedDocuments) {
-      if (_isInitialLoading) {
-        return Scaffold(
-          backgroundColor: bgColor,
-          body: const Center(
-            child: CircularProgressIndicator(color: AppColors.primary),
-          ),
-        );
-      }
       return _buildPartnerVerificationDetailsScaffold(
         isDark: isDark,
         bgColor: bgColor,
@@ -909,15 +912,6 @@ class _IdentityVerificationFormScreenState
     }
 
     if (widget.userRole == 'driver') {
-      if (_isInitialLoading) {
-        return const Scaffold(
-          backgroundColor: AppColors.darkBg,
-          body: Center(
-            child: CircularProgressIndicator(color: AppColors.primary),
-          ),
-        );
-      }
-
       if (_showDriverApplicationForm) {
         return _buildDriverApplicationScaffold(
           isDark: isDark,
@@ -963,8 +957,8 @@ class _IdentityVerificationFormScreenState
       );
     }
 
-    // Show if already verified
-    if (_verificationStatus == 'verified') {
+    // Show if already verified, unless the user chooses to update/re-upload documents
+    if (_verificationStatus == 'verified' && !_isUpdatingVerification) {
       return Scaffold(
         backgroundColor: bgColor,
         appBar: AppBar(
@@ -974,44 +968,90 @@ class _IdentityVerificationFormScreenState
             icon: Icon(Icons.arrow_back, color: textColor),
             onPressed: _handleBackNavigation,
           ),
+          title: Text(
+            'Identity Verified',
+            style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
+          ),
+          centerTitle: true,
         ),
         body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.2),
-                  shape: BoxShape.circle,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.verified_user,
+                    color: AppColors.success,
+                    size: 48,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.verified_user,
-                  color: AppColors.success,
-                  size: 48,
+                const SizedBox(height: 20),
+                Text(
+                  'Already Verified',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Already Verified',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: textColor,
+                const SizedBox(height: 12),
+                Text(
+                  'Your identity documents have been verified and confirmed.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark
+                        ? AppColors.textSecondary
+                        : AppColors.lightTextSecondary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Your identity has already been verified.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark
-                      ? AppColors.textSecondary
-                      : AppColors.lightTextSecondary,
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  child: CustomButton(
+                    label: 'Update / Re-upload ID Documents',
+                    onPressed: () {
+                      setState(() {
+                        _isUpdatingVerification = true;
+                      });
+                    },
+                    backgroundColor: AppColors.primary,
+                    textColor: Colors.black,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: _handleBackNavigation,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(
+                        color: isDark ? AppColors.borderColor : Colors.grey[300]!,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      'Back to Home',
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );

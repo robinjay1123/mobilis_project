@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/verification_service.dart';
 
 class FaceScanScreen extends StatefulWidget {
   const FaceScanScreen({super.key});
@@ -11,28 +15,48 @@ class FaceScanScreen extends StatefulWidget {
 }
 
 class _FaceScanScreenState extends State<FaceScanScreen> {
-  late int _remainingSeconds;
+  File? _capturedFaceFile;
   bool _isSkipping = false;
+  bool _isCapturing = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _remainingSeconds = 3;
-    _simulateFaceScan();
-  }
-
-  Future<void> _simulateFaceScan() async {
-    for (int i = 3; i > 0; i--) {
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted) {
+  Future<void> _captureFacePhoto() async {
+    setState(() => _isCapturing = true);
+    try {
+      final file = await VerificationService.pickImage(
+        source: ImageSource.camera,
+      );
+      if (file != null && mounted) {
         setState(() {
-          _remainingSeconds = i - 1;
+          _capturedFaceFile = file;
         });
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to capture photo: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isCapturing = false);
+      }
     }
-    if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/license-upload');
+  }
+
+  void _proceedToLicenseUpload() {
+    if (_capturedFaceFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please capture a face selfie photo first'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
     }
+    Navigator.of(context).pushReplacementNamed('/license-upload');
   }
 
   Future<void> _handleSkipVerification() async {
@@ -42,11 +66,9 @@ class _FaceScanScreenState extends State<FaceScanScreen> {
 
     try {
       final authService = AuthService();
-      // Mark user as having skipped verification
       await authService.updateUserVerificationStatus(verified: false);
 
       if (mounted) {
-        // Check user role and navigate accordingly
         final role = await authService.getUserRole();
         if (role == 'partner') {
           Navigator.of(context).pushReplacementNamed('/owner-verification');
@@ -107,7 +129,7 @@ class _FaceScanScreenState extends State<FaceScanScreen> {
 
               // Face Scan Title
               const Text(
-                'Face Scan',
+                'Live Face Capture',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w600,
@@ -115,17 +137,19 @@ class _FaceScanScreenState extends State<FaceScanScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Position your face in the circle and hold still for 3 seconds',
-                style: TextStyle(
+              Text(
+                _capturedFaceFile != null
+                    ? 'Face photo captured successfully. Review below or retake if needed.'
+                    : 'Position your face clearly in camera frame and take a selfie.',
+                style: const TextStyle(
                   fontSize: 14,
                   color: AppColors.textSecondary,
                   height: 1.5,
                 ),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 40),
 
-              // Face scan circle with timer
+              // Face scan preview circle
               Center(
                 child: Stack(
                   alignment: Alignment.center,
@@ -136,81 +160,133 @@ class _FaceScanScreenState extends State<FaceScanScreen> {
                       height: 220,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(110),
-                        border: Border.all(color: AppColors.primary, width: 3),
-                      ),
-                    ),
-                    // Inner circle with gradient
-                    Container(
-                      width: 200,
-                      height: 200,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(100),
-                        gradient: RadialGradient(
-                          colors: [
-                            AppColors.darkBgSecondary,
-                            AppColors.darkBgTertiary,
-                          ],
-                        ),
-                      ),
-                      child: Center(
-                        child: Icon(
-                          Icons.person,
-                          size: 80,
-                          color: AppColors.textSecondary,
+                        border: Border.all(
+                          color: _capturedFaceFile != null
+                              ? AppColors.success
+                              : AppColors.primary,
+                          width: 3,
                         ),
                       ),
                     ),
-                    // Timer badge
-                    Positioned(
-                      bottom: 0,
+                    // Inner circle
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(100),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
+                        width: 200,
+                        height: 200,
                         decoration: BoxDecoration(
                           color: AppColors.darkBgSecondary,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.borderColor),
+                          gradient: _capturedFaceFile == null
+                              ? const RadialGradient(
+                                  colors: [
+                                    AppColors.darkBgSecondary,
+                                    AppColors.darkBgTertiary,
+                                  ],
+                                )
+                              : null,
                         ),
-                        child: Text(
-                          '${_remainingSeconds.toString().padLeft(2, '0')}:00s',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
+                        child: _capturedFaceFile != null
+                            ? Image.file(
+                                _capturedFaceFile!,
+                                width: 200,
+                                height: 200,
+                                fit: BoxFit.cover,
+                              )
+                            : Center(
+                                child: _isCapturing
+                                    ? const CircularProgressIndicator(
+                                        color: AppColors.primary,
+                                      )
+                                    : const Icon(
+                                        Icons.person,
+                                        size: 80,
+                                        color: AppColors.textSecondary,
+                                      ),
+                              ),
+                      ),
+                    ),
+                    // Status badge
+                    if (_capturedFaceFile != null)
+                      Positioned(
+                        bottom: 0,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.success,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check, size: 16, color: Colors.black),
+                              SizedBox(width: 4),
+                              Text(
+                                'Captured',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 36),
 
               // Checklist items
               _buildChecklistItem(
                 icon: Icons.light,
-                title: 'Lighting Check',
-                description: 'Ensure your face is well lit',
-                isChecked: true,
+                title: 'Good Lighting',
+                description: 'Ensure your face is evenly illuminated',
+                isChecked: _capturedFaceFile != null,
               ),
               const SizedBox(height: 16),
               _buildChecklistItem(
                 icon: Icons.face,
-                title: 'Alignment',
-                description: 'Keep eyes within the center',
-                isChecked: false,
+                title: 'Clear & Centered',
+                description: 'Look directly at camera without hat or mask',
+                isChecked: _capturedFaceFile != null,
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 36),
 
-              // Manual Capture button
-              CustomButton(
-                label: 'Manual Capture',
-                onPressed: () {
-                  Navigator.of(context).pushReplacementNamed('/license-upload');
-                },
-              ),
+              // Action buttons
+              if (_capturedFaceFile == null)
+                CustomButton(
+                  label: _isCapturing ? 'Opening Camera...' : 'Take Face Photo',
+                  onPressed: _isCapturing ? null : _captureFacePhoto,
+                )
+              else ...[
+                CustomButton(
+                  label: 'Continue to License Upload',
+                  onPressed: _proceedToLicenseUpload,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _isCapturing ? null : _captureFacePhoto,
+                    icon: const Icon(Icons.refresh, color: AppColors.primary),
+                    label: const Text(
+                      'Retake Photo',
+                      style: TextStyle(color: AppColors.primary),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: const BorderSide(color: AppColors.primary),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
 
               // Skip Verification button
@@ -240,8 +316,8 @@ class _FaceScanScreenState extends State<FaceScanScreen> {
                       : const Text('Skip Verification'),
                 ),
               ),
-              const SizedBox(height: 16),
-              Center(
+              const SizedBox(height: 24),
+              const Center(
                 child: Text(
                   'MOBILIS SECURITY SYSTEM',
                   style: TextStyle(

@@ -1983,10 +1983,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           verificationState['verification_status']?.toString().trim().toLowerCase();
       final isPending = status == 'pending' || status == 'submitted';
 
-      // ✅ Skip verification requirement for drivers
-      if (userRole == 'driver') {
-        debugPrint('✅ Driver detected - skipping verification requirement');
-        // Proceed with booking for drivers
+      // Only verified drivers can proceed directly with booking
+      if (userRole == 'driver' && isVerified) {
+        debugPrint('✅ Verified driver detected - proceeding with booking');
         await _proceedWithBooking(requireTermsAgreement: false);
         return;
       }

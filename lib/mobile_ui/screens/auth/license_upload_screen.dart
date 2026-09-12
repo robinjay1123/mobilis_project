@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/verification_service.dart';
 
 class LicenseUploadScreen extends StatefulWidget {
   final int step;
@@ -13,8 +17,83 @@ class LicenseUploadScreen extends StatefulWidget {
 }
 
 class _LicenseUploadScreenState extends State<LicenseUploadScreen> {
-  bool _isUploaded = false;
+  File? _licenseImageFile;
   bool _isSkipping = false;
+  bool _isPicking = false;
+
+  Future<void> _pickImage(ImageSource source) async {
+    setState(() => _isPicking = true);
+    try {
+      final file = await VerificationService.pickImage(source: source);
+      if (file != null && mounted) {
+        setState(() {
+          _licenseImageFile = file;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to pick image: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPicking = false);
+      }
+    }
+  }
+
+  Future<void> _showPhotoSourceBottomSheet() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Select Photo Source',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: AppColors.primary),
+                title: const Text(
+                  'Take Photo (Camera)',
+                  style: TextStyle(color: AppColors.textPrimary),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: AppColors.primary),
+                title: const Text(
+                  'Choose from Gallery',
+                  style: TextStyle(color: AppColors.textPrimary),
+                ),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source != null) {
+      await _pickImage(source);
+    }
+  }
 
   Future<void> _handleSkipVerification() async {
     setState(() {
@@ -23,12 +102,11 @@ class _LicenseUploadScreenState extends State<LicenseUploadScreen> {
 
     try {
       final authService = AuthService();
-      // Mark user as having skipped verification
       await authService.updateUserVerificationStatus(verified: false);
 
       if (mounted) {
-        // Check user role and navigate accordingly
         final role = await authService.getUserRole();
+        if (!mounted) return;
         if (role == 'partner') {
           Navigator.of(context).pushReplacementNamed('/owner-verification');
         } else if (role == 'driver') {
@@ -126,70 +204,73 @@ class _LicenseUploadScreenState extends State<LicenseUploadScreen> {
                   height: 1.5,
                 ),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 36),
 
               // Upload area
               GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _isUploaded = true;
-                  });
-                },
+                onTap: _showPhotoSourceBottomSheet,
                 child: Container(
                   height: 280,
+                  width: double.infinity,
                   decoration: BoxDecoration(
                     color: AppColors.darkBgSecondary,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: _isUploaded
+                      color: _licenseImageFile != null
                           ? AppColors.success
                           : AppColors.borderColor,
                       style: BorderStyle.solid,
                       width: 2,
                     ),
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (_isUploaded)
-                        Column(
-                          children: [
-                            Container(
-                              width: 80,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                color: AppColors.success.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(40),
+                  child: _licenseImageFile != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.file(
+                                _licenseImageFile!,
+                                fit: BoxFit.cover,
                               ),
-                              child: const Icon(
-                                Icons.check_circle,
-                                color: AppColors.success,
-                                size: 40,
+                              Positioned(
+                                bottom: 12,
+                                right: 12,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.75),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle,
+                                        color: AppColors.success,
+                                        size: 16,
+                                      ),
+                                      SizedBox(width: 6),
+                                      Text(
+                                        'Photo Selected',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'Upload Successful',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              isFrontSide
-                                  ? 'Front side captured'
-                                  : 'Back side captured',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         )
-                      else
-                        Column(
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Container(
                               width: 80,
@@ -198,11 +279,17 @@ class _LicenseUploadScreenState extends State<LicenseUploadScreen> {
                                 color: AppColors.primary.withOpacity(0.2),
                                 borderRadius: BorderRadius.circular(40),
                               ),
-                              child: const Icon(
-                                Icons.document_scanner_outlined,
-                                color: AppColors.primary,
-                                size: 40,
-                              ),
+                              child: _isPicking
+                                  ? const Center(
+                                      child: CircularProgressIndicator(
+                                        color: AppColors.primary,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.document_scanner_outlined,
+                                      color: AppColors.primary,
+                                      size: 40,
+                                    ),
                             ),
                             const SizedBox(height: 16),
                             const Text(
@@ -223,31 +310,53 @@ class _LicenseUploadScreenState extends State<LicenseUploadScreen> {
                             ),
                           ],
                         ),
-                    ],
-                  ),
                 ),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 16),
+
+              if (_licenseImageFile != null)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton.icon(
+                      onPressed: _showPhotoSourceBottomSheet,
+                      icon: const Icon(Icons.refresh, color: AppColors.primary, size: 18),
+                      label: const Text(
+                        'Change Photo',
+                        style: TextStyle(color: AppColors.primary),
+                      ),
+                    ),
+                  ],
+                ),
+
+              const SizedBox(height: 24),
 
               // Continue button
               Opacity(
-                opacity: _isUploaded ? 1.0 : 0.5,
+                opacity: _licenseImageFile != null ? 1.0 : 0.5,
                 child: CustomButton(
                   label: 'Continue',
-                  onPressed: () {
-                    if (_isUploaded) {
-                      if (isFrontSide) {
-                        Navigator.of(context).pushReplacementNamed(
-                          '/license-upload',
-                          arguments: {'step': 2},
-                        );
-                      } else {
-                        Navigator.of(
-                          context,
-                        ).pushReplacementNamed('/profile-picture-upload');
-                      }
-                    }
-                  },
+                  onPressed: _licenseImageFile == null
+                      ? () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please select or capture your ID photo first'),
+                              backgroundColor: AppColors.warning,
+                            ),
+                          );
+                        }
+                      : () {
+                          if (isFrontSide) {
+                            Navigator.of(context).pushReplacementNamed(
+                              '/license-upload',
+                              arguments: {'step': 2},
+                            );
+                          } else {
+                            Navigator.of(
+                              context,
+                            ).pushReplacementNamed('/profile-picture-upload');
+                          }
+                        },
                 ),
               ),
               const SizedBox(height: 12),
