@@ -6032,16 +6032,31 @@ class BookingService {
           ? reason!.trim()
           : 'Payment proof could not be verified. Please upload a clear and valid receipt.';
 
-      await supabase
-          .from('bookings')
-          .update({
-            'extension_payment_status': 'unpaid',
-            'extension_status': 'payment_pending',
-            'extension_payment_proof_url': null,
-            'extension_payment_rejection_reason': rejectionReason,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      final updatePayload = <String, dynamic>{
+        'extension_payment_status': 'unpaid',
+        'extension_status': 'payment_pending',
+        'extension_payment_proof_url': null,
+        'extension_rejection_reason': rejectionReason,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      try {
+        await supabase
+            .from('bookings')
+            .update(updatePayload)
+            .eq('id', bookingId);
+      } catch (err) {
+        debugPrint('Note: Error updating extension rejection reason: $err. Falling back to core fields.');
+        await supabase
+            .from('bookings')
+            .update({
+              'extension_payment_status': 'unpaid',
+              'extension_status': 'payment_pending',
+              'extension_payment_proof_url': null,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', bookingId);
+      }
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
