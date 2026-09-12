@@ -1712,7 +1712,20 @@ class __DashboardTabState extends State<_DashboardTab> {
         _DriverQuickActionCard(
           icon: Icons.event_available_rounded,
           label: 'Set Availability',
-          onTap: widget.onOpenAvailability,
+          onTap: () {
+            if (!_isVerified) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Your driver account must be verified before setting availability.',
+                  ),
+                  backgroundColor: AppColors.warning,
+                ),
+              );
+              return;
+            }
+            widget.onOpenAvailability();
+          },
         ),
         _DriverQuickActionCard(
           icon: Icons.assignment_turned_in_outlined,
@@ -1763,6 +1776,13 @@ class __DashboardTabState extends State<_DashboardTab> {
     return status == 'verified' ||
         status == 'approved' ||
         status == 'certified';
+  }
+
+  bool _isDriverVerified(Map<String, dynamic> stats) {
+    return _isVerified ||
+        _isVerifiedFromStats(stats) ||
+        _isCertifiedDriver ||
+        _isCertifiedFromStats(stats);
   }
 
   Widget _buildDriverApplicationCta(Map<String, dynamic> stats) {
@@ -1864,6 +1884,10 @@ class __DashboardTabState extends State<_DashboardTab> {
   }
 
   Widget _buildUnavailableNotice(Map<String, dynamic> stats) {
+    if (!_isDriverVerified(stats)) {
+      return const SizedBox.shrink();
+    }
+
     final isAvailable = stats['is_available'] == true;
     final accentColor =
         isAvailable ? const Color(0xFF10B981) : const Color(0xFFFFB300);
@@ -2000,7 +2024,7 @@ class __DashboardTabState extends State<_DashboardTab> {
               _buildHeader(stats),
               const SizedBox(height: 16),
               _buildStats(stats),
-              _buildUnavailableNotice(stats),
+              if (_isDriverVerified(stats)) _buildUnavailableNotice(stats),
               if (statusLoaded && !isCertified) ...[
                 const SizedBox(height: 24),
                 _buildDriverApplicationCta(stats),
@@ -2699,6 +2723,7 @@ class _JobsTab extends StatefulWidget {
 class __JobsTabState extends State<_JobsTab> {
   late Future<List<Map<String, dynamic>>> jobsFuture;
   late Future<bool> isAvailableFuture;
+  late Future<bool> isVerifiedFuture;
   String _selectedStatus = 'pending';
   RealtimeChannel? _jobsChannel;
   Timer? _jobsRefreshDebounce;
@@ -2772,9 +2797,13 @@ class __JobsTabState extends State<_JobsTab> {
       isAvailableFuture = driverService.getDriverStats(user.id).then(
         (s) => s['is_available'] == true,
       ).catchError((_) => true);
+      isVerifiedFuture = VerificationService.getUserVerificationState(user.id)
+          .then((state) => state['is_verified'] == true)
+          .catchError((_) => false);
     } else {
       jobsFuture = Future.value([]);
       isAvailableFuture = Future.value(true);
+      isVerifiedFuture = Future.value(false);
     }
   }
 
@@ -2911,11 +2940,12 @@ class __JobsTabState extends State<_JobsTab> {
             icon: Icons.calendar_month_outlined,
           ),
           const SizedBox(height: 12),
-          FutureBuilder<bool>(
-            future: isAvailableFuture,
-            builder: (context, availSnapshot) {
-              final isAvailable = availSnapshot.data ?? true;
-              if (isAvailable) return const SizedBox.shrink();
+          FutureBuilder<List<dynamic>>(
+            future: Future.wait([isAvailableFuture, isVerifiedFuture]),
+            builder: (context, snapshot) {
+              final isAvailable = (snapshot.data?[0] as bool?) ?? true;
+              final isVerified = (snapshot.data?[1] as bool?) ?? false;
+              if (isAvailable || !isVerified) return const SizedBox.shrink();
               return Container(
                 margin: const EdgeInsets.only(bottom: 14),
                 padding: const EdgeInsets.all(14),
