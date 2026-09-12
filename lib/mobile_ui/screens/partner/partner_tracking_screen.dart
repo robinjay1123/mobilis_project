@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -48,6 +50,8 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
   Map<String, dynamic>? _trackingLocation;
   VehicleTracker? _vehicleTracker;
   List<MobilisMapPoint> _routeHistory = [];
+  List<MobilisMapPoint> _roadRoutePoints = [];
+  bool _isLoadingRoadRoute = false;
 
   // Geocoded / Resolved locations
   MobilisMapPoint? _resolvedVehiclePoint;
@@ -105,6 +109,74 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
     await _loadRouteHistory();
     await _loadTrackingLocation(showLoader: true);
     await _loadVehicleTracker();
+    await _loadRoadRoute();
+  }
+
+  double _calculateBearing(double lat1, double lon1, double lat2, double lon2) {
+    final dLon = (lon2 - lon1) * (math.pi / 180.0);
+    final rLat1 = lat1 * (math.pi / 180.0);
+    final rLat2 = lat2 * (math.pi / 180.0);
+    final y = math.sin(dLon) * math.cos(rLat2);
+    final x = math.cos(rLat1) * math.sin(rLat2) -
+        math.sin(rLat1) * math.cos(rLat2) * math.cos(dLon);
+    return (math.atan2(y, x) * 180.0 / math.pi + 360.0) % 360.0;
+  }
+
+  String _cleanAddress(String address) {
+    if (address.isEmpty) return 'Destination Location';
+    final cleaned = address
+        .replaceAll(RegExp(r'^[A-Z0-9]{4,8}\+[A-Z0-9]{2,4},\s*', caseSensitive: false), '')
+        .trim();
+    return cleaned.isNotEmpty ? cleaned : address;
+  }
+
+  Future<void> _loadRoadRoute() async {
+    final start = _resolvedPickupPoint ?? _resolvedVehiclePoint;
+    final end = _resolvedDestinationPoint;
+    if (start == null || end == null) return;
+
+    final dist = PhilippineGeocoding.distanceKm(start, end);
+    if (dist < 0.05) return;
+
+    if (_isLoadingRoadRoute) return;
+    _isLoadingRoadRoute = true;
+
+    try {
+      final uri = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${start.longitude},${start.latitude};'
+        '${end.longitude},${end.latitude}'
+        '?overview=full&geometries=geojson&steps=false',
+      );
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        final routes = payload['routes'] as List<dynamic>? ?? const [];
+        if (routes.isNotEmpty) {
+          final first = routes.first as Map<String, dynamic>;
+          final geometry = first['geometry'] as Map<String, dynamic>?;
+          final coordinates = geometry?['coordinates'] as List<dynamic>?;
+          if (coordinates != null && coordinates.length >= 2) {
+            final points = coordinates.map((coord) {
+              final pair = coord as List<dynamic>;
+              return MobilisMapPoint(
+                latitude: (pair[1] as num).toDouble(),
+                longitude: (pair[0] as num).toDouble(),
+              );
+            }).toList();
+            if (mounted) {
+              setState(() {
+                _roadRoutePoints = points;
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching OSRM road route in partner tracking: $e');
+    } finally {
+      _isLoadingRoadRoute = false;
+    }
   }
 
   void _setupRealtimeSubscription() {
@@ -177,6 +249,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
               MobilisMapPoint(latitude: pLat, longitude: pLng);
         }
       });
+      _loadRoadRoute();
     }
   }
 
@@ -392,8 +465,14 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
         LatLng(_resolvedPickupPoint!.latitude, _resolvedPickupPoint!.longitude),
       );
     }
-    for (final pt in _routeHistory) {
-      points.add(LatLng(pt.latitude, pt.longitude));
+    if (_roadRoutePoints.isNotEmpty) {
+      for (final pt in _roadRoutePoints) {
+        points.add(LatLng(pt.latitude, pt.longitude));
+      }
+    } else {
+      for (final pt in _routeHistory) {
+        points.add(LatLng(pt.latitude, pt.longitude));
+      }
     }
 
     if (points.isEmpty) return;
@@ -459,7 +538,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
     }
   }
 
-  void _toggleSimulation() {
+  void _toggleSimulation() async {
     if (_isSimulating) {
       _simulationTimer?.cancel();
       _simulationTimer = null;
@@ -478,11 +557,22 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
       return;
     }
 
-    final dest = _resolvedDestinationPoint ??
-        const MobilisMapPoint(latitude: 16.1219, longitude: 120.4039);
-    final origin = _resolvedVehiclePoint ??
-        _resolvedPickupPoint ??
-        const MobilisMapPoint(latitude: 15.9758, longitude: 120.5719);
+    // Ensure road route is loaded before simulating
+    if (_roadRoutePoints.isEmpty) {
+      await _loadRoadRoute();
+    }
+
+    final path = _roadRoutePoints.isNotEmpty
+        ? _roadRoutePoints
+        : [
+            _resolvedVehiclePoint ??
+                _resolvedPickupPoint ??
+                const MobilisMapPoint(latitude: 15.9758, longitude: 120.5719),
+            _resolvedDestinationPoint ??
+                const MobilisMapPoint(latitude: 16.1219, longitude: 120.4039),
+          ];
+
+    if (path.isEmpty) return;
 
     setState(() {
       _isSimulating = true;
@@ -491,6 +581,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
       _autoFollow = true;
     });
 
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Row(
@@ -498,7 +589,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
             Icon(Icons.play_circle_fill_rounded,
                 color: Color(0xFF00E676), size: 18),
             SizedBox(width: 8),
-            Text('Simulating live vehicle movement...'),
+            Text('Simulating vehicle drive along real road...'),
           ],
         ),
         duration: Duration(seconds: 2),
@@ -506,36 +597,40 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
       ),
     );
 
-    const totalSteps = 40;
     _simulationTimer?.cancel();
-    _simulationTimer = Timer.periodic(const Duration(milliseconds: 900), (t) {
+    _simulationTimer = Timer.periodic(const Duration(milliseconds: 650), (t) {
       if (!mounted) {
         t.cancel();
         return;
       }
-      _simStep++;
-      final frac = (_simStep % totalSteps) / totalSteps;
-      final curLat = origin.latitude + (dest.latitude - origin.latitude) * frac;
-      final curLng =
-          origin.longitude + (dest.longitude - origin.longitude) * frac;
+      _simStep = (_simStep + 1) % path.length;
+      final curPt = path[_simStep];
+      final nextIdx = (_simStep + 1) % path.length;
+      final nextPt = path[nextIdx];
 
-      final dLat = dest.latitude - origin.latitude;
-      final dLng = dest.longitude - origin.longitude;
-      final angle = (math.atan2(dLng, dLat) * 180 / math.pi + 360) % 360;
+      final bearing = _calculateBearing(
+        curPt.latitude,
+        curPt.longitude,
+        nextPt.latitude,
+        nextPt.longitude,
+      );
 
-      final speedVariance = 38.0 + (math.sin(_simStep * 0.4) * 12.0);
+      final speedVariance = 38.0 + (math.sin(_simStep * 0.35) * 12.0);
 
       setState(() {
         _simSpeedKph = speedVariance;
-        _simHeading = angle;
-        _resolvedVehiclePoint =
-            MobilisMapPoint(latitude: curLat, longitude: curLng);
-        _routeHistory.add(_resolvedVehiclePoint!);
+        _simHeading = bearing;
+        _resolvedVehiclePoint = curPt;
+        if (_routeHistory.isEmpty ||
+            _routeHistory.last.latitude != curPt.latitude ||
+            _routeHistory.last.longitude != curPt.longitude) {
+          _routeHistory.add(curPt);
+        }
       });
 
       if (_autoFollow) {
         try {
-          _mapController.move(LatLng(curLat, curLng), _zoom);
+          _mapController.move(LatLng(curPt.latitude, curPt.longitude), _zoom);
         } catch (_) {}
       }
     });
@@ -1383,9 +1478,10 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
       motionIcon = Icons.local_parking_rounded;
     }
 
-    final destination = bookingMap?['dropoff_location']?.toString() ??
+    final rawDestination = bookingMap?['dropoff_location']?.toString() ??
         booking['dropoff_location']?.toString() ??
-        '158, 158 Caballero Ave, San Fabian, Pangasinan';
+        'San Fabian, Pangasinan';
+    final destination = _cleanAddress(rawDestination);
 
     final vehicleBrand = vehicle?['brand']?.toString().trim() ?? '';
     final vehicleModel = vehicle?['model']?.toString().trim() ?? '';
@@ -1393,20 +1489,28 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
         booking['vehicle_name']?.toString().trim() ??
         '';
 
-    final String resolvedVehicleName;
-    if (rawVehicleName.isNotEmpty &&
-        rawVehicleName.toLowerCase() != 'partner vehicle' &&
-        rawVehicleName.toLowerCase() != 'vehicle request' &&
-        rawVehicleName.toLowerCase() != 'vehicle') {
-      resolvedVehicleName = rawVehicleName;
-    } else {
-      final combo = [vehicleBrand, vehicleModel]
-          .where((part) => part.isNotEmpty)
-          .join(' ');
-      resolvedVehicleName = combo.isNotEmpty
-          ? combo
-          : (rawVehicleName.isNotEmpty ? rawVehicleName : 'Tracked Vehicle');
+    String resolvedVehicleName = rawVehicleName;
+    if (resolvedVehicleName.isEmpty ||
+        resolvedVehicleName.toLowerCase() == 'partner vehicle' ||
+        resolvedVehicleName.toLowerCase() == 'vehicle request' ||
+        resolvedVehicleName.toLowerCase() == 'vehicle') {
+      if (vehicleModel.toLowerCase().startsWith(vehicleBrand.toLowerCase())) {
+        resolvedVehicleName = vehicleModel;
+      } else {
+        resolvedVehicleName = [vehicleBrand, vehicleModel]
+            .where((part) => part.isNotEmpty)
+            .join(' ');
+      }
     }
+    // Deduplicate consecutive repeated brand name (e.g. "Toyota Toyota Innova" -> "Toyota Innova")
+    final nameParts = resolvedVehicleName.split(RegExp(r'\s+'));
+    if (nameParts.length >= 2 && nameParts[0].toLowerCase() == nameParts[1].toLowerCase()) {
+      resolvedVehicleName = nameParts.sublist(1).join(' ');
+    }
+    if (resolvedVehicleName.isEmpty) {
+      resolvedVehicleName = 'Tracked Vehicle';
+    }
+
     final plateNumber = vehicle?['plate_number']?.toString().trim() ??
         booking['plate_number']?.toString().trim() ??
         '';
@@ -1414,7 +1518,11 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
         ? renter!['full_name'].toString().trim()
         : (widget.recipientName.trim().isNotEmpty
             ? widget.recipientName.trim()
-            : 'Renter Dave');
+            : (booking['renter_name']?.toString().trim().isNotEmpty == true
+                ? booking['renter_name'].toString().trim()
+                : 'Active Renter'));
+    final renterRating = (renter?['rating'] as num?)?.toDouble() ??
+        (booking['renter_rating'] as num?)?.toDouble();
     final renterAvatarUrl = renter?['avatar_url']?.toString().trim() ??
         renter?['profile_picture_url']?.toString().trim() ??
         booking['user_avatar_url']?.toString().trim();
@@ -1690,6 +1798,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
                       motionColor: motionColor,
                       heading: heading,
                       updatedAt: _formatUpdated(recordedAt),
+                      renterRating: renterRating,
                     ),
                   ),
 
@@ -1819,7 +1928,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
       );
     }
 
-    // Vehicle Marker with Car Pin, Rotation & Pulse
+    // Vehicle Marker with Directional Car Pin, Rotation & Pulse
     markers.add(
       MobilisMapMarker(
         latitude: vehiclePt.latitude,
@@ -1859,7 +1968,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
                   if (_isPinging)
                     AnimatedBuilder(
                       animation: _radarController,
-                      builder: (_, __) => Container(
+                      builder: (context, child) => Container(
                         width: 56 + (_radarController.value * 30),
                         height: 56 + (_radarController.value * 30),
                         decoration: BoxDecoration(
@@ -1872,7 +1981,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
                         ),
                       ),
                     ),
-                  // Glow ring
+                  // Glow ring with navigation direction marker
                   Container(
                     width: 50,
                     height: 50,
@@ -1890,11 +1999,24 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
                     ),
                     child: Transform.rotate(
                       angle: (headingDeg * math.pi / 180),
-                      child: const Center(
-                        child: Icon(
-                          Icons.directions_car_filled_rounded,
-                          color: AppColors.primary,
-                          size: 26,
+                      child: Center(
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Transform.translate(
+                              offset: const Offset(0, -12),
+                              child: Icon(
+                                Icons.arrow_drop_up_rounded,
+                                color: motionColor,
+                                size: 22,
+                              ),
+                            ),
+                            const Icon(
+                              Icons.navigation_rounded,
+                              color: AppColors.primary,
+                              size: 24,
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -1907,16 +2029,12 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
       ),
     );
 
-    // Route points: traveled logs or straight connection
+    // Route points: real road route pathway or recorded travel history
     final displayPoints = <MobilisMapPoint>[];
-    if (_routeHistory.isNotEmpty) {
+    if (_roadRoutePoints.isNotEmpty) {
+      displayPoints.addAll(_roadRoutePoints);
+    } else if (_routeHistory.isNotEmpty) {
       displayPoints.addAll(_routeHistory);
-    }
-    if (_resolvedDestinationPoint != null) {
-      if (displayPoints.isEmpty) {
-        displayPoints.add(vehiclePt);
-      }
-      displayPoints.add(_resolvedDestinationPoint!);
     }
 
     return Stack(
@@ -1971,6 +2089,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
     required String heading,
     required String updatedAt,
     String? renterAvatarUrl,
+    double? renterRating,
   }) {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 280),
@@ -1996,6 +2115,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
               motionStatusLabel: motionStatusLabel,
               motionColor: motionColor,
               speedKph: speedKph,
+              renterRating: renterRating,
             )
           : _buildExpandedSheet(
               key: const ValueKey('expanded_tracking_sheet'),
@@ -2010,6 +2130,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
               heading: heading,
               updatedAt: updatedAt,
               renterAvatarUrl: renterAvatarUrl,
+              renterRating: renterRating,
             ),
     );
   }
@@ -2023,6 +2144,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
     required String motionStatusLabel,
     required Color motionColor,
     required int speedKph,
+    double? renterRating,
   }) {
     return GestureDetector(
       key: key,
@@ -2120,18 +2242,20 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
                               ),
                             ),
                           ),
-                          const SizedBox(width: 5),
-                          const Icon(Icons.star,
-                              color: AppColors.primary, size: 12),
-                          const SizedBox(width: 2),
-                          const Text(
-                            '4.9',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
+                          if (renterRating != null && renterRating > 0) ...[
+                            const SizedBox(width: 5),
+                            const Icon(Icons.star,
+                                color: AppColors.primary, size: 12),
+                            const SizedBox(width: 2),
+                            Text(
+                              renterRating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 2),
@@ -2247,6 +2371,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
     required String heading,
     required String updatedAt,
     String? renterAvatarUrl,
+    double? renterRating,
   }) {
     return GestureDetector(
       key: key,
@@ -2445,20 +2570,34 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
                               ),
                             ),
                             const SizedBox(height: 3),
-                            const Row(
+                            Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.star,
-                                    color: AppColors.primary, size: 13),
-                                SizedBox(width: 3),
-                                Text(
-                                  '4.9 PRO',
-                                  style: TextStyle(
-                                    color: AppColors.primary,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
+                                if (renterRating != null && renterRating > 0) ...[
+                                  const Icon(Icons.star,
+                                      color: AppColors.primary, size: 13),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '${renterRating.toStringAsFixed(1)} PRO',
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                ),
+                                ] else ...[
+                                  const Icon(Icons.verified_user_rounded,
+                                      color: AppColors.primary, size: 13),
+                                  const SizedBox(width: 3),
+                                  const Text(
+                                    'Verified Renter',
+                                    style: TextStyle(
+                                      color: AppColors.primary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ],
