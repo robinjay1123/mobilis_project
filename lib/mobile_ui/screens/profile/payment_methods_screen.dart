@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:intl/intl.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/payout_method_service.dart';
 import '../../theme/app_colors.dart';
@@ -25,6 +26,8 @@ class PaymentMethodsScreen extends StatefulWidget {
 class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
   final PayoutMethodService _payoutMethodService = PayoutMethodService();
   late Future<List<PayoutMethod>> _payoutMethodsFuture;
+  late Future<List<Map<String, dynamic>>> _historyFuture;
+  int _selectedTab = 0; // 0 = Accounts, 1 = History
   bool _isLoading = false;
 
   bool get _isRenter => widget.role.toLowerCase() == 'renter';
@@ -35,6 +38,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
   void initState() {
     super.initState();
     _loadPayoutMethods();
+    _loadHistory();
   }
 
   void _loadPayoutMethods() {
@@ -42,13 +46,26 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
     _payoutMethodsFuture = _payoutMethodService.getPayoutMethods(userId);
   }
 
+  void _loadHistory() {
+    final userId = AuthService().currentUser?.id ?? '';
+    _historyFuture = _payoutMethodService.getRefundAndDisbursementHistory(
+      userId: userId,
+      role: widget.role,
+    );
+  }
+
   Future<void> _refreshPayoutMethods() async {
     final userId = AuthService().currentUser?.id ?? '';
     final req = _payoutMethodService.getPayoutMethods(userId);
+    final histReq = _payoutMethodService.getRefundAndDisbursementHistory(
+      userId: userId,
+      role: widget.role,
+    );
     setState(() {
       _payoutMethodsFuture = req;
+      _historyFuture = histReq;
     });
-    await req;
+    await Future.wait([req, histReq]);
   }
 
   Color _providerColor(String provider) {
@@ -72,6 +89,20 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
       return '${clean.substring(0, 4)} ${clean.substring(4, 7)} ${clean.substring(7)}';
     }
     return raw;
+  }
+
+  String _formatDate(dynamic rawDate) {
+    if (rawDate == null) return '—';
+    try {
+      final dt = rawDate is DateTime ? rawDate : DateTime.parse(rawDate.toString()).toLocal();
+      return DateFormat('MMM d, yyyy • h:mm a').format(dt);
+    } catch (_) {
+      return rawDate.toString();
+    }
+  }
+
+  String _formatCurrency(double amount) {
+    return '₱${NumberFormat('#,##0.00', 'en_US').format(amount)}';
   }
 
   @override
@@ -112,154 +143,1059 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
         ),
         centerTitle: false,
       ),
-      body: RefreshIndicator(
-        onRefresh: _refreshPayoutMethods,
-        color: AppColors.primary,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 36),
-          children: [
-            // Informative Context Banner
-            _buildContextBanner(isDark, cardBg, textColor, subtitleColor, borderColor),
-            const SizedBox(height: 20),
+      body: Column(
+        children: [
+          // Sleek Segmented Switcher
+          _buildTabBar(isDark, cardBg, borderColor, textColor),
 
-            // Linked Accounts Header Row
+          // Tab Content
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _refreshPayoutMethods,
+              color: AppColors.primary,
+              child: _selectedTab == 0
+                  ? _buildAccountsTab(isDark, cardBg, textColor, subtitleColor, borderColor)
+                  : _buildHistoryTab(isDark, cardBg, textColor, subtitleColor, borderColor),
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: _selectedTab == 0
+          ? Container(
+              padding: EdgeInsets.fromLTRB(
+                18,
+                12,
+                18,
+                MediaQuery.of(context).padding.bottom + 12,
+              ),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF07111D) : Colors.white,
+                border: Border(
+                  top: BorderSide(color: borderColor),
+                ),
+              ),
+              child: ElevatedButton.icon(
+                onPressed: () => _showAddPayoutMethodModal(context),
+                icon: const Icon(Icons.add_rounded, size: 20),
+                label: Text(
+                  _isRenter ? 'Link Refund Account (QR Code)' : 'Link Disbursement Account (QR Code)',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  elevation: 0,
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildTabBar(bool isDark, Color cardBg, Color borderColor, Color textColor) {
+    final historyLabel = _isRenter ? 'Refund History' : 'Disbursement History';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(18, 12, 18, 6),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF132235) : Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildTabButton(
+              index: 0,
+              label: 'Linked Accounts',
+              icon: Icons.account_balance_wallet_outlined,
+              activeIcon: Icons.account_balance_wallet_rounded,
+              isDark: isDark,
+            ),
+          ),
+          Expanded(
+            child: _buildTabButton(
+              index: 1,
+              label: historyLabel,
+              icon: Icons.receipt_long_outlined,
+              activeIcon: Icons.receipt_long_rounded,
+              isDark: isDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabButton({
+    required int index,
+    required String label,
+    required IconData icon,
+    required IconData activeIcon,
+    required bool isDark,
+  }) {
+    final isSelected = _selectedTab == index;
+    return GestureDetector(
+      onTap: () {
+        if (_selectedTab != index) {
+          setState(() {
+            _selectedTab = index;
+          });
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (isDark ? const Color(0xFF1E3A5F) : Colors.white)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isDark ? 0.25 : 0.08),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isSelected ? activeIcon : icon,
+              size: 17,
+              color: isSelected ? AppColors.primary : (isDark ? Colors.grey[400] : Colors.grey[600]),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                  color: isSelected
+                      ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                      : (isDark ? Colors.grey[400] : Colors.grey[600]),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAccountsTab(
+    bool isDark,
+    Color cardBg,
+    Color textColor,
+    Color subtitleColor,
+    Color borderColor,
+  ) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 36),
+      children: [
+        // Informative Context Banner
+        _buildContextBanner(isDark, cardBg, textColor, subtitleColor, borderColor),
+        const SizedBox(height: 14),
+
+        // Quick shortcut to History Tab
+        _buildHistoryTeaserBanner(isDark, cardBg, textColor, subtitleColor, borderColor),
+        const SizedBox(height: 20),
+
+        // Linked Accounts Header Row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Linked Accounts',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: textColor,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => _showAddPayoutMethodModal(context),
+              icon: const Icon(Icons.add_circle_outline_rounded, size: 18, color: AppColors.primary),
+              label: const Text(
+                'Add Account',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Accounts List via FutureBuilder
+        FutureBuilder<List<PayoutMethod>>(
+          future: _payoutMethodsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting && !_isLoading) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: CircularProgressIndicator(
+                    color: AppColors.primary,
+                  ),
+                ),
+              );
+            }
+
+            if (snapshot.hasError) {
+              return Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 36),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Failed to load accounts',
+                      style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${snapshot.error}',
+                      style: TextStyle(color: subtitleColor, fontSize: 12),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: _refreshPayoutMethods,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final methods = snapshot.data ?? const <PayoutMethod>[];
+
+            if (methods.isEmpty) {
+              return _buildEmptyState(isDark, cardBg, textColor, subtitleColor, borderColor);
+            }
+
+            return Column(
+              children: methods
+                  .map(
+                    (method) => _buildPayoutMethodCard(
+                      method,
+                      isDark,
+                      cardBg,
+                      textColor,
+                      subtitleColor,
+                      borderColor,
+                    ),
+                  )
+                  .toList(),
+            );
+          },
+        ),
+
+        const SizedBox(height: 24),
+
+        // Supported Providers Notice Card
+        _buildSupportedProvidersCard(isDark, cardBg, textColor, subtitleColor, borderColor),
+      ],
+    );
+  }
+
+  Widget _buildHistoryTeaserBanner(
+    bool isDark,
+    Color cardBg,
+    Color textColor,
+    Color subtitleColor,
+    Color borderColor,
+  ) {
+    final title = _isRenter ? 'View Refund History & Receipts' : 'View Disbursement History & Receipts';
+    final sub = _isRenter
+        ? 'Check returned security deposits, cancellation refunds, and transfer proofs.'
+        : 'Track completed vehicle payouts, driver fees, reference numbers, and receipts.';
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedTab = 1;
+        });
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF132A45) : const Color(0xFFF0FDF4),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDark ? AppColors.primary.withOpacity(0.4) : const Color(0xFF86EFAC),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.receipt_long_rounded, color: AppColors.primary, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    sub,
+                    style: TextStyle(
+                      color: subtitleColor,
+                      fontSize: 11.5,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 15,
+              color: isDark ? Colors.white70 : Colors.black54,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryTab(
+    bool isDark,
+    Color cardBg,
+    Color textColor,
+    Color subtitleColor,
+    Color borderColor,
+  ) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _historyFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !_isLoading) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: CircularProgressIndicator(
+                color: AppColors.primary,
+              ),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 36),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 36),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Failed to load history',
+                      style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${snapshot.error}',
+                      style: TextStyle(color: subtitleColor, fontSize: 12),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: _refreshPayoutMethods,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        final history = snapshot.data ?? const <Map<String, dynamic>>[];
+
+        if (history.isEmpty) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 36),
+            children: [
+              _buildHistoryEmptyState(isDark, cardBg, textColor, subtitleColor, borderColor),
+            ],
+          );
+        }
+
+        // Calculate total amount received
+        final totalAmount = history.fold<double>(
+          0.0,
+          (sum, item) => sum + ((item['amount'] as num?)?.toDouble() ?? 0.0),
+        );
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 36),
+          children: [
+            // History Summary Banner
+            _buildHistorySummaryCard(
+              totalAmount: totalAmount,
+              count: history.length,
+              isDark: isDark,
+              cardBg: cardBg,
+              textColor: textColor,
+              subtitleColor: subtitleColor,
+              borderColor: borderColor,
+            ),
+            const SizedBox(height: 18),
+
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Linked Accounts',
+                  'Recent Transactions (${history.length})',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
                     color: textColor,
                   ),
                 ),
-                TextButton.icon(
-                  onPressed: () => _showAddPayoutMethodModal(context),
-                  icon: const Icon(Icons.add_circle_outline_rounded, size: 18, color: AppColors.primary),
-                  label: const Text(
-                    'Add Account',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primary,
-                      fontSize: 13,
-                    ),
+                Text(
+                  'All processed',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green.shade400,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
 
-            // Accounts List via FutureBuilder
-            FutureBuilder<List<PayoutMethod>>(
-              future: _payoutMethodsFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting && !_isLoading) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 40),
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
+            ...history.map((item) => _buildHistoryCard(
+                  item,
+                  isDark,
+                  cardBg,
+                  textColor,
+                  subtitleColor,
+                  borderColor,
+                )),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHistorySummaryCard({
+    required double totalAmount,
+    required int count,
+    required bool isDark,
+    required Color cardBg,
+    required Color textColor,
+    required Color subtitleColor,
+    required Color borderColor,
+  }) {
+    final title = _isRenter ? 'Total Refunds Received' : 'Total Disbursements Received';
+    final subtitle = _isRenter
+        ? 'Processed security deposits & cancellations returned to your linked accounts.'
+        : 'Total earnings, commissions, and fees transferred by PSDC operators.';
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? [const Color(0xFF132A45), const Color(0xFF0F1E31)]
+              : [const Color(0xFFECFDF5), const Color(0xFFF0FDF4)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark ? const Color(0xFF1E4068) : const Color(0xFFA7F3D0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title.toUpperCase(),
+                style: TextStyle(
+                  color: isDark ? Colors.grey[300] : const Color(0xFF065F46),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.1,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.primary.withOpacity(0.2) : const Color(0xFF10B981).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$count ${count == 1 ? 'Record' : 'Records'}',
+                  style: TextStyle(
+                    color: isDark ? AppColors.primary : const Color(0xFF047857),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _formatCurrency(totalAmount),
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF064E3B),
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: TextStyle(
+              color: isDark ? Colors.grey[400] : const Color(0xFF047857),
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryEmptyState(
+    bool isDark,
+    Color cardBg,
+    Color textColor,
+    Color subtitleColor,
+    Color borderColor,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 22),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withOpacity(0.04) : Colors.grey.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.receipt_long_outlined,
+              size: 48,
+              color: isDark ? Colors.grey[500] : Colors.grey.shade400,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No History Yet',
+            style: TextStyle(
+              color: textColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 17,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _isRenter
+                ? 'When a PSDC operator issues your security deposit refund or booking cancellation refund, the proof receipt, reference number, and amount will be logged here.'
+                : 'When a PSDC operator disburses your completed trip earnings or partner commission, the transfer proof and transaction breakdown will be logged here.',
+            style: TextStyle(
+              color: subtitleColor,
+              fontSize: 13,
+              height: 1.45,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 22),
+          OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                _selectedTab = 0;
+              });
+            },
+            icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+            label: const Text('Check Linked Accounts'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryCard(
+    Map<String, dynamic> item,
+    bool isDark,
+    Color cardBg,
+    Color textColor,
+    Color subtitleColor,
+    Color borderColor,
+  ) {
+    final amount = (item['amount'] as num?)?.toDouble() ?? 0.0;
+    final deduction = (item['deduction'] as num?)?.toDouble() ?? 0.0;
+    final deductionNotes = item['deduction_notes']?.toString();
+    final title = item['title']?.toString() ?? 'Transaction';
+    final vehicleName = item['vehicle_name']?.toString() ?? '';
+    final plateNumber = item['plate_number']?.toString() ?? '';
+    final bookingRef = item['booking_reference']?.toString() ?? '—';
+    final method = item['method']?.toString() ?? 'GCash';
+    final refNumber = item['reference_number']?.toString() ?? '—';
+    final receiptUrl = item['receipt_url']?.toString();
+    final dateStr = _formatDate(item['date']);
+    final providerCol = _providerColor(method);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.15 : 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row: Category Badge & Amount
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                        ),
                       ),
                     ),
-                  );
-                }
-
-                if (snapshot.hasError) {
-                  return Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.red.withOpacity(0.3)),
+                    const SizedBox(height: 6),
+                    Text(
+                      vehicleName.isNotEmpty ? vehicleName : 'Vehicle Booking',
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    child: Column(
-                      children: [
-                        const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 36),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Failed to load accounts',
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+                    if (plateNumber.isNotEmpty)
+                      Text(
+                        'Plate: $plateNumber',
+                        style: TextStyle(
+                          color: subtitleColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${snapshot.error}',
-                          style: TextStyle(color: subtitleColor, fontSize: 12),
-                          textAlign: TextAlign.center,
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '+${_formatCurrency(amount)}',
+                      style: const TextStyle(
+                        color: Color(0xFF10B981),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 13),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Completed',
+                        style: TextStyle(
+                          color: Colors.green.shade400,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
                         ),
-                        const SizedBox(height: 12),
-                        ElevatedButton(
-                          onPressed: _refreshPayoutMethods,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.black,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+          Divider(color: borderColor, height: 1),
+          const SizedBox(height: 12),
+
+          // Booking Reference & Payout Provider Row
+          Row(
+            children: [
+              // Method chip
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: providerCol.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.payment_rounded, size: 12, color: providerCol),
+                    const SizedBox(width: 4),
+                    Text(
+                      method,
+                      style: TextStyle(
+                        color: providerCol,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Reference Number
+              Expanded(
+                child: InkWell(
+                  onTap: () {
+                    if (refNumber.isNotEmpty && refNumber != '—') {
+                      Clipboard.setData(ClipboardData(text: refNumber));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Copied reference: $refNumber'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                  child: Row(
+                    children: [
+                      Text(
+                        'Ref: ',
+                        style: TextStyle(color: subtitleColor, fontSize: 11.5),
+                      ),
+                      Flexible(
+                        child: Text(
+                          refNumber,
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
                           ),
-                          child: const Text('Retry'),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (refNumber.isNotEmpty && refNumber != '—') ...[
+                        const SizedBox(width: 4),
+                        Icon(Icons.copy_rounded, size: 12, color: subtitleColor),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // Booking Ref & Date
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              InkWell(
+                onTap: () {
+                  if (bookingRef.isNotEmpty && bookingRef != '—') {
+                    Clipboard.setData(ClipboardData(text: bookingRef));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Copied booking ref: $bookingRef'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Booking: #$bookingRef',
+                      style: TextStyle(color: subtitleColor, fontSize: 11.5, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(width: 3),
+                    Icon(Icons.copy_rounded, size: 11, color: subtitleColor),
+                  ],
+                ),
+              ),
+              Text(
+                dateStr,
+                style: TextStyle(color: subtitleColor, fontSize: 11.5),
+              ),
+            ],
+          ),
+
+          // Deductions notice if applicable
+          if (deduction > 0 || (deductionNotes != null && deductionNotes.isNotEmpty)) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF231F1B) : const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF6B4E1B) : const Color(0xFFFDE68A),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFFF59E0B)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      deduction > 0
+                          ? 'Deduction: ${_formatCurrency(deduction)}${deductionNotes != null && deductionNotes.isNotEmpty ? ' ($deductionNotes)' : ''}'
+                          : 'Notes: $deductionNotes',
+                      style: TextStyle(
+                        color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                        fontSize: 11.5,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // View Official Receipt / Transfer Proof Button
+          if (receiptUrl != null && receiptUrl.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showReceiptDialog(context, receiptUrl, item),
+                icon: const Icon(Icons.receipt_rounded, size: 16),
+                label: const Text(
+                  'View Transfer Receipt / Proof',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: BorderSide(color: AppColors.primary.withOpacity(0.6)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showReceiptDialog(BuildContext context, String receiptUrl, Map<String, dynamic> item) {
+    final isDark = widget.isDarkMode;
+    final amount = (item['amount'] as num?)?.toDouble() ?? 0.0;
+    final refNumber = item['reference_number']?.toString() ?? '—';
+    final method = item['method']?.toString() ?? 'E-Wallet';
+    final title = item['title']?.toString() ?? 'Transfer Proof';
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return Dialog(
+          backgroundColor: isDark ? const Color(0xFF132235) : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.receipt_long_rounded,
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Transfer Receipt Proof',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ],
                     ),
-                  );
-                }
-
-                final methods = snapshot.data ?? const <PayoutMethod>[];
-
-                if (methods.isEmpty) {
-                  return _buildEmptyState(isDark, cardBg, textColor, subtitleColor, borderColor);
-                }
-
-                return Column(
-                  children: methods
-                      .map(
-                        (method) => _buildPayoutMethodCard(
-                          method,
-                          isDark,
-                          cardBg,
-                          textColor,
-                          subtitleColor,
-                          borderColor,
+                    IconButton(
+                      onPressed: () => Navigator.pop(dialogCtx),
+                      icon: Icon(Icons.close, color: isDark ? Colors.white70 : Colors.grey),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '$title • ${_formatCurrency(amount)} via $method\nRef: $refNumber',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    fontSize: 12.5,
+                    height: 1.35,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    color: Colors.black12,
+                    constraints: const BoxConstraints(maxHeight: 380),
+                    child: InteractiveViewer(
+                      panEnabled: true,
+                      minScale: 1.0,
+                      maxScale: 4.0,
+                      child: OptimizedNetworkImage(
+                        imageUrl: receiptUrl,
+                        fit: BoxFit.contain,
+                        placeholder: const SizedBox(
+                          height: 200,
+                          child: Center(
+                            child: CircularProgressIndicator(color: AppColors.primary),
+                          ),
                         ),
-                      )
-                      .toList(),
-                );
-              },
+                        errorWidget: Container(
+                          height: 180,
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.broken_image_rounded, size: 40, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text('Unable to load receipt image', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(dialogCtx),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Close Preview', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
             ),
-
-            const SizedBox(height: 24),
-
-            // Supported Providers Notice Card
-            _buildSupportedProvidersCard(isDark, cardBg, textColor, subtitleColor, borderColor),
-          ],
-        ),
-      ),
-      bottomNavigationBar: Container(
-        padding: EdgeInsets.fromLTRB(
-          18,
-          12,
-          18,
-          MediaQuery.of(context).padding.bottom + 12,
-        ),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF07111D) : Colors.white,
-          border: Border(
-            top: BorderSide(color: borderColor),
           ),
-        ),
-        child: ElevatedButton.icon(
-          onPressed: () => _showAddPayoutMethodModal(context),
-          icon: const Icon(Icons.add_rounded, size: 20),
-          label: Text(
-            _isRenter ? 'Link Refund Account (QR Code)' : 'Link Disbursement Account (QR Code)',
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-          ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            elevation: 0,
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 

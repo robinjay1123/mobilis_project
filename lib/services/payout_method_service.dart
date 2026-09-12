@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -448,5 +447,299 @@ class PayoutMethodService {
       debugPrint('⚠️ Error reading payout methods cache: $e');
     }
     return [];
+  }
+
+  /// Fetch all refund and disbursement history for a user based on their role
+  Future<List<Map<String, dynamic>>> getRefundAndDisbursementHistory({
+    required String userId,
+    required String role,
+  }) async {
+    if (userId.isEmpty) return [];
+
+    final normalizedRole = role.toLowerCase().trim();
+    final records = <Map<String, dynamic>>[];
+
+    try {
+      if (normalizedRole == 'renter') {
+        // 1. Fetch renter's bookings with refunds or security deposit refunds
+        final response = await _supabase
+            .from('bookings')
+            .select('''
+              id,
+              booking_reference,
+              start_date,
+              end_date,
+              total_cost,
+              status,
+              security_deposit_status,
+              security_deposit_refunded,
+              security_deposit_refund_amount,
+              security_deposit_refund_deduction,
+              security_deposit_refund_notes,
+              security_deposit_refund_method,
+              security_deposit_refund_ref,
+              security_deposit_refund_receipt_url,
+              security_deposit_refunded_at,
+              refund_completed,
+              refund_amount,
+              refund_method,
+              refund_ref,
+              refund_reference,
+              refund_receipt_url,
+              refund_reason,
+              refunded_at,
+              created_at,
+              vehicles:vehicle_id (
+                id, brand, model, year, plate_number,
+                vehicle_images (image_url, display_order)
+              )
+            ''')
+            .eq('renter_id', userId)
+            .order('created_at', ascending: false);
+
+        for (final b in List<Map<String, dynamic>>.from(response)) {
+          final veh = b['vehicles'] as Map<String, dynamic>?;
+          final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+          final bookingId = b['id']?.toString() ?? '';
+
+          // A: Security deposit refund
+          if (b['security_deposit_refunded'] == true ||
+              ((b['security_deposit_refund_amount'] as num?)?.toDouble() ?? 0) > 0) {
+            final amt = (b['security_deposit_refund_amount'] as num?)?.toDouble() ?? 0.0;
+            final ded = (b['security_deposit_refund_deduction'] as num?)?.toDouble() ?? 0.0;
+            records.add({
+              'id': 'sec_dep_$bookingId',
+              'booking_id': bookingId,
+              'booking_reference': b['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
+              'category': 'security_deposit',
+              'title': 'Security Deposit Refund',
+              'amount': amt,
+              'deduction': ded,
+              'deduction_notes': b['security_deposit_refund_notes']?.toString(),
+              'method': b['security_deposit_refund_method']?.toString() ?? 'GCash',
+              'reference_number': b['security_deposit_refund_ref']?.toString() ?? '—',
+              'receipt_url': b['security_deposit_refund_receipt_url']?.toString(),
+              'date': b['security_deposit_refunded_at'] ?? b['created_at'],
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Rental Vehicle',
+              'plate_number': veh?['plate_number']?.toString() ?? '',
+              'status': 'Completed',
+            });
+          }
+
+          // B: General / cancellation refund
+          if (b['refund_completed'] == true ||
+              ((b['refund_amount'] as num?)?.toDouble() ?? 0) > 0) {
+            final amt = (b['refund_amount'] as num?)?.toDouble() ?? 0.0;
+            records.add({
+              'id': 'booking_refund_$bookingId',
+              'booking_id': bookingId,
+              'booking_reference': b['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
+              'category': 'booking_refund',
+              'title': 'Booking Cancellation Refund',
+              'amount': amt,
+              'deduction': 0.0,
+              'deduction_notes': b['refund_reason']?.toString(),
+              'method': b['refund_method']?.toString() ?? 'GCash',
+              'reference_number': b['refund_ref']?.toString() ?? b['refund_reference']?.toString() ?? '—',
+              'receipt_url': b['refund_receipt_url']?.toString(),
+              'date': b['refunded_at'] ?? b['created_at'],
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Rental Vehicle',
+              'plate_number': veh?['plate_number']?.toString() ?? '',
+              'status': 'Completed',
+            });
+          }
+        }
+      } else if (normalizedRole == 'partner') {
+        // Partner payouts from booking_payouts table
+        try {
+          final payoutsRes = await _supabase
+              .from('booking_payouts')
+              .select('''
+                *,
+                bookings:booking_id (
+                  id,
+                  booking_reference,
+                  vehicles:vehicle_id (
+                    id, brand, model, year, plate_number
+                  )
+                )
+              ''')
+              .eq('recipient_user_id', userId)
+              .order('released_at', ascending: false);
+
+          for (final p in List<Map<String, dynamic>>.from(payoutsRes)) {
+            final b = p['bookings'] as Map<String, dynamic>?;
+            final veh = b?['vehicles'] as Map<String, dynamic>?;
+            final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+            final meta = p['metadata'] as Map<String, dynamic>? ?? {};
+            final bid = p['booking_id']?.toString() ?? '';
+
+            records.add({
+              'id': p['id']?.toString() ?? '',
+              'booking_id': bid,
+              'booking_reference': b?['booking_reference'] ?? (bid.isNotEmpty ? bid.substring(0, bid.length > 8 ? 8 : bid.length) : '—'),
+              'category': 'partner_payout',
+              'title': 'Vehicle Commission Payout',
+              'amount': (p['net_amount'] as num?)?.toDouble() ?? 0.0,
+              'gross_amount': (p['gross_amount'] as num?)?.toDouble() ?? 0.0,
+              'deduction': (p['deductions'] as num?)?.toDouble() ?? 0.0,
+              'method': meta['payment_method']?.toString() ?? 'GCash',
+              'reference_number': meta['reference_number']?.toString() ?? '—',
+              'receipt_url': meta['receipt_url']?.toString(),
+              'date': p['released_at'] ?? p['created_at'],
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : (meta['vehicle_title']?.toString() ?? 'Partner Vehicle'),
+              'plate_number': veh?['plate_number']?.toString() ?? '',
+              'status': p['status']?.toString() == 'released' ? 'Completed' : (p['status']?.toString() ?? 'Completed'),
+            });
+          }
+        } catch (_) {}
+
+        // Fallback: check bookings directly
+        if (records.isEmpty) {
+          try {
+            final vehRes = await _supabase
+                .from('vehicles')
+                .select('id, brand, model, plate_number')
+                .or('owner_id.eq.$userId,partner_id.eq.$userId');
+            final vehList = List<Map<String, dynamic>>.from(vehRes);
+            final vMap = {for (final v in vehList) v['id']?.toString() ?? '': v};
+            final vIds = vMap.keys.where((k) => k.isNotEmpty).toList();
+
+            if (vIds.isNotEmpty) {
+              final bRes = await _supabase
+                  .from('bookings')
+                  .select('*')
+                  .inFilter('vehicle_id', vIds)
+                  .eq('partner_payout_disbursed', true)
+                  .order('partner_payout_disbursed_at', ascending: false);
+
+              for (final b in List<Map<String, dynamic>>.from(bRes)) {
+                final vid = b['vehicle_id']?.toString() ?? '';
+                final veh = vMap[vid];
+                final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+                final bookingId = b['id']?.toString() ?? '';
+                records.add({
+                  'id': 'partner_booking_$bookingId',
+                  'booking_id': bookingId,
+                  'booking_reference': b['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
+                  'category': 'partner_payout',
+                  'title': 'Vehicle Commission Payout',
+                  'amount': (b['partner_payout_amount'] as num?)?.toDouble() ?? 0.0,
+                  'deduction': (b['partner_payout_commission'] as num?)?.toDouble() ?? 0.0,
+                  'method': b['partner_payout_method']?.toString() ?? 'GCash',
+                  'reference_number': b['partner_payout_ref']?.toString() ?? '—',
+                  'receipt_url': b['partner_payout_receipt_url']?.toString(),
+                  'date': b['partner_payout_disbursed_at'] ?? b['updated_at'] ?? b['created_at'],
+                  'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
+                  'plate_number': veh?['plate_number']?.toString() ?? '',
+                  'status': 'Completed',
+                });
+              }
+            }
+          } catch (_) {}
+        }
+      } else if (normalizedRole == 'driver') {
+        // Driver earnings from driver_earnings table
+        try {
+          final earningsRes = await _supabase
+              .from('driver_earnings')
+              .select('''
+                *,
+                bookings:booking_id (
+                  id,
+                  booking_reference,
+                  vehicles:vehicle_id (
+                    id, brand, model, year, plate_number
+                  )
+                )
+              ''')
+              .eq('driver_id', userId)
+              .order('paid_at', ascending: false);
+
+          for (final e in List<Map<String, dynamic>>.from(earningsRes)) {
+            final b = e['bookings'] as Map<String, dynamic>?;
+            final veh = b?['vehicles'] as Map<String, dynamic>?;
+            final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+            final bookingId = e['booking_id']?.toString() ?? '';
+
+            records.add({
+              'id': e['id']?.toString() ?? '',
+              'booking_id': bookingId,
+              'booking_reference': b?['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
+              'category': 'driver_payout',
+              'title': 'Driver Trip Fee Payout',
+              'amount': (e['net_earnings'] as num?)?.toDouble() ?? 0.0,
+              'gross_amount': (e['trip_fee'] as num?)?.toDouble() ?? 0.0,
+              'deduction': (e['commission_amount'] as num?)?.toDouble() ?? 0.0,
+              'method': e['payout_method']?.toString() ?? 'GCash',
+              'reference_number': e['payout_ref']?.toString() ?? '—',
+              'receipt_url': e['payout_receipt_url']?.toString(),
+              'date': e['paid_at'] ?? e['created_at'],
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Trip Vehicle',
+              'plate_number': veh?['plate_number']?.toString() ?? '',
+              'status': e['payout_status']?.toString() == 'paid' ? 'Completed' : (e['payout_status']?.toString() ?? 'Completed'),
+            });
+          }
+        } catch (_) {}
+
+        // Fallback: check bookings directly
+        if (records.isEmpty) {
+          try {
+            final bRes = await _supabase
+                .from('bookings')
+                .select('''
+                  id,
+                  booking_reference,
+                  driver_payout_disbursed,
+                  driver_payout_amount,
+                  driver_payout_method,
+                  driver_payout_ref,
+                  driver_payout_receipt_url,
+                  driver_payout_disbursed_at,
+                  updated_at,
+                  created_at,
+                  vehicles:vehicle_id (
+                    id, brand, model, year, plate_number
+                  )
+                ''')
+                .or('driver_id.eq.$userId,assigned_driver_id.eq.$userId')
+                .eq('driver_payout_disbursed', true)
+                .order('driver_payout_disbursed_at', ascending: false);
+
+            for (final b in List<Map<String, dynamic>>.from(bRes)) {
+              final veh = b['vehicles'] as Map<String, dynamic>?;
+              final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+              final bookingId = b['id']?.toString() ?? '';
+              records.add({
+                'id': 'driver_booking_$bookingId',
+                'booking_id': bookingId,
+                'booking_reference': b['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
+                'category': 'driver_payout',
+                'title': 'Driver Trip Fee Payout',
+                'amount': (b['driver_payout_amount'] as num?)?.toDouble() ?? 0.0,
+                'method': b['driver_payout_method']?.toString() ?? 'GCash',
+                'reference_number': b['driver_payout_ref']?.toString() ?? '—',
+                'receipt_url': b['driver_payout_receipt_url']?.toString(),
+                'date': b['driver_payout_disbursed_at'] ?? b['updated_at'] ?? b['created_at'],
+                'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Trip Vehicle',
+                'plate_number': veh?['plate_number']?.toString() ?? '',
+                'status': 'Completed',
+              });
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading refund and disbursement history: $e');
+    }
+
+    // Sort all records descending by date
+    records.sort((a, b) {
+      final da = DateTime.tryParse(a['date']?.toString() ?? '') ?? DateTime(1970);
+      final db = DateTime.tryParse(b['date']?.toString() ?? '') ?? DateTime(1970);
+      return db.compareTo(da);
+    });
+
+    return records;
   }
 }
