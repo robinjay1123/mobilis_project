@@ -145,6 +145,7 @@ class VerificationService {
         await supabase.from('users').update({
           'verification_status': 'pending',
           'application_status': 'pending',
+          'id_verified': false,
         }).eq('id', userId);
       } catch (_) {}
 
@@ -783,6 +784,7 @@ class VerificationService {
 
       final userUpdate = <String, dynamic>{
         'verification_status': 'pending',
+        'id_verified': false,
         'full_name': normalizedFullName,
         if (normalizedPhone.isNotEmpty) 'phone': normalizedPhone,
         if (isDriver) ...{
@@ -801,6 +803,8 @@ class VerificationService {
           await DriverService().ensureDriverProfile(userId);
           await supabase.from('drivers').update({
             'verification_status': 'pending',
+            'license_verified': false,
+            'nbi_verified': false,
             'updated_at': DateTime.now().toIso8601String(),
           }).eq('user_id', userId);
         } catch (driverUpdateErr) {

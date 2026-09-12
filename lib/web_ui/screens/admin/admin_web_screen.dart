@@ -2187,15 +2187,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final verificationUsers = futures[4];
 
       final approvedUserIds = <String>{};
+      final pendingUserIds = <String>{};
       for (final v in verifications) {
         final uid = v['user_id']?.toString() ?? '';
         final statusStr =
             v['verification_status']?.toString().trim().toLowerCase() ?? '';
-        if (uid.isNotEmpty &&
-            (statusStr == 'approved' ||
-                statusStr == 'verified' ||
-                statusStr == 'certified')) {
-          approvedUserIds.add(uid);
+        if (uid.isNotEmpty) {
+          if (statusStr == 'approved' ||
+              statusStr == 'verified' ||
+              statusStr == 'certified') {
+            approvedUserIds.add(uid);
+          } else if (statusStr == 'pending' || statusStr == 'submitted') {
+            pendingUserIds.add(uid);
+          }
         }
       }
 
@@ -2212,9 +2216,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         final statusStr =
             d['verification_status']?.toString().trim().toLowerCase() ?? '';
         final isVer = d['is_verified'] == true;
-        if (uid.isNotEmpty &&
-            (isVer || statusStr == 'approved' || statusStr == 'verified')) {
-          approvedUserIds.add(uid);
+        if (uid.isNotEmpty) {
+          if (isVer || statusStr == 'approved' || statusStr == 'verified') {
+            approvedUserIds.add(uid);
+          } else if (statusStr == 'pending' || statusStr == 'submitted') {
+            pendingUserIds.add(uid);
+          }
         }
       }
 
@@ -2246,19 +2253,36 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
         final verStatus =
             user['verification_status']?.toString().trim().toLowerCase() ?? '';
+        final driverVerStatus =
+            driverData?['verification_status']?.toString().trim().toLowerCase() ?? '';
+
+        final isPending = !isAdminOrOperator &&
+            (pendingUserIds.contains(userId) ||
+                verStatus == 'pending' ||
+                verStatus == 'submitted' ||
+                (userRole == 'driver' &&
+                    (driverVerStatus == 'pending' || driverVerStatus == 'submitted')));
+
         final idVerified =
             user['id_verified'] == true || user['is_verified'] == true;
-        final isVerified =
-            isAdminOrOperator ||
-            idVerified ||
-            verStatus == 'approved' ||
-            verStatus == 'verified' ||
-            verStatus == 'certified' ||
-            approvedUserIds.contains(userId);
+        final isVerified = isAdminOrOperator ||
+            (!isPending &&
+                (approvedUserIds.contains(userId) ||
+                    verStatus == 'approved' ||
+                    verStatus == 'verified' ||
+                    verStatus == 'certified' ||
+                    idVerified));
+
+        final displayVerStatus = isPending
+            ? 'pending'
+            : (isVerified ? 'verified' : (verStatus.isNotEmpty ? verStatus : 'unverified'));
 
         userList.add({
           ...user,
           'id_verified': isVerified,
+          'is_verified': isVerified,
+          'verification_status': displayVerStatus,
+          'display_verification_status': displayVerStatus,
           'is_psdc_driver': isPsdcDriver,
           'driver_id': driverData?['id'],
         });
@@ -2270,6 +2294,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             uMap?['id']?.toString() ?? v['user_id']?.toString() ?? '';
         if (uid.isNotEmpty && !seenUserIds.contains(uid)) {
           seenUserIds.add(uid);
+          final statusStr =
+              v['verification_status']?.toString().trim().toLowerCase() ?? '';
+          final isVer = statusStr == 'approved' ||
+              statusStr == 'verified' ||
+              statusStr == 'certified';
+          final isPend = statusStr == 'pending' || statusStr == 'submitted';
+          final displayStatus = isPend ? 'pending' : (isVer ? 'verified' : 'unverified');
+
           userList.add({
             'id': uid,
             'email': uMap?['email'] ?? 'User Email',
@@ -2278,7 +2310,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'role': uMap?['role'] ?? 'renter',
             'created_at':
                 uMap?['created_at'] ?? DateTime.now().toIso8601String(),
-            'id_verified': true,
+            'id_verified': isVer,
+            'is_verified': isVer,
+            'verification_status': displayStatus,
+            'display_verification_status': displayStatus,
             'avatar_url': uMap?['avatar_url'],
           });
         }
@@ -5969,11 +6004,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   '')
               .toString()
               .toLowerCase();
-      final isVerified =
-          user['id_verified'] == true ||
-          user['is_verified'] == true ||
-          verificationStatus == 'verified' ||
-          verificationStatus == 'approved';
+      final isPending = verificationStatus == 'pending' || verificationStatus == 'submitted';
+      final isVerified = !isPending &&
+          (user['id_verified'] == true ||
+              user['is_verified'] == true ||
+              verificationStatus == 'verified' ||
+              verificationStatus == 'approved');
 
       final matchesSearch =
           name.contains(_userSearchQuery.toLowerCase()) ||
@@ -6014,10 +6050,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           (u['display_verification_status'] ?? u['verification_status'] ?? '')
               .toString()
               .toLowerCase();
-      return u['id_verified'] == true ||
-          u['is_verified'] == true ||
-          status == 'verified' ||
-          status == 'approved';
+      final isPending = status == 'pending' || status == 'submitted' || status == 'rejected';
+      return !isPending &&
+          (u['id_verified'] == true ||
+              u['is_verified'] == true ||
+              status == 'verified' ||
+              status == 'approved');
     }).length;
 
     return SingleChildScrollView(
@@ -6569,7 +6607,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               Expanded(
                                 flex: 2,
                                 child: Center(
-                                  child: _buildVerificationBadge(isVerified),
+                                  child: _buildVerificationBadge(
+                                    isVerified,
+                                    status: (user['display_verification_status'] ??
+                                            user['verification_status'])
+                                        ?.toString(),
+                                  ),
                                 ),
                               ),
                               Expanded(
@@ -6893,8 +6936,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  Widget _buildVerificationBadge(bool isVerified) {
-    if (isVerified) {
+  Widget _buildVerificationBadge(bool isVerified, {String? status}) {
+    final normalized = (status ?? '').trim().toLowerCase();
+    if (isVerified || normalized == 'verified' || normalized == 'approved') {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
@@ -6920,24 +6964,52 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       );
     }
 
+    if (normalized == 'pending' || normalized == 'submitted') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+          ),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.hourglass_top_rounded, color: Color(0xFFF59E0B), size: 14),
+            SizedBox(width: 5),
+            Text(
+              'Pending',
+              style: TextStyle(
+                color: Color(0xFFF59E0B),
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+        color: Colors.grey.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+          color: Colors.grey.withValues(alpha: 0.4),
         ),
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.pending_outlined, color: Color(0xFFF59E0B), size: 14),
+          Icon(Icons.pending_outlined, color: Colors.grey, size: 14),
           SizedBox(width: 5),
           Text(
             'Unverified',
             style: TextStyle(
-              color: Color(0xFFF59E0B),
+              color: Colors.grey,
               fontSize: 11,
               fontWeight: FontWeight.bold,
             ),
