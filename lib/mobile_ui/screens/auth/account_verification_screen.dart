@@ -143,6 +143,14 @@ class _AccountVerificationScreenState extends State<AccountVerificationScreen> {
                         onPressed: _handleResubmit,
                       ),
                       const SizedBox(height: 12),
+                    ] else if (!_isVerified &&
+                        _verificationStatus != 'verified' &&
+                        _verificationStatus != 'approved') ...[
+                      CustomButton(
+                        label: 'Edit Details & Re-upload Documents',
+                        onPressed: _handleResubmit,
+                      ),
+                      const SizedBox(height: 12),
                     ],
                     CustomButton(
                       label: 'Back to Dashboard',

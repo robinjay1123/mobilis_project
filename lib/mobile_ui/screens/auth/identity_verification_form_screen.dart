@@ -54,6 +54,14 @@ class _IdentityVerificationFormScreenState
   File? _nbiClearanceFile;
   Uint8List? _driverSignatureBytes;
 
+  // Existing document URLs from previous submission
+  String? _existingIdFrontUrl;
+  String? _existingIdBackUrl;
+  String? _existingFaceSelfieUrl;
+  String? _existingSelfieWithIdUrl;
+  String? _existingNbiClearanceUrl;
+  String? _existingSignatureUrl;
+
   // UI State
   bool _isLoading = false;
   String? _errorMessage;
@@ -177,19 +185,81 @@ class _IdentityVerificationFormScreenState
         combinedRecord.addAll(Map<String, dynamic>.from(meta));
       }
 
+      List<String> parseCleanUrls(dynamic v) {
+        final s = v?.toString().trim();
+        if (s == null || s.isEmpty) return const [];
+        return s
+            .split('|')
+            .map((part) => part.trim())
+            .where(
+              (part) =>
+                  part.isNotEmpty &&
+                  (part.startsWith('http') ||
+                      part.startsWith('data:image') ||
+                      part.contains('/storage/')),
+            )
+            .toList();
+      }
+
+      String? firstClean(dynamic v) {
+        final urls = parseCleanUrls(v);
+        return urls.isEmpty ? null : urls.first;
+      }
+
+      final combinedIdUrls = parseCleanUrls(combinedRecord['id_document_url']);
+      final loadedIdFront = firstClean(combinedRecord['id_front_url']) ??
+          (combinedIdUrls.isNotEmpty ? combinedIdUrls.first : null) ??
+          firstClean(combinedRecord['id_photo_url']);
+      final loadedIdBack = firstClean(combinedRecord['id_back_url']) ??
+          (combinedIdUrls.length > 1 ? combinedIdUrls[1] : null);
+      final loadedFaceSelfie = firstClean(combinedRecord['face_selfie_url']) ??
+          firstClean(combinedRecord['profile_picture_url'] ?? combinedRecord['avatar_url']);
+      final loadedSelfieWithId = firstClean(
+        combinedRecord['selfie_with_id_url'] ?? combinedRecord['selfie_holding_id_url'],
+      );
+      final loadedNbi = firstClean(
+        combinedRecord['driver_nbi_url'] ??
+            combinedRecord['nbi_file_url'] ??
+            combinedRecord['nbi_url'] ??
+            combinedRecord['nbi_clearance_url'],
+      );
+      final loadedSignature = firstClean(
+        combinedRecord['driver_signature_url'] ??
+            combinedRecord['signature_url'] ??
+            combinedRecord['digital_signature_url'],
+      );
+
       if (!mounted) return;
 
       setState(() {
         _submittedVerificationRecord = combinedRecord;
+        _existingIdFrontUrl = loadedIdFront;
+        _existingIdBackUrl = loadedIdBack;
+        _existingFaceSelfieUrl = loadedFaceSelfie;
+        _existingSelfieWithIdUrl = loadedSelfieWithId;
+        _existingNbiClearanceUrl = loadedNbi;
+        _existingSignatureUrl = loadedSignature;
       });
 
       // Populate existing data if available
       if (verification != null) {
         setState(() {
-          _nameController.text = verification['full_name'] ?? '';
-          _locationController.text = verification['location'] ?? '';
-          _idNumberController.text = verification['id_number'] ?? '';
-          _selectedIdType = verification['id_type'] ?? 'National ID';
+          if ((verification['full_name']?.toString().trim() ?? '').isNotEmpty) {
+            _nameController.text = verification['full_name'];
+          }
+          if ((verification['phone']?.toString().trim() ?? '').isNotEmpty &&
+              _phoneController.text.trim().isEmpty) {
+            _phoneController.text = verification['phone'];
+          }
+          if ((verification['location']?.toString().trim() ?? '').isNotEmpty) {
+            _locationController.text = verification['location'];
+          }
+          if ((verification['id_number']?.toString().trim() ?? '').isNotEmpty) {
+            _idNumberController.text = verification['id_number'];
+          }
+          if ((verification['id_type']?.toString().trim() ?? '').isNotEmpty) {
+            _selectedIdType = verification['id_type'];
+          }
           final expiryRaw = verification['driver_license_expiry']?.toString();
           if (expiryRaw != null && expiryRaw.isNotEmpty) {
             _driverLicenseExpiryDate = DateTime.tryParse(expiryRaw);
@@ -413,29 +483,43 @@ class _IdentityVerificationFormScreenState
       _showError("Driver's license expiration date must be in the future");
       return;
     }
-    if (_idFrontFile == null) {
+    final hasIdFront = _idFrontFile != null ||
+        (_existingIdFrontUrl != null && _existingIdFrontUrl!.isNotEmpty);
+    if (!hasIdFront) {
       _showError('Please capture or upload the front of your ID');
       return;
     }
-    if (_idBackFile == null) {
+    final hasIdBack = _idBackFile != null ||
+        (_existingIdBackUrl != null && _existingIdBackUrl!.isNotEmpty);
+    if (!hasIdBack) {
       _showError('Please capture or upload the back of your ID');
       return;
     }
-    if (_faceSelfieFile == null) {
+    final hasFaceSelfie = _faceSelfieFile != null ||
+        (_existingFaceSelfieUrl != null && _existingFaceSelfieUrl!.isNotEmpty);
+    if (!hasFaceSelfie) {
       _showError('Please take a clear face-only selfie');
       return;
     }
-    if (_selfieWithIdFile == null) {
+    final hasSelfieWithId = _selfieWithIdFile != null ||
+        (_existingSelfieWithIdUrl != null && _existingSelfieWithIdUrl!.isNotEmpty);
+    if (!hasSelfieWithId) {
       _showError('Please take a selfie while holding your ID');
       return;
     }
-    if (widget.userRole == 'driver' && _nbiClearanceFile == null) {
-      _showError('Please upload or capture your NBI clearance');
-      return;
-    }
-    if (widget.userRole == 'driver' && _driverSignatureBytes == null) {
-      _showError('Please add your digital signature');
-      return;
+    if (widget.userRole == 'driver') {
+      final hasNbi = _nbiClearanceFile != null ||
+          (_existingNbiClearanceUrl != null && _existingNbiClearanceUrl!.isNotEmpty);
+      if (!hasNbi) {
+        _showError('Please upload or capture your NBI clearance');
+        return;
+      }
+      final hasSignature = _driverSignatureBytes != null ||
+          (_existingSignatureUrl != null && _existingSignatureUrl!.isNotEmpty);
+      if (!hasSignature) {
+        _showError('Please add your digital signature');
+        return;
+      }
     }
 
     setState(() {
@@ -451,26 +535,34 @@ class _IdentityVerificationFormScreenState
         throw Exception('User not authenticated');
       }
 
-      final idFrontUrl = await _uploadVerificationImage(
-        userId,
-        _idFrontFile!,
-        'id_front',
-      );
-      final idBackUrl = await _uploadVerificationImage(
-        userId,
-        _idBackFile!,
-        'id_back',
-      );
-      final faceSelfieUrl = await _uploadVerificationImage(
-        userId,
-        _faceSelfieFile!,
-        'face_selfie',
-      );
-      final selfieWithIdUrl = await _uploadVerificationImage(
-        userId,
-        _selfieWithIdFile!,
-        'selfie_with_id',
-      );
+      final idFrontUrl = _idFrontFile != null
+          ? await _uploadVerificationImage(
+              userId,
+              _idFrontFile!,
+              'id_front',
+            )
+          : (_existingIdFrontUrl ?? '');
+      final idBackUrl = _idBackFile != null
+          ? await _uploadVerificationImage(
+              userId,
+              _idBackFile!,
+              'id_back',
+            )
+          : (_existingIdBackUrl ?? '');
+      final faceSelfieUrl = _faceSelfieFile != null
+          ? await _uploadVerificationImage(
+              userId,
+              _faceSelfieFile!,
+              'face_selfie',
+            )
+          : (_existingFaceSelfieUrl ?? '');
+      final selfieWithIdUrl = _selfieWithIdFile != null
+          ? await _uploadVerificationImage(
+              userId,
+              _selfieWithIdFile!,
+              'selfie_with_id',
+            )
+          : (_existingSelfieWithIdUrl ?? '');
       if (widget.userRole == 'driver') {
         await DriverService().markDriverApplicationSubmitted(userId);
         final driverProfile = await DriverService().getDriverProfile(userId);
@@ -485,32 +577,40 @@ class _IdentityVerificationFormScreenState
                   .split('T')
                   .first,
             });
-        final signatureUrl = await DriverService()
-            .uploadBytesToDriverDocumentsBucket(
-              userId: userId,
-              bytes: _driverSignatureBytes!,
-              documentType: 'digital_signature',
-            );
-        await DriverService().uploadDriverDocument(
-          driverId: driverProfile['id'].toString(),
-          documentType: 'digital_signature',
-          fileUrl: signatureUrl,
-          issueDate: DateTime.now(),
-          expiryDate: DateTime.now().add(const Duration(days: 3650)),
-        );
-        final nbiUrl = await _uploadVerificationImage(
-          userId,
-          _nbiClearanceFile!,
-          'nbi_clearance',
-        );
-        await DriverService().uploadDriverDocument(
-          driverId: driverProfile['id'].toString(),
-          documentType: 'nbi_clearance',
-          fileUrl: nbiUrl,
-          issueDate: DateTime.now(),
-          expiryDate: DateTime.now().add(const Duration(days: 365)),
-        );
+        if (_driverSignatureBytes != null) {
+          final signatureUrl = await DriverService()
+              .uploadBytesToDriverDocumentsBucket(
+                userId: userId,
+                bytes: _driverSignatureBytes!,
+                documentType: 'digital_signature',
+              );
+          await DriverService().uploadDriverDocument(
+            driverId: driverProfile['id'].toString(),
+            documentType: 'digital_signature',
+            fileUrl: signatureUrl,
+            issueDate: DateTime.now(),
+            expiryDate: DateTime.now().add(const Duration(days: 3650)),
+          );
+        }
+        if (_nbiClearanceFile != null) {
+          final nbiUrl = await _uploadVerificationImage(
+            userId,
+            _nbiClearanceFile!,
+            'nbi_clearance',
+          );
+          await DriverService().uploadDriverDocument(
+            driverId: driverProfile['id'].toString(),
+            documentType: 'nbi_clearance',
+            fileUrl: nbiUrl,
+            issueDate: DateTime.now(),
+            expiryDate: DateTime.now().add(const Duration(days: 365)),
+          );
+        }
       }
+
+      final idDocUrl = idFrontUrl.isNotEmpty && idBackUrl.isNotEmpty
+          ? '$idFrontUrl|$idBackUrl'
+          : (idFrontUrl.isNotEmpty ? idFrontUrl : idBackUrl);
 
       // Submit verification with all form data
       final result = await VerificationService.submitVerificationWithDetails(
@@ -520,7 +620,7 @@ class _IdentityVerificationFormScreenState
         location: _locationController.text.trim(),
         idType: _selectedIdType,
         idNumber: _idNumberController.text.trim(),
-        idDocumentUrl: '$idFrontUrl|$idBackUrl',
+        idDocumentUrl: idDocUrl,
         idFrontUrl: idFrontUrl,
         idBackUrl: idBackUrl,
         faceSelfieUrl: faceSelfieUrl,
@@ -541,7 +641,13 @@ class _IdentityVerificationFormScreenState
           if (widget.userRole == 'driver') {
             _driverApplicationStatus = 'pending';
             _verificationStatus = 'pending';
+            _showDriverApplicationForm = false;
           }
+          _isUpdatingVerification = false;
+          _existingIdFrontUrl = idFrontUrl;
+          _existingIdBackUrl = idBackUrl;
+          _existingFaceSelfieUrl = faceSelfieUrl;
+          _existingSelfieWithIdUrl = selfieWithIdUrl;
           _successMessage = result['message'];
           _isLoading = false;
         });
@@ -928,7 +1034,7 @@ class _IdentityVerificationFormScreenState
         return _buildDriverApplicationReviewScaffold();
       }
 
-      if (_verificationStatus == 'verified') {
+      if (_verificationStatus == 'verified' && !_isUpdatingVerification) {
         return _buildDriverStatusScaffold(
           title: 'Documents Verified',
           subtitle:
@@ -937,7 +1043,7 @@ class _IdentityVerificationFormScreenState
         );
       }
 
-      if (_verificationStatus == 'pending') {
+      if (_verificationStatus == 'pending' && !_isUpdatingVerification) {
         return _buildDriverStatusScaffold(
           title: 'Application Under Review',
           subtitle:
@@ -1133,8 +1239,53 @@ class _IdentityVerificationFormScreenState
               ),
             if (_errorMessage != null) const SizedBox(height: 16),
 
+            // Pending review banner
+            if (_verificationStatus == 'pending' || _verificationStatus == 'submitted') ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.warning.withOpacity(0.45)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, color: AppColors.warning, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Verification Under Review',
+                            style: TextStyle(
+                              color: AppColors.warning,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Your request is submitted. You can edit any details or re-upload missing documents below. Submitting will update your request for admin review.',
+                            style: TextStyle(
+                              color: isDark ? AppColors.textPrimary : AppColors.lightTextPrimary,
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // Success message
-            if (_successMessage != null && _verificationStatus == 'pending')
+            if (_successMessage != null &&
+                _verificationStatus != 'pending' &&
+                _verificationStatus != 'submitted')
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -1158,7 +1309,9 @@ class _IdentityVerificationFormScreenState
                   ],
                 ),
               ),
-            if (_successMessage != null && _verificationStatus == 'pending')
+            if (_successMessage != null &&
+                _verificationStatus != 'pending' &&
+                _verificationStatus != 'submitted')
               const SizedBox(height: 16),
 
             // === NAME FIELD ===
@@ -1189,6 +1342,23 @@ class _IdentityVerificationFormScreenState
               controller: _locationController,
               hint: 'Enter your address',
               icon: Icons.location_on,
+            ),
+            const SizedBox(height: 16),
+
+            // === PHONE FIELD ===
+            _buildFormField(
+              isDark,
+              inputFillColor,
+              textColor,
+              inputTextColor: inputTextColor,
+              hintTextColor: hintTextColor,
+              borderColor: inputBorderColor,
+              label: 'Phone Number',
+              controller: _phoneController,
+              hint: '+63 900 000 0000',
+              icon: Icons.phone,
+              keyboardType: TextInputType.phone,
+              inputFormatters: philippineMobileInputFormatters,
             ),
             const SizedBox(height: 16),
 
@@ -1225,6 +1395,7 @@ class _IdentityVerificationFormScreenState
               description:
                   'Capture the front of the ID. Keep all text and corners visible.',
               file: _idFrontFile,
+              existingUrl: _existingIdFrontUrl,
               photoType: 'id_front',
               icon: Icons.badge_outlined,
               cardColor: inputFillColor,
@@ -1237,6 +1408,7 @@ class _IdentityVerificationFormScreenState
               description:
                   'Turn the same ID over and capture its complete back side.',
               file: _idBackFile,
+              existingUrl: _existingIdBackUrl,
               photoType: 'id_back',
               icon: Icons.flip_to_back_outlined,
               cardColor: inputFillColor,
@@ -1249,6 +1421,7 @@ class _IdentityVerificationFormScreenState
               description:
                   'Take a face-only selfie in good lighting. No mask, ID, or other person should appear.',
               file: _faceSelfieFile,
+              existingUrl: _existingFaceSelfieUrl,
               photoType: 'face_selfie',
               icon: Icons.face_retouching_natural,
               cardColor: inputFillColor,
@@ -1261,6 +1434,7 @@ class _IdentityVerificationFormScreenState
               description:
                   'Hold the front of your ID beside your face. Your face and ID must both be clear.',
               file: _selfieWithIdFile,
+              existingUrl: _existingSelfieWithIdUrl,
               photoType: 'selfie_with_id',
               icon: Icons.co_present_outlined,
               cardColor: inputFillColor,
@@ -1271,7 +1445,11 @@ class _IdentityVerificationFormScreenState
 
             // === SUBMIT BUTTON ===
             CustomButton(
-              label: _isLoading ? 'Submitting...' : 'Submit Verification',
+              label: _isLoading
+                  ? 'Submitting...'
+                  : (_verificationStatus == 'pending' || _verificationStatus == 'submitted'
+                      ? 'Update & Re-submit Verification'
+                      : 'Submit Verification'),
               onPressed: _isLoading ? null : _submitVerification,
               backgroundColor: AppColors.primary,
               textColor: Colors.black,
@@ -1318,6 +1496,66 @@ class _IdentityVerificationFormScreenState
           children: [
             _buildDriverProgressCard(),
             const SizedBox(height: 24),
+            if (_isUpdatingVerification ||
+                _verificationStatus == 'pending' ||
+                _verificationStatus == 'verified') ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.edit_note_rounded,
+                        color: AppColors.primary, size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Editing Application Details',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'You can update your information or fill in any missing documents below. Submitting will update your application for admin review.',
+                            style: TextStyle(
+                              color: isDark
+                                  ? AppColors.textSecondary
+                                  : AppColors.lightTextSecondary,
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_isUpdatingVerification)
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _isUpdatingVerification = false;
+                            _showDriverApplicationForm = false;
+                          });
+                        },
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(color: AppColors.textSecondary),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             if (_errorMessage != null) ...[
               _buildDriverNotice(
                 message: _errorMessage!,
@@ -1478,6 +1716,7 @@ class _IdentityVerificationFormScreenState
                   description:
                       'Capture the front of your valid ID. Keep text and corners visible.',
                   file: _idFrontFile,
+                  existingUrl: _existingIdFrontUrl,
                   photoType: 'id_front',
                   icon: Icons.badge_outlined,
                   cardColor: inputFillColor,
@@ -1489,6 +1728,7 @@ class _IdentityVerificationFormScreenState
                   title: 'ID Back *',
                   description: 'Capture the back of the same ID clearly.',
                   file: _idBackFile,
+                  existingUrl: _existingIdBackUrl,
                   photoType: 'id_back',
                   icon: Icons.flip_to_back_outlined,
                   cardColor: inputFillColor,
@@ -1501,6 +1741,7 @@ class _IdentityVerificationFormScreenState
                   description:
                       'Take a face-only selfie in good lighting for liveness review.',
                   file: _faceSelfieFile,
+                  existingUrl: _existingFaceSelfieUrl,
                   photoType: 'face_selfie',
                   icon: Icons.face_retouching_natural,
                   cardColor: inputFillColor,
@@ -1513,6 +1754,7 @@ class _IdentityVerificationFormScreenState
                   description:
                       'Hold your ID beside your face. Both your face and ID must be readable.',
                   file: _selfieWithIdFile,
+                  existingUrl: _existingSelfieWithIdUrl,
                   photoType: 'selfie_with_id',
                   icon: Icons.co_present_outlined,
                   cardColor: inputFillColor,
@@ -1525,6 +1767,7 @@ class _IdentityVerificationFormScreenState
                   description:
                       'Upload or capture a clear photo of your NBI clearance document.',
                   file: _nbiClearanceFile,
+                  existingUrl: _existingNbiClearanceUrl,
                   photoType: 'nbi_clearance',
                   icon: Icons.assignment_ind_outlined,
                   cardColor: inputFillColor,
@@ -1537,7 +1780,11 @@ class _IdentityVerificationFormScreenState
             ),
             const SizedBox(height: 28),
             CustomButton(
-              label: _isLoading ? 'Submitting...' : 'Submit Application',
+              label: _isLoading
+                  ? 'Submitting...'
+                  : (_verificationStatus == 'pending' || _verificationStatus == 'submitted'
+                      ? 'Update & Re-submit Application'
+                      : 'Submit Application'),
               onPressed: _isLoading ? null : _submitVerification,
               backgroundColor: AppColors.primary,
               textColor: Colors.black,
@@ -1838,13 +2085,31 @@ class _IdentityVerificationFormScreenState
               ),
             ),
             const SizedBox(height: 22),
+            if (_verificationStatus != 'verified') ...[
+              CustomButton(
+                label: 'Edit Details & Re-upload Documents',
+                onPressed: () {
+                  setState(() {
+                    _showDriverApplicationReview = false;
+                    _isUpdatingVerification = true;
+                  });
+                },
+                backgroundColor: AppColors.primary,
+                textColor: Colors.black,
+              ),
+              const SizedBox(height: 12),
+            ],
             CustomButton(
               label: 'Back to Status',
               onPressed: () {
                 setState(() => _showDriverApplicationReview = false);
               },
-              backgroundColor: AppColors.primary,
-              textColor: Colors.black,
+              backgroundColor: _verificationStatus != 'verified'
+                  ? AppColors.darkBgSecondary
+                  : AppColors.primary,
+              textColor: _verificationStatus != 'verified'
+                  ? AppColors.primary
+                  : Colors.black,
             ),
           ],
         ),
@@ -2024,6 +2289,24 @@ class _IdentityVerificationFormScreenState
                 height: 1.4,
               ),
             ),
+            if (_verificationStatus != 'verified') ...[
+              const SizedBox(height: 20),
+              CustomButton(
+                label: 'Edit Details & Re-upload Documents',
+                onPressed: () {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (context) => IdentityVerificationFormScreen(
+                        userRole: widget.userRole,
+                        viewSubmittedDocuments: false,
+                      ),
+                    ),
+                  );
+                },
+                backgroundColor: AppColors.primary,
+                textColor: Colors.black,
+              ),
+            ],
           ],
         ),
       ),
@@ -2813,6 +3096,20 @@ class _IdentityVerificationFormScreenState
               complete: isVerified,
             ),
             const SizedBox(height: 20),
+            if (!isVerified) ...[
+              CustomButton(
+                label: 'Edit Details & Re-upload Documents',
+                onPressed: () {
+                  setState(() {
+                    _isUpdatingVerification = true;
+                    _showDriverApplicationReview = false;
+                  });
+                },
+                backgroundColor: AppColors.primary,
+                textColor: Colors.black,
+              ),
+              const SizedBox(height: 14),
+            ],
             CustomButton(
               label: 'Review your application',
               onPressed: () {
@@ -3067,7 +3364,11 @@ class _IdentityVerificationFormScreenState
   }
 
   Widget _buildDriverSignatureButton() {
-    final hasSignature = _driverSignatureBytes != null;
+    final hasNewSignature = _driverSignatureBytes != null;
+    final hasExistingSignature =
+        _existingSignatureUrl != null && _existingSignatureUrl!.isNotEmpty;
+    final hasSignature = hasNewSignature || hasExistingSignature;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -3099,18 +3400,22 @@ class _IdentityVerificationFormScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  hasSignature
-                      ? 'Digital signature added'
-                      : 'Digital signature *',
+                  hasNewSignature
+                      ? 'New digital signature added'
+                      : hasExistingSignature
+                          ? 'Digital signature on file'
+                          : 'Digital signature *',
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 3),
-                const Text(
-                  'Tap the button to open the signature board.',
-                  style: TextStyle(
+                Text(
+                  hasExistingSignature && !hasNewSignature
+                      ? 'Your previous signature is kept. Tap to replace.'
+                      : 'Tap the button to open the signature board.',
+                  style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 12,
                   ),
@@ -3128,7 +3433,7 @@ class _IdentityVerificationFormScreenState
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: Text(hasSignature ? 'Edit' : 'Add'),
+            child: Text(hasSignature ? 'Change' : 'Add'),
           ),
         ],
       ),
@@ -3158,8 +3463,8 @@ class _IdentityVerificationFormScreenState
         Container(
           decoration: BoxDecoration(
             color: cardColor,
-            border: Border.all(color: borderColor),
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor),
           ),
           child: DropdownButtonFormField<String>(
             value: _selectedIdType,
@@ -3167,22 +3472,22 @@ class _IdentityVerificationFormScreenState
                 .map(
                   (type) => DropdownMenuItem(
                     value: type,
-                    child: Text(type, style: TextStyle(color: inputTextColor)),
+                    child: Text(type),
                   ),
                 )
                 .toList(),
             onChanged: (value) {
-              setState(() {
-                _selectedIdType = value ?? 'National ID';
-                _idNumberController.clear();
-              });
+              if (value != null) {
+                setState(() {
+                  _selectedIdType = value;
+                });
+              }
             },
             decoration: InputDecoration(
-              prefixIcon: const Icon(
-                Icons.card_membership,
+              prefixIcon: Icon(
+                _getIdIcon(_selectedIdType),
                 color: AppColors.primary,
               ),
-              hintStyle: TextStyle(color: hintTextColor),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
@@ -3198,10 +3503,29 @@ class _IdentityVerificationFormScreenState
     );
   }
 
+  IconData _getIdIcon(String idType) {
+    switch (idType) {
+      case "Driver's License":
+        return Icons.drive_eta;
+      case 'Passport':
+        return Icons.flight_takeoff;
+      case 'National ID':
+        return Icons.badge;
+      case 'UMID':
+      case 'SSS ID':
+      case 'Postal ID':
+      case "Voter's ID":
+        return Icons.credit_card;
+      default:
+        return Icons.featured_video;
+    }
+  }
+
   Widget _buildVerificationPhotoSection({
     required String title,
     required String description,
     required File? file,
+    String? existingUrl,
     required String photoType,
     required IconData icon,
     required Color cardColor,
@@ -3209,31 +3533,43 @@ class _IdentityVerificationFormScreenState
     required Color hintTextColor,
     bool cameraOnly = false,
   }) {
+    final hasNewFile = file != null;
+    final hasExistingUrl = existingUrl != null && existingUrl.trim().isNotEmpty;
+    final isComplete = hasNewFile || hasExistingUrl;
+
     final verificationButtonStyle = ElevatedButton.styleFrom(
       backgroundColor: AppColors.primary,
       foregroundColor: Colors.black,
-      minimumSize: const Size(0, 56),
+      minimumSize: const Size(0, 48),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 0,
     );
+
+    final borderColor = hasNewFile
+        ? AppColors.primary
+        : hasExistingUrl
+            ? AppColors.success.withOpacity(0.7)
+            : AppColors.borderColor;
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: cardColor,
         border: Border.all(
-          color: file != null ? AppColors.primary : AppColors.borderColor,
-          width: file != null ? 2 : 1,
+          color: borderColor,
+          width: isComplete ? 1.5 : 1,
         ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: file != null
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
                   title,
                   style: TextStyle(
                     fontSize: 15,
@@ -3241,100 +3577,223 @@ class _IdentityVerificationFormScreenState
                     color: textColor,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(description, style: TextStyle(color: hintTextColor)),
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    file,
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
+              ),
+              if (hasNewFile)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 12,
-                    runSpacing: 10,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      ElevatedButton.icon(
-                        onPressed: () => _pickVerificationPhoto(
-                          photoType,
-                          ImageSource.camera,
+                      Icon(Icons.check_circle, size: 13, color: AppColors.primary),
+                      SizedBox(width: 4),
+                      Text(
+                        'New Selected',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
                         ),
-                        icon: const Icon(Icons.camera_alt),
-                        label: const Text('Retake'),
-                        style: verificationButtonStyle,
                       ),
-                      if (!cameraOnly)
-                        ElevatedButton.icon(
-                          onPressed: () => _pickVerificationPhoto(
-                            photoType,
-                            ImageSource.gallery,
-                          ),
-                          icon: const Icon(Icons.photo_library),
-                          label: const Text('Change Photo'),
-                          style: verificationButtonStyle,
+                    ],
+                  ),
+                )
+              else if (hasExistingUrl)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.verified, size: 13, color: AppColors.success),
+                      SizedBox(width: 4),
+                      Text(
+                        'Previously Uploaded',
+                        style: TextStyle(
+                          color: AppColors.success,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
                         ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.warning_amber_rounded, size: 13, color: AppColors.warning),
+                      SizedBox(width: 4),
+                      Text(
+                        'Missing',
+                        style: TextStyle(
+                          color: AppColors.warning,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
-            )
-          : Column(
-              children: [
-                Icon(icon, size: 48, color: hintTextColor),
-                const SizedBox(height: 12),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  description,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: hintTextColor),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 12,
-                    runSpacing: 10,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: () => _pickVerificationPhoto(
-                          photoType,
-                          ImageSource.camera,
-                        ),
-                        icon: const Icon(Icons.camera_alt),
-                        label: const Text('Take Photo'),
-                        style: verificationButtonStyle,
-                      ),
-                      if (!cameraOnly)
-                        ElevatedButton.icon(
-                          onPressed: () => _pickVerificationPhoto(
-                            photoType,
-                            ImageSource.gallery,
-                          ),
-                          icon: const Icon(Icons.photo_library),
-                          label: const Text('Upload Photo'),
-                          style: verificationButtonStyle,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            hasExistingUrl && !hasNewFile
+                ? 'Previously uploaded document is kept. Tap below if you wish to change or re-upload.'
+                : description,
+            style: TextStyle(color: hintTextColor, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+
+          // Image preview or placeholder
+          if (hasNewFile) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.file(
+                file,
+                height: 190,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
             ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12,
+                runSpacing: 10,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _pickVerificationPhoto(
+                      photoType,
+                      ImageSource.camera,
+                    ),
+                    icon: const Icon(Icons.camera_alt, size: 18),
+                    label: const Text('Retake'),
+                    style: verificationButtonStyle,
+                  ),
+                  if (!cameraOnly)
+                    ElevatedButton.icon(
+                      onPressed: () => _pickVerificationPhoto(
+                        photoType,
+                        ImageSource.gallery,
+                      ),
+                      icon: const Icon(Icons.photo_library, size: 18),
+                      label: const Text('Change Photo'),
+                      style: verificationButtonStyle,
+                    ),
+                ],
+              ),
+            ),
+          ] else if (hasExistingUrl) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: OptimizedNetworkImage(
+                imageUrl: existingUrl,
+                height: 190,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12,
+                runSpacing: 10,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _pickVerificationPhoto(
+                      photoType,
+                      ImageSource.camera,
+                    ),
+                    icon: const Icon(Icons.camera_alt, size: 18),
+                    label: const Text('Replace (Camera)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primary),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  if (!cameraOnly)
+                    OutlinedButton.icon(
+                      onPressed: () => _pickVerificationPhoto(
+                        photoType,
+                        ImageSource.gallery,
+                      ),
+                      icon: const Icon(Icons.photo_library, size: 18),
+                      label: const Text('Replace (Gallery)'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ] else ...[
+            Center(
+              child: Column(
+                children: [
+                  Icon(icon, size: 48, color: hintTextColor),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 12,
+                      runSpacing: 10,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () => _pickVerificationPhoto(
+                            photoType,
+                            ImageSource.camera,
+                          ),
+                          icon: const Icon(Icons.camera_alt, size: 18),
+                          label: const Text('Take Photo'),
+                          style: verificationButtonStyle,
+                        ),
+                        if (!cameraOnly)
+                          ElevatedButton.icon(
+                            onPressed: () => _pickVerificationPhoto(
+                              photoType,
+                              ImageSource.gallery,
+                            ),
+                            icon: const Icon(Icons.photo_library, size: 18),
+                            label: const Text('Upload Photo'),
+                            style: verificationButtonStyle,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

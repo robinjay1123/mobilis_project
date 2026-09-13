@@ -90,8 +90,19 @@ class _VerificationDocumentsScreenState
     }
   }
 
-  void _openVerificationFlow() {
-    Navigator.of(context).pushNamed('/id-verification');
+  Future<void> _openVerificationFlow() async {
+    final role = await AuthService().getUserRole();
+    if (!mounted) return;
+    if (role == 'driver') {
+      await Navigator.of(context).pushNamed('/driver-identity-verification');
+    } else if (role == 'partner') {
+      await Navigator.of(context).pushNamed('/owner-verification');
+    } else {
+      await Navigator.of(context).pushNamed('/id-verification');
+    }
+    if (mounted) {
+      _loadVerificationStatus();
+    }
   }
 
   List<Map<String, dynamic>> get documents {

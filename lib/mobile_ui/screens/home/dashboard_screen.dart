@@ -2280,6 +2280,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).pushNamed('/id-verification');
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: const BorderSide(color: AppColors.primary),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Edit Details & Missing Documents',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.textSecondary,
