@@ -2456,7 +2456,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   phone,
                   location,
                   latitude,
-                  longitude
+                  longitude,
+                  avatar_url,
+                  profile_picture_url
                 ),
                 vehicle_images(id, image_url, display_order)
               ),
@@ -2484,7 +2486,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     id,
                     full_name,
                     email,
-                    phone
+                    phone,
+                    avatar_url,
+                    profile_picture_url
                   )
                 ),
                 vehicle_images(id, image_url, display_order)
@@ -2507,7 +2511,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 user:users!drivers_user_id_fkey (
                   id,
                   full_name,
-                  email
+                  email,
+                  phone,
+                  avatar_url,
+                  profile_picture_url
                 )
               ),
               job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (
@@ -14068,7 +14075,89 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
     final driver = booking['driver'] as Map<String, dynamic>?;
-    final driverUser = driver?['user'] as Map<String, dynamic>?;
+    Map<String, dynamic>? effectiveDriverUser = (driver?['user'] ??
+            driver?['users'] ??
+            booking['driver_user'] ??
+            booking['driver_profile'])
+        as Map<String, dynamic>?;
+    final driverId = booking['driver_id']?.toString().trim();
+    if (effectiveDriverUser == null && driverId != null && driverId.isNotEmpty) {
+      try {
+        final dRes = await _supabase
+            .from('drivers')
+            .select(
+                'id, user_id, user:users!drivers_user_id_fkey(id, full_name, email, phone, avatar_url, profile_picture_url)')
+            .eq('id', driverId)
+            .maybeSingle();
+        if (dRes != null && dRes['user'] != null) {
+          effectiveDriverUser = dRes['user'] as Map<String, dynamic>?;
+        } else {
+          final uRes = await _supabase
+              .from('users')
+              .select(
+                  'id, full_name, email, phone, avatar_url, profile_picture_url')
+              .eq('id', driverId)
+              .maybeSingle();
+          if (uRes != null) {
+            effectiveDriverUser = uRes;
+          }
+        }
+      } catch (e) {
+        debugPrint('[BookingDetails] Error fetching driver user fallback: $e');
+      }
+    }
+
+    final isPartnerOwned = _isPartnerOwnedBooking(booking);
+    Map<String, dynamic>? effectivePartnerUser;
+    String? partnerBusinessName;
+    final vehicleOwner = vehicle['owner'] as Map<String, dynamic>?;
+    if (vehicleOwner != null) {
+      effectivePartnerUser = vehicleOwner;
+    }
+    final partnerVehicle = booking['partner_vehicles'] as Map<String, dynamic>?;
+    final partnersMap = partnerVehicle?['partners'] as Map<String, dynamic>? ??
+        vehicle['partners'] as Map<String, dynamic>? ??
+        booking['partner'] as Map<String, dynamic>?;
+    if (partnersMap != null) {
+      partnerBusinessName = partnersMap['business_name']?.toString();
+      final pUser = (partnersMap['users'] ?? partnersMap['user'])
+          as Map<String, dynamic>?;
+      if (pUser != null) {
+        effectivePartnerUser = pUser;
+      }
+    }
+    final partnerId =
+        booking['partner_id'] ?? vehicle['partner_id'] ?? vehicle['owner_id'];
+    if (isPartnerOwned &&
+        effectivePartnerUser == null &&
+        partnerId != null &&
+        partnerId.toString().isNotEmpty) {
+      try {
+        final uRes = await _supabase
+            .from('users')
+            .select(
+                'id, full_name, email, phone, avatar_url, profile_picture_url, role')
+            .eq('id', partnerId.toString())
+            .maybeSingle();
+        if (uRes != null) {
+          effectivePartnerUser = uRes;
+        } else {
+          final pRes = await _supabase
+              .from('partners')
+              .select(
+                  'id, business_name, business_phone, user:users(id, full_name, email, phone, avatar_url, profile_picture_url)')
+              .eq('id', partnerId.toString())
+              .maybeSingle();
+          if (pRes != null) {
+            partnerBusinessName = pRes['business_name']?.toString();
+            effectivePartnerUser = pRes['user'] as Map<String, dynamic>?;
+          }
+        }
+      } catch (e) {
+        debugPrint('[BookingDetails] Error fetching partner user fallback: $e');
+      }
+    }
+
     final status = booking['status']?.toString() ?? 'pending';
     final statusLower = status.toLowerCase();
     final group = bookingStatusGroup(status);
@@ -14130,6 +14219,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       final vehiclePanel = _buildOperatorVehicleDetailPanel(
                         vehicle: vehicle,
                         renter: renter,
+                        driverUser: effectiveDriverUser,
+                        needsDriver: needsDriver,
+                        driverAccepted: driverAccepted,
+                        driverDeclined: driverDeclined,
+                        waitingForDriver: waitingForDriver,
+                        partnerUser: effectivePartnerUser,
+                        partnerBusinessName: partnerBusinessName,
+                        isPartnerOwned: isPartnerOwned,
                         imageUrl: imageUrl,
                         isDark: isDark,
                       );
@@ -14137,7 +14234,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         booking: booking,
                         bookingShortId: shortId,
                         driverName:
-                            driverUser?['full_name']?.toString() ??
+                            effectiveDriverUser?['full_name']?.toString() ??
                             (needsDriver ? 'Unassigned' : 'Self-drive'),
                         start: start,
                         end: end,
@@ -14970,6 +15067,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Widget _buildOperatorVehicleDetailPanel({
     required Map<String, dynamic> vehicle,
     required Map<String, dynamic> renter,
+    Map<String, dynamic>? driverUser,
+    bool needsDriver = false,
+    bool driverAccepted = false,
+    bool driverDeclined = false,
+    bool waitingForDriver = false,
+    Map<String, dynamic>? partnerUser,
+    String? partnerBusinessName,
+    bool isPartnerOwned = false,
     required String imageUrl,
     required bool isDark,
   }) {
@@ -15094,6 +15199,248 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ],
           ),
+          if (needsDriver || driverUser != null) ...[
+            const SizedBox(height: 16),
+            Divider(color: isDark ? Colors.white12 : Colors.grey.shade300),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Text(
+                  'DRIVER ASSIGNED',
+                  style: TextStyle(
+                    color: muted,
+                    fontSize: 10,
+                    letterSpacing: 1,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Spacer(),
+                if (driverAccepted)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                          color: Colors.green.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.check_circle_rounded,
+                            size: 11, color: Colors.green),
+                        SizedBox(width: 4),
+                        Text(
+                          'Accepted',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (driverDeclined)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'Declined',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                else if (waitingForDriver)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'Offer Pending',
+                      style: TextStyle(
+                        color: Colors.amber,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: driverAccepted
+                        ? Colors.green.withOpacity(0.18)
+                        : Colors.blue.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: (driverUser?['avatar_url'] ??
+                              driverUser?['profile_picture_url'])
+                          ?.toString()
+                          .trim()
+                          .isNotEmpty ==
+                      true
+                      ? OptimizedNetworkImage(
+                          imageUrl: (driverUser?['avatar_url'] ??
+                                  driverUser?['profile_picture_url'])
+                              .toString(),
+                          fit: BoxFit.cover,
+                          errorWidget: Icon(
+                            Icons.drive_eta_rounded,
+                            color: driverAccepted
+                                ? Colors.green
+                                : Colors.blue,
+                          ),
+                        )
+                      : Icon(
+                          Icons.drive_eta_rounded,
+                          color: driverAccepted
+                              ? Colors.green
+                              : Colors.blue,
+                        ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        driverUser?['full_name']?.toString() ??
+                            'Awaiting Driver Assignment',
+                        style: TextStyle(
+                          color: foreground,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        driverUser?['email']?.toString() ??
+                            (driverUser != null ? 'No email' : 'Offer dispatched'),
+                        style: TextStyle(color: muted, fontSize: 11),
+                      ),
+                      if (driverUser?['phone']
+                              ?.toString()
+                              .trim()
+                              .isNotEmpty ==
+                          true) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          driverUser!['phone'].toString(),
+                          style: TextStyle(color: muted, fontSize: 11),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (isPartnerOwned ||
+              partnerUser != null ||
+              partnerBusinessName != null) ...[
+            const SizedBox(height: 16),
+            Divider(color: isDark ? Colors.white12 : Colors.grey.shade300),
+            const SizedBox(height: 12),
+            Text(
+              'PARTNER / HOST',
+              style: TextStyle(
+                color: muted,
+                fontSize: 10,
+                letterSpacing: 1,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: (partnerUser?['avatar_url'] ??
+                              partnerUser?['profile_picture_url'])
+                          ?.toString()
+                          .trim()
+                          .isNotEmpty ==
+                      true
+                      ? OptimizedNetworkImage(
+                          imageUrl: (partnerUser?['avatar_url'] ??
+                                  partnerUser?['profile_picture_url'])
+                              .toString(),
+                          fit: BoxFit.cover,
+                          errorWidget: const Icon(
+                            Icons.store_rounded,
+                            color: Colors.purple,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.store_rounded,
+                          color: Colors.purple,
+                        ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        partnerBusinessName?.trim().isNotEmpty == true
+                            ? partnerBusinessName!
+                            : (partnerUser?['full_name']?.toString() ??
+                                'Mobilis Fleet Partner'),
+                        style: TextStyle(
+                          color: foreground,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        partnerUser?['email']?.toString() ??
+                            'Partner Managed Vehicle',
+                        style: TextStyle(color: muted, fontSize: 11),
+                      ),
+                      if (partnerUser?['phone']
+                              ?.toString()
+                              .trim()
+                              .isNotEmpty ==
+                          true) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          partnerUser!['phone'].toString(),
+                          style: TextStyle(color: muted, fontSize: 11),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
