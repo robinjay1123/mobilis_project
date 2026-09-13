@@ -672,16 +672,11 @@ class DriverService {
             })
             .eq('id', bookingId),
 
-        // 3. Mark driver busy in both users and drivers tables
+        // 3. Mark driver busy in users table
         supabase
             .from('users')
             .update({'is_available': false})
             .eq('id', currentUserId)
-            .catchError((_) => null),
-        supabase
-            .from('drivers')
-            .update({'is_available': false})
-            .eq('user_id', currentUserId)
             .catchError((_) => null),
 
         // 4. Fetch driver name for notifications

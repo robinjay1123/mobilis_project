@@ -1549,6 +1549,34 @@ class __DashboardTabState extends State<_DashboardTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (booking['status']?.toString().toLowerCase() == 'driver_accepted') ...[
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.withValues(alpha: 0.45)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.check_circle_rounded, color: Colors.green, size: 20),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'You accepted this job! Waiting for operator/partner finalization.',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1556,13 +1584,37 @@ class __DashboardTabState extends State<_DashboardTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Next Pickup',
-                          style: TextStyle(
-                            color: Color(0xFF9DAEC4),
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        Row(
+                          children: [
+                            const Text(
+                              'Next Pickup',
+                              style: TextStyle(
+                                color: Color(0xFF9DAEC4),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (booking['status']?.toString().toLowerCase() == 'driver_accepted') ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: Colors.green.withValues(alpha: 0.5)),
+                                ),
+                                child: const Text(
+                                  'ACCEPTED',
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -3094,6 +3146,7 @@ class _TripCard extends StatefulWidget {
 
 class _TripCardState extends State<_TripCard> {
   Map<String, dynamic> get trip => widget.trip;
+  bool _hasAccepted = false;
 
   @override
   void initState() {
@@ -3194,7 +3247,10 @@ class _TripCardState extends State<_TripCard> {
 
     if (confirmed != true || !mounted) return;
 
-    setState(() => _isResponding = true);
+    setState(() {
+      _isResponding = true;
+      if (accept) _hasAccepted = true;
+    });
     try {
       if (assignmentId.isNotEmpty) {
         if (accept) {
@@ -3235,6 +3291,11 @@ class _TripCardState extends State<_TripCard> {
       );
       widget.onChanged();
     } catch (error) {
+      if (mounted) {
+        setState(() {
+          if (accept) _hasAccepted = false;
+        });
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -3469,7 +3530,16 @@ class _TripCardState extends State<_TripCard> {
     final latestAssignment = assignments.isNotEmpty ? assignments.last : null;
     final assignmentStatus = latestAssignment?['status']?.toString().toLowerCase();
 
-    final isPendingDriverAcceptance = (status == 'pending' ||
+    final isDriverAcceptedWaitingFinalize = _hasAccepted ||
+        status == 'driver_accepted' ||
+        (assignmentStatus == 'accepted' &&
+            (status == 'pending' ||
+                status == 'driver_accepted' ||
+                status == 'driver_assigned' ||
+                status == 'pending_driver_confirmation'));
+
+    final isPendingDriverAcceptance = !isDriverAcceptedWaitingFinalize &&
+        (status == 'pending' ||
             status == 'pending_approval' ||
             status == 'awaiting_driver' ||
             status == 'driver_assigned' ||
@@ -3478,13 +3548,6 @@ class _TripCardState extends State<_TripCard> {
           final s = a['status']?.toString().toLowerCase();
           return s == 'pending_offer' || s == 'assigned';
         });
-
-    final isDriverAcceptedWaitingFinalize = status == 'driver_accepted' ||
-        (assignmentStatus == 'accepted' &&
-            (status == 'pending' ||
-                status == 'driver_accepted' ||
-                status == 'driver_assigned' ||
-                status == 'pending_driver_confirmation'));
 
     final completionState = BookingService().getTripCompletionState(trip);
     final completionStage = completionState['completionStage']?.toString();
@@ -3513,8 +3576,10 @@ class _TripCardState extends State<_TripCard> {
               .join(' ');
     final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
 
-    final badgeColor = _statusBadgeColor(trip['status']?.toString() ?? 'assigned', assignmentStatus: assignmentStatus);
-    final badgeLabel = _displayTripStatus(trip['status']?.toString() ?? 'assigned', assignmentStatus: assignmentStatus);
+    final effectiveStatus = _hasAccepted ? 'driver_accepted' : (trip['status']?.toString() ?? 'assigned');
+    final effectiveAssignmentStatus = _hasAccepted ? 'accepted' : assignmentStatus;
+    final badgeColor = _statusBadgeColor(effectiveStatus, assignmentStatus: effectiveAssignmentStatus);
+    final badgeLabel = _displayTripStatus(effectiveStatus, assignmentStatus: effectiveAssignmentStatus);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -3858,10 +3923,30 @@ class _TripCardState extends State<_TripCard> {
           ],
           if (isDriverAcceptedWaitingFinalize) ...[
             const SizedBox(height: 10),
-            const _DriverWaitingAction(
-              icon: Icons.check_circle_outline_rounded,
-              message:
-                  'You accepted this trip. Waiting for the operator or partner to finalize and approve the booking.',
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.45)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, size: 20, color: Colors.green),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'You accepted this trip assignment! Waiting for the operator or partner to finalize and approve the booking.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.green.shade300 : Colors.green.shade800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
 
@@ -4042,6 +4127,7 @@ class _DriverOfferCard extends StatefulWidget {
 
 class _DriverOfferCardState extends State<_DriverOfferCard> {
   bool _isResponding = false;
+  bool _hasAccepted = false;
   Timer? _offerCountdownTimer;
 
   Map<String, dynamic> get offer => widget.offer;
@@ -4120,7 +4206,10 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
     );
     if (confirmed != true || !mounted) return;
 
-    setState(() => _isResponding = true);
+    setState(() {
+      _isResponding = true;
+      if (accept) _hasAccepted = true;
+    });
     try {
       if (accept) {
         await DriverService().acceptJobOffer(assignmentId);
@@ -4140,6 +4229,11 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
       );
       widget.onChanged();
     } catch (e) {
+      if (mounted) {
+        setState(() {
+          if (accept) _hasAccepted = false;
+        });
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -4162,8 +4256,15 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
     final booking = offer['bookings'] as Map<String, dynamic>?;
     final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
     final renter = booking?['renter'] as Map<String, dynamic>?;
-    final assignmentStatus =
-        offer['status']?.toString().replaceAll('_', ' ') ?? 'assigned';
+    final assignmentRaw = offer['status']?.toString().toLowerCase().trim() ?? '';
+    final bookingStatus = booking?['status']?.toString().toLowerCase().trim() ?? '';
+    final isAccepted = _hasAccepted ||
+        assignmentRaw == 'accepted' ||
+        assignmentRaw == 'confirmed' ||
+        bookingStatus == 'driver_accepted';
+    final assignmentStatus = isAccepted
+        ? 'Accepted'
+        : (offer['status']?.toString().replaceAll('_', ' ') ?? 'assigned');
     final renterName = renter?['full_name']?.toString().trim();
     final renterPhone = renter?['phone']?.toString().trim();
     final renterId =
@@ -4198,36 +4299,68 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
         color: isDark ? AppColors.darkCard : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+          color: isAccepted
+              ? Colors.green.withValues(alpha: 0.5)
+              : (isDark ? AppColors.borderColor : Colors.grey.shade300),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 10-Minute Acceptance Window Banner
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE5A93C).withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: const Color(0xFFE5A93C).withValues(alpha: 0.4),
+          if (isAccepted)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: Colors.green.withValues(alpha: 0.45),
+                ),
               ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.timer_outlined, size: 16, color: Color(0xFFE5A93C)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _getRemainingSeconds() > 0
-                        ? 'Accept within 10 minutes (${(_getRemainingSeconds() ~/ 60).toString().padLeft(2, '0')}:${(_getRemainingSeconds() % 60).toString().padLeft(2, '0')} remaining)'
-                        : 'Offer expired (10-minute window exceeded)',
-                    style: const TextStyle(
-                      color: Color(0xFFE5A93C),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+              child: const Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, size: 18, color: Colors.green),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Job Offer Accepted! Waiting for operator or partner to finalize the booking.',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            // 10-Minute Acceptance Window Banner
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5A93C).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: const Color(0xFFE5A93C).withValues(alpha: 0.4),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.timer_outlined, size: 16, color: Color(0xFFE5A93C)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _getRemainingSeconds() > 0
+                          ? 'Accept within 10 minutes (${(_getRemainingSeconds() ~/ 60).toString().padLeft(2, '0')}:${(_getRemainingSeconds() % 60).toString().padLeft(2, '0')} remaining)'
+                          : 'Offer expired (10-minute window exceeded)',
+                      style: const TextStyle(
+                        color: Color(0xFFE5A93C),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
@@ -4270,21 +4403,46 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
                 alignment: WrapAlignment.end,
                 children: [
                   _buildDriverVehicleOwnershipBadge(isPartner: isPartner, isDark: isDark),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      assignmentStatus.toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
+                  if (isAccepted)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.green.withValues(alpha: 0.6)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_rounded, size: 11, color: Colors.green),
+                          SizedBox(width: 3),
+                          Text(
+                            'ACCEPTED',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        assignmentStatus.toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ],
@@ -4464,50 +4622,76 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _isResponding
-                      ? null
-                      : () => _respondToOffer(false),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.error,
-                    side: const BorderSide(color: AppColors.error),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+          if (isAccepted)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.45)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_rounded, size: 18, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text(
+                    'Job Accepted • Waiting For Approval',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
                     ),
                   ),
-                  child: const Text('Decline'),
-                ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton(
-                  onPressed: _isResponding ? null : () => _respondToOffer(true),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isResponding
+                        ? null
+                        : () => _respondToOffer(false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: const BorderSide(color: AppColors.error),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
+                    child: const Text('Decline'),
                   ),
-                  child: _isResponding
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.black,
-                          ),
-                        )
-                      : const Text('Accept', style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _isResponding ? null : () => _respondToOffer(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: _isResponding
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
+                        : const Text('Accept', style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -4630,6 +4814,8 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
   final status = (booking['status']?.toString().trim().isEmpty ?? true)
       ? 'Assigned'
       : booking['status'].toString().trim();
+  final assignmentStatus = trip['status']?.toString().trim().toLowerCase() ?? '';
+  final isDriverAccepted = status.toLowerCase() == 'driver_accepted' || assignmentStatus == 'accepted';
 
   showModalBottomSheet<void>(
     context: context,
@@ -4779,20 +4965,33 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: AppColors.success.withValues(alpha: 0.15),
+                                    color: isDriverAccepted
+                                        ? Colors.green.withValues(alpha: 0.18)
+                                        : AppColors.success.withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(
-                                      color: AppColors.success.withValues(alpha: 0.5),
+                                      color: isDriverAccepted
+                                          ? Colors.green.withValues(alpha: 0.6)
+                                          : AppColors.success.withValues(alpha: 0.5),
                                     ),
                                   ),
-                                  child: Text(
-                                    status.toUpperCase(),
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0.3,
-                                      color: AppColors.success,
-                                    ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isDriverAccepted) ...[
+                                        const Icon(Icons.check_rounded, size: 11, color: Colors.green),
+                                        const SizedBox(width: 3),
+                                      ],
+                                      Text(
+                                        isDriverAccepted ? 'DRIVER ACCEPTED' : status.toUpperCase(),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 0.3,
+                                          color: isDriverAccepted ? Colors.green : AppColors.success,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
@@ -4800,6 +4999,34 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                           ],
                         ),
                       ),
+                      if (isDriverAccepted) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.green.withValues(alpha: 0.45)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle_rounded, color: Colors.green, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'You accepted this trip! Waiting for operator or partner to finalize and approve the booking.',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.green.shade300 : Colors.green.shade800,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
 
                       // Rentee Details Card

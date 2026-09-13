@@ -9945,8 +9945,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       booking,
     )?['status']?.toString().trim().toLowerCase();
     final driverName = driverUser?['full_name']?.toString().trim();
+    final bookingStatus = booking['status']?.toString().trim().toLowerCase() ?? '';
+    final isDriverAccepted = assignmentStatus == 'accepted' ||
+        assignmentStatus == 'confirmed' ||
+        bookingStatus == 'driver_accepted';
     final driverLabel = !needsDriver
         ? 'Not required'
+        : isDriverAccepted
+        ? (driverName?.isNotEmpty == true
+            ? '$driverName (Accepted)'
+            : 'Driver Accepted')
         : driverName?.isNotEmpty == true
         ? driverName!
         : assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned'
@@ -13505,7 +13513,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final waitingForDriver =
         assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned';
     final driverAccepted =
-        assignmentStatus == 'accepted' || assignmentStatus == 'confirmed';
+        assignmentStatus == 'accepted' ||
+        assignmentStatus == 'confirmed' ||
+        booking['status']?.toString().toLowerCase() == 'driver_accepted';
     final assignedAtRaw = booking['driver_assigned_at'] ??
         latestAssignment?['offered_at'] ??
         latestAssignment?['created_at'];
@@ -14069,7 +14079,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final waitingForDriver =
         assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned';
     final driverAccepted =
-        assignmentStatus == 'accepted' || assignmentStatus == 'confirmed';
+        assignmentStatus == 'accepted' ||
+        assignmentStatus == 'confirmed' ||
+        statusLower == 'driver_accepted';
     final driverDeclined = assignmentStatus == 'rejected';
     final completionState = BookingService().getTripCompletionState(booking);
     final completionStage = completionState['completionStage']?.toString();
@@ -16739,7 +16751,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final effectiveWaitingForDriver = waitingForDriver && !isOfferExpired;
                 final driverAccepted =
                     assignmentStatus == 'accepted' ||
-                    assignmentStatus == 'confirmed';
+                    assignmentStatus == 'confirmed' ||
+                    booking['status']?.toString().toLowerCase() == 'driver_accepted';
                 final driverDeclined = assignmentStatus == 'rejected' || isOfferExpired;
                 final status = booking['status'] as String? ?? 'pending';
                 final statusLower = status.toLowerCase();
