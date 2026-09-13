@@ -4363,10 +4363,9 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
