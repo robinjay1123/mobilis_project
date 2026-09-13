@@ -12108,7 +12108,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
 
   String _formatDateTime(dynamic dt) {
     if (dt == null) return 'N/A';
-    final parsed = DateTime.tryParse(dt.toString());
+    final parsed = DateTime.tryParse(dt.toString())?.toLocal();
     if (parsed == null) return dt.toString();
     final months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -12125,8 +12125,8 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
   }
 
   String _formatDuration(Map<String, dynamic> b) {
-    final start = DateTime.tryParse((b['start_at'] ?? b['start_date'])?.toString() ?? '');
-    final end = DateTime.tryParse((b['end_at'] ?? b['end_date'])?.toString() ?? '');
+    final start = DateTime.tryParse((b['start_at'] ?? b['start_date'])?.toString() ?? '')?.toLocal();
+    final end = DateTime.tryParse((b['end_at'] ?? b['end_date'])?.toString() ?? '')?.toLocal();
     if (start == null || end == null) return '1 Day';
     final diff = end.difference(start);
     final hours = diff.inHours;
