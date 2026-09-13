@@ -611,7 +611,6 @@ class VerificationService {
     final payload = <String, dynamic>{
       'user_id': userId,
       'verification_status': driverStatus,
-      'is_available': false,
       'license_verified': isVerified,
       'nbi_verified': isVerified,
     };

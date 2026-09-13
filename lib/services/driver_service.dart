@@ -1136,8 +1136,6 @@ class DriverService {
         if (dId != null && dId.isNotEmpty) {
           final targetUserId = await _resolveDriverUserId(dId);
           await supabase.from('users').update({'is_available': true}).eq('id', targetUserId);
-          await supabase.from('drivers').update({'is_available': true}).eq('user_id', targetUserId);
-          await supabase.from('drivers').update({'is_available': true}).eq('id', dId);
         }
       } catch (err) {
         debugPrint('Note freeing driver after trip completion: $err');

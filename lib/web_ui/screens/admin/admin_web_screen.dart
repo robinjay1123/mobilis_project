@@ -4111,7 +4111,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'license_expiry': DateTime.now().add(const Duration(days: 365 * 3)).toIso8601String().split('T').first,
             'license_verified': true,
             'nbi_verified': true,
-            'is_available': false,
             'verification_status': 'verified',
             'driver_tier': 'standard',
             'rating': 0.0,
@@ -4119,7 +4118,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           });
         } else {
           await _supabase.from('drivers').update({
-            'is_available': false,
             'verification_status': 'verified',
             'license_verified': true,
             'nbi_verified': true,
@@ -4218,7 +4216,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       try {
         await _supabase.from('drivers').update({
           'verification_status': 'rejected',
-          'is_available': false,
         }).eq('user_id', userId);
       } catch (_) {}
 
