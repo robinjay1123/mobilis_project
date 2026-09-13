@@ -22951,7 +22951,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             bookingId: bookingId,
             files: filesToUpload,
           );
-      await BookingInspectionService().saveInspection(
+      final savedInspection = await BookingInspectionService().saveInspection(
         bookingId: bookingId,
         inspectionType: inspectionType,
         inspectorId: currentUserId,
@@ -22976,6 +22976,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         releasedBy: releasedByController.text,
         receivedBy: receivedByController.text,
       );
+
+      // Immediately post the inspection checklist audit to chat so it is guaranteed to submit
+      try {
+        await BookingService().postInspectionAuditToBookingChat(
+          booking: currentBookingData,
+          inspection: savedInspection,
+          inspectionType: inspectionType,
+        );
+      } catch (auditErr) {
+        debugPrint('[OperatorWebScreen] Warning posting inspection audit: $auditErr');
+      }
 
       if (inspectionType == 'before') {
         await BookingService().startBookingAfterInspection(
@@ -24165,13 +24176,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         final contentStr =
             (msg['content'] ?? msg['message'])?.toString().toLowerCase().trim() ??
                 '';
-        final isAuto = msg['is_auto_generated'] == true ||
-            contentStr.startsWith('booking details') ||
+        final isBookingSummary = contentStr.startsWith('booking details') ||
             contentStr.startsWith('booking confirmed') ||
             contentStr.startsWith('booking request created') ||
             contentStr.startsWith('📋');
 
-        if (isAuto) {
+        if (isBookingSummary) {
           if (hasSeenAutoSummary) {
             continue; // Skip redundant duplicate automated booking summary
           }
@@ -24258,20 +24268,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final contentStr =
         (message['content'] ?? message['message'])?.toString().toLowerCase().trim() ??
             '';
-    final isAuto = message['is_auto_generated'] == true ||
-        contentStr.startsWith('booking details') ||
+    final isBookingSummary = contentStr.startsWith('booking details') ||
         contentStr.startsWith('booking confirmed') ||
         contentStr.startsWith('booking request created') ||
         contentStr.startsWith('📋');
 
-    if (isAuto &&
+    if (isBookingSummary &&
         messages.any((m) {
           if (m['id']?.toString() == messageId) return false;
           final mContent =
               (m['content'] ?? m['message'])?.toString().toLowerCase().trim() ??
                   '';
-          return m['is_auto_generated'] == true ||
-              mContent.startsWith('booking details') ||
+          return mContent.startsWith('booking details') ||
               mContent.startsWith('booking confirmed') ||
               mContent.startsWith('booking request created') ||
               mContent.startsWith('📋');

@@ -4073,6 +4073,13 @@ class BookingService {
       throw Exception('Pre-trip car inspection is locked until 24 hours before the actual booking start time.');
     }
 
+    // Always post the inspection audit note to chat as soon as completed checklist is validated
+    await postInspectionAuditToBookingChat(
+      booking: booking,
+      inspection: inspection,
+      inspectionType: 'before',
+    );
+
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
     if (status != 'approved' && status != 'confirmed') {
       if (status == 'active' || status == 'ongoing') return;
@@ -4086,11 +4093,6 @@ class BookingService {
         'Cannot release vehicle keys: Full payment is required before handover. Remaining balance: PHP ${balance.toStringAsFixed(2)}. Please settle payment first.',
       );
     }
-    await _postInspectionAuditToBookingChat(
-      booking: booking,
-      inspection: inspection,
-      inspectionType: 'before',
-    );
 
     final now = DateTime.now().toIso8601String();
     await supabase
@@ -4153,17 +4155,20 @@ class BookingService {
 
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
+
+    // Always post the inspection audit note to chat as soon as return checklist is validated
+    await postInspectionAuditToBookingChat(
+      booking: booking,
+      inspection: inspection,
+      inspectionType: 'after',
+    );
+
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
     if (status == 'completed' ||
         status == 'cancelled' ||
         status == 'rejected') {
       return;
     }
-    await _postInspectionAuditToBookingChat(
-      booking: booking,
-      inspection: inspection,
-      inspectionType: 'after',
-    );
 
     final returnedAt = DateTime.now();
     final now = returnedAt.toIso8601String();
@@ -4250,10 +4255,11 @@ class BookingService {
     if (renterId?.isNotEmpty == true) {
       await NotificationService().createNotification(
         userId: renterId!,
-        title: 'Vehicle Return Inspected & Trip Completed',
-        message:
-            'The return inspection is complete and your trip is marked as completed! Don\'t forget to rate your experience.',
-        type: 'trip_completed',
+        title: isPaid ? 'Trip Completed' : 'Vehicle Returned',
+        message: isPaid
+            ? 'The return checklist is complete and your trip is marked completed.'
+            : 'Vehicle return inspection is recorded. Please settle remaining balance to finalize booking.',
+        type: 'booking_completed',
         data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
       );
     }
@@ -4282,8 +4288,8 @@ class BookingService {
 
     unawaited(
       OperatorActivityLogger.logActivity(
-        activityType: 'booking_completed',
-        description: 'Booking completed after return inspection',
+        activityType: 'trip_completed',
+        description: 'Vehicle returned and after-inspection submitted',
         bookingId: bookingId,
         suppressErrors: true,
       ),
@@ -4298,7 +4304,7 @@ class BookingService {
     );
   }
 
-  Future<void> _postInspectionAuditToBookingChat({
+  Future<void> postInspectionAuditToBookingChat({
     required Map<String, dynamic> booking,
     required Map<String, dynamic> inspection,
     required String inspectionType,
@@ -4308,28 +4314,88 @@ class BookingService {
       final inspectorId = inspection['inspector_id']?.toString() ?? '';
       if (bookingId.isEmpty || inspectorId.isEmpty) return;
 
+      Map<String, dynamic> resolvedBooking = Map<String, dynamic>.from(booking);
+      if (resolvedBooking['renter_id'] == null || resolvedBooking['vehicles'] == null) {
+        final fullBooking = await getBookingById(bookingId);
+        if (fullBooking != null) {
+          resolvedBooking = fullBooking;
+        }
+      }
+
       try {
         await _ensureBookingGroupChatAndSummary(
-          booking: booking,
+          booking: resolvedBooking,
           vehicleTitle: _vehicleTitle(
-            booking['vehicles'] as Map<String, dynamic>?,
+            resolvedBooking['vehicles'] as Map<String, dynamic>?,
           ),
           summaryTitle: 'Booking Confirmed',
         );
-      } catch (_) {}
+      } catch (chatPrepErr) {
+        debugPrint('[BookingService] Non-fatal chat preparation notice: $chatPrepErr');
+      }
 
-      final conversation = await ChatService().getConversationByBookingId(
+      var conversation = await ChatService().getConversationByBookingId(
         bookingId,
       );
+      if (conversation == null) {
+        final renterId = resolvedBooking['renter_id']?.toString();
+        final vehicle = resolvedBooking['vehicles'] as Map<String, dynamic>?;
+        final ownerId = vehicle?['owner_id']?.toString();
+        final operatorId = resolvedBooking['operator_id']?.toString() ??
+            vehicle?['operator_id']?.toString() ??
+            await _getDefaultOperatorId();
+        final pIds = <String>{
+          if (renterId != null && renterId.isNotEmpty) renterId,
+          if (ownerId != null && ownerId.isNotEmpty) ownerId,
+          if (operatorId != null && operatorId.isNotEmpty) operatorId,
+          if (inspectorId.isNotEmpty) inspectorId,
+        };
+        conversation = await ChatService().getOrCreateBookingConversation(
+          bookingId,
+          initialParticipantIds: pIds.toList(),
+        );
+      }
+
       final conversationId = conversation?['id']?.toString() ?? '';
       if (conversationId.isEmpty) {
         debugPrint(
-          'The booking conversation could not be prepared for audit message',
+          '[BookingService] The booking conversation could not be prepared for audit message',
         );
         return;
       }
 
-      final inspector = await _getUserById(inspectorId);
+      var inspector = await _getUserById(inspectorId);
+      String effectiveSenderId = inspectorId;
+      if (inspector == null) {
+        try {
+          final p = await supabase
+              .from('partners')
+              .select('user_id, full_name, company_name')
+              .eq('id', inspectorId)
+              .maybeSingle();
+          if (p != null) {
+            final uid = p['user_id']?.toString();
+            if (uid != null && uid.isNotEmpty) {
+              effectiveSenderId = uid;
+              inspector = await _getUserById(uid);
+            }
+          }
+        } catch (_) {}
+      }
+      if (inspector == null) {
+        final currentAuthId = supabase.auth.currentUser?.id;
+        if (currentAuthId != null && currentAuthId.isNotEmpty) {
+          effectiveSenderId = currentAuthId;
+          inspector = await _getUserById(currentAuthId);
+        } else {
+          final defaultOpId = await _getDefaultOperatorId();
+          if (defaultOpId != null && defaultOpId.isNotEmpty) {
+            effectiveSenderId = defaultOpId;
+            inspector = await _getUserById(defaultOpId);
+          }
+        }
+      }
+
       final inspectorName =
           inspector?['full_name']?.toString().trim().isNotEmpty == true
           ? inspector!['full_name'].toString().trim()
@@ -4375,6 +4441,11 @@ class BookingService {
       final inspectionId =
           inspection['id']?.toString() ??
           '$bookingId-$normalizedType-$inspectorId';
+      final completedAt = inspection['completed_at']?.toString() ??
+          inspection['updated_at']?.toString() ??
+          DateTime.now().toUtc().toIso8601String();
+      final auditKey = 'vehicle-checklist:$normalizedType:$inspectionId-$completedAt';
+
       final title = isBefore
           ? 'Before-Release Checklist Submitted'
           : 'After-Return Checklist Submitted';
@@ -4407,19 +4478,32 @@ class BookingService {
 
       await ChatService().sendBookingAuditMessage(
         conversationId: conversationId,
-        senderId: inspectorId,
+        senderId: effectiveSenderId,
         content: content,
-        auditKey: 'vehicle-checklist:$normalizedType:$inspectionId',
+        auditKey: auditKey,
         attachmentUrl: evidenceUrl,
         attachmentType: evidenceUrl == null ? null : evidenceType,
         attachmentName: evidenceUrl == null
             ? null
             : '${isBefore ? 'before-release' : 'after-return'}-evidence-1-of-${evidence.length}',
       );
-    } catch (e) {
-      debugPrint('Error posting inspection audit to chat: $e');
+      debugPrint(
+        '[BookingService] Inspection audit ($normalizedType) successfully posted to conversation: $conversationId',
+      );
+    } catch (e, st) {
+      debugPrint('[BookingService] Error posting inspection audit to chat: $e\n$st');
     }
   }
+
+  Future<void> _postInspectionAuditToBookingChat({
+    required Map<String, dynamic> booking,
+    required Map<String, dynamic> inspection,
+    required String inspectionType,
+  }) => postInspectionAuditToBookingChat(
+        booking: booking,
+        inspection: inspection,
+        inspectionType: inspectionType,
+      );
 
   /// Calculates late return hours and fees for a booking at a given return timestamp.
   Map<String, dynamic> getLateReturnDetails(

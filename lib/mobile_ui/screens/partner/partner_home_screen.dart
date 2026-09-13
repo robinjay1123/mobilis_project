@@ -10873,7 +10873,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             bookingId: bookingId,
             files: filesToUpload,
           );
-      await BookingInspectionService().saveInspection(
+      final savedInspection = await BookingInspectionService().saveInspection(
         bookingId: bookingId,
         inspectionType: inspectionType,
         inspectorId: currentUserId,
@@ -10898,6 +10898,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         releasedBy: releasedByController.text,
         receivedBy: receivedByController.text,
       );
+      // Immediately post the inspection checklist audit to chat so it is guaranteed to submit
+      try {
+        await BookingService().postInspectionAuditToBookingChat(
+          booking: currentBookingData,
+          inspection: savedInspection,
+          inspectionType: inspectionType,
+        );
+      } catch (auditErr) {
+        debugPrint('[PartnerHomeScreen] Warning posting inspection audit: $auditErr');
+      }
       if (inspectionType == 'before') {
         await BookingService().startBookingAfterInspection(
           bookingId: bookingId,
