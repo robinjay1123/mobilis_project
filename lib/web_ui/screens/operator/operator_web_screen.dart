@@ -2547,7 +2547,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               rental_type,
               rentalType,
               days,
-              payment_status,
+              final_payment_status,
               reservation_payment_status,
               payment_verified,
               safety_freeze,

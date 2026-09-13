@@ -3228,6 +3228,7 @@ class BookingService {
         booking['reservation_payment_status'] == 'paid' ||
         booking['payment_verified'] == true ||
         isBookingFullyPaid(booking);
+    final isFullyPaid = isBookingFullyPaid(booking);
 
     final now = DateTime.now().toIso8601String();
     if (currentStatus != 'confirmed') {
@@ -3240,8 +3241,8 @@ class BookingService {
             'updated_at': now,
             if (wasPaymentVerified) ...{
               'reservation_payment_status': 'verified',
-              'final_payment_status': 'paid',
-              'payment_status': 'paid',
+              'payment_verified': true,
+              if (isFullyPaid) 'final_payment_status': 'paid',
             },
           })
           .eq('id', bookingId);
@@ -3253,8 +3254,8 @@ class BookingService {
             'updated_at': now,
             if (wasPaymentVerified) ...{
               'reservation_payment_status': 'verified',
-              'final_payment_status': 'paid',
-              'payment_status': 'paid',
+              'payment_verified': true,
+              if (isFullyPaid) 'final_payment_status': 'paid',
             },
           })
           .eq('id', bookingId);
