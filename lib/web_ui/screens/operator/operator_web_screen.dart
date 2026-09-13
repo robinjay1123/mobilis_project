@@ -1933,11 +1933,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       await _loadRecentBookings();
       if (!mounted) return;
       setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Full payment confirmed. Opening renter rating...'),
-          backgroundColor: Colors.green,
-        ),
+      _hideOperationLoading();
+      await _showActionFeedbackModal(
+        title: 'Payment Confirmed',
+        message: 'Full payment confirmed successfully. Proceeding to renter rating...',
+        isError: false,
       );
       // Keep the completion flow moving forward instead of returning the
       // operator to the booking list after every required action.
@@ -1945,16 +1945,90 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           await BookingService().getBookingById(bookingId) ?? booking;
       await _openOperatorRenterRating(latestBooking);
     } catch (e) {
+      _hideOperationLoading();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ),
+      await _showActionFeedbackModal(
+        title: 'Cannot Confirm Payment',
+        message: e.toString().replaceFirst('Exception: ', ''),
+        isError: true,
       );
     } finally {
       _hideOperationLoading();
     }
+  }
+
+  Future<void> _showActionFeedbackModal({
+    required String title,
+    required String message,
+    bool isError = false,
+  }) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF132235),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: isError
+                ? Colors.redAccent.withValues(alpha: 0.6)
+                : const Color(0xFF10B981).withValues(alpha: 0.6),
+            width: 1.5,
+          ),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isError
+                    ? Colors.redAccent.withValues(alpha: 0.15)
+                    : const Color(0xFF10B981).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+                color: isError ? Colors.redAccent : const Color(0xFF10B981),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 13.5,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isError ? Colors.redAccent.shade700 : const Color(0xFFE5A93C),
+              foregroundColor: isError ? Colors.white : const Color(0xFF0F1A26),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(),
+            child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   bool _isCompanyOwnedBooking(Map<String, dynamic> booking) {
@@ -3353,25 +3427,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         );
       }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              driverId != null
-                  ? 'Driver job offer sent. Waiting for a response.'
-                  : 'Booking finalized and conversation created.',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-
       _loadDashboardData();
       _loadConversations();
-    } catch (e) {
+      _hideOperationLoading();
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+        await _showActionFeedbackModal(
+          title: 'Booking Approved',
+          message: driverId != null
+              ? 'Driver job offer sent. Waiting for driver response.'
+              : 'Booking confirmed and finalized successfully! Conversation created.',
+          isError: false,
+        );
+      }
+    } catch (e) {
+      _hideOperationLoading();
+      if (mounted) {
+        await _showActionFeedbackModal(
+          title: 'Approval Failed',
+          message: e.toString().replaceFirst('Exception: ', ''),
+          isError: true,
         );
       }
     } finally {
@@ -14229,6 +14304,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         isPartnerOwned: isPartnerOwned,
                         imageUrl: imageUrl,
                         isDark: isDark,
+                        scrollable: !compact,
                       );
                       final detailPanel = _buildOperatorBookingDetailPanel(
                         booking: booking,
@@ -14242,15 +14318,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         status: status,
                         isDark: isDark,
                         onClose: () => Navigator.pop(dialogContext),
+                        scrollable: !compact,
                       );
                       if (compact) {
                         return SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
                           child: Column(children: [vehiclePanel, detailPanel]),
                         );
                       }
                       return Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          SizedBox(width: 310, child: vehiclePanel),
+                          SizedBox(width: 320, child: vehiclePanel),
+                          VerticalDivider(
+                            width: 1,
+                            thickness: 1,
+                            color: isDark ? Colors.white12 : Colors.grey.shade300,
+                          ),
                           Expanded(child: detailPanel),
                         ],
                       );
@@ -15077,15 +15161,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isPartnerOwned = false,
     required String imageUrl,
     required bool isDark,
+    bool scrollable = true,
   }) {
     final foreground = isDark ? Colors.white : _operatorInk;
     final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
-    return Container(
-      padding: const EdgeInsets.all(24),
-      color: isDark ? Colors.black.withOpacity(0.14) : const Color(0xFFF2F4F6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final panelContent = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: Container(
@@ -15442,7 +15524,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ],
         ],
-      ),
+      );
+
+    if (scrollable) {
+      return Container(
+        color: isDark ? Colors.black.withOpacity(0.14) : const Color(0xFFF2F4F6),
+        child: Scrollbar(
+          thumbVisibility: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: panelContent,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      color: isDark ? Colors.black.withOpacity(0.14) : const Color(0xFFF2F4F6),
+      child: panelContent,
     );
   }
 
@@ -15456,6 +15557,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     required String status,
     required bool isDark,
     required VoidCallback onClose,
+    bool scrollable = true,
   }) {
     final foreground = isDark ? Colors.white : _operatorInk;
     final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
@@ -15474,11 +15576,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ? 'Professional driver required'
               : 'Professional driver - $driverName'
         : 'Self-drive';
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(26),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    final detailContent = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
           Row(
             children: [
               Expanded(
@@ -16311,7 +16411,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
         ],
-      ),
+      );
+
+    if (scrollable) {
+      return Scrollbar(
+        thumbVisibility: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(26),
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: detailContent,
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(26),
+      child: detailContent,
     );
   }
 
@@ -20095,18 +20210,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         _loadRecentBookings();
                                         _loadDashboardData(showLoading: false);
                                         if (context.mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                              content: Text('✅ Payment verified successfully! Ready for final booking approval.'),
-                                              backgroundColor: Color(0xFF10B981),
-                                            ),
+                                          await _showActionFeedbackModal(
+                                            title: 'Payment Verified',
+                                            message: 'Payment verified successfully! Ready for final booking approval.',
+                                            isError: false,
                                           );
                                         }
                                       } catch (e) {
                                         setDialogState(() => isSubmitting = false);
                                         if (context.mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+                                          await _showActionFeedbackModal(
+                                            title: 'Verification Failed',
+                                            message: e.toString().replaceFirst('Exception: ', ''),
+                                            isError: true,
                                           );
                                         }
                                       }
@@ -20651,18 +20767,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           _loadRecentBookings();
                                           _loadDashboardData(showLoading: false);
                                           if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text('✅ Refund of PHP ${refundAmount.toStringAsFixed(2)} recorded successfully.'),
-                                                backgroundColor: const Color(0xFF10B981),
-                                              ),
+                                            await _showActionFeedbackModal(
+                                              title: 'Refund Recorded',
+                                              message: 'Refund of PHP ${refundAmount.toStringAsFixed(2)} recorded successfully.',
+                                              isError: false,
                                             );
                                           }
                                         } catch (e) {
                                           setDialogState(() => isSubmitting = false);
                                           if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+                                            await _showActionFeedbackModal(
+                                              title: 'Refund Failed',
+                                              message: e.toString().replaceFirst('Exception: ', ''),
+                                              isError: true,
                                             );
                                           }
                                         }

@@ -2030,7 +2030,10 @@ class BookingService {
         !hasAfterInspection &&
         status != 'completed' &&
         status != 'returned') {
-      throw Exception('The vehicle return checklist is not ready for payment');
+      throw Exception(
+        'The vehicle return checklist must be completed before confirming final payment. '
+        'Final payment confirmation is part of the post-trip vehicle return settlement, not pre-trip releasing.',
+      );
     }
 
     final now = DateTime.now().toUtc().toIso8601String();
