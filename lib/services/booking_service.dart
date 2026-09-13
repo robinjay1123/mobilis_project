@@ -1523,6 +1523,25 @@ class BookingService {
             );
           }
         }
+
+        // Notify renter about the cancellation
+        final renterId = booking['renter_id']?.toString() ??
+            (booking['users'] as Map<String, dynamic>?)?['id']?.toString() ??
+            booking['user_id']?.toString();
+        if (renterId != null && renterId.isNotEmpty) {
+          unawaited(
+            NotificationService().notifyBookingCancelled(
+              userId: renterId,
+              bookingId: bookingId,
+              vehicleTitle: vehicleTitle,
+              role: 'renter',
+              reason: booking['cancellation_reason']?.toString(),
+            ).catchError((e) {
+              debugPrint('Error notifying renter on cancellation: $e');
+              return false;
+            }),
+          );
+        }
       }
 
       const conversationStatuses = {
@@ -2322,16 +2341,20 @@ class BookingService {
     Map<String, dynamic>? cachedBooking,
   }) async {
     Map<String, dynamic>? booking = cachedBooking;
-    if (booking == null) {
+    if (booking == null || booking['renter_id'] == null) {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, status, renter_id, vehicle_id, driver_id, partner_id, reservation_fee_amount, total_price, total_amount, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+            'id, status, renter_id, user_id, vehicle_id, driver_id, partner_id, reservation_fee_amount, total_price, total_amount, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
           )
           .eq('id', bookingId)
           .maybeSingle();
       if (response != null) {
-        booking = Map<String, dynamic>.from(response);
+        if (booking != null) {
+          booking.addAll(Map<String, dynamic>.from(response));
+        } else {
+          booking = Map<String, dynamic>.from(response);
+        }
       }
     }
     if (booking == null) throw Exception('Booking not found');
@@ -2454,7 +2477,9 @@ class BookingService {
     }
 
     // Notify renter and operators
-    final renterId = booking['renter_id']?.toString();
+    final renterId = booking['renter_id']?.toString() ??
+        (booking['users'] as Map<String, dynamic>?)?['id']?.toString() ??
+        booking['user_id']?.toString();
     final vehicleTitle = _vehicleTitle(vehicle);
     if (renterId != null && renterId.isNotEmpty) {
       final refundMsg = (isAlreadyPaid && paidAmount > 0)
@@ -6965,6 +6990,27 @@ class BookingService {
             reason: cancellationReason,
           ).catchError((e) {
             debugPrint('Error notifying partner on cancellation: $e');
+            return false;
+          }),
+        );
+      }
+
+      // Notify renter
+      final finalRenterId = renterId.isNotEmpty
+          ? renterId
+          : (booking?['users'] as Map<String, dynamic>?)?['id']?.toString() ??
+              booking?['user_id']?.toString() ??
+              '';
+      if (finalRenterId.isNotEmpty) {
+        unawaited(
+          NotificationService().notifyBookingCancelled(
+            userId: finalRenterId,
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            role: 'renter',
+            reason: cancellationReason,
+          ).catchError((e) {
+            debugPrint('Error notifying renter on cancellation: $e');
             return false;
           }),
         );
