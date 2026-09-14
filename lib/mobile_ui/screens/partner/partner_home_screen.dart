@@ -2946,7 +2946,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
             ),
           ],
-          if (status == 'pending') ...[
+          if (status == 'pending' || status == 'driver_accepted') ...[
             const SizedBox(height: 12),
             Row(
               children: [
@@ -3460,7 +3460,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
             ),
           ],
-          if (status == 'pending') ...[
+          if (status == 'pending' || status == 'driver_accepted') ...[
             const SizedBox(height: 16),
             Row(
               children: [
@@ -8817,6 +8817,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     }
     final bookingStatus = _bookingStatusLabel(booking, tracking);
     final statusGroup = bookingStatusGroup(booking['status']);
+    final rawStatus = (booking['status'] ?? '').toString().toLowerCase().trim();
     final dateRange = _formatBookingRange(
       booking['start_at']?.toString() ?? booking['start_date']?.toString(),
       booking['end_at']?.toString() ?? booking['end_date']?.toString(),
@@ -9024,6 +9025,100 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             _buildPartnerExtensionManagementSection(booking),
           ],
           const SizedBox(height: 14),
+          if (rawStatus == 'driver_accepted') ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_outline, color: Colors.green, size: 20),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Driver Accepted Job Offer',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          'Driver is ready! Approve booking to finalize.',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => _handleBookingApproval(
+                      context,
+                      booking,
+                      closeCurrentScreen: false,
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text('Approve', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (rawStatus == 'approved' || rawStatus == 'confirmed' || rawStatus == 'driver_accepted') ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _openPartnerInspectionRecordOrForm(
+                  booking,
+                  inspectionType: 'before',
+                  allowCreate: true,
+                ),
+                icon: const Icon(Icons.fact_check_outlined, size: 18),
+                label: Text(
+                  BookingInspectionService.isPreInspectionUnlocked(booking)
+                      ? 'Pre-Trip Checklist & Inspection'
+                      : 'Pre-Trip Checklist (Locked until 24h before)',
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: BookingInspectionService.isPreInspectionUnlocked(booking)
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFFE5A93C),
+                  side: BorderSide(
+                    color: BookingInspectionService.isPreInspectionUnlocked(booking)
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFFE5A93C),
+                    width: 1.5,
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -10156,12 +10251,15 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               onMessage:
                   status == 'approved' ||
                       status == 'confirmed' ||
+                      status == 'driver_accepted' ||
                       status == 'active' ||
                       status == 'ongoing' ||
                       status == 'return_pending_inspection'
                   ? () => _openBookingConversation(booking)
                   : null,
-              onBeforeInspection: status == 'approved' || status == 'confirmed'
+              onBeforeInspection: status == 'approved' ||
+                      status == 'confirmed' ||
+                      status == 'driver_accepted'
                   ? () => _openPartnerInspectionRecordOrForm(
                       booking,
                       inspectionType: 'before',
@@ -11629,8 +11727,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   /// ✅ Approve booking
   Future<void> _handleBookingApproval(
     BuildContext context,
-    Map<String, dynamic> booking,
-  ) async {
+    Map<String, dynamic> booking, {
+    bool closeCurrentScreen = true,
+  }) async {
     final bookingService = BookingService();
 
     showDialog(
@@ -11664,7 +11763,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
         // Reload bookings
         _loadPartnerData();
-        Navigator.pop(context); // Close modal
+        if (closeCurrentScreen && Navigator.canPop(context)) {
+          Navigator.pop(context); // Close modal
+        }
       }
     } catch (e) {
       Navigator.pop(context); // Close loading dialog
@@ -12968,7 +13069,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                           height: 1.3,
                         ),
                       ),
-                      if (widget.onAssignDriver != null && status == 'pending') ...[
+                      if (widget.onAssignDriver != null && (status == 'pending' || status == 'driver_accepted')) ...[
                         const SizedBox(height: 10),
                         Align(
                           alignment: Alignment.centerRight,
@@ -13275,7 +13376,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
             ],
 
             // 9. Bottom Decision Actions (Approve / Reject)
-            if (status == 'pending') ...[
+            if (status == 'pending' || status == 'driver_accepted') ...[
               Row(
                 children: [
                   Expanded(
@@ -13299,9 +13400,12 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                       onPressed: widget.onApprove,
                       icon: const Icon(Icons.check_rounded, size: 16),
                       label: Text(
-                        resolveBookingPaymentState(booking) == BookingPaymentState.pendingConfirmation
-                            ? 'Confirm & Accept'
-                            : 'Approve',
+                        status == 'driver_accepted'
+                            ? 'Approve (Driver Accepted)'
+                            : resolveBookingPaymentState(booking) ==
+                                    BookingPaymentState.pendingConfirmation
+                                ? 'Confirm & Accept'
+                                : 'Approve',
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.success,
