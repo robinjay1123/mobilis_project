@@ -1830,8 +1830,30 @@ class DriverService {
                 vehicle_name,
                 plate_number,
                 owner_id,
+                image_url,
+                vehicle_images (
+                  image_url,
+                  display_order
+                ),
                 owner:owner_id (
                   role
+                )
+              ),
+              partner_vehicles:partner_vehicle_id (
+                id,
+                brand,
+                model,
+                year,
+                vehicle_name,
+                plate_number,
+                image_url,
+                vehicle_images (
+                  image_url,
+                  display_order
+                ),
+                partners:partner_id (
+                  id,
+                  business_name
                 )
               ),
               renter:renter_id (
@@ -1853,6 +1875,11 @@ class DriverService {
             .order('start_date', ascending: false);
 
         bookingsList = List<Map<String, dynamic>>.from(response);
+        for (final b in bookingsList) {
+          if (b['vehicles'] == null && b['partner_vehicles'] != null) {
+            b['vehicles'] = b['partner_vehicles'];
+          }
+        }
       } catch (embedError) {
         debugPrint('Assigned bookings complex embed note: $embedError');
         bookingsList = await _getAssignedBookingsFallback(filterDriverIds);
@@ -2015,12 +2042,33 @@ class DriverService {
           final vRows = await supabase
               .from('vehicles')
               .select(
-                'id, brand, model, year, vehicle_name, plate_number, owner_id',
+                'id, brand, model, year, vehicle_name, plate_number, owner_id, image_url, vehicle_images(image_url, display_order)',
               )
               .inFilter('id', vehicleIds);
           for (final v in List<Map<String, dynamic>>.from(vRows)) {
             final id = v['id']?.toString();
             if (id != null) vehiclesById[id] = v;
+          }
+        } catch (_) {}
+      }
+
+      final partnerVehicleIds = bookings
+          .map((b) => b['partner_vehicle_id']?.toString().trim())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+      if (partnerVehicleIds.isNotEmpty) {
+        try {
+          final pvRows = await supabase
+              .from('partner_vehicles')
+              .select(
+                'id, brand, model, year, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order)',
+              )
+              .inFilter('id', partnerVehicleIds);
+          for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
+            final id = pv['id']?.toString();
+            if (id != null) vehiclesById[id] = pv;
           }
         } catch (_) {}
       }
@@ -2041,8 +2089,11 @@ class DriverService {
 
       for (final booking in bookings) {
         final vId = booking['vehicle_id']?.toString();
+        final pvId = booking['partner_vehicle_id']?.toString();
         if (vId != null && vehiclesById.containsKey(vId)) {
           booking['vehicles'] = vehiclesById[vId];
+        } else if (pvId != null && vehiclesById.containsKey(pvId)) {
+          booking['vehicles'] = vehiclesById[pvId];
         }
         final rId = booking['renter_id']?.toString();
         if (rId != null && rentersById.containsKey(rId)) {

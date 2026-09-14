@@ -4700,15 +4700,309 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
 // Helper methods for Driver vehicle badges, schedule formatting, and View Details modal
 bool _isPartnerVehicleForDriver(Map<String, dynamic>? tripOrBooking) {
   if (tripOrBooking == null) return false;
-  final vehicle = (tripOrBooking['vehicles'] ?? tripOrBooking['vehicle']) as Map<String, dynamic>?;
+  final vehicle = (tripOrBooking['vehicles'] ?? tripOrBooking['vehicle'] ?? tripOrBooking['partner_vehicles']) as Map<String, dynamic>?;
   final owner = vehicle?['owner'] as Map<String, dynamic>?;
   final ownerRole = owner?['role']?.toString().trim().toLowerCase();
   return tripOrBooking['is_partner_vehicle'] == true ||
       tripOrBooking['partner_id'] != null ||
+      tripOrBooking['partner_vehicle_id'] != null ||
       vehicle?['is_partner_vehicle'] == true ||
       vehicle?['partner_id'] != null ||
       vehicle?['partner_vehicle_id'] != null ||
       ownerRole == 'partner';
+}
+
+String _resolveDriverVehicleImageUrl(Map<String, dynamic>? vehicle) {
+  if (vehicle == null) return '';
+
+  String normalize(dynamic val) {
+    if (val is List && val.isNotEmpty) return normalize(val.first);
+    var raw = val?.toString().trim() ?? '';
+    if (raw.isEmpty || raw == 'null') return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:')) {
+      return raw;
+    }
+    raw = raw.replaceFirst(RegExp(r'^/+'), '');
+    const knownBuckets = [
+      'vehicle_images',
+      'vehicle-images',
+      'partner_documents',
+      'vehicle_documents',
+      'cars',
+      'vehicles',
+      'avatars',
+      'profiles',
+    ];
+    try {
+      for (final bucket in knownBuckets) {
+        if (raw.startsWith('$bucket/')) {
+          final path = raw.substring(bucket.length + 1);
+          return Supabase.instance.client.storage.from(bucket).getPublicUrl(path);
+        }
+      }
+      return Supabase.instance.client.storage.from('vehicle_images').getPublicUrl(raw);
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  for (final key in const [
+    'primary_image_url',
+    'image_url',
+    'imageUrl',
+    'photo_url',
+    'vehicle_photo_url',
+    'vehicle_image_url',
+    'thumbnail_url',
+  ]) {
+    final value = vehicle[key];
+    final norm = normalize(value);
+    if (norm.isNotEmpty) return norm;
+  }
+
+  final rawImages = vehicle['vehicle_images'] ?? vehicle['images'] ?? vehicle['photos'];
+  if (rawImages is List && rawImages.isNotEmpty) {
+    for (final image in rawImages) {
+      if (image is Map) {
+        for (final key in const ['image_url', 'url', 'image', 'photo_url']) {
+          final norm = normalize(image[key]);
+          if (norm.isNotEmpty) return norm;
+        }
+      } else {
+        final norm = normalize(image);
+        if (norm.isNotEmpty) return norm;
+      }
+    }
+  }
+
+  return '';
+}
+
+class _DriverVehicleThumbnail extends StatefulWidget {
+  final Map<String, dynamic>? vehicle;
+  final String? vehicleId;
+  final String? partnerVehicleId;
+  final bool isDark;
+  final double size;
+
+  const _DriverVehicleThumbnail({
+    this.vehicle,
+    this.vehicleId,
+    this.partnerVehicleId,
+    required this.isDark,
+    this.size = 54,
+  });
+
+  @override
+  State<_DriverVehicleThumbnail> createState() => _DriverVehicleThumbnailState();
+}
+
+class _DriverVehicleThumbnailState extends State<_DriverVehicleThumbnail> {
+  String? _imageUrl;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveOrFetchImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DriverVehicleThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.vehicle != widget.vehicle ||
+        oldWidget.vehicleId != widget.vehicleId ||
+        oldWidget.partnerVehicleId != widget.partnerVehicleId) {
+      _resolveOrFetchImage();
+    }
+  }
+
+  void _resolveOrFetchImage() {
+    final direct = _resolveDriverVehicleImageUrl(widget.vehicle);
+    if (direct.isNotEmpty) {
+      _imageUrl = direct;
+      return;
+    }
+
+    final targetId = widget.vehicleId ??
+        widget.vehicle?['id']?.toString() ??
+        widget.partnerVehicleId ??
+        widget.vehicle?['partner_vehicle_id']?.toString();
+
+    if (targetId == null || targetId.isEmpty) return;
+
+    _isLoading = true;
+    _fetchVehicleImageAsync(targetId);
+  }
+
+  Future<void> _fetchVehicleImageAsync(String vId) async {
+    try {
+      final supabase = Supabase.instance.client;
+      final imgRows = await supabase
+          .from('vehicle_images')
+          .select('image_url, display_order')
+          .or('vehicle_id.eq.$vId,partner_vehicle_id.eq.$vId')
+          .order('display_order', ascending: true)
+          .limit(1);
+      if (imgRows.isNotEmpty) {
+        final rawUrl = imgRows.first['image_url'];
+        final resolved = _resolveDriverVehicleImageUrl({'image_url': rawUrl});
+        if (resolved.isNotEmpty && mounted) {
+          setState(() {
+            _imageUrl = resolved;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
+      final vRow = await supabase
+          .from('vehicles')
+          .select('image_url')
+          .eq('id', vId)
+          .maybeSingle();
+      if (vRow != null && vRow['image_url'] != null) {
+        final resolved = _resolveDriverVehicleImageUrl(vRow);
+        if (resolved.isNotEmpty && mounted) {
+          setState(() {
+            _imageUrl = resolved;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
+      final pvRow = await supabase
+          .from('partner_vehicles')
+          .select('image_url')
+          .eq('id', vId)
+          .maybeSingle();
+      if (pvRow != null && pvRow['image_url'] != null) {
+        final resolved = _resolveDriverVehicleImageUrl(pvRow);
+        if (resolved.isNotEmpty && mounted) {
+          setState(() {
+            _imageUrl = resolved;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error lazily fetching vehicle image for driver modal: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _showFullImagePreview(BuildContext context, String url) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: InteractiveViewer(
+                  maxScale: 4.0,
+                  child: OptimizedNetworkImage(
+                    imageUrl: url,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton.filled(
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                ),
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = _imageUrl != null && _imageUrl!.trim().isNotEmpty;
+
+    if (!hasImage) {
+      return Container(
+        width: widget.size,
+        height: widget.size,
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: _isLoading
+            ? const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                ),
+              )
+            : const Center(
+                child: Icon(
+                  Icons.directions_car_filled_rounded,
+                  color: AppColors.primary,
+                  size: 26,
+                ),
+              ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => _showFullImagePreview(context, _imageUrl!),
+      child: Container(
+        width: widget.size,
+        height: widget.size,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: widget.isDark ? AppColors.borderColor : Colors.grey.shade300,
+            width: 1,
+          ),
+          color: widget.isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            OptimizedNetworkImage(
+              imageUrl: _imageUrl!,
+              width: widget.size,
+              height: widget.size,
+              fit: BoxFit.cover,
+              borderRadius: BorderRadius.circular(11),
+              errorWidget: Container(
+                color: AppColors.primary.withValues(alpha: 0.15),
+                child: const Center(
+                  child: Icon(
+                    Icons.directions_car_filled_rounded,
+                    color: AppColors.primary,
+                    size: 26,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 Widget _buildDriverVehicleOwnershipBadge({
@@ -4791,8 +5085,8 @@ String _formatDriverBookingDuration(Map<String, dynamic> trip) {
 void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip) {
   final isDark = Theme.of(context).brightness == Brightness.dark;
   final booking = (trip['bookings'] as Map<String, dynamic>?) ?? trip;
-  final vehicle = (booking['vehicles'] ?? booking['vehicle']) as Map<String, dynamic>?;
-  final renter = booking['renter'] as Map<String, dynamic>?;
+  final vehicle = (booking['vehicles'] ?? booking['vehicle'] ?? booking['partner_vehicles'] ?? trip['vehicles'] ?? trip['vehicle']) as Map<String, dynamic>?;
+  final renter = (booking['renter'] ?? trip['renter']) as Map<String, dynamic>?;
   final renterName = renter?['full_name']?.toString().trim();
   final isPartner = _isPartnerVehicleForDriver(booking);
 
@@ -4803,6 +5097,12 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
             .map((part) => part.toString().trim())
             .join(' ');
   final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
+  final vehicleId = vehicle?['id']?.toString() ??
+      booking['vehicle_id']?.toString() ??
+      trip['vehicle_id']?.toString();
+  final partnerVehicleId = vehicle?['partner_vehicle_id']?.toString() ??
+      booking['partner_vehicle_id']?.toString() ??
+      trip['partner_vehicle_id']?.toString();
   final total = (booking['total_price'] as num?)?.toDouble() ??
       (booking['total_cost'] as num?)?.toDouble() ??
       0.0;
@@ -4914,17 +5214,12 @@ void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(
-                                    Icons.directions_car_filled_rounded,
-                                    color: AppColors.primary,
-                                    size: 26,
-                                  ),
+                                _DriverVehicleThumbnail(
+                                  vehicle: vehicle,
+                                  vehicleId: vehicleId,
+                                  partnerVehicleId: partnerVehicleId,
+                                  isDark: isDark,
+                                  size: 54,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
