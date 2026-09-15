@@ -3624,8 +3624,9 @@ class _BookingCard extends StatelessWidget {
     PlatformFile? receiptFile;
     bool isSubmitting = false;
 
-    // Load registered payout methods
+    // Load registered payout methods & QR code
     List<PayoutMethod> registeredMethods = [];
+    String? discoveredQrUrl;
     if (partnerUserId != null && partnerUserId.isNotEmpty) {
       try {
         registeredMethods = await PayoutMethodService().getPayoutMethods(partnerUserId);
@@ -3635,7 +3636,26 @@ class _BookingCard extends StatelessWidget {
       } catch (e) {
         debugPrint('Could not load partner payout methods: $e');
       }
+      try {
+        discoveredQrUrl = await PayoutMethodService().getUserPayoutQrUrl(partnerUserId);
+      } catch (_) {}
     }
+
+    String? methodQrUrl;
+    for (final m in registeredMethods) {
+      if (m.qrCodeUrl != null && m.qrCodeUrl!.isNotEmpty) {
+        methodQrUrl = m.qrCodeUrl;
+        break;
+      }
+    }
+    final activeQrUrl = (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty)
+        ? discoveredQrUrl
+        : (methodQrUrl ??
+           partnerData['qr_code_url']?.toString() ??
+           partnerData['gcash_qr_url']?.toString() ??
+           partnerData['payout_qr_url']?.toString() ??
+           booking['partner_qr_url']?.toString() ??
+           booking['partner_payout_receipt_url']?.toString());
 
     if (!context.mounted) return;
 
@@ -3716,7 +3736,7 @@ class _BookingCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
 
-                  // Partner Info Card
+                  // Partner Info Card (with QR thumbnail)
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -3728,11 +3748,60 @@ class _BookingCard extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: Colors.purple.withValues(alpha: 0.2),
-                          child: const Icon(Icons.handshake_outlined, size: 18, color: Colors.purpleAccent),
-                        ),
+                        if (activeQrUrl != null && activeQrUrl.isNotEmpty)
+                          GestureDetector(
+                            onTap: () {
+                              showDialog(
+                                context: context,
+                                builder: (_) => Dialog(
+                                  backgroundColor: Colors.transparent,
+                                  child: InteractiveViewer(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.network(activeQrUrl, fit: BoxFit.contain),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Stack(
+                              children: [
+                                Container(
+                                  width: 58,
+                                  height: 58,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.purpleAccent),
+                                  ),
+                                  padding: const EdgeInsets.all(2),
+                                  child: Image.network(
+                                    activeQrUrl,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (c, e, s) => const Icon(Icons.qr_code_2, size: 32, color: Colors.grey),
+                                  ),
+                                ),
+                                Positioned(
+                                  right: 2,
+                                  bottom: 2,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.65),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Icon(Icons.zoom_in_rounded, size: 10, color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: Colors.purple.withValues(alpha: 0.2),
+                            child: const Icon(Icons.handshake_outlined, size: 18, color: Colors.purpleAccent),
+                          ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Column(
@@ -3756,6 +3825,41 @@ class _BookingCard extends StatelessWidget {
                                 )
                               else
                                 const Text('No registered payout method', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                              if (activeQrUrl != null && activeQrUrl.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                InkWell(
+                                  onTap: () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (_) => Dialog(
+                                        backgroundColor: Colors.transparent,
+                                        child: InteractiveViewer(
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(12),
+                                            child: Image.network(activeQrUrl, fit: BoxFit.contain),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.qr_code_rounded, size: 13, color: Colors.purpleAccent),
+                                      SizedBox(width: 3),
+                                      Text(
+                                        'View Attached QR',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.purpleAccent,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -4109,8 +4213,9 @@ class _BookingCard extends StatelessWidget {
     PlatformFile? receiptFile;
     bool isSubmitting = false;
 
-    // Load registered payout methods
+    // Load registered payout methods & QR code
     List<PayoutMethod> registeredMethods = [];
+    String? discoveredQrUrl;
     if (driverUserId != null && driverUserId.isNotEmpty) {
       try {
         registeredMethods = await PayoutMethodService().getPayoutMethods(driverUserId);
@@ -4120,7 +4225,26 @@ class _BookingCard extends StatelessWidget {
       } catch (e) {
         debugPrint('Could not load driver payout methods: $e');
       }
+      try {
+        discoveredQrUrl = await PayoutMethodService().getUserPayoutQrUrl(driverUserId);
+      } catch (_) {}
     }
+
+    String? methodQrUrl;
+    for (final m in registeredMethods) {
+      if (m.qrCodeUrl != null && m.qrCodeUrl!.isNotEmpty) {
+        methodQrUrl = m.qrCodeUrl;
+        break;
+      }
+    }
+    final activeQrUrl = (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty)
+        ? discoveredQrUrl
+        : (methodQrUrl ??
+           driverData['qr_code_url']?.toString() ??
+           driverData['gcash_qr_url']?.toString() ??
+           driverData['payout_qr_url']?.toString() ??
+           booking['driver_qr_url']?.toString() ??
+           booking['driver_payout_receipt_url']?.toString());
 
     if (!context.mounted) return;
 
@@ -4201,7 +4325,7 @@ class _BookingCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
 
-                  // Driver Info Card
+                  // Driver Info Card (with QR thumbnail)
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -4213,11 +4337,60 @@ class _BookingCard extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.2),
-                          child: const Icon(Icons.drive_eta, size: 18, color: Color(0xFF0284C7)),
-                        ),
+                        if (activeQrUrl != null && activeQrUrl.isNotEmpty)
+                          GestureDetector(
+                            onTap: () {
+                              showDialog(
+                                context: context,
+                                builder: (_) => Dialog(
+                                  backgroundColor: Colors.transparent,
+                                  child: InteractiveViewer(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.network(activeQrUrl, fit: BoxFit.contain),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Stack(
+                              children: [
+                                Container(
+                                  width: 58,
+                                  height: 58,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFF38BDF8)),
+                                  ),
+                                  padding: const EdgeInsets.all(2),
+                                  child: Image.network(
+                                    activeQrUrl,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (c, e, s) => const Icon(Icons.qr_code_2, size: 32, color: Colors.grey),
+                                  ),
+                                ),
+                                Positioned(
+                                  right: 2,
+                                  bottom: 2,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.65),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Icon(Icons.zoom_in_rounded, size: 10, color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.2),
+                            child: const Icon(Icons.drive_eta, size: 18, color: Color(0xFF0284C7)),
+                          ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Column(
@@ -4241,6 +4414,41 @@ class _BookingCard extends StatelessWidget {
                                 )
                               else
                                 const Text('No registered payout method', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                              if (activeQrUrl != null && activeQrUrl.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                InkWell(
+                                  onTap: () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (_) => Dialog(
+                                        backgroundColor: Colors.transparent,
+                                        child: InteractiveViewer(
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(12),
+                                            child: Image.network(activeQrUrl, fit: BoxFit.contain),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.qr_code_rounded, size: 13, color: Color(0xFF38BDF8)),
+                                      SizedBox(width: 3),
+                                      Text(
+                                        'View Attached QR',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF38BDF8),
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

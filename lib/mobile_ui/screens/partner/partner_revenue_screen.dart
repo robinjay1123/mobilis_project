@@ -1212,6 +1212,18 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     final depositDeduction =
         (metadata['security_deposit_deduction'] as num?)?.toDouble() ?? 0;
 
+    final paymentMethod = metadata['payment_method']?.toString() ??
+        payout['method']?.toString() ??
+        booking['partner_payout_method']?.toString() ??
+        'GCash';
+    final refNumber = metadata['reference_number']?.toString() ??
+        payout['reference_number']?.toString() ??
+        booking['partner_payout_ref']?.toString() ??
+        '—';
+    final receiptUrl = metadata['receipt_url']?.toString() ??
+        payout['receipt_url']?.toString() ??
+        booking['partner_payout_receipt_url']?.toString();
+
     showDialog<void>(
       context: context,
       builder: (dialogCtx) => Dialog(
@@ -1376,6 +1388,67 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    _receiptRow(
+                      'Payment Method',
+                      paymentMethod,
+                      icon: Icons.account_balance_wallet_outlined,
+                    ),
+                    _receiptDivider(),
+                    _receiptRow(
+                      'Reference No.',
+                      refNumber,
+                      icon: Icons.tag_rounded,
+                    ),
+                    if (receiptUrl != null && receiptUrl.isNotEmpty) ...[
+                      _receiptDivider(),
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.receipt_rounded, color: AppColors.textTertiary, size: 16),
+                          const SizedBox(width: 8),
+                          const Text('Transfer Proof', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () {
+                              showDialog(
+                                context: context,
+                                builder: (_) => Dialog(
+                                  backgroundColor: Colors.transparent,
+                                  child: InteractiveViewer(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(14),
+                                      child: Image.network(receiptUrl, fit: BoxFit.contain),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Stack(
+                                children: [
+                                  Image.network(receiptUrl, width: 64, height: 64, fit: BoxFit.cover),
+                                  Positioned(
+                                    right: 2,
+                                    bottom: 2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.65),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Icon(Icons.zoom_in_rounded, size: 12, color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,

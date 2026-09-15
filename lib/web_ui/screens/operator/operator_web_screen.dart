@@ -20876,18 +20876,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isSubmitting = false;
     String? dialogError;
 
-    // Load registered payout methods
+    // Load registered payout methods & QR code
     List<PayoutMethod> registeredMethods = [];
-    if (partnerUserId != null && partnerUserId.isNotEmpty && !isAlreadyDisbursed) {
+    String? discoveredQrUrl;
+    if (partnerUserId != null && partnerUserId.isNotEmpty) {
       try {
         registeredMethods = await PayoutMethodService().getPayoutMethods(partnerUserId);
-        if (registeredMethods.isNotEmpty) {
+        if (registeredMethods.isNotEmpty && !isAlreadyDisbursed) {
           selectedMethod = registeredMethods.first.provider;
         }
       } catch (e) {
         debugPrint('Could not load partner payout methods: $e');
       }
+      try {
+        discoveredQrUrl = await PayoutMethodService().getUserPayoutQrUrl(partnerUserId);
+      } catch (_) {}
     }
+
+    String? methodQrUrl;
+    for (final m in registeredMethods) {
+      if (m.qrCodeUrl != null && m.qrCodeUrl!.isNotEmpty) {
+        methodQrUrl = m.qrCodeUrl;
+        break;
+      }
+    }
+    final activeQrUrl = (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty)
+        ? discoveredQrUrl
+        : (methodQrUrl ??
+           partnerData['qr_code_url']?.toString() ??
+           partnerData['gcash_qr_url']?.toString() ??
+           partnerData['payout_qr_url']?.toString() ??
+           booking['partner_qr_url']?.toString() ??
+           booking['partner_payout_receipt_url']?.toString());
 
     if (!mounted) return;
 
@@ -21002,7 +21022,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               const SizedBox(height: 16),
                             ],
 
-                            // Partner Info & Payout Method Card
+                            // Partner Info & Payout Method Card (with QR thumbnail)
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
@@ -21014,11 +21034,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               ),
                               child: Row(
                                 children: [
-                                  CircleAvatar(
-                                    radius: 22,
-                                    backgroundColor: Colors.purple.withValues(alpha: 0.2),
-                                    child: const Icon(Icons.handshake_outlined, color: Colors.purpleAccent),
-                                  ),
+                                  if (activeQrUrl != null && activeQrUrl.isNotEmpty)
+                                    GestureDetector(
+                                      onTap: () => _showReceiptProofDialog(activeQrUrl, isDark),
+                                      child: Tooltip(
+                                        message: 'Click to enlarge QR code',
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: Stack(
+                                            children: [
+                                              OnDemandNetworkImage(
+                                                imageUrl: activeQrUrl,
+                                                width: 68,
+                                                height: 68,
+                                                fit: BoxFit.cover,
+                                                label: 'QR Code',
+                                              ),
+                                              Positioned(
+                                                right: 2,
+                                                bottom: 2,
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black.withValues(alpha: 0.65),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: const Icon(Icons.zoom_in_rounded, size: 12, color: Colors.white),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    CircleAvatar(
+                                      radius: 22,
+                                      backgroundColor: Colors.purple.withValues(alpha: 0.2),
+                                      child: const Icon(Icons.handshake_outlined, color: Colors.purpleAccent),
+                                    ),
                                   const SizedBox(width: 14),
                                   Expanded(
                                     child: Column(
@@ -21051,6 +21105,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                             'No registered payout method',
                                             style: TextStyle(fontSize: 12, color: Colors.grey),
                                           ),
+                                        if (activeQrUrl != null && activeQrUrl.isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          InkWell(
+                                            onTap: () => _showReceiptProofDialog(activeQrUrl, isDark),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.qr_code_rounded, size: 14, color: Colors.purpleAccent),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  'View Attached QR Code',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isDark ? Colors.purple[200] : Colors.purple[800],
+                                                    decoration: TextDecoration.underline,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
@@ -21554,8 +21630,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isSubmitting = false;
     String? dialogError;
 
-    // Load registered payout methods
+    // Load registered payout methods & QR code
     List<PayoutMethod> registeredMethods = [];
+    String? discoveredQrUrl;
     if (driverUserId != null && driverUserId.isNotEmpty && !isAlreadyDisbursed) {
       try {
         registeredMethods = await PayoutMethodService().getPayoutMethods(driverUserId);
@@ -21565,7 +21642,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       } catch (e) {
         debugPrint('Could not load driver payout methods: $e');
       }
+      try {
+        discoveredQrUrl = await PayoutMethodService().getUserPayoutQrUrl(driverUserId);
+      } catch (_) {}
     }
+
+    String? methodQrUrl;
+    for (final m in registeredMethods) {
+      if (m.qrCodeUrl != null && m.qrCodeUrl!.isNotEmpty) {
+        methodQrUrl = m.qrCodeUrl;
+        break;
+      }
+    }
+    final activeQrUrl = (discoveredQrUrl != null && discoveredQrUrl.isNotEmpty)
+        ? discoveredQrUrl
+        : (methodQrUrl ??
+           driverData['qr_code_url']?.toString() ??
+           driverData['gcash_qr_url']?.toString() ??
+           driverData['payout_qr_url']?.toString() ??
+           booking['driver_qr_url']?.toString() ??
+           booking['driver_payout_receipt_url']?.toString());
 
     if (!mounted) return;
 
@@ -21680,7 +21776,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               const SizedBox(height: 16),
                             ],
 
-                            // Driver Info & Payout Method Card
+                            // Driver Info & Payout Method Card (with QR thumbnail)
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
@@ -21692,11 +21788,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               ),
                               child: Row(
                                 children: [
-                                  CircleAvatar(
-                                    radius: 22,
-                                    backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.2),
-                                    child: const Icon(Icons.drive_eta_rounded, color: Color(0xFF0284C7)),
-                                  ),
+                                  if (activeQrUrl != null && activeQrUrl.isNotEmpty)
+                                    GestureDetector(
+                                      onTap: () => _showReceiptProofDialog(activeQrUrl, isDark),
+                                      child: Tooltip(
+                                        message: 'Click to enlarge QR code',
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: Stack(
+                                            children: [
+                                              OnDemandNetworkImage(
+                                                imageUrl: activeQrUrl,
+                                                width: 68,
+                                                height: 68,
+                                                fit: BoxFit.cover,
+                                                label: 'QR Code',
+                                              ),
+                                              Positioned(
+                                                right: 2,
+                                                bottom: 2,
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black.withValues(alpha: 0.65),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: const Icon(Icons.zoom_in_rounded, size: 12, color: Colors.white),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    CircleAvatar(
+                                      radius: 22,
+                                      backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.2),
+                                      child: const Icon(Icons.drive_eta_rounded, color: Color(0xFF0284C7)),
+                                    ),
                                   const SizedBox(width: 14),
                                   Expanded(
                                     child: Column(
@@ -21729,6 +21859,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                             'No registered payout method',
                                             style: TextStyle(fontSize: 12, color: Colors.grey),
                                           ),
+                                        if (activeQrUrl != null && activeQrUrl.isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          InkWell(
+                                            onTap: () => _showReceiptProofDialog(activeQrUrl, isDark),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.qr_code_rounded, size: 14, color: Color(0xFF38BDF8)),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  'View Attached QR Code',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0284C7),
+                                                    decoration: TextDecoration.underline,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),

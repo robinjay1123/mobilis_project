@@ -147,6 +147,12 @@ class PayoutMethodService {
   }
 
   /// Get direct uploaded QR Code URL for a user from storage or metadata tables
+  /// Get direct uploaded QR Code URL for any user (renter, partner, driver) from storage or metadata tables
+  Future<String?> getUserPayoutQrUrl(String userId, {String provider = 'GCash'}) async {
+    return getRenterQrCodeUrl(userId, provider: provider);
+  }
+
+  /// Get direct uploaded QR Code URL for a user from storage or metadata tables
   Future<String?> getRenterQrCodeUrl(String userId, {String provider = 'GCash'}) async {
     if (userId.isEmpty) return null;
 
@@ -192,14 +198,66 @@ class PayoutMethodService {
         final qr = meta['qr_code_url'] ??
             meta['gcash_qr_url'] ??
             meta['payout_qr_url'] ??
-            meta['qr_url'];
+            meta['qr_url'] ??
+            meta['payment_qr_url'];
+        if (qr != null && qr.toString().trim().isNotEmpty) {
+          return qr.toString().trim();
+        }
+
+        // Also check if payout_methods list in user metadata has a QR code
+        final pmList = meta['payout_methods'];
+        if (pmList is List && pmList.isNotEmpty) {
+          for (final item in pmList) {
+            if (item is Map) {
+              final itemQr = item['qr_code_url']?.toString().trim();
+              if (itemQr != null && itemQr.isNotEmpty) {
+                return itemQr;
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // C. Check partners table
+    try {
+      final partnerRow = await _supabase
+          .from('partners')
+          .select('*')
+          .or('user_id.eq.$userId,id.eq.$userId')
+          .maybeSingle();
+      if (partnerRow != null) {
+        final qr = partnerRow['qr_code_url'] ??
+            partnerRow['gcash_qr_url'] ??
+            partnerRow['payout_qr_url'] ??
+            partnerRow['qr_url'] ??
+            partnerRow['payment_qr_url'];
         if (qr != null && qr.toString().trim().isNotEmpty) {
           return qr.toString().trim();
         }
       }
     } catch (_) {}
 
-    // C. Check renters & user_verifications tables
+    // D. Check drivers table
+    try {
+      final driverRow = await _supabase
+          .from('drivers')
+          .select('*')
+          .or('user_id.eq.$userId,id.eq.$userId')
+          .maybeSingle();
+      if (driverRow != null) {
+        final qr = driverRow['qr_code_url'] ??
+            driverRow['gcash_qr_url'] ??
+            driverRow['payout_qr_url'] ??
+            driverRow['qr_url'] ??
+            driverRow['payment_qr_url'];
+        if (qr != null && qr.toString().trim().isNotEmpty) {
+          return qr.toString().trim();
+        }
+      }
+    } catch (_) {}
+
+    // E. Check renters & user_verifications tables
     try {
       final renterRow = await _supabase
           .from('renters')
@@ -402,7 +460,7 @@ class PayoutMethodService {
       debugPrint('⚠️ Error updating public.users raw_user_meta_data: $e');
     }
 
-    // 4. Sync to public.renters table
+    // 4. Sync to public.renters, public.partners, and public.drivers tables
     try {
       final defaultMethod = methods.firstWhere(
         (m) => m.isDefault && m.qrCodeUrl != null && m.qrCodeUrl!.trim().isNotEmpty,
@@ -412,13 +470,38 @@ class PayoutMethodService {
         ),
       );
       if (defaultMethod.qrCodeUrl != null && defaultMethod.qrCodeUrl!.trim().isNotEmpty) {
-        await _supabase
-            .from('renters')
-            .update({
-              'qr_code_url': defaultMethod.qrCodeUrl,
-              'gcash_qr_url': defaultMethod.qrCodeUrl,
-            })
-            .eq('user_id', userId);
+        final qrUrl = defaultMethod.qrCodeUrl!.trim();
+        try {
+          await _supabase
+              .from('renters')
+              .update({
+                'qr_code_url': qrUrl,
+                'gcash_qr_url': qrUrl,
+              })
+              .eq('user_id', userId);
+        } catch (_) {}
+
+        try {
+          await _supabase
+              .from('partners')
+              .update({
+                'qr_code_url': qrUrl,
+                'gcash_qr_url': qrUrl,
+                'payout_qr_url': qrUrl,
+              })
+              .or('user_id.eq.$userId,id.eq.$userId');
+        } catch (_) {}
+
+        try {
+          await _supabase
+              .from('drivers')
+              .update({
+                'qr_code_url': qrUrl,
+                'gcash_qr_url': qrUrl,
+                'payout_qr_url': qrUrl,
+              })
+              .or('user_id.eq.$userId,id.eq.$userId');
+        } catch (_) {}
       }
     } catch (_) {}
   }

@@ -86,14 +86,135 @@ class BookingSettlementService {
     required String userId,
     required String recipientRole,
   }) async {
-    final response = await supabase
-        .from('booking_payouts')
-        .select()
-        .eq('recipient_user_id', userId)
-        .eq('recipient_role', recipientRole.trim().toLowerCase())
-        .eq('status', 'released')
-        .order('released_at', ascending: false);
-    return List<Map<String, dynamic>>.from(response);
+    final role = recipientRole.trim().toLowerCase();
+    final records = <Map<String, dynamic>>[];
+    final knownBookingIds = <String>{};
+
+    // 1. Fetch from booking_payouts table
+    try {
+      final response = await supabase
+          .from('booking_payouts')
+          .select()
+          .eq('recipient_user_id', userId)
+          .eq('recipient_role', role)
+          .eq('status', 'released')
+          .order('released_at', ascending: false);
+      for (final p in List<Map<String, dynamic>>.from(response)) {
+        records.add(p);
+        final bid = p['booking_id']?.toString();
+        if (bid != null && bid.isNotEmpty) {
+          knownBookingIds.add(bid);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading booking_payouts: $e');
+    }
+
+    // 2. Fallback / Merge from bookings table
+    try {
+      if (role == 'partner') {
+        // Find vehicles owned by partner
+        final vehRes = await supabase
+            .from('vehicles')
+            .select('id, brand, model, plate_number')
+            .or('owner_id.eq.$userId,partner_id.eq.$userId');
+        final vehList = List<Map<String, dynamic>>.from(vehRes);
+        final vMap = {for (final v in vehList) v['id']?.toString() ?? '': v};
+        final vIds = vMap.keys.where((k) => k.isNotEmpty).toList();
+
+        List<dynamic> bRes = [];
+        if (vIds.isNotEmpty) {
+          bRes = await supabase
+              .from('bookings')
+              .select('*')
+              .inFilter('vehicle_id', vIds)
+              .eq('partner_payout_disbursed', true);
+        }
+        final directPartnerBookings = await supabase
+            .from('bookings')
+            .select('*')
+            .or('partner_id.eq.$userId,partner_user_id.eq.$userId')
+            .eq('partner_payout_disbursed', true);
+
+        final combined = [...bRes, ...directPartnerBookings];
+        for (final b in combined) {
+          final bid = b['id']?.toString() ?? '';
+          if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
+          knownBookingIds.add(bid);
+
+          final rentalSubtotal = ((b['rental_subtotal'] ?? b['total_price'] ?? b['total_cost']) as num?)?.toDouble() ?? 0.0;
+          final netAmount = (b['partner_payout_amount'] as num?)?.toDouble() ?? (rentalSubtotal * 0.95);
+          final commission = (b['partner_payout_commission'] as num?)?.toDouble() ?? (rentalSubtotal * 0.05);
+          final depositDeduction = (b['partner_security_deposit_deduction'] as num?)?.toDouble() ??
+              ((b['partner_payout_deposit_deduction'] as num?)?.toDouble() ?? 0.0);
+
+          records.add({
+            'id': 'booking_partner_payout_$bid',
+            'booking_id': bid,
+            'recipient_user_id': userId,
+            'recipient_role': 'partner',
+            'gross_amount': rentalSubtotal,
+            'deductions': commission,
+            'net_amount': netAmount,
+            'status': 'released',
+            'released_at': b['partner_payout_disbursed_at'] ?? b['updated_at'] ?? b['created_at'],
+            'metadata': {
+              'commission_rate': 5,
+              'payment_method': b['partner_payout_method'] ?? 'GCash',
+              'reference_number': b['partner_payout_ref'] ?? '—',
+              'receipt_url': b['partner_payout_receipt_url'],
+              'security_deposit_deduction': depositDeduction,
+            },
+            'created_at': b['created_at'],
+          });
+        }
+      } else if (role == 'driver') {
+        final bRes = await supabase
+            .from('bookings')
+            .select('*')
+            .or('driver_id.eq.$userId,assigned_driver_id.eq.$userId,driver_user_id.eq.$userId')
+            .eq('driver_payout_disbursed', true);
+
+        for (final b in List<Map<String, dynamic>>.from(bRes)) {
+          final bid = b['id']?.toString() ?? '';
+          if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
+          knownBookingIds.add(bid);
+
+          final driverFee = (b['driver_fee'] as num?)?.toDouble() ?? 0.0;
+          final netAmount = (b['driver_payout_amount'] as num?)?.toDouble() ?? (driverFee * 0.95);
+          final commission = (b['driver_payout_commission'] as num?)?.toDouble() ?? (driverFee * 0.05);
+
+          records.add({
+            'id': 'booking_driver_payout_$bid',
+            'booking_id': bid,
+            'recipient_user_id': userId,
+            'recipient_role': 'driver',
+            'gross_amount': driverFee,
+            'deductions': commission,
+            'net_amount': netAmount,
+            'status': 'released',
+            'released_at': b['driver_payout_disbursed_at'] ?? b['updated_at'] ?? b['created_at'],
+            'metadata': {
+              'commission_rate': 5,
+              'payment_method': b['driver_payout_method'] ?? 'GCash',
+              'reference_number': b['driver_payout_ref'] ?? '—',
+              'receipt_url': b['driver_payout_receipt_url'],
+            },
+            'created_at': b['created_at'],
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error merging bookings for payouts: $e');
+    }
+
+    records.sort((a, b) {
+      final da = DateTime.tryParse(a['released_at']?.toString() ?? a['created_at']?.toString() ?? '') ?? DateTime(1970);
+      final db = DateTime.tryParse(b['released_at']?.toString() ?? b['created_at']?.toString() ?? '') ?? DateTime(1970);
+      return db.compareTo(da);
+    });
+
+    return records;
   }
 
   /// Releases the internal accounting records exactly once. This records who
