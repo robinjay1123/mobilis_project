@@ -2853,6 +2853,18 @@ class _BookingCard extends StatelessWidget {
               ? activeMethod.qrCodeUrl!.trim()
               : (directQrUrl != null && directQrUrl.trim().isNotEmpty ? directQrUrl.trim() : '');
 
+          final vehicle = booking['vehicles'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(booking['vehicles'])
+              : <String, dynamic>{};
+          final ownerRole = vehicle['owner_role']?.toString().trim().toLowerCase() ?? '';
+          final owner = vehicle['owner'] as Map<String, dynamic>?;
+          final ownerRoleNested = owner?['role']?.toString().trim().toLowerCase() ?? '';
+          final partnerId = booking['partner_id'] ?? vehicle['partner_id'] ?? booking['partner_vehicle_id'];
+          final isPartner = (partnerId != null && partnerId.toString().trim().isNotEmpty) ||
+              ownerRole == 'partner' ||
+              ownerRoleNested == 'partner' ||
+              vehicle['is_partner_vehicle'] == true ||
+              vehicle['source']?.toString().trim().toLowerCase() == 'partner';
           // Parse flagged items
           final flaggedItems = <String>[];
           if (postInspection != null) {
@@ -2996,7 +3008,9 @@ class _BookingCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'PSDC Operator Authority: PSDC receives and holds the security deposit. Partner submits post-trip inspection as recommendation. Operator approves refund or applies deduction.',
+                            isPartner
+                                ? 'PSDC Operator Authority: PSDC receives and holds the security deposit. Partner submits post-trip inspection as recommendation. Operator approves refund or applies deduction.'
+                                : 'Operator & PSDC Authority: PSDC holds the security deposit for company fleet vehicles. The return inspection findings are recorded below. The Operator reviews the vehicle condition, decides any deduction, and releases the refund.',
                             style: TextStyle(
                               fontSize: 11,
                               color: isDark ? const Color(0xFF7DD3FC) : const Color(0xFF0369A1),
@@ -3029,10 +3043,10 @@ class _BookingCard extends StatelessWidget {
                           children: [
                             Icon(Icons.fact_check_rounded, size: 16, color: postInspection != null ? const Color(0xFF0284C7) : Colors.grey),
                             const SizedBox(width: 6),
-                            const Expanded(
+                            Expanded(
                               child: Text(
-                                'Post-Inspection Findings',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                isPartner ? 'Partner Post-Inspection Findings' : 'PSDC Post-Inspection Findings',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                               ),
                             ),
                             if (postInspection != null)
@@ -3046,8 +3060,8 @@ class _BookingCard extends StatelessWidget {
                                 ),
                                 child: Text(
                                   (booking['security_deposit_return_eligible'] == true)
-                                      ? 'Partner: Cleared'
-                                      : 'Partner: Review Issues',
+                                      ? (isPartner ? 'Partner: Cleared' : 'PSDC: Cleared')
+                                      : (isPartner ? 'Partner: Review Issues' : 'PSDC: Review Issues'),
                                   style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
@@ -3102,9 +3116,11 @@ class _BookingCard extends StatelessWidget {
                           ],
                         ] else ...[
                           const SizedBox(height: 4),
-                          const Text(
-                            'No post-trip inspection submitted yet by Partner.',
-                            style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey),
+                          Text(
+                            isPartner
+                                ? 'No post-trip inspection submitted yet by Partner.'
+                                : 'No return inspection recorded yet.',
+                            style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey),
                           ),
                         ],
                       ],

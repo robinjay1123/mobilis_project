@@ -18625,6 +18625,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {
+          final isPartner = _isPartnerOwnedBooking(booking);
           final deposit = double.tryParse(refundAmountController.text) ?? depositAmount;
           final deduction = double.tryParse(deductionAmountController.text) ?? 0.0;
           final netRefund = (deposit - deduction).clamp(0.0, double.infinity);
@@ -18771,7 +18772,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      'Operator & PSDC Authority: PSDC initially receives and holds the security deposit. The Partner submits a Post-Inspection condition report as a recommendation. The Operator reviews the findings, decides any deduction, and releases the refund.',
+                                      isPartner
+                                          ? 'Operator & PSDC Authority: PSDC initially receives and holds the security deposit. The Partner submits a Post-Inspection condition report as a recommendation. The Operator reviews the findings, decides any deduction, and releases the refund.'
+                                          : 'Operator & PSDC Authority: PSDC holds the security deposit for company fleet vehicles. The return inspection findings are recorded below. The Operator reviews the vehicle condition, decides any deduction, and releases the refund.',
                                       style: TextStyle(
                                         fontSize: 12,
                                         height: 1.4,
@@ -18868,10 +18871,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         color: postInspection != null ? const Color(0xFF0284C7) : Colors.grey,
                                       ),
                                       const SizedBox(width: 8),
-                                      const Expanded(
+                                      Expanded(
                                         child: Text(
-                                          'Partner Post-Inspection Findings & Condition',
-                                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                          isPartner
+                                              ? 'Partner Post-Inspection Findings & Condition'
+                                              : 'PSDC Return Inspection Findings & Condition',
+                                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                                         ),
                                       ),
                                       if (postInspection != null)
@@ -18890,8 +18895,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           ),
                                           child: Text(
                                             (booking['security_deposit_return_eligible'] == true)
-                                                ? 'Partner Recommended: Cleared'
-                                                : 'Partner Recommended: Review Issues',
+                                                ? (isPartner ? 'Partner Recommended: Cleared' : 'PSDC Inspection: Cleared')
+                                                : (isPartner ? 'Partner Recommended: Review Issues' : 'PSDC Inspection: Review Issues'),
                                             style: TextStyle(
                                               fontSize: 11,
                                               fontWeight: FontWeight.w800,
@@ -19086,7 +19091,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ],
                                   ] else ...[
                                     Text(
-                                      'Post-trip return inspection has not been submitted by Partner yet.',
+                                      isPartner
+                                          ? 'Post-trip return inspection has not been submitted by Partner yet.'
+                                          : 'Return inspection has not been recorded yet.',
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontStyle: FontStyle.italic,
