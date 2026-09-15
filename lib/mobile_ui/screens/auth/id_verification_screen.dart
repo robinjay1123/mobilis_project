@@ -81,11 +81,18 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
       return;
     }
 
-    final idError = validateRequiredText(
-      idNumberController.text,
-      fieldName: 'ID number',
-      minLength: 4,
-    );
+    final String? idError;
+    if (selectedIdType == 'National ID') {
+      idError = validatePhilippineNationalId(idNumberController.text);
+    } else if (selectedIdType == 'Driver License') {
+      idError = validatePhilippineDriverLicense(idNumberController.text);
+    } else {
+      idError = validateRequiredText(
+        idNumberController.text,
+        fieldName: 'ID number',
+        minLength: 4,
+      );
+    }
     if (idError != null) {
       _showError(idError);
       return;
@@ -402,13 +409,36 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
               // ID Number
               CustomTextField(
                 label: 'ID Number',
-                hintText: 'Enter your ID number',
+                hintText: selectedIdType == 'National ID'
+                    ? '1234-5678-9098-7654'
+                    : selectedIdType == 'Driver License'
+                        ? 'N23-45-123456'
+                        : 'Enter your ID number',
                 controller: idNumberController,
-                validator: (value) => validateRequiredText(
-                  value,
-                  fieldName: 'ID number',
-                  minLength: 4,
-                ),
+                keyboardType: selectedIdType == 'National ID'
+                    ? TextInputType.number
+                    : TextInputType.text,
+                textCapitalization: selectedIdType == 'Driver License'
+                    ? TextCapitalization.characters
+                    : TextCapitalization.none,
+                inputFormatters: selectedIdType == 'National ID'
+                    ? nationalIdInputFormatters
+                    : selectedIdType == 'Driver License'
+                        ? driverLicenseInputFormatters
+                        : null,
+                validator: (value) {
+                  if (selectedIdType == 'National ID') {
+                    return validatePhilippineNationalId(value);
+                  }
+                  if (selectedIdType == 'Driver License') {
+                    return validatePhilippineDriverLicense(value);
+                  }
+                  return validateRequiredText(
+                    value,
+                    fieldName: 'ID number',
+                    minLength: 4,
+                  );
+                },
                 autovalidateMode: AutovalidateMode.onUserInteraction,
                 prefixIcon: const Icon(
                   Icons.badge_outlined,

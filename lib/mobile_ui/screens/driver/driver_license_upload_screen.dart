@@ -6,6 +6,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/verification_service.dart';
+import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -158,17 +159,16 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
   }
 
   bool _validateInputs() {
-    final cleanLicense = licenseNumberController.text.trim();
-    if (cleanLicense.isEmpty) {
+    final rawLicense = licenseNumberController.text.trim();
+    if (rawLicense.isEmpty) {
       _showErrorSnackBar("Please enter your driver's license number");
       return false;
     }
 
-    if (!RegExp(
-      r'^[A-Za-z0-9-]{6,13}$',
-    ).hasMatch(cleanLicense)) {
+    final cleanLicense = rawLicense.replaceAll('-', '').toUpperCase();
+    if (cleanLicense.length != 11 || !RegExp(r'^[A-Z0-9]{11}$').hasMatch(cleanLicense)) {
       _showErrorSnackBar(
-        "Driver's License Number must be 6-13 alphanumeric characters (e.g. N02-14-123456)",
+        "Driver's License Number must be 11 alphanumeric characters (e.g. N23-45-123456)",
       );
       return false;
     }
@@ -344,13 +344,10 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
             CustomTextField(
               controller: licenseNumberController,
               label: "Driver's License Number *",
-              hintText: "e.g. N02-14-123456",
+              hintText: "e.g. N23-45-123456",
               prefixIcon: const Icon(Icons.badge),
               textCapitalization: TextCapitalization.characters,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
-                LengthLimitingTextInputFormatter(13),
-              ],
+              inputFormatters: driverLicenseInputFormatters,
             ),
             const SizedBox(height: 20),
 

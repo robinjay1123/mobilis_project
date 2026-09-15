@@ -72,6 +72,107 @@ List<TextInputFormatter> get philippineMobileInputFormatters => [
   LengthLimitingTextInputFormatter(11),
 ];
 
+/// Formats Philippine PhilSys National ID (16 digits) as XXXX-XXXX-XXXX-XXXX.
+class NationalIdInputFormatter extends TextInputFormatter {
+  const NationalIdInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    // Strip non-digits and cap at 16 digits
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final limitedDigits = digits.length > 16 ? digits.substring(0, 16) : digits;
+
+    final buffer = StringBuffer();
+    for (int i = 0; i < limitedDigits.length; i++) {
+      if (i > 0 && i % 4 == 0) {
+        buffer.write('-');
+      }
+      buffer.write(limitedDigits[i]);
+    }
+    final formatted = buffer.toString();
+
+    final cursorIndex = newValue.selection.end.clamp(0, newValue.text.length);
+    final rawDigitsBeforeCursor = newValue.text
+        .substring(0, cursorIndex)
+        .replaceAll(RegExp(r'\D'), '')
+        .length
+        .clamp(0, limitedDigits.length);
+
+    int newCursorPos = 0;
+    int digitCount = 0;
+    while (newCursorPos < formatted.length && digitCount < rawDigitsBeforeCursor) {
+      if (formatted[newCursorPos] != '-') {
+        digitCount++;
+      }
+      newCursorPos++;
+    }
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: newCursorPos),
+    );
+  }
+}
+
+/// Formats Philippine Driver's License as XXX-XX-XXXXXX (e.g. N23-45-123456).
+/// 11 alphanumeric characters (uppercase varchar) with fixed dash separators.
+class DriverLicenseInputFormatter extends TextInputFormatter {
+  const DriverLicenseInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    // Keep alphanumeric and uppercase, max 11 characters
+    final clean = newValue.text
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    final limited = clean.length > 11 ? clean.substring(0, 11) : clean;
+
+    final buffer = StringBuffer();
+    for (int i = 0; i < limited.length; i++) {
+      if (i == 3 || i == 5) {
+        buffer.write('-');
+      }
+      buffer.write(limited[i]);
+    }
+    final formatted = buffer.toString();
+
+    final cursorIndex = newValue.selection.end.clamp(0, newValue.text.length);
+    final rawCharsBeforeCursor = newValue.text
+        .substring(0, cursorIndex)
+        .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
+        .length
+        .clamp(0, limited.length);
+
+    int newCursorPos = 0;
+    int charCount = 0;
+    while (newCursorPos < formatted.length && charCount < rawCharsBeforeCursor) {
+      if (formatted[newCursorPos] != '-') {
+        charCount++;
+      }
+      newCursorPos++;
+    }
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: newCursorPos),
+    );
+  }
+}
+
+List<TextInputFormatter> get nationalIdInputFormatters => const [
+  NationalIdInputFormatter(),
+];
+
+List<TextInputFormatter> get driverLicenseInputFormatters => const [
+  DriverLicenseInputFormatter(),
+];
+
 String? validateRequiredText(
   String? value, {
   required String fieldName,
@@ -138,3 +239,24 @@ String? validatePassword(String? value) {
   }
   return null;
 }
+
+String? validatePhilippineNationalId(String? value, {bool required = true}) {
+  final text = value?.trim() ?? '';
+  if (text.isEmpty) return required ? 'National ID number is required.' : null;
+  final digits = text.replaceAll(RegExp(r'\D'), '');
+  if (digits.length != 16) {
+    return 'National ID must contain exactly 16 digits (e.g. 1234-5678-9098-7654).';
+  }
+  return null;
+}
+
+String? validatePhilippineDriverLicense(String? value, {bool required = true}) {
+  final text = value?.trim().toUpperCase() ?? '';
+  if (text.isEmpty) return required ? "Driver's license number is required." : null;
+  final clean = text.replaceAll('-', '');
+  if (clean.length != 11 || !RegExp(r'^[A-Z0-9]{11}$').hasMatch(clean)) {
+    return "Driver's license must be 11 alphanumeric characters (e.g. N23-45-123456).";
+  }
+  return null;
+}
+

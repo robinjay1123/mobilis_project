@@ -721,19 +721,17 @@ class _IdentityVerificationFormScreenState
     }
 
     if (normalizedType.contains('driver')) {
-      if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(value)) {
-        return "Driver's License Number must be 6-13 alphanumeric characters";
+      final clean = value.replaceAll('-', '').toUpperCase();
+      if (clean.length != 11 || !RegExp(r'^[A-Z0-9]{11}$').hasMatch(clean)) {
+        return "Driver's License Number must be 11 alphanumeric characters (e.g. N23-45-123456)";
       }
       return null;
     }
 
     if (normalizedType.contains('national')) {
-      final clean = value.replaceAll('-', '');
-      if (clean.length < 10 || clean.length > 12) {
-        return 'National ID number must be 10-12 alphanumeric characters';
-      }
-      if (!RegExp(r'^[A-Za-z0-9-]{10,14}$').hasMatch(value)) {
-        return 'National ID number contains invalid characters';
+      final clean = value.replaceAll(RegExp(r'\D'), '');
+      if (clean.length != 16) {
+        return 'National ID number must be 16 digits (e.g. 1234-5678-9098-7654)';
       }
       return null;
     }
@@ -1385,6 +1383,7 @@ class _IdentityVerificationFormScreenState
               controller: _idNumberController,
               hint: _idNumberHint,
               icon: Icons.badge,
+              keyboardType: _idNumberKeyboardType,
               inputFormatters: _idNumberInputFormatters,
               textCapitalization: TextCapitalization.characters,
             ),
@@ -1701,6 +1700,7 @@ class _IdentityVerificationFormScreenState
                   controller: _idNumberController,
                   hint: _idNumberHint,
                   icon: Icons.credit_card_outlined,
+                  keyboardType: _idNumberKeyboardType,
                   inputFormatters: _idNumberInputFormatters,
                   textCapitalization: TextCapitalization.characters,
                 ),
@@ -3317,9 +3317,9 @@ class _IdentityVerificationFormScreenState
   String get _idNumberHint {
     final type = _selectedIdType.toLowerCase();
     if (type.contains('driver')) {
-      return 'e.g. A12-34-567890';
+      return 'e.g. N23-45-123456';
     }
-    if (type.contains('national')) return '12-digit PhilSys number';
+    if (type.contains('national')) return '16 digits (e.g. 1234-5678-9098-7654)';
     if (type.contains('passport')) return '7-9 character passport number';
     if (type.contains('tin')) return '9 or 12 digit TIN';
     return 'Enter your ID number';
@@ -3328,16 +3328,10 @@ class _IdentityVerificationFormScreenState
   List<TextInputFormatter> get _idNumberInputFormatters {
     final type = _selectedIdType.toLowerCase();
     if (type.contains('driver')) {
-      return [
-        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
-        LengthLimitingTextInputFormatter(13),
-      ];
+      return driverLicenseInputFormatters;
     }
     if (type.contains('national')) {
-      return [
-        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
-        LengthLimitingTextInputFormatter(14),
-      ];
+      return nationalIdInputFormatters;
     }
     if (type.contains('passport')) {
       return [
@@ -3361,6 +3355,12 @@ class _IdentityVerificationFormScreenState
       FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
       LengthLimitingTextInputFormatter(20),
     ];
+  }
+
+  TextInputType get _idNumberKeyboardType {
+    final type = _selectedIdType.toLowerCase();
+    if (type.contains('national')) return TextInputType.number;
+    return TextInputType.text;
   }
 
   Widget _buildDriverSignatureButton() {
