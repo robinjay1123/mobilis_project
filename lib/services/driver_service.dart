@@ -1365,12 +1365,21 @@ class DriverService {
           .toLowerCase();
       final normalizedUserApplicationStatus = userApplicationStatus
           ?.toLowerCase();
-      final derivedApplicationStatus = driverVerificationStatus == 'approved'
-          ? 'approved'
-          : (normalizedUserApplicationStatus == null ||
-                normalizedUserApplicationStatus.isEmpty)
-          ? 'basic'
-          : normalizedUserApplicationStatus;
+
+      final certifiedStatus = await getCertificationApplicationStatus(driverId);
+      final derivedApplicationStatus = (certifiedStatus == 'certified' ||
+              certifiedStatus == 'approved' ||
+              certifiedStatus == 'verified')
+          ? certifiedStatus
+          : (driverVerificationStatus == 'approved' ||
+                  driverVerificationStatus == 'verified'
+              ? 'approved'
+              : (userIsVerified
+                  ? 'approved'
+                  : (normalizedUserApplicationStatus == null ||
+                          normalizedUserApplicationStatus.isEmpty)
+                      ? (profile != null ? 'approved' : 'basic')
+                      : normalizedUserApplicationStatus));
 
       if (profile == null) {
         return {

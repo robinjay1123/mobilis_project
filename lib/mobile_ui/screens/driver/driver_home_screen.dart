@@ -1804,8 +1804,16 @@ class __DashboardTabState extends State<_DashboardTab> {
   }
 
   bool _isCertifiedFromStats(Map<String, dynamic> stats) {
+    if (_isCertifiedDriver || _isVerified) return true;
+
+    final resolvedCertification =
+        certificationStatus.isNotEmpty && certificationStatus != 'basic'
+            ? certificationStatus
+            : null;
+
     final status = _normalizeStatus(
-      stats['application_status'] ??
+      resolvedCertification ??
+          stats['application_status'] ??
           stats['driver_application_status'] ??
           stats['driver_tier'] ??
           stats['tier'] ??
@@ -1838,7 +1846,8 @@ class __DashboardTabState extends State<_DashboardTab> {
   }
 
   Widget _buildDriverApplicationCta(Map<String, dynamic> stats) {
-    final isCertified = _isCertifiedFromStats(stats);
+    final isCertified =
+        _isCertifiedDriver || _isVerified || _isCertifiedFromStats(stats);
     if (isCertified) return const SizedBox.shrink();
 
     final isPending = hasPendingVerification ||
@@ -2069,7 +2078,8 @@ class __DashboardTabState extends State<_DashboardTab> {
           final statusLoaded =
               snapshot.connectionState == ConnectionState.done &&
               hasLoadedDriverStatus;
-          final isCertified = _isCertifiedFromStats(stats);
+          final isCertified =
+              _isCertifiedDriver || _isVerified || _isCertifiedFromStats(stats);
           return ListView(
             padding: const EdgeInsets.fromLTRB(22, 0, 22, 24),
             children: [
