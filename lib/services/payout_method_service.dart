@@ -549,7 +549,6 @@ class PayoutMethodService {
             .from('bookings')
             .select('''
               id,
-              booking_reference,
               start_date,
               end_date,
               total_cost,
@@ -584,6 +583,7 @@ class PayoutMethodService {
           final veh = b['vehicles'] as Map<String, dynamic>?;
           final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
           final bookingId = b['id']?.toString() ?? '';
+          final shortBid = bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase();
 
           // A: Security deposit refund
           if (b['security_deposit_refunded'] == true ||
@@ -593,7 +593,7 @@ class PayoutMethodService {
             records.add({
               'id': 'sec_dep_$bookingId',
               'booking_id': bookingId,
-              'booking_reference': b['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
+              'booking_reference': shortBid,
               'category': 'security_deposit',
               'title': 'Security Deposit Refund',
               'amount': amt,
@@ -616,7 +616,7 @@ class PayoutMethodService {
             records.add({
               'id': 'booking_refund_$bookingId',
               'booking_id': bookingId,
-              'booking_reference': b['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
+              'booking_reference': shortBid,
               'category': 'booking_refund',
               'title': 'Booking Cancellation Refund',
               'amount': amt,
@@ -634,20 +634,28 @@ class PayoutMethodService {
         }
       } else if (normalizedRole == 'partner') {
         // Partner payouts from booking_payouts table
+        final knownBookingIds = <String>{};
         try {
+          final userIds = <String>{userId};
+          try {
+            final pProf = await _supabase.from('partners').select('id').eq('user_id', userId).maybeSingle();
+            final pId = pProf?['id']?.toString();
+            if (pId != null && pId.isNotEmpty) userIds.add(pId);
+          } catch (_) {}
+
           final payoutsRes = await _supabase
               .from('booking_payouts')
               .select('''
                 *,
                 bookings:booking_id (
                   id,
-                  booking_reference,
                   vehicles:vehicle_id (
                     id, brand, model, year, plate_number
                   )
                 )
               ''')
-              .eq('recipient_user_id', userId)
+              .inFilter('recipient_user_id', userIds.toList())
+              .eq('recipient_role', 'partner')
               .order('released_at', ascending: false);
 
           for (final p in List<Map<String, dynamic>>.from(payoutsRes)) {
@@ -656,11 +664,13 @@ class PayoutMethodService {
             final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
             final meta = p['metadata'] as Map<String, dynamic>? ?? {};
             final bid = p['booking_id']?.toString() ?? '';
+            final shortBid = bid.isNotEmpty ? (bid.length > 8 ? bid.substring(0, 8).toUpperCase() : bid.toUpperCase()) : '—';
+            if (bid.isNotEmpty) knownBookingIds.add(bid);
 
             records.add({
               'id': p['id']?.toString() ?? '',
               'booking_id': bid,
-              'booking_reference': b?['booking_reference'] ?? (bid.isNotEmpty ? bid.substring(0, bid.length > 8 ? 8 : bid.length) : '—'),
+              'booking_reference': shortBid,
               'category': 'partner_payout',
               'title': 'Vehicle Commission Payout',
               'amount': (p['net_amount'] as num?)?.toDouble() ?? 0.0,
@@ -675,54 +685,115 @@ class PayoutMethodService {
               'status': p['status']?.toString() == 'released' ? 'Completed' : (p['status']?.toString() ?? 'Completed'),
             });
           }
-        } catch (_) {}
-
-        // Fallback: check bookings directly
-        if (records.isEmpty) {
-          try {
-            final vehRes = await _supabase
-                .from('vehicles')
-                .select('id, brand, model, plate_number')
-                .or('owner_id.eq.$userId,partner_id.eq.$userId');
-            final vehList = List<Map<String, dynamic>>.from(vehRes);
-            final vMap = {for (final v in vehList) v['id']?.toString() ?? '': v};
-            final vIds = vMap.keys.where((k) => k.isNotEmpty).toList();
-
-            if (vIds.isNotEmpty) {
-              final bRes = await _supabase
-                  .from('bookings')
-                  .select('*')
-                  .inFilter('vehicle_id', vIds)
-                  .eq('partner_payout_disbursed', true)
-                  .order('partner_payout_disbursed_at', ascending: false);
-
-              for (final b in List<Map<String, dynamic>>.from(bRes)) {
-                final vid = b['vehicle_id']?.toString() ?? '';
-                final veh = vMap[vid];
-                final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
-                final bookingId = b['id']?.toString() ?? '';
-                records.add({
-                  'id': 'partner_booking_$bookingId',
-                  'booking_id': bookingId,
-                  'booking_reference': b['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
-                  'category': 'partner_payout',
-                  'title': 'Vehicle Commission Payout',
-                  'amount': (b['partner_payout_amount'] as num?)?.toDouble() ?? 0.0,
-                  'deduction': (b['partner_payout_commission'] as num?)?.toDouble() ?? 0.0,
-                  'method': b['partner_payout_method']?.toString() ?? 'GCash',
-                  'reference_number': b['partner_payout_ref']?.toString() ?? '—',
-                  'receipt_url': b['partner_payout_receipt_url']?.toString(),
-                  'date': b['partner_payout_disbursed_at'] ?? b['updated_at'] ?? b['created_at'],
-                  'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
-                  'plate_number': veh?['plate_number']?.toString() ?? '',
-                  'status': 'Completed',
-                });
-              }
-            }
-          } catch (_) {}
+        } catch (e) {
+          debugPrint('Error loading partner booking_payouts: $e');
         }
+
+        // Fallback: check booking_settlements
+        try {
+          final setRes = await _supabase
+              .from('booking_settlements')
+              .select('''
+                *,
+                bookings:booking_id (
+                  id,
+                  vehicles:vehicle_id (
+                    id, brand, model, year, plate_number
+                  )
+                )
+              ''')
+              .eq('partner_user_id', userId)
+              .order('created_at', ascending: false);
+
+          for (final s in List<Map<String, dynamic>>.from(setRes)) {
+            final bid = s['booking_id']?.toString() ?? '';
+            if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
+            knownBookingIds.add(bid);
+
+            final b = s['bookings'] as Map<String, dynamic>?;
+            final veh = b?['vehicles'] as Map<String, dynamic>?;
+            final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+            final shortBid = bid.length > 8 ? bid.substring(0, 8).toUpperCase() : bid.toUpperCase();
+            final details = s['details'] as Map<String, dynamic>? ?? {};
+
+            records.add({
+              'id': s['id']?.toString() ?? '',
+              'booking_id': bid,
+              'booking_reference': shortBid,
+              'category': 'partner_payout',
+              'title': 'Vehicle Commission Payout',
+              'amount': (s['partner_amount'] as num?)?.toDouble() ?? 0.0,
+              'gross_amount': (s['rental_amount'] as num?)?.toDouble() ?? 0.0,
+              'deduction': (s['platform_commission'] as num?)?.toDouble() ?? 0.0,
+              'method': details['payment_method']?.toString() ?? 'GCash',
+              'reference_number': details['reference_number']?.toString() ?? '—',
+              'receipt_url': details['receipt_url']?.toString(),
+              'date': s['released_at'] ?? s['updated_at'] ?? s['created_at'],
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
+              'plate_number': veh?['plate_number']?.toString() ?? '',
+              'status': s['status']?.toString() == 'released' ? 'Completed' : 'Pending',
+            });
+          }
+        } catch (_) {}
       } else if (normalizedRole == 'driver') {
-        // Driver earnings from driver_earnings table
+        final knownBookingIds = <String>{};
+
+        // 1. Check booking_payouts table (primary source for driver payouts)
+        try {
+          final userIds = <String>{userId};
+          try {
+            final dProf = await _supabase.from('drivers').select('id').eq('user_id', userId).maybeSingle();
+            final dId = dProf?['id']?.toString();
+            if (dId != null && dId.isNotEmpty) userIds.add(dId);
+          } catch (_) {}
+
+          final payoutsRes = await _supabase
+              .from('booking_payouts')
+              .select('''
+                *,
+                bookings:booking_id (
+                  id,
+                  vehicles:vehicle_id (
+                    id, brand, model, year, plate_number
+                  )
+                )
+              ''')
+              .inFilter('recipient_user_id', userIds.toList())
+              .eq('recipient_role', 'driver')
+              .order('released_at', ascending: false);
+
+          for (final p in List<Map<String, dynamic>>.from(payoutsRes)) {
+            final b = p['bookings'] as Map<String, dynamic>?;
+            final veh = b?['vehicles'] as Map<String, dynamic>?;
+            final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+            final meta = p['metadata'] as Map<String, dynamic>? ?? {};
+            final bid = p['booking_id']?.toString() ?? '';
+            final shortBid = bid.isNotEmpty ? (bid.length > 8 ? bid.substring(0, 8).toUpperCase() : bid.toUpperCase()) : '—';
+            if (bid.isNotEmpty) knownBookingIds.add(bid);
+
+            records.add({
+              'id': p['id']?.toString() ?? '',
+              'booking_id': bid,
+              'booking_reference': shortBid,
+              'category': 'driver_payout',
+              'title': 'Driver Trip Fee Payout',
+              'amount': (p['net_amount'] as num?)?.toDouble() ?? 0.0,
+              'gross_amount': (p['gross_amount'] as num?)?.toDouble() ?? 0.0,
+              'deduction': (p['deductions'] as num?)?.toDouble() ?? 0.0,
+              'method': meta['payment_method']?.toString() ?? 'GCash',
+              'reference_number': meta['reference_number']?.toString() ?? '—',
+              'receipt_url': meta['receipt_url']?.toString(),
+              'date': p['released_at'] ?? p['created_at'],
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : (meta['vehicle_title']?.toString() ?? 'Trip Vehicle'),
+              'plate_number': veh?['plate_number']?.toString() ?? '',
+              'status': p['status']?.toString() == 'released' ? 'Completed' : (p['status']?.toString() ?? 'Completed'),
+            });
+          }
+        } catch (e) {
+          debugPrint('Error loading driver booking_payouts: $e');
+        }
+
+        // 2. Secondary check: driver_earnings table
         try {
           final earningsRes = await _supabase
               .from('driver_earnings')
@@ -730,7 +801,6 @@ class PayoutMethodService {
                 *,
                 bookings:booking_id (
                   id,
-                  booking_reference,
                   vehicles:vehicle_id (
                     id, brand, model, year, plate_number
                   )
@@ -740,77 +810,83 @@ class PayoutMethodService {
               .order('paid_at', ascending: false);
 
           for (final e in List<Map<String, dynamic>>.from(earningsRes)) {
+            final bid = e['booking_id']?.toString() ?? '';
+            if (bid.isNotEmpty && knownBookingIds.contains(bid)) continue;
+            if (bid.isNotEmpty) knownBookingIds.add(bid);
+
             final b = e['bookings'] as Map<String, dynamic>?;
             final veh = b?['vehicles'] as Map<String, dynamic>?;
             final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
-            final bookingId = e['booking_id']?.toString() ?? '';
+            final shortBid = bid.isNotEmpty ? (bid.length > 8 ? bid.substring(0, 8).toUpperCase() : bid.toUpperCase()) : '—';
 
             records.add({
               'id': e['id']?.toString() ?? '',
-              'booking_id': bookingId,
-              'booking_reference': b?['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
+              'booking_id': bid,
+              'booking_reference': shortBid,
               'category': 'driver_payout',
               'title': 'Driver Trip Fee Payout',
               'amount': (e['net_earnings'] as num?)?.toDouble() ?? 0.0,
               'gross_amount': (e['trip_fee'] as num?)?.toDouble() ?? 0.0,
               'deduction': (e['commission_amount'] as num?)?.toDouble() ?? 0.0,
               'method': e['payout_method']?.toString() ?? 'GCash',
-              'reference_number': e['payout_ref']?.toString() ?? '—',
-              'receipt_url': e['payout_receipt_url']?.toString(),
+              'reference_number': '—',
+              'receipt_url': null,
               'date': e['paid_at'] ?? e['created_at'],
               'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Trip Vehicle',
               'plate_number': veh?['plate_number']?.toString() ?? '',
               'status': e['payout_status']?.toString() == 'paid' ? 'Completed' : (e['payout_status']?.toString() ?? 'Completed'),
             });
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('Error loading driver_earnings: $e');
+        }
 
-        // Fallback: check bookings directly
-        if (records.isEmpty) {
-          try {
-            final bRes = await _supabase
-                .from('bookings')
-                .select('''
+        // 3. Fallback check: booking_settlements
+        try {
+          final setRes = await _supabase
+              .from('booking_settlements')
+              .select('''
+                *,
+                bookings:booking_id (
                   id,
-                  booking_reference,
-                  driver_payout_disbursed,
-                  driver_payout_amount,
-                  driver_payout_method,
-                  driver_payout_ref,
-                  driver_payout_receipt_url,
-                  driver_payout_disbursed_at,
-                  updated_at,
-                  created_at,
                   vehicles:vehicle_id (
                     id, brand, model, year, plate_number
                   )
-                ''')
-                .or('driver_id.eq.$userId,assigned_driver_id.eq.$userId')
-                .eq('driver_payout_disbursed', true)
-                .order('driver_payout_disbursed_at', ascending: false);
+                )
+              ''')
+              .eq('driver_user_id', userId)
+              .order('created_at', ascending: false);
 
-            for (final b in List<Map<String, dynamic>>.from(bRes)) {
-              final veh = b['vehicles'] as Map<String, dynamic>?;
-              final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
-              final bookingId = b['id']?.toString() ?? '';
-              records.add({
-                'id': 'driver_booking_$bookingId',
-                'booking_id': bookingId,
-                'booking_reference': b['booking_reference'] ?? (bookingId.isNotEmpty ? bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length) : '—'),
-                'category': 'driver_payout',
-                'title': 'Driver Trip Fee Payout',
-                'amount': (b['driver_payout_amount'] as num?)?.toDouble() ?? 0.0,
-                'method': b['driver_payout_method']?.toString() ?? 'GCash',
-                'reference_number': b['driver_payout_ref']?.toString() ?? '—',
-                'receipt_url': b['driver_payout_receipt_url']?.toString(),
-                'date': b['driver_payout_disbursed_at'] ?? b['updated_at'] ?? b['created_at'],
-                'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Trip Vehicle',
-                'plate_number': veh?['plate_number']?.toString() ?? '',
-                'status': 'Completed',
-              });
-            }
-          } catch (_) {}
-        }
+          for (final s in List<Map<String, dynamic>>.from(setRes)) {
+            final bid = s['booking_id']?.toString() ?? '';
+            if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
+            knownBookingIds.add(bid);
+
+            final b = s['bookings'] as Map<String, dynamic>?;
+            final veh = b?['vehicles'] as Map<String, dynamic>?;
+            final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+            final shortBid = bid.length > 8 ? bid.substring(0, 8).toUpperCase() : bid.toUpperCase();
+            final details = s['details'] as Map<String, dynamic>? ?? {};
+
+            records.add({
+              'id': s['id']?.toString() ?? '',
+              'booking_id': bid,
+              'booking_reference': shortBid,
+              'category': 'driver_payout',
+              'title': 'Driver Trip Fee Payout',
+              'amount': (s['driver_amount'] as num?)?.toDouble() ?? 0.0,
+              'gross_amount': (s['driver_gross_amount'] as num?)?.toDouble() ?? 0.0,
+              'deduction': (s['driver_commission_amount'] as num?)?.toDouble() ?? 0.0,
+              'method': details['payment_method']?.toString() ?? 'GCash',
+              'reference_number': details['reference_number']?.toString() ?? '—',
+              'receipt_url': details['receipt_url']?.toString(),
+              'date': s['released_at'] ?? s['updated_at'] ?? s['created_at'],
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Trip Vehicle',
+              'plate_number': veh?['plate_number']?.toString() ?? '',
+              'status': s['status']?.toString() == 'released' ? 'Completed' : 'Pending',
+            });
+          }
+        } catch (_) {}
       }
     } catch (e) {
       debugPrint('Error loading refund and disbursement history: $e');

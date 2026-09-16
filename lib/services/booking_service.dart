@@ -742,6 +742,71 @@ class BookingService {
       }
     }
 
+    // 5. Hydrate driver and partner payouts from booking_payouts
+    final allBookingIds = bookings
+        .map((b) => b['id']?.toString())
+        .where((id) => id != null && id.isNotEmpty)
+        .cast<String>()
+        .toList();
+
+    if (allBookingIds.isNotEmpty) {
+      try {
+        final payoutsResp = await supabase
+            .from('booking_payouts')
+            .select('*')
+            .inFilter('booking_id', allBookingIds)
+            .eq('status', 'released');
+
+        final payoutsList = List<Map<String, dynamic>>.from(payoutsResp);
+        final payoutByBookingAndRole = <String, Map<String, dynamic>>{};
+        for (final p in payoutsList) {
+          final bId = p['booking_id']?.toString();
+          final role = p['recipient_role']?.toString().toLowerCase();
+          if (bId != null && role != null) {
+            payoutByBookingAndRole['${bId}_$role'] = p;
+          }
+        }
+
+        for (final booking in bookings) {
+          final bId = booking['id']?.toString();
+          if (bId == null) continue;
+
+          // Driver payout
+          final driverPayout = payoutByBookingAndRole['${bId}_driver'];
+          if (driverPayout != null) {
+            booking['driver_payout_disbursed'] = true;
+            booking['driver_payout_status'] = 'disbursed';
+            booking['driver_payout_amount'] = (driverPayout['net_amount'] as num?)?.toDouble() ??
+                (driverPayout['gross_amount'] as num?)?.toDouble();
+            booking['driver_payout_commission'] = (driverPayout['deductions'] as num?)?.toDouble();
+            final meta = driverPayout['metadata'] is Map ? Map<String, dynamic>.from(driverPayout['metadata']) : <String, dynamic>{};
+            booking['driver_payout_method'] = meta['payment_method']?.toString() ?? driverPayout['payout_method']?.toString() ?? 'GCash';
+            booking['driver_payout_ref'] = meta['reference_number']?.toString() ?? driverPayout['reference_number']?.toString() ?? '';
+            booking['driver_payout_receipt_url'] = meta['receipt_url']?.toString() ?? driverPayout['receipt_url']?.toString() ?? '';
+            booking['driver_payout_disbursed_at'] = driverPayout['released_at']?.toString() ?? driverPayout['created_at']?.toString();
+          }
+
+          // Partner payout
+          final partnerPayout = payoutByBookingAndRole['${bId}_partner'];
+          if (partnerPayout != null) {
+            booking['partner_payout_disbursed'] = true;
+            booking['partner_payout_status'] = 'disbursed';
+            booking['partner_payout_amount'] = (partnerPayout['net_amount'] as num?)?.toDouble() ??
+                (partnerPayout['gross_amount'] as num?)?.toDouble();
+            booking['partner_payout_commission'] = (partnerPayout['deductions'] as num?)?.toDouble();
+            final meta = partnerPayout['metadata'] is Map ? Map<String, dynamic>.from(partnerPayout['metadata']) : <String, dynamic>{};
+            booking['partner_payout_deposit_deduction'] = (meta['security_deposit_deduction'] as num?)?.toDouble() ?? 0.0;
+            booking['partner_payout_method'] = meta['payment_method']?.toString() ?? partnerPayout['payout_method']?.toString() ?? 'GCash';
+            booking['partner_payout_ref'] = meta['reference_number']?.toString() ?? partnerPayout['reference_number']?.toString() ?? '';
+            booking['partner_payout_receipt_url'] = meta['receipt_url']?.toString() ?? partnerPayout['receipt_url']?.toString() ?? '';
+            booking['partner_payout_disbursed_at'] = partnerPayout['released_at']?.toString() ?? partnerPayout['created_at']?.toString();
+          }
+        }
+      } catch (e) {
+        debugPrint('Error hydrating payouts from booking_payouts: $e');
+      }
+    }
+
     return bookings;
   }
 
@@ -7235,6 +7300,7 @@ class BookingService {
     final now = DateTime.now().toUtc().toIso8601String();
 
     final updatePayload = <String, dynamic>{
+      'commission_status': 'released',
       'partner_payout_disbursed': true,
       'partner_payout_status': 'disbursed',
       'partner_payout_amount': netAmount,
@@ -7341,6 +7407,7 @@ class BookingService {
     final now = DateTime.now().toUtc().toIso8601String();
 
     final updatePayload = <String, dynamic>{
+      'commission_status': 'released',
       'driver_payout_disbursed': true,
       'driver_payout_status': 'disbursed',
       'driver_payout_amount': netAmount,
@@ -7382,8 +7449,6 @@ class BookingService {
           'net_earnings': netAmount,
           'payout_status': 'paid',
           'payout_method': paymentMethod,
-          'payout_ref': referenceNumber,
-          'payout_receipt_url': receiptUrl ?? '',
           'paid_at': now,
         };
         final existingEarning = await supabase

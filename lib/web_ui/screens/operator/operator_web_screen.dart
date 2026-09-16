@@ -2487,22 +2487,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               security_deposit_refund_ref,
               security_deposit_refund_receipt_url,
               security_deposit_refunded_at,
-              partner_payout_disbursed,
-              partner_payout_status,
-              partner_payout_amount,
-              partner_payout_commission,
-              partner_payout_method,
-              partner_payout_ref,
-              partner_payout_receipt_url,
-              partner_payout_disbursed_at,
-              driver_payout_disbursed,
-              driver_payout_status,
-              driver_payout_amount,
-              driver_payout_commission,
-              driver_payout_method,
-              driver_payout_ref,
-              driver_payout_receipt_url,
-              driver_payout_disbursed_at,
               created_at,
               vehicles:vehicle_id (
                 id,
@@ -14726,23 +14710,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                         if (_isPartnerVehicleBooking(booking)) ...[
                           if (booking['partner_payout_disbursed'] == true ||
-                              (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed'))
-                            OutlinedButton.icon(
-                              onPressed: () {
+                              (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
+                            Builder(
+                              builder: (context) {
                                 final receiptUrl = booking['partner_payout_receipt_url']?.toString();
-                                if (receiptUrl != null && receiptUrl.isNotEmpty) {
-                                  _showReceiptProofDialog(receiptUrl, isDark);
-                                }
+                                final hasReceipt = receiptUrl != null && receiptUrl.isNotEmpty;
+                                return OutlinedButton.icon(
+                                  onPressed: hasReceipt
+                                      ? () => _showReceiptProofDialog(receiptUrl, isDark)
+                                      : null,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.purpleAccent,
+                                    disabledForegroundColor: isDark ? Colors.purple.shade300 : Colors.purple.shade700,
+                                    side: BorderSide(
+                                      color: Colors.purpleAccent.withValues(alpha: hasReceipt ? 1.0 : 0.5),
+                                    ),
+                                    minimumSize: const Size(0, 44),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  ),
+                                  icon: const Icon(Icons.check_circle_rounded, size: 17),
+                                  label: Text(hasReceipt ? 'Partner Disbursed ✓ (View)' : 'Partner Disbursed ✓'),
+                                );
                               },
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.purpleAccent,
-                                side: const BorderSide(color: Colors.purpleAccent),
-                                minimumSize: const Size(0, 44),
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                              ),
-                              icon: const Icon(Icons.check_circle_outline, size: 17),
-                              label: const Text('Partner Payout Disbursed'),
-                            )
+                            ),
+                          ]
                           else if (statusLower == 'completed' ||
                               statusLower == 'awaiting_completion' ||
                               group == BookingStatusGroup.completed)
@@ -14766,23 +14757,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ],
                         if (_bookingNeedsDriver(booking['with_driver'])) ...[
                           if (booking['driver_payout_disbursed'] == true ||
-                              (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed'))
-                            OutlinedButton.icon(
-                              onPressed: () {
+                              (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed')) ...[
+                            Builder(
+                              builder: (context) {
                                 final receiptUrl = booking['driver_payout_receipt_url']?.toString();
-                                if (receiptUrl != null && receiptUrl.isNotEmpty) {
-                                  _showReceiptProofDialog(receiptUrl, isDark);
-                                }
+                                final hasReceipt = receiptUrl != null && receiptUrl.isNotEmpty;
+                                return OutlinedButton.icon(
+                                  onPressed: hasReceipt
+                                      ? () => _showReceiptProofDialog(receiptUrl, isDark)
+                                      : null,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF38BDF8),
+                                    disabledForegroundColor: isDark ? const Color(0xFF7DD3FC) : const Color(0xFF0284C7),
+                                    side: BorderSide(
+                                      color: const Color(0xFF38BDF8).withValues(alpha: hasReceipt ? 1.0 : 0.5),
+                                    ),
+                                    minimumSize: const Size(0, 44),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  ),
+                                  icon: const Icon(Icons.check_circle_rounded, size: 17),
+                                  label: Text(hasReceipt ? 'Driver Fee Disbursed ✓ (View)' : 'Driver Fee Disbursed ✓'),
+                                );
                               },
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF38BDF8),
-                                side: const BorderSide(color: Color(0xFF38BDF8)),
-                                minimumSize: const Size(0, 44),
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                              ),
-                              icon: const Icon(Icons.check_circle_outline, size: 17),
-                              label: const Text('Driver Payout Disbursed'),
-                            )
+                            ),
+                          ]
                           else if (statusLower == 'completed' ||
                               statusLower == 'awaiting_completion' ||
                               group == BookingStatusGroup.completed)
@@ -20855,11 +20853,41 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ((booking['security_deposit_refund_deduction'] as num?)?.toDouble() ?? 0.0));
     final netPayout = (partnerEarnings + depositDeduction).clamp(0.0, double.infinity);
 
-    final isAlreadyDisbursed = booking['partner_payout_disbursed'] == true ||
+    bool isAlreadyDisbursed = booking['partner_payout_disbursed'] == true ||
         booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed';
-    final pastPayoutAmount = (booking['partner_payout_amount'] as num?)?.toDouble();
-    final pastRef = booking['partner_payout_ref']?.toString() ?? '';
-    final pastMethod = booking['partner_payout_method']?.toString();
+    double? pastPayoutAmount = (booking['partner_payout_amount'] as num?)?.toDouble();
+    String pastRef = booking['partner_payout_ref']?.toString() ?? '';
+    String? pastMethod = booking['partner_payout_method']?.toString();
+
+    if (!isAlreadyDisbursed && bookingId.isNotEmpty) {
+      try {
+        final existingPayout = await _supabase
+            .from('booking_payouts')
+            .select('*')
+            .eq('booking_id', bookingId)
+            .eq('recipient_role', 'partner')
+            .eq('status', 'released')
+            .maybeSingle();
+        if (existingPayout != null) {
+          isAlreadyDisbursed = true;
+          booking['partner_payout_disbursed'] = true;
+          booking['partner_payout_status'] = 'disbursed';
+          pastPayoutAmount = (existingPayout['net_amount'] as num?)?.toDouble() ??
+              (existingPayout['gross_amount'] as num?)?.toDouble();
+          booking['partner_payout_amount'] = pastPayoutAmount;
+          booking['partner_payout_commission'] = (existingPayout['deductions'] as num?)?.toDouble();
+          final meta = existingPayout['metadata'] is Map ? Map<String, dynamic>.from(existingPayout['metadata']) : <String, dynamic>{};
+          pastMethod = meta['payment_method']?.toString() ?? existingPayout['payout_method']?.toString() ?? 'GCash';
+          pastRef = meta['reference_number']?.toString() ?? existingPayout['reference_number']?.toString() ?? '';
+          booking['partner_payout_method'] = pastMethod;
+          booking['partner_payout_ref'] = pastRef;
+          booking['partner_payout_receipt_url'] = meta['receipt_url']?.toString() ?? existingPayout['receipt_url']?.toString() ?? '';
+          booking['partner_payout_disbursed_at'] = existingPayout['released_at']?.toString() ?? existingPayout['created_at']?.toString();
+        }
+      } catch (e) {
+        debugPrint('Could not check booking_payouts for partner: $e');
+      }
+    }
 
     final payoutAmountController = TextEditingController(
       text: (isAlreadyDisbursed && pastPayoutAmount != null)
@@ -21506,6 +21534,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           _recentBookings[pIdx]['partner_payout_receipt_url'] = uploadedReceiptUrl;
                                           _recentBookings[pIdx]['partner_payout_disbursed_at'] = DateTime.now().toIso8601String();
                                         }
+                                        setDialogState(() {
+                                          isAlreadyDisbursed = true;
+                                          isSubmitting = false;
+                                        });
                                         if (mounted) {
                                           setState(() {});
                                         }
@@ -21609,11 +21641,41 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final commission = driverGross * 0.05;
     final netPayout = (driverGross - commission).clamp(0.0, double.infinity);
 
-    final isAlreadyDisbursed = booking['driver_payout_disbursed'] == true ||
+    bool isAlreadyDisbursed = booking['driver_payout_disbursed'] == true ||
         booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed';
-    final pastPayoutAmount = (booking['driver_payout_amount'] as num?)?.toDouble();
-    final pastRef = booking['driver_payout_ref']?.toString() ?? '';
-    final pastMethod = booking['driver_payout_method']?.toString();
+    double? pastPayoutAmount = (booking['driver_payout_amount'] as num?)?.toDouble();
+    String pastRef = booking['driver_payout_ref']?.toString() ?? '';
+    String? pastMethod = booking['driver_payout_method']?.toString();
+
+    if (!isAlreadyDisbursed && bookingId.isNotEmpty) {
+      try {
+        final existingPayout = await _supabase
+            .from('booking_payouts')
+            .select('*')
+            .eq('booking_id', bookingId)
+            .eq('recipient_role', 'driver')
+            .eq('status', 'released')
+            .maybeSingle();
+        if (existingPayout != null) {
+          isAlreadyDisbursed = true;
+          booking['driver_payout_disbursed'] = true;
+          booking['driver_payout_status'] = 'disbursed';
+          pastPayoutAmount = (existingPayout['net_amount'] as num?)?.toDouble() ??
+              (existingPayout['gross_amount'] as num?)?.toDouble();
+          booking['driver_payout_amount'] = pastPayoutAmount;
+          booking['driver_payout_commission'] = (existingPayout['deductions'] as num?)?.toDouble();
+          final meta = existingPayout['metadata'] is Map ? Map<String, dynamic>.from(existingPayout['metadata']) : <String, dynamic>{};
+          pastMethod = meta['payment_method']?.toString() ?? existingPayout['payout_method']?.toString() ?? 'GCash';
+          pastRef = meta['reference_number']?.toString() ?? existingPayout['reference_number']?.toString() ?? '';
+          booking['driver_payout_method'] = pastMethod;
+          booking['driver_payout_ref'] = pastRef;
+          booking['driver_payout_receipt_url'] = meta['receipt_url']?.toString() ?? existingPayout['receipt_url']?.toString() ?? '';
+          booking['driver_payout_disbursed_at'] = existingPayout['released_at']?.toString() ?? existingPayout['created_at']?.toString();
+        }
+      } catch (e) {
+        debugPrint('Could not check booking_payouts for driver: $e');
+      }
+    }
 
     final payoutAmountController = TextEditingController(
       text: (isAlreadyDisbursed && pastPayoutAmount != null)
@@ -22209,6 +22271,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           _recentBookings[dIdx]['driver_payout_receipt_url'] = uploadedReceiptUrl;
                                           _recentBookings[dIdx]['driver_payout_disbursed_at'] = DateTime.now().toIso8601String();
                                         }
+                                        setDialogState(() {
+                                          isAlreadyDisbursed = true;
+                                          isSubmitting = false;
+                                        });
                                         if (mounted) {
                                           setState(() {});
                                         }
