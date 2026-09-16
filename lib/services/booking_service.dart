@@ -743,18 +743,18 @@ class BookingService {
     }
 
     // 5. Hydrate driver and partner payouts from booking_payouts
-    final allBookingIds = bookings
+    final targetBookingIds = bookings
         .map((b) => b['id']?.toString())
         .where((id) => id != null && id.isNotEmpty)
         .cast<String>()
         .toList();
 
-    if (allBookingIds.isNotEmpty) {
+    if (targetBookingIds.isNotEmpty) {
       try {
         final payoutsResp = await supabase
             .from('booking_payouts')
             .select('*')
-            .inFilter('booking_id', allBookingIds)
+            .inFilter('booking_id', targetBookingIds)
             .eq('status', 'released');
 
         final payoutsList = List<Map<String, dynamic>>.from(payoutsResp);
@@ -4421,7 +4421,7 @@ class BookingService {
         );
       }
 
-      final conversationId = conversation?['id']?.toString() ?? '';
+      final conversationId = conversation['id']?.toString() ?? '';
       if (conversationId.isEmpty) {
         debugPrint(
           '[BookingService] The booking conversation could not be prepared for audit message',
