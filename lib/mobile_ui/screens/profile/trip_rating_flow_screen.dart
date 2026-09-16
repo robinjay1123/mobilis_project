@@ -1231,10 +1231,8 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
           .order('display_order', ascending: true);
 
       final List<Map<String, dynamic>> images = [];
-      if (imgRows is List) {
-        for (final r in imgRows) {
-          if (r is Map) images.add(Map<String, dynamic>.from(r));
-        }
+      for (final r in imgRows) {
+        images.add(Map<String, dynamic>.from(r));
       }
 
       var mainImg = vRow?['image_url']?.toString().trim() ?? '';
