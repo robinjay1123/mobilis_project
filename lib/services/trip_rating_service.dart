@@ -63,7 +63,7 @@ class TripRatingService {
             id,
             renter_id,
             vehicle_id,
-            partner_id,
+            partner_vehicle_id,
             partner_booking_confirmed_by,
             driver_id,
             operator_id,
@@ -136,6 +136,9 @@ class TripRatingService {
           ? Map<String, dynamic>.from(booking['vehicles'])
           : <String, dynamic>{};
       final rawVehicleId = context['vehicle_id']?.toString().trim() ?? '';
+      final rawPartnerVehicleId =
+          context['partner_vehicle_id']?.toString().trim() ?? '';
+
       if (vehicle.isEmpty && rawVehicleId.isNotEmpty) {
         try {
           final fetchedVehicle = await supabase
@@ -151,16 +154,65 @@ class TripRatingService {
         } catch (_) {}
       }
 
+      // If partner_vehicle_id is present, resolve partner_vehicles record
+      if (rawPartnerVehicleId.isNotEmpty) {
+        try {
+          final pv = await supabase
+              .from('partner_vehicles')
+              .select('id, vehicle_id, partner_id, user_id, plate_number')
+              .eq('id', rawPartnerVehicleId)
+              .maybeSingle();
+          if (pv != null) {
+            context['partner_id'] = pv['partner_id'];
+            if (pv['user_id'] != null) {
+              context['partner_user_id'] = pv['user_id'];
+            }
+            vehicle['partner_vehicle_id'] = pv['id'];
+            vehicle['partner_id'] = pv['partner_id'];
+            vehicle['owner_id'] ??= pv['partner_id'];
+            vehicle['owner_role'] = 'partner';
+            vehicle['is_partner_vehicle'] = true;
+
+            final parentVId = pv['vehicle_id']?.toString().trim() ?? '';
+            if (parentVId.isNotEmpty &&
+                (vehicle.isEmpty || vehicle['id'] == rawPartnerVehicleId)) {
+              final parentV = await supabase
+                  .from('vehicles')
+                  .select(
+                    'id, owner_id, owner_role, operator_id, brand, model, year, vehicle_name, transmission, fuel_type, seats',
+                  )
+                  .eq('id', parentVId)
+                  .maybeSingle();
+              if (parentV != null) {
+                final parentMap = Map<String, dynamic>.from(parentV);
+                parentMap['partner_vehicle_id'] = pv['id'];
+                parentMap['partner_id'] = pv['partner_id'];
+                parentMap['owner_id'] = pv['partner_id'];
+                parentMap['owner_role'] = 'partner';
+                parentMap['is_partner_vehicle'] = true;
+                vehicle = parentMap;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       // If vehicle is a partner_vehicles record, resolve the parent vehicle
-      if ((vehicle.isEmpty || (vehicle['image_url'] == null || vehicle['image_url'].toString().trim().isEmpty)) &&
+      if ((vehicle.isEmpty ||
+              (vehicle['image_url'] == null ||
+                  vehicle['image_url'].toString().trim().isEmpty)) &&
           rawVehicleId.isNotEmpty) {
         try {
           final pv = await supabase
               .from('partner_vehicles')
-              .select('id, vehicle_id, partner_id, plate_number')
+              .select('id, vehicle_id, partner_id, user_id, plate_number')
               .eq('id', rawVehicleId)
               .maybeSingle();
           if (pv != null && pv['vehicle_id'] != null) {
+            context['partner_id'] ??= pv['partner_id'];
+            if (pv['user_id'] != null) {
+              context['partner_user_id'] ??= pv['user_id'];
+            }
             final parentVId = pv['vehicle_id'].toString().trim();
             if (parentVId.isNotEmpty) {
               final parentV = await supabase
@@ -172,10 +224,11 @@ class TripRatingService {
                   .maybeSingle();
               if (parentV != null) {
                 vehicle = Map<String, dynamic>.from(parentV);
-                if (pv['partner_id'] != null) {
-                  vehicle['owner_id'] ??= pv['partner_id'];
-                  vehicle['owner_role'] ??= 'partner';
-                }
+                vehicle['partner_vehicle_id'] = pv['id'];
+                vehicle['partner_id'] = pv['partner_id'];
+                vehicle['owner_id'] = pv['partner_id'];
+                vehicle['owner_role'] = 'partner';
+                vehicle['is_partner_vehicle'] = true;
               }
             }
           }
@@ -185,6 +238,7 @@ class TripRatingService {
       final candidateVehicleIds = <String>{
         if (vehicle['id'] != null) vehicle['id'].toString().trim(),
         if (rawVehicleId.isNotEmpty) rawVehicleId,
+        if (rawPartnerVehicleId.isNotEmpty) rawPartnerVehicleId,
       }..removeWhere((id) => id.isEmpty);
 
       final List<Map<String, dynamic>> allVehicleImages = [];
@@ -291,54 +345,100 @@ class TripRatingService {
 
       final context = Map<String, dynamic>.from(booking);
       final vehicleId = context['vehicle_id']?.toString().trim() ?? '';
-      if (vehicleId.isNotEmpty) {
-        var vehicle = await supabase
-            .from('vehicles')
-            .select('*')
-            .eq('id', vehicleId)
-            .maybeSingle();
-        if (vehicle == null) {
+      final rawPartnerVehicleId =
+          context['partner_vehicle_id']?.toString().trim() ?? '';
+
+      Map<String, dynamic>? pvRecord;
+      if (rawPartnerVehicleId.isNotEmpty) {
+        try {
+          final pv = await supabase
+              .from('partner_vehicles')
+              .select('*')
+              .eq('id', rawPartnerVehicleId)
+              .maybeSingle();
+          if (pv != null) {
+            pvRecord = Map<String, dynamic>.from(pv);
+            context['partner_id'] = pv['partner_id'];
+            if (pv['user_id'] != null) {
+              context['partner_user_id'] = pv['user_id'];
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (vehicleId.isNotEmpty || pvRecord != null) {
+        var vehicle = vehicleId.isNotEmpty
+            ? await supabase
+                .from('vehicles')
+                .select('*')
+                .eq('id', vehicleId)
+                .maybeSingle()
+            : null;
+        if (vehicle == null && vehicleId.isNotEmpty) {
           try {
             final pv = await supabase
                 .from('partner_vehicles')
-                .select('id, vehicle_id, partner_id, plate_number')
+                .select('*')
                 .eq('id', vehicleId)
                 .maybeSingle();
-            if (pv != null && pv['vehicle_id'] != null) {
-              final parentVId = pv['vehicle_id'].toString().trim();
-              if (parentVId.isNotEmpty) {
-                final parentV = await supabase
-                    .from('vehicles')
-                    .select('*')
-                    .eq('id', parentVId)
-                    .maybeSingle();
-                if (parentV != null) {
-                  vehicle = Map<String, dynamic>.from(parentV);
-                  if (pv['partner_id'] != null) {
-                    vehicle['owner_id'] ??= pv['partner_id'];
-                    vehicle['owner_role'] ??= 'partner';
-                  }
-                }
+            if (pv != null) {
+              pvRecord ??= Map<String, dynamic>.from(pv);
+              context['partner_id'] ??= pv['partner_id'];
+              if (pv['user_id'] != null) {
+                context['partner_user_id'] ??= pv['user_id'];
               }
             }
           } catch (_) {}
         }
-        if (vehicle != null) {
-          final vMap = Map<String, dynamic>.from(vehicle);
-          try {
-            final imgRows = await supabase
-                .from('vehicle_images')
-                .select('id, image_url, display_order')
-                .eq('vehicle_id', vMap['id'] ?? vehicleId)
-                .order('display_order', ascending: true);
-            if (imgRows.isNotEmpty) {
-              vMap['vehicle_images'] = List<Map<String, dynamic>>.from(imgRows);
-              if ((vMap['image_url'] == null || vMap['image_url'].toString().trim().isEmpty) &&
-                  imgRows.first['image_url'] != null) {
-                vMap['image_url'] = imgRows.first['image_url'];
+        if (vehicle == null && pvRecord != null && pvRecord['vehicle_id'] != null) {
+          final parentVId = pvRecord['vehicle_id'].toString().trim();
+          if (parentVId.isNotEmpty) {
+            try {
+              final parentV = await supabase
+                  .from('vehicles')
+                  .select('*')
+                  .eq('id', parentVId)
+                  .maybeSingle();
+              if (parentV != null) {
+                vehicle = Map<String, dynamic>.from(parentV);
               }
-            }
-          } catch (_) {}
+            } catch (_) {}
+          }
+        }
+
+        if (vehicle != null || pvRecord != null) {
+          final vMap = vehicle != null
+              ? Map<String, dynamic>.from(vehicle)
+              : <String, dynamic>{
+                  'id': pvRecord?['vehicle_id'] ?? pvRecord?['id'],
+                  'vehicle_name': pvRecord?['vehicle_name'] ?? 'Partner Vehicle',
+                };
+          if (pvRecord != null) {
+            vMap['partner_vehicle_id'] = pvRecord['id'];
+            vMap['partner_id'] = pvRecord['partner_id'];
+            vMap['owner_id'] = pvRecord['partner_id'];
+            vMap['owner_role'] = 'partner';
+            vMap['is_partner_vehicle'] = true;
+          }
+
+          final lookupVehicleId = (vMap['id'] ?? vehicleId).toString().trim();
+          if (lookupVehicleId.isNotEmpty) {
+            try {
+              final imgRows = await supabase
+                  .from('vehicle_images')
+                  .select('id, image_url, display_order')
+                  .eq('vehicle_id', lookupVehicleId)
+                  .order('display_order', ascending: true);
+              if (imgRows.isNotEmpty) {
+                vMap['vehicle_images'] = List<Map<String, dynamic>>.from(imgRows);
+                if ((vMap['image_url'] == null ||
+                        vMap['image_url'].toString().trim().isEmpty) &&
+                    imgRows.first['image_url'] != null) {
+                  vMap['image_url'] = imgRows.first['image_url'];
+                }
+              }
+            } catch (_) {}
+          }
           context['vehicles'] = vMap;
 
           final resolvedOwner = await _resolveVehicleOwner(
@@ -1150,6 +1250,7 @@ class TripRatingService {
         vehicle['owner_role']?.toString().trim().toLowerCase() == 'partner' ||
         vehicle['is_partner_vehicle'] == true ||
         vehicle['partner_vehicle_id'] != null ||
+        context['partner_vehicle_id'] != null ||
         context['partner_id'] != null;
     final operatorUser = context['operator_user'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['operator_user'])
@@ -1188,7 +1289,15 @@ class TripRatingService {
       if (owner['partner_id'] != null) owner['partner_id'].toString().trim(),
       if (vehicle['owner_id'] != null) vehicle['owner_id'].toString().trim(),
       if (vehicle['partner_id'] != null) vehicle['partner_id'].toString().trim(),
+      if (vehicle['partner_vehicle_id'] != null)
+        vehicle['partner_vehicle_id'].toString().trim(),
       if (context['partner_id'] != null) context['partner_id'].toString().trim(),
+      if (context['partner_user_id'] != null)
+        context['partner_user_id'].toString().trim(),
+      if (context['partner_vehicle_id'] != null)
+        context['partner_vehicle_id'].toString().trim(),
+      if (context['partner_booking_confirmed_by'] != null)
+        context['partner_booking_confirmed_by'].toString().trim(),
     ];
 
     Future<bool> ratingExists({
@@ -1576,7 +1685,16 @@ class TripRatingService {
       if (owner['partner_id'] != null) owner['partner_id'].toString().trim(),
       if (vehicle['owner_id'] != null) vehicle['owner_id'].toString().trim(),
       if (vehicle['partner_id'] != null) vehicle['partner_id'].toString().trim(),
-      if (latestContext['partner_id'] != null) latestContext['partner_id'].toString().trim(),
+      if (vehicle['partner_vehicle_id'] != null)
+        vehicle['partner_vehicle_id'].toString().trim(),
+      if (latestContext['partner_id'] != null)
+        latestContext['partner_id'].toString().trim(),
+      if (latestContext['partner_user_id'] != null)
+        latestContext['partner_user_id'].toString().trim(),
+      if (latestContext['partner_vehicle_id'] != null)
+        latestContext['partner_vehicle_id'].toString().trim(),
+      if (latestContext['partner_booking_confirmed_by'] != null)
+        latestContext['partner_booking_confirmed_by'].toString().trim(),
     }..removeWhere((id) => id.isEmpty);
 
     final response = await supabase
@@ -2022,13 +2140,11 @@ class TripRatingService {
     final vehicle = context['vehicles'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['vehicles'])
         : <String, dynamic>{};
-    final direct = (vehicle['owner_role'] ?? owner['role'])
-            ?.toString()
-            .trim()
-            .toLowerCase() ??
-        '';
-    if (direct.isNotEmpty) return direct;
 
+    if (context['partner_vehicle_id'] != null &&
+        context['partner_vehicle_id'].toString().trim().isNotEmpty) {
+      return 'partner';
+    }
     if (context['partner_id'] != null &&
         context['partner_id'].toString().trim().isNotEmpty) {
       return 'partner';
@@ -2044,6 +2160,18 @@ class TripRatingService {
     if (vehicle['is_partner_vehicle'] == true) {
       return 'partner';
     }
+    if (context['partner_booking_confirmed_by'] != null &&
+        context['partner_booking_confirmed_by'].toString().trim().isNotEmpty) {
+      return 'partner';
+    }
+
+    final direct = (vehicle['owner_role'] ?? owner['role'])
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        '';
+    if (direct.isNotEmpty) return direct;
+
     return '';
   }
 
@@ -2052,19 +2180,19 @@ class TripRatingService {
     required Map<String, dynamic> vehicle,
   }) async {
     final bookingId = context['id']?.toString().trim() ?? '';
-    if (context['partner_id'] == null && bookingId.isNotEmpty) {
+    if (bookingId.isNotEmpty) {
       try {
         final bRow = await supabase
             .from('bookings')
-            .select('partner_id, partner_booking_confirmed_by')
+            .select('partner_vehicle_id, partner_booking_confirmed_by')
             .eq('id', bookingId)
             .maybeSingle();
         if (bRow != null) {
-          if (bRow['partner_id'] != null) {
-            context['partner_id'] = bRow['partner_id'];
+          if (bRow['partner_vehicle_id'] != null) {
+            context['partner_vehicle_id'] ??= bRow['partner_vehicle_id'];
           }
           if (bRow['partner_booking_confirmed_by'] != null) {
-            context['partner_booking_confirmed_by'] =
+            context['partner_booking_confirmed_by'] ??=
                 bRow['partner_booking_confirmed_by'];
           }
         }
@@ -2075,22 +2203,38 @@ class TripRatingService {
       if (vehicle['owner_id'] != null) vehicle['owner_id'].toString().trim(),
       if (vehicle['partner_id'] != null) vehicle['partner_id'].toString().trim(),
       if (context['partner_id'] != null) context['partner_id'].toString().trim(),
+      if (context['partner_user_id'] != null)
+        context['partner_user_id'].toString().trim(),
       if (context['partner_booking_confirmed_by'] != null)
         context['partner_booking_confirmed_by'].toString().trim(),
     }..removeWhere((id) => id.isEmpty);
 
-    final rawVehicleId = (vehicle['id'] ?? context['vehicle_id'])?.toString().trim() ?? '';
-    if (rawVehicleId.isNotEmpty) {
+    final candidateVehicleIds = <String>{
+      if (vehicle['id'] != null) vehicle['id'].toString().trim(),
+      if (vehicle['partner_vehicle_id'] != null)
+        vehicle['partner_vehicle_id'].toString().trim(),
+      if (context['vehicle_id'] != null) context['vehicle_id'].toString().trim(),
+      if (context['partner_vehicle_id'] != null)
+        context['partner_vehicle_id'].toString().trim(),
+    }..removeWhere((id) => id.isEmpty);
+
+    for (final rawVehicleId in candidateVehicleIds) {
       try {
         final pvRows = await supabase
             .from('partner_vehicles')
-            .select('partner_id, user_id')
+            .select('id, partner_id, user_id, vehicle_id')
             .or('id.eq.$rawVehicleId,vehicle_id.eq.$rawVehicleId');
         for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
           final pId = pv['partner_id']?.toString().trim();
           final uId = pv['user_id']?.toString().trim();
-          if (pId != null && pId.isNotEmpty) candidateIds.add(pId);
-          if (uId != null && uId.isNotEmpty) candidateIds.add(uId);
+          if (pId != null && pId.isNotEmpty) {
+            candidateIds.add(pId);
+            context['partner_id'] ??= pId;
+          }
+          if (uId != null && uId.isNotEmpty) {
+            candidateIds.add(uId);
+            context['partner_user_id'] ??= uId;
+          }
         }
       } catch (_) {}
 
@@ -2101,6 +2245,33 @@ class TripRatingService {
             .or('id.eq.$rawVehicleId,created_vehicle_id.eq.$rawVehicleId,partner_vehicle_id.eq.$rawVehicleId');
         for (final app in List<Map<String, dynamic>>.from(appRows)) {
           final pId = app['partner_id']?.toString().trim();
+          if (pId != null && pId.isNotEmpty) candidateIds.add(pId);
+        }
+      } catch (_) {}
+    }
+
+    if (bookingId.isNotEmpty) {
+      try {
+        final payouts = await supabase
+            .from('booking_payouts')
+            .select('recipient_user_id, recipient_role')
+            .eq('booking_id', bookingId)
+            .eq('recipient_role', 'partner');
+        for (final p in List<Map<String, dynamic>>.from(payouts)) {
+          final rUid = p['recipient_user_id']?.toString().trim();
+          if (rUid != null && rUid.isNotEmpty) candidateIds.add(rUid);
+        }
+      } catch (_) {}
+
+      try {
+        final comms = await supabase
+            .from('driver_commissions')
+            .select('recipient_user_id, partner_id')
+            .eq('booking_id', bookingId);
+        for (final c in List<Map<String, dynamic>>.from(comms)) {
+          final rUid = c['recipient_user_id']?.toString().trim();
+          final pId = c['partner_id']?.toString().trim();
+          if (rUid != null && rUid.isNotEmpty) candidateIds.add(rUid);
           if (pId != null && pId.isNotEmpty) candidateIds.add(pId);
         }
       } catch (_) {}
@@ -2173,28 +2344,76 @@ class TripRatingService {
     required Map<String, dynamic> owner,
     required String reviewerUserId,
   }) async {
+    // 0. Quick check: if reviewer is admin / operator, authorized
+    try {
+      final user = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', reviewerUserId)
+          .maybeSingle();
+      final role = user?['role']?.toString().trim().toLowerCase();
+      if (role == 'operator' || role == 'admin' || role == 'super_admin') {
+        return true;
+      }
+    } catch (_) {}
+
+    // Gather all partner IDs and user IDs associated with reviewer
+    final reviewerPartnerIds = <String>{reviewerUserId};
+    try {
+      final pRows = await supabase
+          .from('partners')
+          .select('id, user_id')
+          .or('id.eq.$reviewerUserId,user_id.eq.$reviewerUserId');
+      for (final p in List<Map<String, dynamic>>.from(pRows)) {
+        final pId = p['id']?.toString().trim();
+        final uId = p['user_id']?.toString().trim();
+        if (pId != null && pId.isNotEmpty) reviewerPartnerIds.add(pId);
+        if (uId != null && uId.isNotEmpty) reviewerPartnerIds.add(uId);
+      }
+    } catch (_) {}
+
     final candidatePartnerIds = <String>{
       if (owner['id'] != null) owner['id'].toString().trim(),
       if (owner['user_id'] != null) owner['user_id'].toString().trim(),
       if (owner['partner_id'] != null) owner['partner_id'].toString().trim(),
       if (vehicle['owner_id'] != null) vehicle['owner_id'].toString().trim(),
       if (vehicle['partner_id'] != null) vehicle['partner_id'].toString().trim(),
+      if (vehicle['partner_vehicle_id'] != null)
+        vehicle['partner_vehicle_id'].toString().trim(),
       if (context['partner_id'] != null) context['partner_id'].toString().trim(),
+      if (context['partner_user_id'] != null)
+        context['partner_user_id'].toString().trim(),
+      if (context['partner_vehicle_id'] != null)
+        context['partner_vehicle_id'].toString().trim(),
       if (context['partner_booking_confirmed_by'] != null)
         context['partner_booking_confirmed_by'].toString().trim(),
     }..removeWhere((id) => id.isEmpty);
 
-    final rawVehicleId =
-        (vehicle['id'] ?? context['vehicle_id'])?.toString().trim() ?? '';
-    if (rawVehicleId.isNotEmpty) {
+    // Direct match against candidate partner IDs
+    if (candidatePartnerIds.any((id) => reviewerPartnerIds.contains(id))) {
+      return true;
+    }
+
+    final candidateVehicleIds = <String>{
+      if (vehicle['id'] != null) vehicle['id'].toString().trim(),
+      if (vehicle['partner_vehicle_id'] != null)
+        vehicle['partner_vehicle_id'].toString().trim(),
+      if (context['vehicle_id'] != null) context['vehicle_id'].toString().trim(),
+      if (context['partner_vehicle_id'] != null)
+        context['partner_vehicle_id'].toString().trim(),
+    }..removeWhere((id) => id.isEmpty);
+
+    for (final rawVehicleId in candidateVehicleIds) {
       try {
         final pvRows = await supabase
             .from('partner_vehicles')
-            .select('partner_id, user_id')
+            .select('id, partner_id, user_id, vehicle_id')
             .or('id.eq.$rawVehicleId,vehicle_id.eq.$rawVehicleId');
         for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
           final pId = pv['partner_id']?.toString().trim();
           final uId = pv['user_id']?.toString().trim();
+          if (pId != null && reviewerPartnerIds.contains(pId)) return true;
+          if (uId != null && reviewerPartnerIds.contains(uId)) return true;
           if (pId != null && pId.isNotEmpty) candidatePartnerIds.add(pId);
           if (uId != null && uId.isNotEmpty) candidatePartnerIds.add(uId);
         }
@@ -2207,29 +2426,76 @@ class TripRatingService {
             .or('id.eq.$rawVehicleId,created_vehicle_id.eq.$rawVehicleId,partner_vehicle_id.eq.$rawVehicleId');
         for (final app in List<Map<String, dynamic>>.from(appRows)) {
           final pId = app['partner_id']?.toString().trim();
+          if (pId != null && reviewerPartnerIds.contains(pId)) return true;
           if (pId != null && pId.isNotEmpty) candidatePartnerIds.add(pId);
         }
       } catch (_) {}
     }
 
-    if (candidatePartnerIds.contains(reviewerUserId)) {
-      return true;
-    }
-
-    // Bidirectional lookup: does reviewerUserId correspond to any partner profile matching candidate IDs?
+    // Check if any partner_vehicles belonging to this reviewer match candidate vehicle IDs
     try {
-      final partnerRows = await supabase
-          .from('partners')
-          .select('id, user_id')
-          .or('id.eq.$reviewerUserId,user_id.eq.$reviewerUserId');
-      for (final p in List<Map<String, dynamic>>.from(partnerRows)) {
-        final pId = p['id']?.toString().trim();
-        final uId = p['user_id']?.toString().trim();
-        if (pId != null && candidatePartnerIds.contains(pId)) return true;
-        if (uId != null && candidatePartnerIds.contains(uId)) return true;
+      final pVehicles = await supabase
+          .from('partner_vehicles')
+          .select('id, vehicle_id')
+          .inFilter('partner_id', reviewerPartnerIds.toList());
+      for (final pv in List<Map<String, dynamic>>.from(pVehicles)) {
+        final pvId = pv['id']?.toString().trim();
+        final pvvId = pv['vehicle_id']?.toString().trim();
+        if (candidateVehicleIds.contains(pvId) ||
+            candidateVehicleIds.contains(pvvId)) {
+          return true;
+        }
       }
     } catch (_) {}
 
+    try {
+      final pVehiclesByUser = await supabase
+          .from('partner_vehicles')
+          .select('id, vehicle_id')
+          .inFilter('user_id', reviewerPartnerIds.toList());
+      for (final pv in List<Map<String, dynamic>>.from(pVehiclesByUser)) {
+        final pvId = pv['id']?.toString().trim();
+        final pvvId = pv['vehicle_id']?.toString().trim();
+        if (candidateVehicleIds.contains(pvId) ||
+            candidateVehicleIds.contains(pvvId)) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    final bookingId = context['id']?.toString().trim() ?? '';
+    if (bookingId.isNotEmpty) {
+      try {
+        final payouts = await supabase
+            .from('booking_payouts')
+            .select('recipient_user_id')
+            .eq('booking_id', bookingId)
+            .eq('recipient_role', 'partner');
+        for (final p in List<Map<String, dynamic>>.from(payouts)) {
+          final rUid = p['recipient_user_id']?.toString().trim();
+          if (rUid != null && reviewerPartnerIds.contains(rUid)) return true;
+        }
+      } catch (_) {}
+
+      try {
+        final comms = await supabase
+            .from('driver_commissions')
+            .select('recipient_user_id, partner_id')
+            .eq('booking_id', bookingId);
+        for (final c in List<Map<String, dynamic>>.from(comms)) {
+          final rUid = c['recipient_user_id']?.toString().trim();
+          final pId = c['partner_id']?.toString().trim();
+          if (rUid != null && reviewerPartnerIds.contains(rUid)) return true;
+          if (pId != null && reviewerPartnerIds.contains(pId)) return true;
+        }
+      } catch (_) {}
+    }
+
+    if (candidatePartnerIds.any((id) => reviewerPartnerIds.contains(id))) {
+      return true;
+    }
+
+    // Bidirectional partner lookup for all candidate partner IDs
     for (final id in candidatePartnerIds) {
       try {
         final pRows = await supabase
@@ -2239,10 +2505,34 @@ class TripRatingService {
         for (final p in List<Map<String, dynamic>>.from(pRows)) {
           final pId = p['id']?.toString().trim();
           final uId = p['user_id']?.toString().trim();
-          if (pId == reviewerUserId || uId == reviewerUserId) return true;
+          if (pId != null && reviewerPartnerIds.contains(pId)) return true;
+          if (uId != null && reviewerPartnerIds.contains(uId)) return true;
         }
       } catch (_) {}
     }
+
+    // If reviewer has partner role in users, and booking is marked with partner vehicle
+    try {
+      final user = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', reviewerUserId)
+          .maybeSingle();
+      final role = user?['role']?.toString().trim().toLowerCase();
+      if (role == 'partner') {
+        final hasPartnerVehicle =
+            (context['partner_vehicle_id']?.toString().trim().isNotEmpty ??
+                false) ||
+            (vehicle['partner_vehicle_id']?.toString().trim().isNotEmpty ??
+                false) ||
+            vehicle['is_partner_vehicle'] == true;
+        if (hasPartnerVehicle) {
+          // Verify this partner has registered vehicles or applications
+          final hasAnyVehicles = reviewerPartnerIds.isNotEmpty;
+          if (hasAnyVehicles) return true;
+        }
+      }
+    } catch (_) {}
 
     return false;
   }
