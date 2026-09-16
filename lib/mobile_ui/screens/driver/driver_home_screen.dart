@@ -1312,7 +1312,28 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   Map<String, dynamic>? _activeBooking(List<Map<String, dynamic>> bookings) {
     if (bookings.isEmpty) return null;
-    final preferredStatuses = {
+
+    // Terminal statuses — never show these in the Active Booking card.
+    const terminalStatuses = {
+      'completed',
+      'returned',
+      'cancelled',
+      'canceled',
+      'rejected',
+      'declined',
+      'refunded',
+      'expired',
+    };
+
+    // Filter out any bookings that are fully done/cancelled.
+    final activeBookings = bookings.where((b) {
+      final status = b['status']?.toString().toLowerCase() ?? '';
+      return !terminalStatuses.contains(status);
+    }).toList();
+
+    if (activeBookings.isEmpty) return null;
+
+    const preferredStatuses = {
       'active',
       'ongoing',
       'approved',
@@ -1323,11 +1344,14 @@ class __DashboardTabState extends State<_DashboardTab> {
       'awaiting_completion',
       'pending',
     };
-    for (final booking in bookings) {
+
+    for (final booking in activeBookings) {
       final status = booking['status']?.toString().toLowerCase();
       if (preferredStatuses.contains(status)) return booking;
     }
-    return bookings.first;
+
+    // Fallback: the first non-terminal booking.
+    return activeBookings.first;
   }
 
   String _bookingRenterName(Map<String, dynamic> booking) {
