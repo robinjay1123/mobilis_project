@@ -2530,14 +2530,24 @@ class TrackingService {
   }
 
   /// Fetches complete chronological GPS route trail for a booking
-  Future<List<Map<String, dynamic>>> getTripRouteHistory(String bookingId) async {
+  Future<List<Map<String, dynamic>>> getTripRouteHistory(
+    String bookingId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     if (bookingId.isEmpty) return [];
     try {
-      final rows = await supabase
+      var query = supabase
           .from('tracking_location_logs')
           .select('*')
-          .eq('booking_id', bookingId)
-          .order('recorded_at', ascending: true);
+          .eq('booking_id', bookingId);
+      if (startDate != null) {
+        query = query.gte('recorded_at', startDate.toUtc().toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.lte('recorded_at', endDate.toUtc().toIso8601String());
+      }
+      final rows = await query.order('recorded_at', ascending: true);
       return List<Map<String, dynamic>>.from(rows);
     } catch (e) {
       debugPrint('Error fetching trip route history for booking $bookingId: $e');
@@ -2551,7 +2561,7 @@ class TrackingService {
     String? trackerDeviceId,
     DateTime? startDate,
     DateTime? endDate,
-    int limit = 300,
+    int limit = 1000,
   }) async {
     if (vehicleId.isEmpty && (trackerDeviceId == null || trackerDeviceId.isEmpty)) {
       return [];
@@ -2713,8 +2723,10 @@ class TrackingService {
 
   /// Evaluates whether the vehicle went outside the agreed destination and computes penalties
   Future<Map<String, dynamic>> evaluateTripDestinationCompliance(
-    String bookingId,
-  ) async {
+    String bookingId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     if (bookingId.isEmpty) {
       return {
         'isCompliant': true,
@@ -2770,13 +2782,17 @@ class TrackingService {
       dropoffLng ??= pickupLng;
 
       // 1. Actual vehicle GPS trail from tracking_location_logs
-      final rawPoints = await getTripRouteHistory(bookingId);
+      final rawPoints = await getTripRouteHistory(
+        bookingId,
+        startDate: startDate,
+        endDate: endDate,
+      );
       final List<Map<String, dynamic>> points = [];
 
       // ✅ Use actual recorded vehicle GPS points from tracking_location_logs
       if (rawPoints.isNotEmpty) {
         points.addAll(rawPoints);
-      } else if (pickupLat != null && pickupLng != null && pickupLat != 0.0 && pickupLng != 0.0) {
+      } else if (startDate == null && endDate == null && pickupLat != null && pickupLng != null && pickupLat != 0.0 && pickupLng != 0.0) {
         // Fallback to single pickup origin point only if no GPS logs have been recorded yet
         final tripStartIso = booking['start_at']?.toString() ??
             booking['start_date']?.toString() ??

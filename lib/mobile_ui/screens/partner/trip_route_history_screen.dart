@@ -76,6 +76,11 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
   Timer? _playbackTimer;
   bool _autoFollowCar = true;
 
+  // Date Range Filtering State
+  DateTime? _filterStartDate;
+  DateTime? _filterEndDate;
+  String _activePreset = 'all'; // 'all', 'today', 'yesterday', '24h', '7d', 'custom'
+
   final List<double> _availableSpeeds = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0];
 
   @override
@@ -90,23 +95,93 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
     super.dispose();
   }
 
+  bool _isPointInDateRange(Map<String, dynamic> pt) {
+    if (_filterStartDate == null && _filterEndDate == null) return true;
+    final rec = pt['recorded_at']?.toString() ?? pt['created_at']?.toString();
+    if (rec == null || rec.isEmpty) return true;
+    try {
+      final clean = rec.trim();
+      DateTime dt;
+      if (clean.endsWith('Z') ||
+          clean.contains('+') ||
+          (clean.length > 10 && clean.substring(10).contains('-'))) {
+        dt = DateTime.parse(clean).toLocal();
+      } else {
+        final iso = clean.replaceAll(' ', 'T');
+        dt = DateTime.parse('${iso}Z').toLocal();
+      }
+      if (_filterStartDate != null && dt.isBefore(_filterStartDate!)) return false;
+      if (_filterEndDate != null && dt.isAfter(_filterEndDate!)) return false;
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  void _applyPreset(String preset) {
+    final now = DateTime.now();
+    DateTime? start;
+    DateTime? end;
+
+    switch (preset) {
+      case 'today':
+        start = DateTime(now.year, now.month, now.day, 0, 0, 0);
+        end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+        break;
+      case 'yesterday':
+        final y = now.subtract(const Duration(days: 1));
+        start = DateTime(y.year, y.month, y.day, 0, 0, 0);
+        end = DateTime(y.year, y.month, y.day, 23, 59, 59);
+        break;
+      case '24h':
+        start = now.subtract(const Duration(hours: 24));
+        end = now;
+        break;
+      case '7d':
+        start = now.subtract(const Duration(days: 7));
+        end = now;
+        break;
+      case 'all':
+      default:
+        start = null;
+        end = null;
+        break;
+    }
+
+    setState(() {
+      _activePreset = preset;
+      _filterStartDate = start;
+      _filterEndDate = end;
+    });
+    _loadRouteData();
+  }
+
   Future<void> _loadRouteData() async {
-    setState(() => _isLoading = true);
+    _playbackTimer?.cancel();
+    setState(() {
+      _isLoading = true;
+      _isPlaying = false;
+    });
     try {
       Map<String, dynamic> data = {};
       final bId = widget.bookingId?.trim() ?? '';
       final vId = widget.vehicleId?.trim() ?? '';
       final trackerId = widget.trackerDeviceId?.trim() ?? '';
 
-      // 1. If booking ID is provided, try compliance evaluation
+      // 1. If booking ID is provided, try compliance evaluation with date filter
       if (bId.isNotEmpty) {
         data = await _trackingService
-            .evaluateTripDestinationCompliance(bId)
+            .evaluateTripDestinationCompliance(
+              bId,
+              startDate: _filterStartDate,
+              endDate: _filterEndDate,
+            )
             .timeout(const Duration(seconds: 8));
       }
 
       var pts = (data['routePoints'] as List<dynamic>? ?? [])
           .map((p) => p as Map<String, dynamic>)
+          .where(_isPointInDateRange)
           .toList();
 
       // 2. If no points or sparse points (< 2 points), query vehicle location history
@@ -115,19 +190,24 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
         rawLogs = await _trackingService.getVehicleLocationHistory(
           vehicleId: vId,
           trackerDeviceId: trackerId,
+          startDate: _filterStartDate,
+          endDate: _filterEndDate,
+          limit: 1000,
         );
+        rawLogs = rawLogs.where(_isPointInDateRange).toList();
         if (rawLogs.length >= 2) {
           data = _buildAuditDataFromPoints(rawLogs);
           pts = (data['routePoints'] as List<dynamic>? ?? [])
               .map((p) => p as Map<String, dynamic>)
+              .where(_isPointInDateRange)
               .toList();
         }
       }
 
-      // 3. If points are still sparse (< 2 points), build a realistic road route connecting
-      // the vehicle's key stops (origin/pickup stop, intermediate stops, and current vehicle stop)
-      // using the exact OSRM road pathway mechanism used on the web!
-      if (pts.length < 2) {
+      // 3. Fallback road route simulation:
+      // Only build fallback road route when NO date filter is active.
+      // If a date filter is active, we respect the filter window.
+      if (pts.length < 2 && _filterStartDate == null && _filterEndDate == null) {
         data = await _buildRoadRouteFromStops(
           bookingId: bId,
           vehicleId: vId,
@@ -138,13 +218,44 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
         pts = (data['routePoints'] as List<dynamic>? ?? [])
             .map((p) => p as Map<String, dynamic>)
             .toList();
+      } else if (_filterStartDate != null || _filterEndDate != null) {
+        // Recalculate audit metrics exclusively for the filtered points
+        data = _buildAuditDataFromPoints(
+          pts,
+          isSimulation: false,
+          dropoffLocation:
+              data['dropoffLocation']?.toString() ?? 'Filtered Window',
+          booking: (data['booking'] as Map<String, dynamic>?),
+        );
+      }
+
+      // Update stop references according to the filtered points
+      if (pts.isEmpty) {
+        _routeStops = [];
+      } else {
+        for (final stop in _routeStops) {
+          final sLat = (stop['latitude'] as num?)?.toDouble() ?? 0.0;
+          final sLng = (stop['longitude'] as num?)?.toDouble() ?? 0.0;
+          int closestIdx = 0;
+          double minDistance = double.infinity;
+          for (int i = 0; i < pts.length; i++) {
+            final ptLat = (pts[i]['latitude'] as num).toDouble();
+            final ptLng = (pts[i]['longitude'] as num).toDouble();
+            final dist = _distanceMeters(sLat, sLng, ptLat, ptLng);
+            if (dist < minDistance) {
+              minDistance = dist;
+              closestIdx = i;
+            }
+          }
+          stop['pointIndex'] = closestIdx;
+        }
       }
 
       if (mounted) {
         setState(() {
           _auditData = data;
           _isLoading = false;
-          _currentPlaybackIndex = pts.isNotEmpty ? pts.length - 1 : 0;
+          _currentPlaybackIndex = 0;
         });
       }
     } catch (e) {
@@ -157,14 +268,22 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
           existingData: {},
           rawLogs: [],
         );
-        final pts = (fallbackData['routePoints'] as List<dynamic>? ?? [])
+        final rawPts = (fallbackData['routePoints'] as List<dynamic>? ?? [])
             .map((p) => p as Map<String, dynamic>)
             .toList();
+        final pts = rawPts.where(_isPointInDateRange).toList();
+        final finalData = (_filterStartDate != null || _filterEndDate != null)
+            ? _buildAuditDataFromPoints(
+                pts,
+                isSimulation: false,
+                booking: fallbackData['booking'] as Map<String, dynamic>?,
+              )
+            : fallbackData;
         if (mounted) {
           setState(() {
-            _auditData = fallbackData;
+            _auditData = finalData;
             _isLoading = false;
-            _currentPlaybackIndex = pts.isNotEmpty ? pts.length - 1 : 0;
+            _currentPlaybackIndex = 0;
           });
         }
       }
@@ -730,6 +849,22 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
         ),
         actions: [
           IconButton(
+            icon: Badge(
+              isLabelVisible: _activePreset != 'all',
+              backgroundColor: const Color(0xFFE5A93C),
+              smallSize: 8,
+              child: Icon(
+                Icons.calendar_month_rounded,
+                color: _activePreset != 'all'
+                    ? const Color(0xFFE5A93C)
+                    : (isDark ? Colors.white70 : Colors.black87),
+                size: 22,
+              ),
+            ),
+            onPressed: _showCustomDateRangePicker,
+            tooltip: 'Filter by Date & Time',
+          ),
+          IconButton(
             icon: Icon(
               _autoFollowCar ? Icons.videocam_rounded : Icons.videocam_off_rounded,
               color: _autoFollowCar ? const Color(0xFFE5A93C) : Colors.grey,
@@ -866,6 +1001,9 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
 
     return Column(
       children: [
+        // Date Range Filter Toolbar
+        _buildDateFilterBar(isDark),
+
         // Top Section: Destination Alert Banner & Stats
         Container(
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
@@ -879,6 +1017,54 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
           ),
           child: Column(
             children: [
+              if ((_filterStartDate != null || _filterEndDate != null) && points.isEmpty)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5A93C).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFFE5A93C).withValues(alpha: 0.4),
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.event_busy_rounded,
+                        color: Color(0xFFE5A93C),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'No vehicle GPS breadcrumbs were recorded in the selected date/time window. Try adjusting your filter range.',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () => _applyPreset('all'),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: const Size(0, 0),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          foregroundColor: const Color(0xFFE5A93C),
+                        ),
+                        child: const Text(
+                          'Show All',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               if (!isCompliant)
                 Container(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -1705,6 +1891,610 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDateFilterBar(bool isDark) {
+    final hasFilter = _activePreset != 'all';
+    String filterLabel = 'All Recorded History (Full Trip)';
+    if (_activePreset == 'today') {
+      filterLabel = 'Today (${DateFormat('MMM d').format(DateTime.now())})';
+    } else if (_activePreset == 'yesterday') {
+      final y = DateTime.now().subtract(const Duration(days: 1));
+      filterLabel = 'Yesterday (${DateFormat('MMM d').format(y)})';
+    } else if (_activePreset == '24h') {
+      filterLabel = 'Last 24 Hours';
+    } else if (_activePreset == '7d') {
+      filterLabel = 'Last 7 Days';
+    } else if (_filterStartDate != null && _filterEndDate != null) {
+      final s = DateFormat('MMM d, hh:mm a').format(_filterStartDate!);
+      final e = DateFormat('MMM d, hh:mm a').format(_filterEndDate!);
+      filterLabel = '$s → $e';
+    } else if (_filterStartDate != null) {
+      filterLabel = 'From ${DateFormat('MMM d, hh:mm a').format(_filterStartDate!)}';
+    } else if (_filterEndDate != null) {
+      filterLabel = 'Until ${DateFormat('MMM d, hh:mm a').format(_filterEndDate!)}';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0D1522) : const Color(0xFFF1F5F9),
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? Colors.white10 : Colors.black12,
+          ),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                hasFilter ? Icons.filter_alt_rounded : Icons.calendar_today_rounded,
+                size: 14,
+                color: hasFilter
+                    ? const Color(0xFFE5A93C)
+                    : (isDark ? Colors.white60 : Colors.black54),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  filterLabel,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: hasFilter ? FontWeight.bold : FontWeight.w600,
+                    color: hasFilter
+                        ? const Color(0xFFE5A93C)
+                        : (isDark ? Colors.white70 : Colors.black87),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (hasFilter) ...[
+                InkWell(
+                  onTap: () => _applyPreset('all'),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.close_rounded,
+                            size: 11, color: Colors.redAccent),
+                        SizedBox(width: 3),
+                        Text(
+                          'Reset',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.redAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              InkWell(
+                onTap: _showCustomDateRangePicker,
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5A93C).withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: const Color(0xFFE5A93C).withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.tune_rounded,
+                          size: 12, color: Color(0xFFE5A93C)),
+                      SizedBox(width: 4),
+                      Text(
+                        'Custom Filter',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFE5A93C),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Horizontal Preset Chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _filterChip('All Time', 'all', isDark),
+                const SizedBox(width: 6),
+                _filterChip('Today', 'today', isDark),
+                const SizedBox(width: 6),
+                _filterChip('Yesterday', 'yesterday', isDark),
+                const SizedBox(width: 6),
+                _filterChip('Last 24h', '24h', isDark),
+                const SizedBox(width: 6),
+                _filterChip('Last 7 Days', '7d', isDark),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filterChip(String label, String presetKey, bool isDark) {
+    final isSelected = _activePreset == presetKey;
+    return InkWell(
+      onTap: () => _applyPreset(presetKey),
+      borderRadius: BorderRadius.circular(6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFFE5A93C)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.white),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFFE5A93C)
+                : (isDark ? Colors.white12 : Colors.grey.shade300),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected
+                ? Colors.black
+                : (isDark ? Colors.white70 : Colors.black87),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPresetChipInsideModal(
+      String label, VoidCallback onTap, bool isDark) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? Colors.white12 : Colors.grey.shade300,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCustomDateRangePicker() async {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final now = DateTime.now();
+    DateTime selectedStart = _filterStartDate ??
+        now.subtract(const Duration(days: 1));
+    DateTime selectedEnd = _filterEndDate ?? now;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final startFormatted =
+                DateFormat('MMM d, yyyy • hh:mm a').format(selectedStart);
+            final endFormatted =
+                DateFormat('MMM d, yyyy • hh:mm a').format(selectedEnd);
+            final isValid = !selectedEnd.isBefore(selectedStart);
+
+            Future<void> pickStart() async {
+              final d = await showDatePicker(
+                context: context,
+                initialDate: selectedStart,
+                firstDate: DateTime(2020, 1, 1),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (d == null || !context.mounted) return;
+              final t = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(selectedStart),
+              );
+              final time = t ?? TimeOfDay.fromDateTime(selectedStart);
+              setModalState(() {
+                selectedStart = DateTime(
+                  d.year,
+                  d.month,
+                  d.day,
+                  time.hour,
+                  time.minute,
+                );
+              });
+            }
+
+            Future<void> pickEnd() async {
+              final d = await showDatePicker(
+                context: context,
+                initialDate: selectedEnd,
+                firstDate: DateTime(2020, 1, 1),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (d == null || !context.mounted) return;
+              final t = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(selectedEnd),
+              );
+              final time = t ?? TimeOfDay.fromDateTime(selectedEnd);
+              setModalState(() {
+                selectedEnd = DateTime(
+                  d.year,
+                  d.month,
+                  d.day,
+                  time.hour,
+                  time.minute,
+                );
+              });
+            }
+
+            return Align(
+              alignment: Alignment.bottomCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Container(
+                  padding: EdgeInsets.only(
+                    left: 20,
+                    right: 20,
+                    top: 18,
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF131B26) : Colors.white,
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(24)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black45,
+                        blurRadius: 24,
+                        offset: Offset(0, -6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 42,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 14),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.white24 : Colors.black12,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE5A93C)
+                                  .withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.calendar_month_rounded,
+                              color: Color(0xFFE5A93C),
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Filter GPS Route by Date',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark
+                                        ? Colors.white
+                                        : const Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Select a custom start and end date/time to audit vehicle movements.',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: isDark
+                                        ? Colors.white60
+                                        : Colors.black54,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Quick Presets inside modal
+                      Text(
+                        'QUICK PRESETS',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: isDark ? Colors.white38 : Colors.black38,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _buildPresetChipInsideModal('Today', () {
+                            final n = DateTime.now();
+                            setModalState(() {
+                              selectedStart =
+                                  DateTime(n.year, n.month, n.day, 0, 0, 0);
+                              selectedEnd =
+                                  DateTime(n.year, n.month, n.day, 23, 59, 59);
+                            });
+                          }, isDark),
+                          _buildPresetChipInsideModal('Yesterday', () {
+                            final y =
+                                DateTime.now().subtract(const Duration(days: 1));
+                            setModalState(() {
+                              selectedStart =
+                                  DateTime(y.year, y.month, y.day, 0, 0, 0);
+                              selectedEnd =
+                                  DateTime(y.year, y.month, y.day, 23, 59, 59);
+                            });
+                          }, isDark),
+                          _buildPresetChipInsideModal('Last 24 Hours', () {
+                            final n = DateTime.now();
+                            setModalState(() {
+                              selectedStart =
+                                  n.subtract(const Duration(hours: 24));
+                              selectedEnd = n;
+                            });
+                          }, isDark),
+                          _buildPresetChipInsideModal('Last 7 Days', () {
+                            final n = DateTime.now();
+                            setModalState(() {
+                              selectedStart =
+                                  n.subtract(const Duration(days: 7));
+                              selectedEnd = n;
+                            });
+                          }, isDark),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Start Date & Time Field
+                      Text(
+                        'START DATE & TIME',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: isDark ? Colors.white38 : Colors.black38,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      InkWell(
+                        onTap: pickStart,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF1E293B)
+                                : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isDark
+                                  ? Colors.white12
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.play_circle_outline_rounded,
+                                  color: Color(0xFF10B981), size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  startFormatted,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                              Icon(Icons.edit_calendar_rounded,
+                                  size: 16,
+                                  color: isDark
+                                      ? Colors.white54
+                                      : Colors.grey.shade600),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // End Date & Time Field
+                      Text(
+                        'END DATE & TIME',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: isDark ? Colors.white38 : Colors.black38,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      InkWell(
+                        onTap: pickEnd,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF1E293B)
+                                : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: !isValid
+                                  ? Colors.red.shade400
+                                  : (isDark
+                                      ? Colors.white12
+                                      : Colors.grey.shade300),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.stop_circle_outlined,
+                                  color: Color(0xFFEF4444), size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  endFormatted,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                              Icon(Icons.edit_calendar_rounded,
+                                  size: 16,
+                                  color: isDark
+                                      ? Colors.white54
+                                      : Colors.grey.shade600),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (!isValid) ...[
+                        const SizedBox(height: 6),
+                        const Text(
+                          'End date/time must be after start date/time.',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.red,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      // Action Buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                                _applyPreset('all');
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor:
+                                    isDark ? Colors.white70 : Colors.black87,
+                                side: BorderSide(
+                                  color:
+                                      isDark ? Colors.white24 : Colors.black26,
+                                ),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 13),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text('Reset to All Time'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: !isValid
+                                  ? null
+                                  : () {
+                                      Navigator.of(context).pop();
+                                      setState(() {
+                                        _activePreset = 'custom';
+                                        _filterStartDate = selectedStart;
+                                        _filterEndDate = selectedEnd;
+                                      });
+                                      _loadRouteData();
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFE5A93C),
+                                foregroundColor: Colors.black,
+                                elevation: 0,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 13),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text(
+                                'Apply Filter',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
