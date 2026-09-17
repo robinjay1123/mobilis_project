@@ -17827,18 +17827,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 1050),
+                constraints: const BoxConstraints(minWidth: 1240),
                 child: Table(
                   columnWidths: const {
-                    0: FlexColumnWidth(1.4), // Date & Time
-                    1: FlexColumnWidth(1.2), // Booking Ref
-                    2: FlexColumnWidth(2.0), // Recipient & Role
-                    3: FlexColumnWidth(1.3), // Gross
-                    4: FlexColumnWidth(1.4), // PSDC 5% Comm
+                    0: FlexColumnWidth(1.3), // Date & Time
+                    1: FlexColumnWidth(1.1), // Booking Ref
+                    2: FlexColumnWidth(2.3), // Recipient & Role
+                    3: FlexColumnWidth(1.2), // Gross
+                    4: FlexColumnWidth(1.3), // PSDC 5% Comm
                     5: FlexColumnWidth(1.3), // Net Payout
-                    6: FlexColumnWidth(1.8), // Method & Ref
-                    7: FlexColumnWidth(1.2), // Status
-                    8: FlexColumnWidth(1.1), // Receipt
+                    6: FlexColumnWidth(1.4), // Method & Ref
+                    7: FlexColumnWidth(1.8), // Status (Generous width to prevent badge overflow)
+                    8: FlexColumnWidth(1.3), // Receipt / Proof
                   },
                   defaultVerticalAlignment: TableCellVerticalAlignment.middle,
                   children: [
@@ -17940,8 +17940,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                const SizedBox(height: 2),
-                                Row(
+                                const SizedBox(height: 3),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
                                   children: [
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -17958,15 +17961,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        item['recipient_subtitle']?.toString() ?? '',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
+                                    Text(
+                                      item['recipient_subtitle']?.toString() ?? '',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
                                       ),
                                     ),
                                   ],
@@ -18059,38 +18058,45 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           // Status
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: isDisbursed
-                                    ? Colors.green.withOpacity(0.18)
-                                    : (item['status'] == 'Eligible / Pending'
-                                        ? Colors.orange.withOpacity(0.18)
-                                        : Colors.grey.withOpacity(0.18)),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    isDisbursed ? Icons.check_circle_rounded : Icons.pending_rounded,
-                                    size: 11,
-                                    color: isDisbursed
-                                        ? Colors.green
-                                        : (item['status'] == 'Eligible / Pending' ? Colors.orange : Colors.grey),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: isDisbursed
+                                      ? Colors.green.withOpacity(0.18)
+                                      : (item['status'] == 'Eligible / Pending'
+                                          ? Colors.orange.withOpacity(0.18)
+                                          : Colors.grey.withOpacity(0.18)),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        isDisbursed ? Icons.check_circle_rounded : Icons.pending_rounded,
+                                        size: 11,
+                                        color: isDisbursed
+                                            ? Colors.green
+                                            : (item['status'] == 'Eligible / Pending' ? Colors.orange : Colors.grey),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        item['status']?.toString() ?? 'Pending',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDisbursed
+                                              ? Colors.green
+                                              : (item['status'] == 'Eligible / Pending' ? Colors.orange : Colors.grey),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    item['status']?.toString() ?? 'Pending',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: isDisbursed
-                                          ? Colors.green
-                                          : (item['status'] == 'Eligible / Pending' ? Colors.orange : Colors.grey),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
@@ -18098,45 +18104,48 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           // Proof Receipt
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
-                            child: hasReceipt
-                                ? InkWell(
-                                    onTap: () => _showReceiptProofDialog(
-                                      receiptUrl,
-                                      'Disbursement Proof #${item['booking_reference']} (${item['recipient_name']})',
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: _adminGold.withOpacity(0.15),
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: _adminGold.withOpacity(0.3)),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: hasReceipt
+                                  ? InkWell(
+                                      onTap: () => _showReceiptProofDialog(
+                                        receiptUrl,
+                                        'Disbursement Proof #${item['booking_reference']} (${item['recipient_name']})',
                                       ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.image_rounded, size: 12, color: _adminGold),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            'View Proof',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                              color: _adminGold,
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: _adminGold.withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: _adminGold.withOpacity(0.3)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.image_rounded, size: 12, color: _adminGold),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'View Proof',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: _adminGold,
+                                              ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
+                                      ),
+                                    )
+                                  : Text(
+                                      'No receipt',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontStyle: FontStyle.italic,
+                                        color: isDark ? Colors.grey[600] : Colors.grey.shade400,
                                       ),
                                     ),
-                                  )
-                                : Text(
-                                    'No receipt',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontStyle: FontStyle.italic,
-                                      color: isDark ? Colors.grey[600] : Colors.grey.shade400,
-                                    ),
-                                  ),
+                            ),
                           ),
                         ],
                       );
