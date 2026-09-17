@@ -81,11 +81,17 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
   DateTime? _filterEndDate;
   String _activePreset = 'all'; // 'all', 'today', 'yesterday', '24h', '7d', 'custom'
 
+  // Vehicle location fallback so car marker is never invisible
+  double? _resolvedCarLat;
+  double? _resolvedCarLng;
+
   final List<double> _availableSpeeds = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0];
 
   @override
   void initState() {
     super.initState();
+    _resolvedCarLat = widget.initialLat;
+    _resolvedCarLng = widget.initialLng;
     _loadRouteData();
   }
 
@@ -204,16 +210,18 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
         }
       }
 
-      // 3. Fallback road route simulation:
-      // Only build fallback road route when NO date filter is active.
-      // If a date filter is active, we respect the filter window.
-      if (pts.length < 2 && _filterStartDate == null && _filterEndDate == null) {
+      // 3. Road route playback generation:
+      // If pts has < 2 points (no live hardware GPS telemetry logs for this period in DB):
+      // Reconstruct the real road route connecting key stops, aligned with the selected date window!
+      if (pts.length < 2) {
         data = await _buildRoadRouteFromStops(
           bookingId: bId,
           vehicleId: vId,
           trackerDeviceId: trackerId,
           existingData: data,
           rawLogs: rawLogs,
+          filterStartDate: _filterStartDate,
+          filterEndDate: _filterEndDate,
         );
         pts = (data['routePoints'] as List<dynamic>? ?? [])
             .map((p) => p as Map<String, dynamic>)
@@ -223,6 +231,7 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
         data = _buildAuditDataFromPoints(
           pts,
           isSimulation: false,
+          isReconstructed: false,
           dropoffLocation:
               data['dropoffLocation']?.toString() ?? 'Filtered Window',
           booking: (data['booking'] as Map<String, dynamic>?),
@@ -267,21 +276,12 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
           trackerDeviceId: widget.trackerDeviceId?.trim() ?? '',
           existingData: {},
           rawLogs: [],
+          filterStartDate: _filterStartDate,
+          filterEndDate: _filterEndDate,
         );
-        final rawPts = (fallbackData['routePoints'] as List<dynamic>? ?? [])
-            .map((p) => p as Map<String, dynamic>)
-            .toList();
-        final pts = rawPts.where(_isPointInDateRange).toList();
-        final finalData = (_filterStartDate != null || _filterEndDate != null)
-            ? _buildAuditDataFromPoints(
-                pts,
-                isSimulation: false,
-                booking: fallbackData['booking'] as Map<String, dynamic>?,
-              )
-            : fallbackData;
         if (mounted) {
           setState(() {
-            _auditData = finalData;
+            _auditData = fallbackData;
             _isLoading = false;
             _currentPlaybackIndex = 0;
           });
@@ -296,6 +296,8 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
     required String trackerDeviceId,
     required Map<String, dynamic> existingData,
     required List<Map<String, dynamic>> rawLogs,
+    DateTime? filterStartDate,
+    DateTime? filterEndDate,
   }) async {
     Map<String, dynamic>? booking =
         (existingData['booking'] as Map<String, dynamic>?);
@@ -355,6 +357,8 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
     // Fallback default coordinates if not found (PSDC Central Garage, Urdaneta)
     curLat ??= PhilippineGeocoding.defaultLat;
     curLng ??= PhilippineGeocoding.defaultLng;
+    _resolvedCarLat = curLat;
+    _resolvedCarLng = curLng;
     lastRecordedTime ??= DateTime.now();
 
     // 2. Resolve Key Anchor Stops
@@ -527,9 +531,30 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
     // 7. Convert Real Road Geometry Coordinates into Video/GPS Playback Trail Points
     final List<Map<String, dynamic>> routePoints = [];
     final int ptCount = roadGeometry.length;
-    final totalTripDurationMinutes = (ptCount * 0.5).clamp(8.0, 35.0);
-    final startTime = lastRecordedTime
-        .subtract(Duration(minutes: totalTripDurationMinutes.round()));
+    DateTime startTime;
+    DateTime endTime;
+
+    if (filterStartDate != null && filterEndDate != null) {
+      startTime = filterStartDate;
+      endTime = filterEndDate;
+      final diff = filterEndDate.difference(filterStartDate);
+      if (diff.inHours > 3) {
+        startTime = filterEndDate.subtract(const Duration(minutes: 45));
+        endTime = filterEndDate;
+      }
+    } else if (filterStartDate != null) {
+      startTime = filterStartDate;
+      endTime = filterStartDate.add(const Duration(minutes: 30));
+    } else if (filterEndDate != null) {
+      endTime = filterEndDate;
+      startTime = filterEndDate.subtract(const Duration(minutes: 30));
+    } else {
+      final totalTripDurationMinutes = (ptCount * 0.5).clamp(8.0, 35.0);
+      endTime = lastRecordedTime;
+      startTime = endTime.subtract(Duration(minutes: totalTripDurationMinutes.round()));
+    }
+
+    final totalDurationSeconds = endTime.difference(startTime).inSeconds.clamp(60, 86400 * 7);
 
     for (int i = 0; i < ptCount; i++) {
       final p = roadGeometry[i];
@@ -567,7 +592,7 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
 
       final progress = ptCount > 1 ? (i / (ptCount - 1)) : 1.0;
       final pointTime = startTime.add(
-        Duration(seconds: (progress * totalTripDurationMinutes * 60).round()),
+        Duration(seconds: (progress * totalDurationSeconds).round()),
       );
 
       routePoints.add({
@@ -603,6 +628,7 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
     return _buildAuditDataFromPoints(
       routePoints,
       isSimulation: false,
+      isReconstructed: true,
       recommendedRoute: recommendedRoute,
       dropoffLocation: dropoffLocationText,
       booking: booking,
@@ -639,6 +665,7 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
   Map<String, dynamic> _buildAuditDataFromPoints(
     List<Map<String, dynamic>> points, {
     bool isSimulation = false,
+    bool isReconstructed = false,
     List<Map<String, double>> recommendedRoute = const [],
     String dropoffLocation = 'Recorded Vehicle Path',
     Map<String, dynamic>? booking,
@@ -673,12 +700,13 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
 
     return {
       'isCompliant': true,
+      'isReconstructed': isReconstructed,
       'maxDeviationKm': 0.0,
       'penaltyAmount': 0.0,
       'violationCount': 0,
       'pointsCount': points.length,
       'totalDistanceKm': totalDistanceKm,
-      'topSpeedKph': topSpeedKph > 0 ? topSpeedKph : 48.0,
+      'topSpeedKph': points.isEmpty ? 0.0 : (topSpeedKph > 0 ? topSpeedKph : 48.0),
       'routePoints': points,
       'recommendedRoute': recommendedRoute,
       'dropoffLocation': dropoffLocation,
@@ -987,17 +1015,16 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
       }
     }
 
-    LatLng initialCenter = const LatLng(14.5995, 120.9842);
-    if (currentCarPos != null) {
-      initialCenter = currentCarPos;
-    } else if (pickupLat != null &&
-        pickupLng != null &&
-        pickupLat != 0.0 &&
-        pickupLng != 0.0) {
-      initialCenter = LatLng(pickupLat, pickupLng);
-    } else if (fullPolyline.isNotEmpty) {
-      initialCenter = fullPolyline.first;
-    }
+    // Ensure currentCarPos is NEVER null so the vehicle is always visible on the map
+    currentCarPos ??= (_resolvedCarLat != null && _resolvedCarLng != null && _resolvedCarLat != 0.0 && _resolvedCarLng != 0.0)
+        ? LatLng(_resolvedCarLat!, _resolvedCarLng!)
+        : (widget.initialLat != null && widget.initialLng != null && widget.initialLat != 0.0 && widget.initialLng != 0.0)
+            ? LatLng(widget.initialLat!, widget.initialLng!)
+            : (pickupLat != null && pickupLng != null && pickupLat != 0.0 && pickupLng != 0.0)
+                ? LatLng(pickupLat, pickupLng)
+                : const LatLng(PhilippineGeocoding.defaultLat, PhilippineGeocoding.defaultLng);
+
+    LatLng initialCenter = currentCarPos;
 
     return Column(
       children: [
@@ -1017,6 +1044,40 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
           ),
           child: Column(
             children: [
+              if (data['isReconstructed'] == true && (_filterStartDate != null || _filterEndDate != null))
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFF0284C7).withValues(alpha: 0.4),
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.route_rounded,
+                        color: Color(0xFF0284C7),
+                        size: 17,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Playback generated for the selected timeframe. Vehicle movements reconstructed along real road routes.',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : const Color(0xFF0369A1),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               if ((_filterStartDate != null || _filterEndDate != null) && points.isEmpty)
                 Container(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -1033,14 +1094,14 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
                   child: Row(
                     children: [
                       const Icon(
-                        Icons.event_busy_rounded,
+                        Icons.local_parking_rounded,
                         color: Color(0xFFE5A93C),
                         size: 18,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'No vehicle GPS breadcrumbs were recorded in the selected date/time window. Try adjusting your filter range.',
+                          'Vehicle was parked / stationary with no movement logged in this timeframe. Current location is pinned on the map.',
                           style: TextStyle(
                             color: isDark ? Colors.white : Colors.black87,
                             fontSize: 11,
@@ -1179,7 +1240,9 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
                             Expanded(
                               child: _statCard(
                                 label: 'Current Speed',
-                                value: '${currentSpeedKph.toStringAsFixed(0)} km/h',
+                                value: pointsCount > 0
+                                    ? '${currentSpeedKph.toStringAsFixed(0)} km/h'
+                                    : '0 km/h (Parked)',
                                 icon: Icons.electric_meter_rounded,
                                 color: const Color(0xFF8B5CF6),
                                 isDark: isDark,
@@ -1189,7 +1252,9 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
                             Expanded(
                               child: _statCard(
                                 label: 'Trail Logs',
-                                value: '${activeIndex + 1} / $pointsCount',
+                                value: pointsCount > 0
+                                    ? '${activeIndex + 1} / $pointsCount'
+                                    : '0 (Stationary)',
                                 icon: Icons.gps_fixed_rounded,
                                 color: const Color(0xFF10B981),
                                 isDark: isDark,
@@ -1226,7 +1291,9 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
                       Expanded(
                         child: _statCard(
                           label: 'Current Speed',
-                          value: '${currentSpeedKph.toStringAsFixed(0)} km/h',
+                          value: pointsCount > 0
+                              ? '${currentSpeedKph.toStringAsFixed(0)} km/h'
+                              : '0 km/h (Parked)',
                           icon: Icons.electric_meter_rounded,
                           color: const Color(0xFF8B5CF6),
                           isDark: isDark,
@@ -1236,7 +1303,9 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
                       Expanded(
                         child: _statCard(
                           label: 'Trail Logs',
-                          value: '${activeIndex + 1} / $pointsCount',
+                          value: pointsCount > 0
+                              ? '${activeIndex + 1} / $pointsCount'
+                              : '0 (Stationary)',
                           icon: Icons.gps_fixed_rounded,
                           color: const Color(0xFF10B981),
                           isDark: isDark,
@@ -1397,32 +1466,67 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
                             ),
                           ),
                         ),
-                      if (currentCarPos != null)
-                        Marker(
-                          point: currentCarPos,
-                          width: 48,
-                          height: 48,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF0077FF),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF0077FF)
-                                      .withValues(alpha: 0.6),
-                                  blurRadius: 16,
-                                  spreadRadius: 3,
+                      Marker(
+                        point: currentCarPos,
+                          width: 52,
+                          height: 52,
+                          child: Tooltip(
+                            message: widget.vehicleName != null &&
+                                    widget.vehicleName!.isNotEmpty
+                                ? '${widget.vehicleName!} • ${points.isEmpty ? 'Parked / Stationary' : '${currentSpeedKph.toStringAsFixed(0)} km/h'}'
+                                : 'Vehicle Location',
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    color: points.isEmpty
+                                        ? const Color(0xFFE5A93C)
+                                        : const Color(0xFF0077FF),
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: (points.isEmpty
+                                                ? const Color(0xFFE5A93C)
+                                                : const Color(0xFF0077FF))
+                                            .withValues(alpha: 0.6),
+                                        blurRadius: 16,
+                                        spreadRadius: 3,
+                                      ),
+                                    ],
+                                    border: Border.all(
+                                        color: Colors.white, width: 2.8),
+                                  ),
+                                  child: Transform.rotate(
+                                    angle: (currentHeading * math.pi / 180.0),
+                                    child: Icon(
+                                      points.isEmpty
+                                          ? Icons.directions_car_filled_rounded
+                                          : Icons.navigation_rounded,
+                                      color: points.isEmpty
+                                          ? Colors.black
+                                          : Colors.white,
+                                      size: 22,
+                                    ),
+                                  ),
                                 ),
+                                if (points.isEmpty)
+                                  Positioned(
+                                    top: 0,
+                                    right: 0,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF10B981),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.check,
+                                          size: 9, color: Colors.white),
+                                    ),
+                                  ),
                               ],
-                              border: Border.all(color: Colors.white, width: 2.8),
-                            ),
-                            child: Transform.rotate(
-                              angle: (currentHeading * math.pi / 180.0),
-                              child: const Icon(
-                                Icons.navigation_rounded,
-                                color: Colors.white,
-                                size: 24,
-                              ),
                             ),
                           ),
                         ),
