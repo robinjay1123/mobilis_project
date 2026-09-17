@@ -18,6 +18,7 @@ import '../../../services/tracking_service.dart';
 import '../../../utils/philippine_geocoding.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/leaflet_map.dart';
+import '../../widgets/skeleton_loading.dart';
 import '../../widgets/trip_route_history_dialog.dart';
 import '../home/chat_detail_screen.dart';
 
@@ -1804,13 +1805,20 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen>
 
                   // 7. LOADING OVERLAY
                   if (_isLoading)
-                    const Positioned.fill(
-                      child: ColoredBox(
-                        color: Color(0x44000000),
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            color: AppColors.primary,
-                          ),
+                    Positioned.fill(
+                      child: Container(
+                        color: (Theme.of(context).brightness == Brightness.dark
+                                ? const Color(0xFF031A2C)
+                                : const Color(0xFFF1F5F9))
+                            .withValues(alpha: 0.95),
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.all(24),
+                        child: MobilisSkeletonTrackingRadar(
+                          isDark: Theme.of(context).brightness == Brightness.dark,
+                          title: 'Connecting live vehicle GPS...',
+                          subtitle: 'Querying real-time satellite telemetry...',
+                          height: 280,
+                          showCardsBelow: false,
                         ),
                       ),
                     ),

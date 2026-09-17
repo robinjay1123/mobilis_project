@@ -5,6 +5,7 @@ import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/favorite_vehicle_service.dart';
 import '../../widgets/vehicle_image_carousel.dart';
+import '../../widgets/skeleton_loading.dart';
 
 class VehicleSearchScreen extends StatefulWidget {
   final String? initialCategory;
@@ -1296,8 +1297,12 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
 
           // ── Car grid / loading / empty / error states ──
           if (_isLoading)
-            const SliverFillRemaining(
-              child: Center(child: CircularProgressIndicator()),
+            SliverToBoxAdapter(
+              child: MobilisSkeletonVehicleGrid(
+                isDark: Theme.of(context).brightness == Brightness.dark,
+                count: 4,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
             )
           else if (_errorMessage != null)
             SliverFillRemaining(

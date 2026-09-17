@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../../services/tracking_service.dart';
 import '../../../utils/philippine_geocoding.dart';
+import '../../widgets/skeleton_loading.dart';
 
 class TripRouteHistoryScreen extends StatefulWidget {
   final String? bookingId;
@@ -915,9 +916,14 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFFE5A93C),
+          ? SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: MobilisSkeletonTrackingRadar(
+                isDark: isDark,
+                accentColor: const Color(0xFFE5A93C),
+                title: 'Fetching GPS telemetry & route playback...',
+                subtitle: 'Querying satellite coordinates & trip timeline. Please wait...',
+                height: 320,
               ),
             )
           : _buildBody(isDark),

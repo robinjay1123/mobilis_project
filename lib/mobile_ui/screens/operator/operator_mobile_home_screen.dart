@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:mobilis_by_psdc_app/mobile_ui/theme/app_colors.dart';
 import 'package:mobilis_by_psdc_app/mobile_ui/widgets/optimized_network_image.dart';
+import 'package:mobilis_by_psdc_app/mobile_ui/widgets/skeleton_loading.dart';
 import 'package:mobilis_by_psdc_app/services/auth_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_inspection_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_service.dart';
@@ -741,10 +742,8 @@ class _DashboardTabState extends State<_DashboardTab> {
 
               if (snapshot.connectionState == ConnectionState.waiting &&
                   activeBookings.isEmpty) ...[
-                const SizedBox(height: 32),
-                const Center(
-                  child: CircularProgressIndicator(color: AppColors.primary),
-                ),
+                const SizedBox(height: 16),
+                MobilisSkeletonList(isDark: isDark, itemCount: 3, padding: EdgeInsets.zero),
               ],
 
               // ── Active Bookings Section ──
@@ -1454,10 +1453,10 @@ class _BookingsTabState extends State<_BookingsTab> {
             // ── Bookings List ──
             Expanded(
               child: isLoading && bookings.isEmpty
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
-                      ),
+                  ? MobilisSkeletonList(
+                      isDark: isDark,
+                      itemCount: 4,
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
                     )
                   : bookings.isEmpty
                   ? _EmptyState(filter: widget.filter, isDark: isDark)

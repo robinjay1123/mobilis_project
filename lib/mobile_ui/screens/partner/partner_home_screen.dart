@@ -31,6 +31,7 @@ import '../../widgets/booking_return_countdown.dart';
 import '../../widgets/vehicle_inspection_checklist_fields.dart';
 import '../../widgets/vehicle_inspection_record_view.dart';
 import '../../widgets/partner_vehicle_maintenance_modal.dart';
+import '../../widgets/skeleton_loading.dart';
 import '../../widgets/trip_route_history_dialog.dart';
 import '../../widgets/trip_location_map_dialog.dart';
 import '../profile/ratings_reviews_screen.dart';
@@ -786,11 +787,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         body: NotificationListener<ScrollNotification>(
           onNotification: _handleScrollNotification,
           child: isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.primary,
-                    ),
+              ? SafeArea(
+                  child: MobilisSkeletonDashboard(
+                    isDark: Theme.of(context).brightness == Brightness.dark,
                   ),
                 )
               : _buildTabContent(),
@@ -13860,8 +13859,10 @@ class _PartnerAssignDriverModalState extends State<_PartnerAssignDriverModal> {
           // Drivers list & Map
           Expanded(
             child: _isLoadingDrivers
-                ? Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
+                ? MobilisSkeletonList(
+                    isDark: Theme.of(context).brightness == Brightness.dark,
+                    leadingIcon: Icons.badge_rounded,
+                    itemCount: 4,
                   )
                 : (_drivers.isEmpty
                     ? Center(

@@ -24,6 +24,7 @@ import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/relative_time_text.dart';
+import '../../widgets/skeleton_loading.dart';
 import '../../widgets/booking_return_countdown.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
@@ -5800,8 +5801,11 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
 
           if (snapshot.connectionState == ConnectionState.waiting &&
               conversations.isEmpty) {
-            return const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
+            return MobilisSkeletonList(
+              isDark: Theme.of(context).brightness == Brightness.dark,
+              leadingIcon: Icons.chat_bubble_outline,
+              itemCount: 4,
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
             );
           }
 
@@ -6203,7 +6207,12 @@ class _NotificationsTabState extends State<_NotificationsTab> {
 
           if (snapshot.connectionState == ConnectionState.waiting &&
               notifications.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return MobilisSkeletonList(
+              isDark: Theme.of(context).brightness == Brightness.dark,
+              leadingIcon: Icons.notifications_outlined,
+              itemCount: 4,
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+            );
           }
 
           if (notifications.isEmpty) {
@@ -6623,11 +6632,10 @@ class __EarningsTabState extends State<_EarningsTab> {
       future: disbursementsFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            ),
+          return MobilisSkeletonList(
+            isDark: Theme.of(context).brightness == Brightness.dark,
+            itemCount: 2,
+            padding: EdgeInsets.zero,
           );
         }
         if (snapshot.hasError) {

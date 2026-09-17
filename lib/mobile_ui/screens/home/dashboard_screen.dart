@@ -31,6 +31,7 @@ import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/skeleton_loading.dart';
 import '../../widgets/location_picker_modal.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../widgets/relative_time_text.dart';
@@ -4528,15 +4529,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 12),
             _isLoadingVehicles
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          AppColors.primary,
-                        ),
-                      ),
-                    ),
+                ? MobilisSkeletonVehicleGrid(
+                    isDark: Theme.of(context).brightness == Brightness.dark,
+                    count: 3,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   )
                 : _vehicles.isEmpty || _filteredVehicles.isEmpty
                 ? Padding(
@@ -6186,7 +6182,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   future: FavoriteVehicleService().getFavoriteVehicles(user.id),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
+                      return MobilisSkeletonVehicleGrid(
+                        isDark: Theme.of(context).brightness == Brightness.dark,
+                        count: 2,
+                        padding: const EdgeInsets.all(16),
+                      );
                     }
 
                     final vehicles = snapshot.data ?? [];
