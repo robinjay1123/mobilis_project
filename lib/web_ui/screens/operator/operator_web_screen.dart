@@ -39584,7 +39584,6 @@ class _OperatorAnimatedActionButton extends StatefulWidget {
   final bool isMenuTrigger;
 
   const _OperatorAnimatedActionButton({
-    super.key,
     required this.onPressed,
     required this.icon,
     this.label,
