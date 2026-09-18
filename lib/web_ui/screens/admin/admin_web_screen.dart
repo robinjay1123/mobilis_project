@@ -3526,6 +3526,107 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     });
   }
 
+  /// Shows an elegant, non-dismissible loading modal with a spinner and action description.
+  /// Returns a dismissal callback function to be called in a finally block.
+  void Function() _showActionLoadingModal(String title, [String? subtitle]) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    BuildContext? modalContext;
+    var isOpen = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
+      builder: (dialogCtx) {
+        modalContext = dialogCtx;
+        return PopScope(
+          canPop: false,
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+                constraints: const BoxConstraints(maxWidth: 380),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF0D1F2D) : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark ? Colors.white12 : Colors.grey.shade200,
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 28,
+                      offset: const Offset(0, 12),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 30,
+                          height: 30,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3.2,
+                            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : const Color(0xFF1E293B),
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      subtitle ?? 'Applying changes and notifying applicant...',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? Colors.white54 : Colors.grey.shade600,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    return () {
+      if (isOpen) {
+        isOpen = false;
+        if (modalContext != null && Navigator.canPop(modalContext!)) {
+          Navigator.pop(modalContext!);
+        } else if (mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+      }
+    };
+  }
+
   Future<bool> _showVehicleApprovalConfirmation(
     Map<String, dynamic> application,
   ) async {
@@ -3752,6 +3853,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         partnerId.isEmpty) {
       throw Exception('Invalid application payload');
     }
+
+    final vehicleTitle =
+        '${application['brand'] ?? 'Vehicle'} ${application['model'] ?? ''}'.trim();
+    final dismissLoading = _showActionLoadingModal(
+      'Approving ${vehicleTitle.isEmpty ? 'Vehicle Application' : vehicleTitle}...',
+      'Configuring vehicle profile and activating partner fleet...',
+    );
 
     // Immediate action: optimistically update UI state
     if (mounted) {
@@ -3981,6 +4089,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      dismissLoading();
     }
   }
 
@@ -3994,6 +4104,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     if (appId == null || appId.isEmpty) {
       throw Exception('Invalid application payload');
     }
+
+    final vehicleTitle =
+        '${application['brand'] ?? 'Vehicle'} ${application['model'] ?? ''}'.trim();
+    final dismissLoading = _showActionLoadingModal(
+      'Rejecting ${vehicleTitle.isEmpty ? 'Vehicle Application' : vehicleTitle}...',
+      'Updating application status and notifying partner...',
+    );
 
     // Immediate action: optimistically update UI state
     if (mounted) {
@@ -4078,6 +4195,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      dismissLoading();
     }
   }
 
@@ -4125,6 +4244,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         '';
     final userId = rawUserId.replaceFirst('fallback_', '');
     if (userId.isEmpty) return;
+
+    final dismissLoading = _showActionLoadingModal(
+      'Approving $displayName as driver...',
+      'Activating driver profile and dispatch eligibility...',
+    );
 
     // Immediate action: optimistically update UI state
     if (mounted) {
@@ -4221,6 +4345,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      dismissLoading();
     }
   }
 
@@ -4246,6 +4372,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         '';
     final userId = rawUserId.replaceFirst('fallback_', '');
     if (userId.isEmpty) return;
+
+    final dismissLoading = _showActionLoadingModal(
+      'Rejecting application for $displayName...',
+      'Updating driver application status...',
+    );
 
     // Immediate action: optimistically update UI state
     if (mounted) {
@@ -4305,6 +4436,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     } catch (e) {
       debugPrint('Error rejecting driver application: $e');
       _refreshVerificationsAndApplicationsSilently();
+    } finally {
+      dismissLoading();
     }
   }
 
@@ -15928,7 +16061,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       );
                       if (confirmed != true) return;
 
-                      final recId = record['id']?.toString() ?? '';
+                      final dismissLoading = _showActionLoadingModal(
+                        'Approving verification for $displayName...',
+                        'Validating credentials and notifying user...',
+                      );
+
                       final userId = record['user_id']?.toString() ??
                           (record['users'] as Map<String, dynamic>?)?['id']
                               ?.toString() ??
@@ -15957,32 +16094,36 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         });
                       }
 
-                      final adminId = _supabase.auth.currentUser?.id ?? '';
-                      final result =
-                          await VerificationService.approveVerification(
-                            verificationId: record['id'].toString(),
-                            adminId: adminId,
-                          );
-                      if (!mounted) return;
-                      if (result['success'] == true) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('$displayName verified successfully'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                        _refreshVerificationsAndApplicationsSilently();
-                        _loadAllUsers();
-                      } else {
-                        _refreshVerificationsAndApplicationsSilently();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              result['message']?.toString() ??
-                                  'Approval failed',
+                      try {
+                        final adminId = _supabase.auth.currentUser?.id ?? '';
+                        final result =
+                            await VerificationService.approveVerification(
+                              verificationId: record['id'].toString(),
+                              adminId: adminId,
+                            );
+                        if (!mounted) return;
+                        if (result['success'] == true) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('$displayName verified successfully'),
+                              backgroundColor: Colors.green,
                             ),
-                          ),
-                        );
+                          );
+                          _refreshVerificationsAndApplicationsSilently();
+                          _loadAllUsers();
+                        } else {
+                          _refreshVerificationsAndApplicationsSilently();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                result['message']?.toString() ??
+                                    'Approval failed',
+                              ),
+                            ),
+                          );
+                        }
+                      } finally {
+                        dismissLoading();
                       }
                     },
                     style: FilledButton.styleFrom(
@@ -16009,6 +16150,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       );
                       if (reason == null || reason.trim().isEmpty) return;
 
+                      final dismissLoading = _showActionLoadingModal(
+                        'Rejecting verification for $displayName...',
+                        'Updating verification status and sending feedback...',
+                      );
+
                       // Immediate action: optimistically update UI state
                       if (mounted) {
                         setState(() {
@@ -16024,33 +16170,37 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         });
                       }
 
-                      final adminId = _supabase.auth.currentUser?.id ?? '';
-                      final result =
-                          await VerificationService.rejectVerification(
-                            verificationId: record['id'].toString(),
-                            rejectionReason: reason,
-                            adminId: adminId,
+                      try {
+                        final adminId = _supabase.auth.currentUser?.id ?? '';
+                        final result =
+                            await VerificationService.rejectVerification(
+                              verificationId: record['id'].toString(),
+                              rejectionReason: reason,
+                              adminId: adminId,
+                            );
+                        if (!mounted) return;
+                        if (result['success'] == true) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Verification rejected for $displayName',
+                              ),
+                            ),
                           );
-                      if (!mounted) return;
-                      if (result['success'] == true) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Verification rejected for $displayName',
+                          _refreshVerificationsAndApplicationsSilently();
+                        } else {
+                          _refreshVerificationsAndApplicationsSilently();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                result['message']?.toString() ??
+                                    'Rejection failed',
+                              ),
                             ),
-                          ),
-                        );
-                        _refreshVerificationsAndApplicationsSilently();
-                      } else {
-                        _refreshVerificationsAndApplicationsSilently();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              result['message']?.toString() ??
-                                  'Rejection failed',
-                            ),
-                          ),
-                        );
+                          );
+                        }
+                      } finally {
+                        dismissLoading();
                       }
                     },
                     style: OutlinedButton.styleFrom(
