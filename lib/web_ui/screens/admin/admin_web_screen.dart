@@ -3627,6 +3627,115 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     };
   }
 
+  /// Displays an aesthetic, non-intrusive action completion modal for successful operations.
+  Future<void> _showActionSuccessModal({
+    required String title,
+    required String message,
+    IconData icon = Icons.check_circle_rounded,
+    Color iconColor = Colors.green,
+    String buttonText = 'Done',
+  }) async {
+    if (!mounted) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      useRootNavigator: true,
+      builder: (dialogCtx) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+              constraints: const BoxConstraints(maxWidth: 400),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0D1F2D) : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isDark ? Colors.white12 : Colors.grey.shade200,
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 28,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Icon(
+                        icon,
+                        size: 34,
+                        color: iconColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : const Color(0xFF1E293B),
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.white60 : Colors.grey.shade600,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(dialogCtx).pop(),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: iconColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        buttonText,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<bool> _showVehicleApprovalConfirmation(
     Map<String, dynamic> application,
   ) async {
@@ -4069,12 +4178,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         vehicleTitle: vehicleTitle.isEmpty ? null : vehicleTitle,
       );
 
+      dismissLoading();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vehicle application approved'),
-          backgroundColor: Colors.green,
-        ),
+      _showActionSuccessModal(
+        title: 'Vehicle Application Approved',
+        message:
+            '${vehicleTitle.isEmpty ? 'The vehicle application' : vehicleTitle} has been successfully approved and added to the fleet.',
+        icon: Icons.check_circle_rounded,
+        iconColor: Colors.green,
       );
       _refreshVerificationsAndApplicationsSilently();
       _loadAllVehicles();
@@ -4181,9 +4292,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             .eq('plate_number', plateNumber);
       }
 
+      dismissLoading();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vehicle application rejected')),
+      _showActionSuccessModal(
+        title: 'Vehicle Application Rejected',
+        message:
+            '${vehicleTitle.isEmpty ? 'The vehicle application' : vehicleTitle} has been rejected with feedback sent to the partner.',
+        icon: Icons.cancel_rounded,
+        iconColor: Colors.redAccent,
       );
       _refreshVerificationsAndApplicationsSilently();
     } catch (e) {
@@ -4326,12 +4442,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         );
       } catch (_) {}
 
+      dismissLoading();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$displayName approved as driver & eligible for job assignments'),
-          backgroundColor: Colors.green,
-        ),
+      _showActionSuccessModal(
+        title: 'Driver Application Approved',
+        message:
+            '$displayName has been approved as an official driver and is now eligible for job assignments.',
+        icon: Icons.check_circle_rounded,
+        iconColor: Colors.green,
       );
       _refreshVerificationsAndApplicationsSilently();
       _loadAllUsers();
@@ -4424,12 +4542,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         );
       } catch (_) {}
 
+      dismissLoading();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Application rejected for $displayName'),
-          backgroundColor: Colors.orange,
-        ),
+      _showActionSuccessModal(
+        title: 'Driver Application Rejected',
+        message:
+            'The driver onboarding application for $displayName has been rejected with feedback sent.',
+        icon: Icons.cancel_rounded,
+        iconColor: Colors.redAccent,
       );
       _refreshVerificationsAndApplicationsSilently();
       _loadAllUsers();
@@ -4749,19 +4869,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           }).eq('id', userId);
         }
 
+        dismissLoading();
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Account for $userName has been archived.'),
-            backgroundColor: Colors.orange.shade800,
-            action: SnackBarAction(
-              label: 'View Archived',
-              textColor: Colors.white,
-              onPressed: () {
-                setState(() => _selectedIndex = 14);
-              },
-            ),
-          ),
+        _showActionSuccessModal(
+          title: 'Account Archived',
+          message:
+              'The account for $userName has been deactivated and moved to Archived Accounts.',
+          icon: Icons.archive_rounded,
+          iconColor: Colors.orange.shade800,
         );
         _loadDashboardData();
       } catch (e) {
@@ -4863,12 +4978,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           }).eq('id', userId);
         }
 
+        dismissLoading();
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Account for $userName restored successfully.'),
-            backgroundColor: Colors.green,
-          ),
+        _showActionSuccessModal(
+          title: 'Account Restored',
+          message:
+              'The account for $userName has been reactivated and restored to active status.',
+          icon: Icons.unarchive_rounded,
+          iconColor: Colors.green,
         );
         _loadDashboardData();
       } catch (e) {
@@ -16126,12 +16243,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               adminId: adminId,
                             );
                         if (!mounted) return;
+                        dismissLoading();
                         if (result['success'] == true) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('$displayName verified successfully'),
-                              backgroundColor: Colors.green,
-                            ),
+                          _showActionSuccessModal(
+                            title: 'Verification Approved',
+                            message:
+                                'Identity verification for $displayName has been approved successfully.',
+                            icon: Icons.verified_rounded,
+                            iconColor: Colors.green,
                           );
                           _refreshVerificationsAndApplicationsSilently();
                           _loadAllUsers();
@@ -16203,13 +16322,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               adminId: adminId,
                             );
                         if (!mounted) return;
+                        dismissLoading();
                         if (result['success'] == true) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Verification rejected for $displayName',
-                              ),
-                            ),
+                          _showActionSuccessModal(
+                            title: 'Verification Rejected',
+                            message:
+                                'Identity verification for $displayName has been rejected with feedback sent.',
+                            icon: Icons.cancel_rounded,
+                            iconColor: Colors.redAccent,
                           );
                           _refreshVerificationsAndApplicationsSilently();
                         } else {
