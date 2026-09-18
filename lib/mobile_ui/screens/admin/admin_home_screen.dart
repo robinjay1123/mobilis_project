@@ -326,14 +326,29 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
 
     if (confirm == true) {
+      final nowStr = DateTime.now().toIso8601String();
+
+      // Optimistic in-memory update
+      setState(() {
+        for (final u in _allUsers) {
+          if (u['id']?.toString() == userId) {
+            u['is_archived'] = true;
+            u['is_active'] = false;
+            u['archived_at'] = nowStr;
+            u['archive_reason'] = 'Archived by admin';
+            u['restriction_reason'] = 'Archived by admin';
+          }
+        }
+      });
+
       try {
-        final nowStr = DateTime.now().toIso8601String();
         try {
           await _supabase.from('users').update({
             'is_archived': true,
             'is_active': false,
             'archived_at': nowStr,
             'archive_reason': 'Archived by admin',
+            'restriction_reason': 'Archived by admin',
           }).eq('id', userId);
         } catch (_) {
           await _supabase.from('users').update({
@@ -359,6 +374,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             backgroundColor: Colors.red,
           ),
         );
+        _loadDashboardData();
       }
     }
   }
@@ -398,6 +414,19 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
 
     if (confirm == true) {
+      // Optimistic in-memory update
+      setState(() {
+        for (final u in _allUsers) {
+          if (u['id']?.toString() == userId) {
+            u['is_archived'] = false;
+            u['is_active'] = true;
+            u['archived_at'] = null;
+            u['archive_reason'] = null;
+            u['restriction_reason'] = null;
+          }
+        }
+      });
+
       try {
         try {
           await _supabase.from('users').update({
@@ -405,6 +434,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             'is_active': true,
             'archived_at': null,
             'archive_reason': null,
+            'restriction_reason': null,
           }).eq('id', userId);
         } catch (_) {
           await _supabase.from('users').update({
@@ -430,6 +460,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             backgroundColor: Colors.red,
           ),
         );
+        _loadDashboardData();
       }
     }
   }
@@ -1101,10 +1132,21 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   Widget _buildUsersTab(bool isDark) {
-    final activeUsers =
-        _allUsers.where((u) => u['is_archived'] != true).toList();
-    final archivedUsers =
-        _allUsers.where((u) => u['is_archived'] == true).toList();
+    final activeUsers = _allUsers.where((u) {
+      final isArchived = u['is_archived'] == true ||
+          (u['is_active'] == false &&
+              (u['restriction_reason']?.toString().toLowerCase().contains('archiv') == true ||
+               u['archive_reason']?.toString().isNotEmpty == true));
+      return !isArchived;
+    }).toList();
+
+    final archivedUsers = _allUsers.where((u) {
+      final isArchived = u['is_archived'] == true ||
+          (u['is_active'] == false &&
+              (u['restriction_reason']?.toString().toLowerCase().contains('archiv') == true ||
+               u['archive_reason']?.toString().isNotEmpty == true));
+      return isArchived;
+    }).toList();
 
     final targetList = _userFilter == 'Archived' ? archivedUsers : activeUsers;
 
@@ -1344,8 +1386,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     _updateUserRole(user['id'], value);
                   }
                 },
-                itemBuilder: (context) => [
-                  if (user['is_archived'] != true) ...[
+                itemBuilder: (context) {
+                  final isUserArchived = user['is_archived'] == true ||
+                      (user['is_active'] == false &&
+                          (user['restriction_reason']?.toString().toLowerCase().contains('archiv') == true ||
+                           user['archive_reason']?.toString().isNotEmpty == true));
+                  return [
+                    if (!isUserArchived) ...[
                     const PopupMenuItem(
                       value: 'renter',
                       child: Row(
@@ -1417,8 +1464,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       ),
                     ),
                   ],
-                ],
-              ),
+                ];
+              },
+            ),
             ],
           ),
           const SizedBox(height: 12),

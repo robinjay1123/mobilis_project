@@ -2170,12 +2170,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             .then((res) => List<Map<String, dynamic>>.from(res))
             .catchError((e) async {
               try {
+                // If is_archived / archive_reason columns don't exist yet, select without them but WITH is_active and restriction_reason
                 final fallback = await _supabase
                     .from('users')
                     .select(
                       'id, email, full_name, phone, role, created_at, id_verified, '
                       'verification_status, updated_at, avatar_url, profile_picture_url, profile_image, image_url, '
-                      'is_archived, archived_at, is_active',
+                      'is_active, restriction_reason',
                     )
                     .order('created_at', ascending: false);
                 return List<Map<String, dynamic>>.from(fallback);
@@ -2183,11 +2184,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 try {
                   final fallback2 = await _supabase
                       .from('users')
-                      .select('id, email, full_name, phone, role, created_at')
+                      .select(
+                        'id, email, full_name, phone, role, created_at, '
+                        'is_active, restriction_reason',
+                      )
                       .order('created_at', ascending: false);
                   return List<Map<String, dynamic>>.from(fallback2);
                 } catch (_) {
-                  return <Map<String, dynamic>>[];
+                  try {
+                    final fallback3 = await _supabase
+                        .from('users')
+                        .select('id, email, full_name, phone, role, created_at')
+                        .order('created_at', ascending: false);
+                    return List<Map<String, dynamic>>.from(fallback3);
+                  } catch (_) {
+                    return <Map<String, dynamic>>[];
+                  }
                 }
               }
             }),
@@ -2308,7 +2320,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
         final isArchived = user['is_archived'] == true ||
             (user['is_active'] == false &&
-                (user['restriction_reason']?.toString().toLowerCase().contains('archived') == true ||
+                (user['restriction_reason']?.toString().toLowerCase().contains('archiv') == true ||
                  user['archive_reason']?.toString().isNotEmpty == true));
 
         userList.add({
@@ -2337,7 +2349,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               statusStr == 'certified';
           final isPend = statusStr == 'pending' || statusStr == 'submitted';
           final displayStatus = isPend ? 'pending' : (isVer ? 'verified' : 'unverified');
-          final isArchived = uMap?['is_archived'] == true;
+          final isArchived = uMap?['is_archived'] == true ||
+              (uMap?['is_active'] == false &&
+                  (uMap?['restriction_reason']?.toString().toLowerCase().contains('archiv') == true ||
+                   uMap?['archive_reason']?.toString().isNotEmpty == true));
 
           userList.add({
             'id': uid,
@@ -4564,14 +4579,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
 
     if (confirm == true) {
+      final nowStr = DateTime.now().toIso8601String();
+
+      // Optimistic in-memory update so UI reflects the archived state immediately
+      setState(() {
+        for (final u in _allUsers) {
+          if (u['id']?.toString() == userId) {
+            u['is_archived'] = true;
+            u['is_active'] = false;
+            u['archived_at'] = nowStr;
+            u['archive_reason'] = 'Archived by admin';
+            u['restriction_reason'] = 'Archived by admin';
+          }
+        }
+        _totalUsers = _allUsers.where((u) => u['is_archived'] != true).length;
+      });
+
       try {
-        final nowStr = DateTime.now().toIso8601String();
         try {
           await _supabase.from('users').update({
             'is_archived': true,
             'is_active': false,
             'archived_at': nowStr,
             'archive_reason': 'Archived by admin',
+            'restriction_reason': 'Archived by admin',
           }).eq('id', userId);
         } catch (e) {
           debugPrint('Notice: standard archive update fallback: $e');
@@ -4601,6 +4632,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error archiving user: $e'), backgroundColor: Colors.red),
         );
+        _loadDashboardData();
       }
     }
   }
@@ -4657,6 +4689,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
 
     if (confirm == true) {
+      // Optimistic in-memory update so UI reflects the restored state immediately
+      setState(() {
+        for (final u in _allUsers) {
+          if (u['id']?.toString() == userId) {
+            u['is_archived'] = false;
+            u['is_active'] = true;
+            u['archived_at'] = null;
+            u['archive_reason'] = null;
+            u['restriction_reason'] = null;
+          }
+        }
+        _totalUsers = _allUsers.where((u) => u['is_archived'] != true).length;
+      });
+
       try {
         try {
           await _supabase.from('users').update({
@@ -4664,6 +4710,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'is_active': true,
             'archived_at': null,
             'archive_reason': null,
+            'restriction_reason': null,
           }).eq('id', userId);
         } catch (e) {
           await _supabase.from('users').update({
@@ -4685,6 +4732,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error restoring user: $e'), backgroundColor: Colors.red),
         );
+        _loadDashboardData();
       }
     }
   }
