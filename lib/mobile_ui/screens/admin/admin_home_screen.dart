@@ -290,13 +290,26 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }
   }
 
-  Future<void> _deleteUser(String userId) async {
+  Future<void> _archiveUser(String userId) async {
+    final user = _allUsers.firstWhere(
+      (u) => u['id'] == userId,
+      orElse: () => {'id': userId},
+    );
+    final userName = user['full_name'] ?? 'User';
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete User'),
-        content: const Text(
-          'Are you sure you want to delete this user? This action cannot be undone.',
+        title: const Row(
+          children: [
+            Icon(Icons.archive_rounded, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Archive User'),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to archive $userName?\n\n'
+          'The account will be moved to Archived Accounts and deactivated, but all bookings, payments, and history will be preserved.',
         ),
         actions: [
           TextButton(
@@ -305,8 +318,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('Archive'),
           ),
         ],
       ),
@@ -314,20 +327,106 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
     if (confirm == true) {
       try {
-        await _supabase.from('users').delete().eq('id', userId);
+        final nowStr = DateTime.now().toIso8601String();
+        try {
+          await _supabase.from('users').update({
+            'is_archived': true,
+            'is_active': false,
+            'archived_at': nowStr,
+            'archive_reason': 'Archived by admin',
+          }).eq('id', userId);
+        } catch (_) {
+          await _supabase.from('users').update({
+            'is_active': false,
+            'restriction_reason': 'Archived by admin',
+          }).eq('id', userId);
+        }
 
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('User deleted'),
+          SnackBar(
+            content: Text('$userName has been archived'),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+
+        _loadDashboardData();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error archiving user: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _restoreUser(String userId) async {
+    final user = _allUsers.firstWhere(
+      (u) => u['id'] == userId,
+      orElse: () => {'id': userId},
+    );
+    final userName = user['full_name'] ?? 'User';
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.unarchive_rounded, color: Colors.green),
+            SizedBox(width: 8),
+            Text('Restore User'),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to restore $userName to active status?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.green),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        try {
+          await _supabase.from('users').update({
+            'is_archived': false,
+            'is_active': true,
+            'archived_at': null,
+            'archive_reason': null,
+          }).eq('id', userId);
+        } catch (_) {
+          await _supabase.from('users').update({
+            'is_active': true,
+            'restriction_reason': null,
+          }).eq('id', userId);
+        }
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$userName restored successfully'),
             backgroundColor: Colors.green,
           ),
         );
 
         _loadDashboardData();
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error deleting user: $e'),
+            content: Text('Error restoring user: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -1002,8 +1101,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   Widget _buildUsersTab(bool isDark) {
-    final filteredUsers = _allUsers.where((user) {
-      if (_userFilter == 'All') return true;
+    final activeUsers =
+        _allUsers.where((u) => u['is_archived'] != true).toList();
+    final archivedUsers =
+        _allUsers.where((u) => u['is_archived'] == true).toList();
+
+    final targetList = _userFilter == 'Archived' ? archivedUsers : activeUsers;
+
+    final filteredUsers = targetList.where((user) {
+      if (_userFilter == 'All' || _userFilter == 'Archived') return true;
 
       final role = (user['role'] as String? ?? 'renter').toLowerCase();
       final status = (user['display_verification_status'] ??
@@ -1027,7 +1133,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return true;
     }).toList();
 
-    final verifiedCount = _allUsers.where((u) {
+    final verifiedCount = activeUsers.where((u) {
       final status = (u['display_verification_status'] ??
               u['verification_status'] ??
               '')
@@ -1040,12 +1146,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }).length;
 
     final filterOptions = [
-      'All (${_allUsers.length})',
+      'All (${activeUsers.length})',
       'Verified ($verifiedCount)',
       'Renters',
       'Partners',
       'Operators',
       'Drivers',
+      'Archived (${archivedUsers.length})',
     ];
 
     return Column(
@@ -1071,7 +1178,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${_allUsers.length} total users • $verifiedCount verified',
+                  '${activeUsers.length} active users • $verifiedCount verified • ${archivedUsers.length} archived',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.white.withValues(alpha: 0.8),
@@ -1229,61 +1336,87 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   color: isDark ? Colors.grey : Colors.grey.shade600,
                 ),
                 onSelected: (value) {
-                  if (value == 'delete') {
-                    _deleteUser(user['id']);
+                  if (value == 'archive') {
+                    _archiveUser(user['id']);
+                  } else if (value == 'restore') {
+                    _restoreUser(user['id']);
                   } else {
                     _updateUserRole(user['id'], value);
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'renter',
-                    child: Row(
-                      children: [
-                        Icon(Icons.person, color: Colors.green, size: 20),
-                        SizedBox(width: 8),
-                        Text('Set as Renter'),
-                      ],
+                  if (user['is_archived'] != true) ...[
+                    const PopupMenuItem(
+                      value: 'renter',
+                      child: Row(
+                        children: [
+                          Icon(Icons.person, color: Colors.green, size: 20),
+                          SizedBox(width: 8),
+                          Text('Set as Renter'),
+                        ],
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'partner',
-                    child: Row(
-                      children: [
-                        Icon(Icons.business, color: Colors.blue, size: 20),
-                        SizedBox(width: 8),
-                        Text('Set as Partner'),
-                      ],
+                    const PopupMenuItem(
+                      value: 'partner',
+                      child: Row(
+                        children: [
+                          Icon(Icons.business, color: Colors.blue, size: 20),
+                          SizedBox(width: 8),
+                          Text('Set as Partner'),
+                        ],
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'operator',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.admin_panel_settings,
-                          color: Colors.purple,
-                          size: 20,
-                        ),
-                        SizedBox(width: 8),
-                        Text('Set as Operator'),
-                      ],
+                    const PopupMenuItem(
+                      value: 'operator',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.admin_panel_settings,
+                            color: Colors.purple,
+                            size: 20,
+                          ),
+                          SizedBox(width: 8),
+                          Text('Set as Operator'),
+                        ],
+                      ),
                     ),
-                  ),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(Icons.delete, color: Colors.red, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Delete User',
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      ],
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      value: 'archive',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.archive_outlined,
+                            color: Colors.orange.shade800,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Archive User',
+                            style: TextStyle(color: Colors.orange.shade800),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ] else ...[
+                    const PopupMenuItem(
+                      value: 'restore',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.unarchive_rounded,
+                            color: Colors.green,
+                            size: 20,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Restore Account',
+                            style: TextStyle(color: Colors.green),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ],
