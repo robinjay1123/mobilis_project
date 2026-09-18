@@ -13591,335 +13591,416 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final offerRemainingSec = (waitingForDriver && assignedAt != null)
         ? (600 - DateTime.now().difference(assignedAt).inSeconds).clamp(0, 600)
         : 0;
-    final isOfferExpired = waitingForDriver && (assignedAt == null || offerRemainingSec <= 0);
+    final isOfferExpired =
+        waitingForDriver && (assignedAt == null || offerRemainingSec <= 0);
     final effectiveWaitingForDriver = waitingForDriver && !isOfferExpired;
     final driverDeclined = assignmentStatus == 'rejected' || isOfferExpired;
 
     final isPartner = _isPartnerVehicleBooking(booking);
     final depositRefunded = booking['security_deposit_refunded'] == true;
     final partnerDisbursed = booking['partner_payout_disbursed'] == true ||
-        (booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed');
+        (booking['partner_payout_status']?.toString().toLowerCase() ==
+            'disbursed');
     final driverDisbursed = booking['driver_payout_disbursed'] == true ||
-        (booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed');
+        (booking['driver_payout_status']?.toString().toLowerCase() ==
+            'disbursed');
     final isChatEligible = BookingService().isEligibleForBookingChat(booking);
     final canTrack = _canTrackBooking(booking);
-    final hasExtensionPending = booking['extension_status'] == 'pending_operator';
+    final hasExtensionPending =
+        booking['extension_status'] == 'pending_operator';
 
-    final buttons = <Widget>[];
+    // ── Actions Architecture: 1 Primary + Quick Icons + Dropdown Menu ────────
+    Widget? primaryAction;
+    final quickIcons = <Widget>[];
+    final menuItems = <_OperatorActionMenuItem>[];
 
-    // ── 1. PRIMARY: Details (Always First) ──────────────────────────────────
-    buttons.add(
-      _buildOperatorBookingActionButton(
-        onPressed: () => ActionGuard.runGuarded(
+    // Common callbacks
+    void viewDetails() => ActionGuard.runGuarded(
           'op_booking_details_$bookingId',
           () async => _showOperatorBookingDetailsDialog(booking),
-        ),
-        icon: Icons.visibility_rounded,
-        label: compact ? 'Details' : 'View Details',
-        foregroundColor: isDark ? Colors.white : _operatorInk,
-        borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
-        compact: compact,
-      ),
-    );
+        );
 
-    // ── 2. CONTEXTUAL ACTIONS (Zero Redundancy) ─────────────────────────────
-    if (group == BookingStatusGroup.pending && !_isPartnerOwnedBooking(booking)) {
+    void openChat() => ActionGuard.runGuarded(
+          'op_chat_booking_$bookingId',
+          () async => _openBookingConversation(booking),
+        );
+
+    void openTracking() => ActionGuard.runGuarded(
+          'op_track_booking_$bookingId',
+          () async => _openTrackingForBooking(booking),
+        );
+
+    // Quick Icon Helpers
+    Widget buildDetailsIcon() => _OperatorAnimatedActionButton(
+          onPressed: viewDetails,
+          icon: Icons.visibility_rounded,
+          foregroundColor: isDark ? Colors.white : _operatorInk,
+          borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
+          backgroundColor: isDark
+              ? Colors.white.withValues(alpha: 0.05)
+              : Colors.grey.shade100,
+          tooltip: 'View details',
+          compact: compact,
+          isIconOnly: true,
+        );
+
+    Widget buildChatIcon() => _OperatorAnimatedActionButton(
+          onPressed: openChat,
+          icon: Icons.chat_bubble_outline_rounded,
+          foregroundColor: _operatorNavyDeep,
+          backgroundColor: _operatorGold,
+          tooltip: 'Message customer',
+          compact: compact,
+          isIconOnly: true,
+        );
+
+    Widget buildTrackIcon() => _OperatorAnimatedActionButton(
+          onPressed: openTracking,
+          icon: Icons.near_me_outlined,
+          foregroundColor: const Color(0xFFE5A93C),
+          backgroundColor: const Color(0xFFE5A93C).withValues(alpha: 0.15),
+          borderColor: const Color(0xFFE5A93C).withValues(alpha: 0.45),
+          tooltip: 'Track live GPS location',
+          compact: compact,
+          isIconOnly: true,
+        );
+
+    // ── 1. GROUP LOGIC ──────────────────────────────────────────────────────
+    if (group == BookingStatusGroup.pending &&
+        !_isPartnerOwnedBooking(booking)) {
       final payState = resolveBookingPaymentState(booking);
 
-      // Pending: If payment is under review (renter uploaded proof), show Verify Payment button
       if (payState == BookingPaymentState.paymentReview) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_verify_pay_$bookingId',
-              () async => _showVerifyPaymentProofDialog(booking),
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_verify_pay_$bookingId',
+            () async => _showVerifyPaymentProofDialog(booking),
+          ),
+          icon: Icons.verified_user_rounded,
+          label: compact ? 'Verify Pay' : 'Verify Payment Proof',
+          foregroundColor: Colors.black,
+          backgroundColor: const Color(0xFF38BDF8),
+          compact: compact,
+        );
+        menuItems.add(
+          _OperatorActionMenuItem(
+            icon: Icons.check_circle_outline_rounded,
+            label: 'Quick Approve',
+            color: Colors.green.shade400,
+            onTap: () => ActionGuard.runGuarded(
+              'op_approve_booking_$bookingId',
+              () async => _handleQuickApproveBooking(
+                booking,
+                needsDriver: needsDriver,
+                driverAccepted: driverAccepted,
+              ),
             ),
-            icon: Icons.verified_user_rounded,
-            label: compact ? 'Verify Pay' : 'Verify Payment Proof',
-            foregroundColor: Colors.black,
-            backgroundColor: const Color(0xFF38BDF8),
-            compact: compact,
           ),
         );
-      }
-
-      // Pending: Approve / Driver Assignment
-      if (effectiveWaitingForDriver) {
+      } else if (effectiveWaitingForDriver) {
         final mm = (offerRemainingSec ~/ 60).toString().padLeft(2, '0');
         final ss = (offerRemainingSec % 60).toString().padLeft(2, '0');
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: null,
-            icon: Icons.hourglass_top_rounded,
-            label: 'Awaiting ($mm:$ss)',
-            foregroundColor: Colors.white,
-            backgroundColor: Colors.amber.shade800,
-            compact: compact,
-          ),
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: null,
+          icon: Icons.hourglass_top_rounded,
+          label: 'Awaiting ($mm:$ss)',
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.amber.shade800,
+          compact: compact,
         );
       } else if (waitingForDriver && isOfferExpired) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_approve_booking_$bookingId',
-              () async => _handleQuickApproveBooking(
-                booking,
-                needsDriver: needsDriver,
-                driverAccepted: false,
-              ),
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_approve_booking_$bookingId',
+            () async => _handleQuickApproveBooking(
+              booking,
+              needsDriver: needsDriver,
+              driverAccepted: false,
             ),
-            icon: Icons.person_search_rounded,
-            label: compact ? 'Reassign' : 'Reassign Driver',
-            foregroundColor: Colors.white,
-            backgroundColor: Colors.amber.shade900,
-            compact: compact,
           ),
+          icon: Icons.person_search_rounded,
+          label: compact ? 'Reassign' : 'Reassign Driver',
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.amber.shade900,
+          compact: compact,
         );
       } else if (needsDriver && !driverAccepted) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_approve_booking_$bookingId',
-              () async => _handleQuickApproveBooking(
-                booking,
-                needsDriver: needsDriver,
-                driverAccepted: driverAccepted,
-              ),
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_approve_booking_$bookingId',
+            () async => _handleQuickApproveBooking(
+              booking,
+              needsDriver: needsDriver,
+              driverAccepted: driverAccepted,
             ),
-            icon: Icons.person_search_rounded,
-            label: driverDeclined
-                ? (compact ? 'Reassign' : 'Select Driver')
-                : (compact ? 'Select Driver' : 'Assign Driver'),
-            foregroundColor: Colors.white,
-            backgroundColor: Colors.green.shade600,
-            compact: compact,
           ),
+          icon: Icons.person_search_rounded,
+          label: driverDeclined
+              ? (compact ? 'Reassign' : 'Select Driver')
+              : (compact ? 'Select Driver' : 'Assign Driver'),
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.green.shade600,
+          compact: compact,
         );
       } else {
-        final approveLabel = payState == BookingPaymentState.pendingConfirmation
-            ? (compact ? 'Confirm' : 'Confirm & Approve')
-            : 'Approve';
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_approve_booking_$bookingId',
-              () async => _handleQuickApproveBooking(
-                booking,
-                needsDriver: needsDriver,
-                driverAccepted: driverAccepted,
-              ),
+        final approveLabel =
+            payState == BookingPaymentState.pendingConfirmation
+                ? (compact ? 'Confirm' : 'Confirm & Approve')
+                : 'Approve';
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_approve_booking_$bookingId',
+            () async => _handleQuickApproveBooking(
+              booking,
+              needsDriver: needsDriver,
+              driverAccepted: driverAccepted,
             ),
-            icon: Icons.check_circle_outline_rounded,
-            label: approveLabel,
-            foregroundColor: Colors.white,
-            backgroundColor: Colors.green.shade600,
-            compact: compact,
           ),
+          icon: Icons.check_circle_outline_rounded,
+          label: approveLabel,
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.green.shade600,
+          compact: compact,
         );
       }
 
-      // Pending: Reject
-      buttons.add(
-        _buildOperatorBookingActionButton(
-          onPressed: () => ActionGuard.runGuarded(
+      // Quick Icons for Pending
+      quickIcons.add(buildDetailsIcon());
+      if (isChatEligible) {
+        quickIcons.add(buildChatIcon());
+      }
+
+      // Menu: Reject Booking
+      menuItems.add(
+        _OperatorActionMenuItem(
+          icon: Icons.cancel_outlined,
+          label: 'Reject Booking',
+          isDestructive: true,
+          onTap: () => ActionGuard.runGuarded(
             'op_reject_booking_$bookingId',
             () async => _showRejectDialog(booking['id'].toString()),
           ),
-          icon: Icons.cancel_outlined,
-          label: 'Reject',
-          foregroundColor: Colors.red.shade400,
-          backgroundColor: Colors.red.withValues(alpha: 0.12),
-          borderColor: Colors.red.shade400.withValues(alpha: 0.4),
-          compact: compact,
         ),
       );
-
-      // Pending: Message Customer (if eligible)
-      if (isChatEligible) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_chat_booking_$bookingId',
-              () async => _openBookingConversation(booking),
-            ),
-            icon: Icons.chat_bubble_outline_rounded,
-            label: 'Message',
-            foregroundColor: _operatorNavyDeep,
-            backgroundColor: _operatorGold,
-            compact: compact,
-          ),
-        );
-      }
-    } else if (group == BookingStatusGroup.approved || group == BookingStatusGroup.ongoing) {
-      // Approved / Ongoing: Message
-      if (isChatEligible) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_chat_booking_$bookingId',
-              () async => _openBookingConversation(booking),
-            ),
-            icon: Icons.chat_bubble_outline_rounded,
-            label: 'Message',
-            foregroundColor: _operatorNavyDeep,
-            backgroundColor: _operatorGold,
-            compact: compact,
-          ),
-        );
-      }
-
-      // Approved / Ongoing: Track Live GPS
-      if (canTrack) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_track_booking_$bookingId',
-              () async => _openTrackingForBooking(booking),
-            ),
-            icon: Icons.near_me_outlined,
-            label: compact ? 'Track' : 'Track GPS',
-            foregroundColor: const Color(0xFFE5A93C),
-            backgroundColor: const Color(0xFFE5A93C).withValues(alpha: 0.14),
-            borderColor: const Color(0xFFE5A93C).withValues(alpha: 0.45),
-            compact: compact,
-          ),
-        );
-      }
-
-      // Approved / Ongoing: Review Extension
+    } else if (group == BookingStatusGroup.approved ||
+        group == BookingStatusGroup.ongoing) {
       if (hasExtensionPending) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_extension_$bookingId',
+            () async => _showExtensionApprovalDialog(booking),
+          ),
+          icon: Icons.update_rounded,
+          label: compact ? 'Extension' : 'Review Ext.',
+          foregroundColor: Colors.amber.shade300,
+          backgroundColor: Colors.amber.shade900.withValues(alpha: 0.35),
+          borderColor: Colors.amber.shade400,
+          compact: compact,
+        );
+        if (canTrack) {
+          quickIcons.add(buildTrackIcon());
+        }
+      } else if (canTrack) {
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: openTracking,
+          icon: Icons.near_me_outlined,
+          label: compact ? 'Track' : 'Track GPS',
+          foregroundColor: const Color(0xFFE5A93C),
+          backgroundColor: const Color(0xFFE5A93C).withValues(alpha: 0.14),
+          borderColor: const Color(0xFFE5A93C).withValues(alpha: 0.45),
+          compact: compact,
+        );
+      } else {
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: viewDetails,
+          icon: Icons.visibility_rounded,
+          label: compact ? 'Details' : 'View Details',
+          foregroundColor: isDark ? Colors.white : _operatorInk,
+          borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
+          compact: compact,
+        );
+      }
+
+      // Quick Icons
+      if (hasExtensionPending || canTrack) {
+        quickIcons.add(buildDetailsIcon());
+      }
+      if (isChatEligible) {
+        quickIcons.add(buildChatIcon());
+      }
+
+      // Menu items
+      if (hasExtensionPending && primaryAction != null) {
+        menuItems.add(
+          _OperatorActionMenuItem(
+            icon: Icons.update_rounded,
+            label: 'Review Trip Extension',
+            color: Colors.amber.shade300,
+            onTap: () => ActionGuard.runGuarded(
               'op_extension_$bookingId',
               () async => _showExtensionApprovalDialog(booking),
             ),
-            icon: Icons.update_rounded,
-            label: compact ? 'Extension' : 'Review Ext.',
-            foregroundColor: Colors.amber.shade300,
-            backgroundColor: Colors.amber.shade900.withValues(alpha: 0.35),
-            borderColor: Colors.amber.shade400,
-            compact: compact,
           ),
         );
       }
-    } else if (group == BookingStatusGroup.completed) {
-      // Completed: Security Deposit (Active refund button OR completed receipt view)
-      if (!depositRefunded) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_deposit_refund_$bookingId',
-              () async => _showSecurityDepositRefundDialog(booking),
-            ),
-            icon: Icons.assignment_return_rounded,
-            label: compact ? 'Refund Dep.' : 'Refund Deposit',
-            foregroundColor: Colors.white,
-            backgroundColor: const Color(0xFF10B981),
-            compact: compact,
+      if (canTrack && hasExtensionPending) {
+        menuItems.add(
+          _OperatorActionMenuItem(
+            icon: Icons.near_me_outlined,
+            label: 'Track Live GPS',
+            color: const Color(0xFFE5A93C),
+            onTap: openTracking,
           ),
         );
+      }
+      menuItems.add(
+        _OperatorActionMenuItem(
+          icon: Icons.visibility_rounded,
+          label: 'View Booking Details',
+          onTap: viewDetails,
+        ),
+      );
+    } else if (group == BookingStatusGroup.completed) {
+      // Completed state: Determine primary financial action
+      if (!depositRefunded) {
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_deposit_refund_$bookingId',
+            () async => _showSecurityDepositRefundDialog(booking),
+          ),
+          icon: Icons.assignment_return_rounded,
+          label: compact ? 'Refund Dep.' : 'Refund Deposit',
+          foregroundColor: Colors.white,
+          backgroundColor: const Color(0xFF10B981),
+          compact: compact,
+        );
+      } else if (isPartner && !partnerDisbursed) {
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_disburse_partner_$bookingId',
+            () async => _showDisbursePartnerPayoutDialog(booking),
+          ),
+          icon: Icons.payments_outlined,
+          label: compact ? 'Partner Pay' : 'Disburse Partner',
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.purple.shade600,
+          compact: compact,
+        );
+      } else if (needsDriver && !driverDisbursed) {
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_disburse_driver_$bookingId',
+            () async => _showDisburseDriverPayoutDialog(booking),
+          ),
+          icon: Icons.paid_outlined,
+          label: compact ? 'Driver Fee' : 'Disburse Driver',
+          foregroundColor: Colors.white,
+          backgroundColor: const Color(0xFF0284C7),
+          compact: compact,
+        );
       } else {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
+        // All financial duties fulfilled!
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: viewDetails,
+          icon: Icons.visibility_rounded,
+          label: compact ? 'Details' : 'View Details',
+          foregroundColor: isDark ? Colors.white : _operatorInk,
+          borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
+          compact: compact,
+        );
+      }
+
+      // Quick Icons
+      if (!depositRefunded ||
+          (isPartner && !partnerDisbursed) ||
+          (needsDriver && !driverDisbursed)) {
+        quickIcons.add(buildDetailsIcon());
+      }
+      if (isChatEligible) {
+        quickIcons.add(buildChatIcon());
+      }
+
+      // Menu: Additional active financial actions
+      if (isPartner && !partnerDisbursed && !depositRefunded) {
+        menuItems.add(
+          _OperatorActionMenuItem(
+            icon: Icons.payments_outlined,
+            label: 'Disburse Partner Earnings',
+            color: Colors.purple.shade300,
+            onTap: () => ActionGuard.runGuarded(
+              'op_disburse_partner_$bookingId',
+              () async => _showDisbursePartnerPayoutDialog(booking),
+            ),
+          ),
+        );
+      }
+
+      if (needsDriver &&
+          !driverDisbursed &&
+          (!depositRefunded || (isPartner && !partnerDisbursed))) {
+        menuItems.add(
+          _OperatorActionMenuItem(
+            icon: Icons.paid_outlined,
+            label: 'Disburse Driver Fee',
+            color: const Color(0xFF38BDF8),
+            onTap: () => ActionGuard.runGuarded(
+              'op_disburse_driver_$bookingId',
+              () async => _showDisburseDriverPayoutDialog(booking),
+            ),
+          ),
+        );
+      }
+
+      // Menu: Receipts
+      if (depositRefunded) {
+        menuItems.add(
+          _OperatorActionMenuItem(
+            icon: Icons.receipt_long_rounded,
+            label: 'Deposit Refund Receipt',
+            color: const Color(0xFF10B981),
+            onTap: () => ActionGuard.runGuarded(
               'op_deposit_refund_view_$bookingId',
               () async => _showSecurityDepositRefundDialog(booking),
             ),
-            icon: Icons.check_circle_rounded,
-            label: compact ? 'Refunded ✓' : 'Deposit Refunded ✓',
-            foregroundColor: const Color(0xFF10B981),
-            backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.14),
-            borderColor: const Color(0xFF10B981).withValues(alpha: 0.45),
-            compact: compact,
           ),
         );
       }
 
-      // Completed: Partner Payout (Active disburse button OR completed receipt view)
-      if (isPartner) {
-        if (!partnerDisbursed) {
-          buttons.add(
-            _buildOperatorBookingActionButton(
-              onPressed: () => ActionGuard.runGuarded(
-                'op_disburse_partner_$bookingId',
-                () async => _showDisbursePartnerPayoutDialog(booking),
-              ),
-              icon: Icons.payments_outlined,
-              label: compact ? 'Partner Pay' : 'Disburse Partner',
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.purple.shade600,
-              compact: compact,
-            ),
-          );
-        } else {
-          final r = booking['partner_payout_receipt_url']?.toString();
-          buttons.add(
-            _buildOperatorBookingActionButton(
-              onPressed: (r != null && r.isNotEmpty)
-                  ? () => _showReceiptProofDialog(r, isDark)
-                  : null,
-              icon: Icons.check_circle_rounded,
-              label: compact ? 'Partner Paid ✓' : 'Partner Disbursed ✓',
-              foregroundColor: Colors.purpleAccent,
-              backgroundColor: Colors.purple.withValues(alpha: 0.14),
-              borderColor: Colors.purple.withValues(alpha: 0.45),
-              compact: compact,
+      if (isPartner && partnerDisbursed) {
+        final r = booking['partner_payout_receipt_url']?.toString();
+        if (r != null && r.isNotEmpty) {
+          menuItems.add(
+            _OperatorActionMenuItem(
+              icon: Icons.receipt_long_rounded,
+              label: 'Partner Payout Receipt',
+              color: Colors.purpleAccent,
+              onTap: () => _showReceiptProofDialog(r, isDark),
             ),
           );
         }
       }
 
-      // Completed: Driver Fee Payout (Active disburse button OR completed receipt view)
-      if (needsDriver) {
-        if (!driverDisbursed) {
-          buttons.add(
-            _buildOperatorBookingActionButton(
-              onPressed: () => ActionGuard.runGuarded(
-                'op_disburse_driver_$bookingId',
-                () async => _showDisburseDriverPayoutDialog(booking),
-              ),
-              icon: Icons.paid_outlined,
-              label: compact ? 'Driver Fee' : 'Disburse Driver',
-              foregroundColor: Colors.white,
-              backgroundColor: const Color(0xFF0284C7),
-              compact: compact,
-            ),
-          );
-        } else {
-          final r = booking['driver_payout_receipt_url']?.toString();
-          buttons.add(
-            _buildOperatorBookingActionButton(
-              onPressed: (r != null && r.isNotEmpty)
-                  ? () => _showReceiptProofDialog(r, isDark)
-                  : null,
-              icon: Icons.check_circle_rounded,
-              label: compact ? 'Driver Paid ✓' : 'Driver Fee Disbursed ✓',
-              foregroundColor: const Color(0xFF38BDF8),
-              backgroundColor: const Color(0xFF38BDF8).withValues(alpha: 0.14),
-              borderColor: const Color(0xFF38BDF8).withValues(alpha: 0.45),
-              compact: compact,
+      if (needsDriver && driverDisbursed) {
+        final r = booking['driver_payout_receipt_url']?.toString();
+        if (r != null && r.isNotEmpty) {
+          menuItems.add(
+            _OperatorActionMenuItem(
+              icon: Icons.receipt_long_rounded,
+              label: 'Driver Fee Receipt',
+              color: const Color(0xFF38BDF8),
+              onTap: () => _showReceiptProofDialog(r, isDark),
             ),
           );
         }
       }
 
-      // Completed: Message Customer (if eligible)
-      if (isChatEligible) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_chat_booking_$bookingId',
-              () async => _openBookingConversation(booking),
-            ),
-            icon: Icons.chat_bubble_outline_rounded,
-            label: 'Message',
-            foregroundColor: _operatorNavyDeep,
-            backgroundColor: _operatorGold,
-            compact: compact,
-          ),
-        );
-      }
+      menuItems.add(
+        _OperatorActionMenuItem(
+          icon: Icons.visibility_rounded,
+          label: 'View Full Details',
+          onTap: viewDetails,
+        ),
+      );
     } else {
       // Cancelled / Rejected: Check if booking refund is needed
       final payState = resolveBookingPaymentState(booking);
@@ -13932,74 +14013,154 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           booking['refund_completed'] == true;
 
       if (refundNeeded && !refundComplete) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_booking_refund_$bookingId',
-              () async => _showBookingRefundDialog(booking),
-            ),
-            icon: Icons.currency_exchange_rounded,
-            label: compact ? 'Refund' : 'Process Refund',
-            foregroundColor: Colors.white,
-            backgroundColor: const Color(0xFFEF4444),
-            compact: compact,
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: () => ActionGuard.runGuarded(
+            'op_booking_refund_$bookingId',
+            () async => _showBookingRefundDialog(booking),
           ),
+          icon: Icons.currency_exchange_rounded,
+          label: compact ? 'Refund' : 'Process Refund',
+          foregroundColor: Colors.white,
+          backgroundColor: const Color(0xFFEF4444),
+          compact: compact,
         );
-      } else if (refundComplete) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
+        quickIcons.add(buildDetailsIcon());
+      } else {
+        primaryAction = _buildOperatorBookingActionButton(
+          onPressed: viewDetails,
+          icon: Icons.visibility_rounded,
+          label: compact ? 'Details' : 'View Details',
+          foregroundColor: isDark ? Colors.white : _operatorInk,
+          borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
+          compact: compact,
+        );
+      }
+
+      if (isChatEligible) {
+        quickIcons.add(buildChatIcon());
+      }
+
+      if (refundComplete) {
+        menuItems.add(
+          _OperatorActionMenuItem(
+            icon: Icons.receipt_long_rounded,
+            label: 'View Refund Proof',
+            color: const Color(0xFFA855F7),
+            onTap: () => ActionGuard.runGuarded(
               'op_booking_refund_view_$bookingId',
               () async => _showBookingRefundDialog(booking),
             ),
-            icon: Icons.check_circle_outline_rounded,
-            label: compact ? 'Refunded' : 'Refunded ✓',
-            foregroundColor: Colors.white,
-            backgroundColor: const Color(0xFFA855F7),
-            compact: compact,
           ),
         );
       }
 
-      // Cancelled / Other: Refund deposit if paid and not refunded
       if (booking['security_deposit_paid'] == true && !depositRefunded) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
+        menuItems.add(
+          _OperatorActionMenuItem(
+            icon: Icons.assignment_return_rounded,
+            label: 'Refund Security Deposit',
+            color: const Color(0xFF10B981),
+            onTap: () => ActionGuard.runGuarded(
               'op_deposit_refund_$bookingId',
               () async => _showSecurityDepositRefundDialog(booking),
             ),
-            icon: Icons.assignment_return_rounded,
-            label: compact ? 'Refund Dep.' : 'Refund Deposit',
-            foregroundColor: Colors.white,
-            backgroundColor: const Color(0xFF10B981),
-            compact: compact,
           ),
         );
       }
-      if (isChatEligible) {
-        buttons.add(
-          _buildOperatorBookingActionButton(
-            onPressed: () => ActionGuard.runGuarded(
-              'op_chat_booking_$bookingId',
-              () async => _openBookingConversation(booking),
-            ),
-            icon: Icons.chat_bubble_outline_rounded,
-            label: 'Message',
-            foregroundColor: _operatorNavyDeep,
-            backgroundColor: _operatorGold,
-            compact: compact,
-          ),
-        );
-      }
+
+      menuItems.add(
+        _OperatorActionMenuItem(
+          icon: Icons.visibility_rounded,
+          label: 'View Booking Details',
+          onTap: viewDetails,
+        ),
+      );
     }
 
-    return Wrap(
-      spacing: 6,
-      runSpacing: 4,
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: buttons,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (primaryAction != null) ...[
+          primaryAction,
+          const SizedBox(width: 5),
+        ],
+        for (final iconBtn in quickIcons) ...[
+          iconBtn,
+          const SizedBox(width: 4),
+        ],
+        if (menuItems.isNotEmpty)
+          _buildMoreActionsMenu(menuItems, isDark, compact: compact),
+      ],
+    );
+  }
+
+  Widget _buildMoreActionsMenu(
+    List<_OperatorActionMenuItem> items,
+    bool isDark, {
+    bool compact = true,
+  }) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Theme(
+      data: Theme.of(context).copyWith(
+        cardColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+        popupMenuTheme: PopupMenuThemeData(
+          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          elevation: 12,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: isDark ? Colors.white12 : Colors.grey.shade200,
+            ),
+          ),
+        ),
+      ),
+      child: PopupMenuButton<_OperatorActionMenuItem>(
+        tooltip: 'More actions',
+        offset: const Offset(0, 36),
+        elevation: 12,
+        onSelected: (item) => item.onTap(),
+        itemBuilder: (context) => items.map((item) {
+          final itemColor = item.isDestructive
+              ? Colors.red.shade400
+              : (item.color ??
+                  (isDark ? Colors.grey.shade200 : _operatorInk));
+          return PopupMenuItem<_OperatorActionMenuItem>(
+            value: item,
+            height: 38,
+            child: Row(
+              children: [
+                Icon(item.icon, size: 16, color: itemColor),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: itemColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+        child: _OperatorAnimatedActionButton(
+          onPressed: null,
+          icon: Icons.more_horiz_rounded,
+          foregroundColor: isDark ? Colors.white70 : _operatorInk,
+          backgroundColor: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.grey.shade100,
+          borderColor: isDark ? Colors.white24 : Colors.grey.shade300,
+          tooltip: 'More actions',
+          compact: compact,
+          isIconOnly: true,
+          isMenuTrigger: true,
+        ),
+      ),
     );
   }
 
@@ -14011,30 +14172,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Color? backgroundColor,
     Color? borderColor,
     required bool compact,
+    bool isIconOnly = false,
   }) {
-    final enabled = onPressed != null;
-    final effectiveForeground = enabled
-        ? foregroundColor
-        : Colors.grey.shade400;
-    final effectiveBackground = enabled
-        ? (backgroundColor ?? Colors.transparent)
-        : Colors.grey.shade800.withValues(alpha: 0.35);
-
     final actionDescription = switch (label.toLowerCase()) {
-      'details' || 'view details' => 'View full booking details and customer info',
+      'details' || 'view details' =>
+        'View full booking details and customer info',
       'approve' => 'Approve this reservation and confirm booking',
       _ when label.toLowerCase().startsWith('awaiting') =>
         'Awaiting driver acceptance (10-minute offer countdown)',
-      _ when label.toLowerCase().contains('assign') || label.toLowerCase().contains('reassign') =>
+      _ when label.toLowerCase().contains('assign') ||
+          label.toLowerCase().contains('reassign') =>
         'Click to assign/reassign driver for this trip',
-      'extension' || 'review ext.' || 'review extension' => 'Review and approve trip extension request',
+      'extension' || 'review ext.' || 'review extension' =>
+        'Review and approve trip extension request',
       'reject' => 'Decline or cancel this booking request',
       'message' => 'Chat directly with customer',
       'track' || 'track gps' => 'Track live GPS location on map',
-      'refund dep.' || 'refund deposit' => 'Refund security deposit to renter via proof of transfer',
+      'refund dep.' || 'refund deposit' =>
+        'Refund security deposit to renter via proof of transfer',
       _ when label.toLowerCase().contains('refunded') =>
         'Security deposit already refunded. Click to view transfer proof receipt.',
-      'partner pay' || 'disburse partner' => 'Disburse net earnings to vehicle partner',
+      'partner pay' || 'disburse partner' =>
+        'Disburse net earnings to vehicle partner',
       _ when label.toLowerCase().contains('partner paid') =>
         'Partner payout already disbursed. Click to view transfer proof receipt.',
       'driver fee' || 'disburse driver' => 'Disburse trip driver fee',
@@ -14043,55 +14202,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _ => label,
     };
 
-    return Tooltip(
-      message: actionDescription,
-      waitDuration: const Duration(milliseconds: 350),
-      child: Material(
-        color: effectiveBackground,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            height: compact ? 30 : 34,
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 9 : 12,
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: enabled
-                    ? (borderColor ?? backgroundColor ?? Colors.transparent)
-                    : Colors.grey.shade700.withValues(alpha: 0.5),
-                width: 1.0,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: compact ? 13 : 15,
-                  color: effectiveForeground,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  label,
-                  maxLines: 1,
-                  softWrap: false,
-                  style: TextStyle(
-                    color: effectiveForeground,
-                    fontSize: compact ? 11 : 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return _OperatorAnimatedActionButton(
+      onPressed: onPressed,
+      icon: icon,
+      label: label,
+      foregroundColor: foregroundColor,
+      backgroundColor: backgroundColor,
+      borderColor: borderColor,
+      tooltip: actionDescription,
+      compact: compact,
+      isIconOnly: isIconOnly,
     );
   }
 
@@ -39434,3 +39554,181 @@ class _RadarGridPainter extends CustomPainter {
   bool shouldRepaint(covariant _RadarGridPainter oldDelegate) =>
       oldDelegate.lineColor != lineColor;
 }
+
+class _OperatorActionMenuItem {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color? color;
+  final bool isDestructive;
+
+  const _OperatorActionMenuItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+    this.isDestructive = false,
+  });
+}
+
+class _OperatorAnimatedActionButton extends StatefulWidget {
+  final VoidCallback? onPressed;
+  final IconData icon;
+  final String? label;
+  final Color foregroundColor;
+  final Color? backgroundColor;
+  final Color? borderColor;
+  final String tooltip;
+  final bool compact;
+  final bool isIconOnly;
+  final bool isMenuTrigger;
+
+  const _OperatorAnimatedActionButton({
+    super.key,
+    required this.onPressed,
+    required this.icon,
+    this.label,
+    required this.foregroundColor,
+    this.backgroundColor,
+    this.borderColor,
+    required this.tooltip,
+    this.compact = true,
+    this.isIconOnly = false,
+    this.isMenuTrigger = false,
+  });
+
+  @override
+  State<_OperatorAnimatedActionButton> createState() =>
+      _OperatorAnimatedActionButtonState();
+}
+
+class _OperatorAnimatedActionButtonState
+    extends State<_OperatorAnimatedActionButton> {
+  bool _isHovered = false;
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.isMenuTrigger || widget.onPressed != null;
+    final baseBg = enabled
+        ? (widget.backgroundColor ?? Colors.transparent)
+        : Colors.grey.shade800.withValues(alpha: 0.35);
+    final baseFg = enabled ? widget.foregroundColor : Colors.grey.shade400;
+
+    final effectiveBg = _isHovered && enabled
+        ? (widget.backgroundColor != null
+            ? Color.alphaBlend(Colors.white.withValues(alpha: 0.15), baseBg)
+            : baseFg.withValues(alpha: 0.12))
+        : baseBg;
+
+    final scale = _isPressed ? 0.94 : (_isHovered && enabled ? 1.05 : 1.0);
+
+    final buttonWidget = AnimatedScale(
+      scale: scale,
+      duration: const Duration(milliseconds: 140),
+      curve: Curves.easeOutCubic,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOutCubic,
+        height: widget.compact ? 30 : 34,
+        constraints: widget.isIconOnly
+            ? BoxConstraints(
+                minWidth: widget.compact ? 30 : 34,
+                maxWidth: widget.compact ? 30 : 34,
+              )
+            : null,
+        padding: widget.isIconOnly
+            ? EdgeInsets.zero
+            : EdgeInsets.symmetric(
+                horizontal: widget.compact ? 10 : 12,
+              ),
+        decoration: BoxDecoration(
+          color: effectiveBg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: enabled
+                ? (widget.borderColor ??
+                    widget.backgroundColor ??
+                    (widget.isIconOnly
+                        ? baseFg.withValues(alpha: 0.25)
+                        : Colors.transparent))
+                : Colors.grey.shade700.withValues(alpha: 0.5),
+            width: 1.0,
+          ),
+          boxShadow: _isHovered && enabled
+              ? [
+                  BoxShadow(
+                    color: (widget.backgroundColor ?? widget.foregroundColor)
+                        .withValues(alpha: 0.28),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : [],
+        ),
+        child: Center(
+          child: widget.isIconOnly || widget.label == null
+              ? Icon(
+                  widget.icon,
+                  size: widget.compact ? 15 : 17,
+                  color: baseFg,
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      widget.icon,
+                      size: widget.compact ? 13 : 15,
+                      color: baseFg,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      widget.label!,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        color: baseFg,
+                        fontSize: widget.compact ? 11 : 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+
+    if (widget.isMenuTrigger) {
+      return Tooltip(
+        message: widget.tooltip,
+        waitDuration: const Duration(milliseconds: 350),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          cursor: SystemMouseCursors.click,
+          child: buttonWidget,
+        ),
+      );
+    }
+
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 350),
+      child: MouseRegion(
+        onEnter: enabled ? (_) => setState(() => _isHovered = true) : null,
+        onExit: enabled ? (_) => setState(() => _isHovered = false) : null,
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTapDown: enabled ? (_) => setState(() => _isPressed = true) : null,
+          onTapUp: enabled ? (_) => setState(() => _isPressed = false) : null,
+          onTapCancel: enabled ? () => setState(() => _isPressed = false) : null,
+          onTap: widget.onPressed,
+          child: buttonWidget,
+        ),
+      ),
+    );
+  }
+}
+
