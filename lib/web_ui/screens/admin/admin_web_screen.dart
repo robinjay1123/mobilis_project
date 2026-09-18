@@ -4712,6 +4712,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
 
     if (confirm == true) {
+      final dismissLoading = _showActionLoadingModal(
+        'Archiving account for $userName...',
+        'Deactivating user profile and preserving account history...',
+      );
       final nowStr = DateTime.now().toIso8601String();
 
       // Optimistic in-memory update so UI reflects the archived state immediately
@@ -4766,6 +4770,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           SnackBar(content: Text('Error archiving user: $e'), backgroundColor: Colors.red),
         );
         _loadDashboardData();
+      } finally {
+        dismissLoading();
       }
     }
   }
@@ -4822,6 +4828,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
 
     if (confirm == true) {
+      final dismissLoading = _showActionLoadingModal(
+        'Restoring account for $userName...',
+        'Reactivating user profile and restoring permissions...',
+      );
+
       // Optimistic in-memory update so UI reflects the restored state immediately
       setState(() {
         for (final u in _allUsers) {
@@ -4866,6 +4877,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           SnackBar(content: Text('Error restoring user: $e'), backgroundColor: Colors.red),
         );
         _loadDashboardData();
+      } finally {
+        dismissLoading();
       }
     }
   }
@@ -8307,7 +8320,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       onPressed: () => _restoreUser(user),
                                       icon: const Icon(
                                         Icons.unarchive_rounded,
-                                        size: 14,
+                                        size: 15,
                                       ),
                                       label: const Text(
                                         'Restore',
@@ -8321,21 +8334,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                             Colors.green.shade700,
                                         foregroundColor: Colors.white,
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 8,
+                                          horizontal: 14,
+                                          vertical: 10,
                                         ),
-                                        minimumSize: Size.zero,
+                                        minimumSize: const Size(0, 36),
                                         tapTargetSize:
                                             MaterialTapTargetSize.shrinkWrap,
                                         shape: RoundedRectangleBorder(
                                           borderRadius:
                                               BorderRadius.circular(8),
                                         ),
+                                        elevation: 0,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
+                                  const SizedBox(width: 4),
                                   PopupMenuButton<String>(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    splashRadius: 18,
                                     icon: Icon(
                                       Icons.more_vert,
                                       size: 18,
@@ -8538,6 +8555,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,
               foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
         ],
