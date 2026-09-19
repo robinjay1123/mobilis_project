@@ -13,6 +13,7 @@ import 'loyalty_service.dart';
 import 'vehicle_turnaround_service.dart';
 import 'transaction_logger.dart';
 import 'operator_activity_logger.dart';
+import 'payment_service.dart';
 import '../utils/pricing_policy.dart';
 import '../utils/philippine_geocoding.dart';
 import '../utils/booking_status.dart';
@@ -28,6 +29,7 @@ class BookingService {
   BookingService._internal();
 
   SupabaseClient get supabase => Supabase.instance.client;
+  PaymentService get paymentService => PaymentService(client: supabase);
 
   static const Set<String> _nonBlockingStatuses = {
     'cancelled',

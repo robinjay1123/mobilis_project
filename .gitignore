@@ -96,3 +96,4 @@ android/.gradle/
 **/android/local.properties
 android/local.properties
 *.lock
+*.bkp
