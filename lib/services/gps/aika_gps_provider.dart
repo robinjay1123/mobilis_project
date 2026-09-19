@@ -33,17 +33,27 @@ class AikaGpsProvider implements GpsProvider {
     required String deviceIdentifier,
     required String password,
     String action = 'location',
+    String? startDate,
+    String? endDate,
   }) async {
     try {
       final supabase = Supabase.instance.client;
+      final payload = <String, dynamic>{
+        'device_identifier': deviceIdentifier.trim(),
+        'password': password.trim(),
+        'provider': 'aika168',
+        'action': action,
+      };
+      if (startDate != null && startDate.isNotEmpty) {
+        payload['start_date'] = startDate;
+      }
+      if (endDate != null && endDate.isNotEmpty) {
+        payload['end_date'] = endDate;
+      }
+
       final response = await supabase.functions.invoke(
         'gps-tracker-poll',
-        body: {
-          'device_identifier': deviceIdentifier.trim(),
-          'password': password.trim(),
-          'provider': 'aika168',
-          'action': action,
-        },
+        body: payload,
       );
 
       if (response.status != 200) {
@@ -170,5 +180,52 @@ class AikaGpsProvider implements GpsProvider {
       gpsTime: gpsTime ?? DateTime.now().toUtc(),
       receivedAt: DateTime.now(),
     );
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getPlaybackHistory({
+    required String deviceIdentifier,
+    required String password,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    final cleanDevice = deviceIdentifier.trim();
+    final cleanPassword = password.trim();
+
+    if (cleanDevice.isEmpty || cleanPassword.isEmpty) {
+      return [];
+    }
+
+    String fmtDate(DateTime d) {
+      final y = d.year.toString().padLeft(4, '0');
+      final m = d.month.toString().padLeft(2, '0');
+      final day = d.day.toString().padLeft(2, '0');
+      final h = d.hour.toString().padLeft(2, '0');
+      final min = d.minute.toString().padLeft(2, '0');
+      final s = d.second.toString().padLeft(2, '0');
+      return '$y-$m-$day $h:$min:$s';
+    }
+
+    try {
+      final result = await _callEdgeFunction(
+        deviceIdentifier: cleanDevice,
+        password: cleanPassword,
+        action: 'history',
+        startDate: fmtDate(startDate.toLocal()),
+        endDate: fmtDate(endDate.toLocal()),
+      );
+
+      if (result == null || result['success'] != true || result['points'] == null) {
+        return [];
+      }
+
+      final rawList = result['points'] as List<dynamic>;
+      return rawList
+          .whereType<Map<String, dynamic>>()
+          .toList();
+    } catch (e) {
+      debugPrint('[AikaGPS] Error fetching playback history: $e');
+      return [];
+    }
   }
 }

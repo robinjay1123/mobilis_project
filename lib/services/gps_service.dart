@@ -205,7 +205,7 @@ class GpsService {
       'provider': cleanProvider,
       'device_identifier': cleanDevice,
       'encrypted_password': encrypted,
-      'connection_status': 'connected',
+      'connection_status': isValid ? 'connected' : 'standby',
       'last_sync_at': now,
       'updated_at': now,
     };
@@ -451,5 +451,85 @@ class GpsService {
     } catch (e) {
       debugPrint('Error disconnecting tracker: $e');
     }
+  }
+
+  /// Fetches historical GPS playback points from provider (e.g. AIKA168)
+  /// and saves them into tracking_location_logs for permanent availability.
+  Future<List<Map<String, dynamic>>> fetchAndSyncPlaybackHistory({
+    String? vehicleId,
+    String? trackerDeviceId,
+    String? bookingId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    VehicleTracker? tracker;
+    if (vehicleId != null && vehicleId.isNotEmpty) {
+      tracker = await getTrackerForVehicle(vehicleId);
+    }
+    if (tracker == null && trackerDeviceId != null && trackerDeviceId.isNotEmpty) {
+      try {
+        final res = await _supabase
+            .from('vehicle_trackers')
+            .select()
+            .eq('device_identifier', trackerDeviceId.trim())
+            .limit(1);
+        final list = List<Map<String, dynamic>>.from(res);
+        if (list.isNotEmpty) {
+          tracker = VehicleTracker.fromJson(list.first);
+        }
+      } catch (_) {}
+    }
+
+    if (tracker == null || tracker.deviceIdentifier.trim().isEmpty) {
+      return [];
+    }
+
+    final providerImpl = getProvider(tracker.provider);
+    final rawPassword = decryptSecret(tracker.encryptedPassword ?? '');
+
+    final points = await providerImpl.getPlaybackHistory(
+      deviceIdentifier: tracker.deviceIdentifier,
+      password: rawPassword,
+      startDate: startDate,
+      endDate: endDate,
+    );
+
+    if (points.isEmpty) return [];
+
+    // Background sync into tracking_location_logs so future queries load instantly from DB
+    try {
+      final rowsToInsert = <Map<String, dynamic>>[];
+      for (final p in points) {
+        final lat = (p['latitude'] as num?)?.toDouble() ?? 0.0;
+        final lng = (p['longitude'] as num?)?.toDouble() ?? 0.0;
+        if (lat == 0.0 && lng == 0.0) continue;
+
+        rowsToInsert.add({
+          if (bookingId != null && bookingId.isNotEmpty) 'booking_id': bookingId,
+          if (tracker.vehicleId != null) 'vehicle_id': tracker.vehicleId,
+          'tracked_user_id': tracker.deviceIdentifier,
+          'latitude': lat,
+          'longitude': lng,
+          'speed_mps': (p['speed_mps'] as num?)?.toDouble() ?? 0.0,
+          'heading_degrees': (p['heading_degrees'] as num?)?.toDouble() ?? 0.0,
+          'source': 'gps_tracker',
+          'recorded_at': p['recorded_at']?.toString() ?? DateTime.now().toUtc().toIso8601String(),
+        });
+      }
+
+      // Batch insert in chunks of 100
+      for (int i = 0; i < rowsToInsert.length; i += 100) {
+        final chunk = rowsToInsert.sublist(
+          i,
+          i + 100 > rowsToInsert.length ? rowsToInsert.length : i + 100,
+        );
+        await _supabase.from('tracking_location_logs').insert(chunk);
+      }
+      debugPrint('[GpsService] Synced ${rowsToInsert.length} points from ${tracker.provider} into tracking_location_logs');
+    } catch (e) {
+      debugPrint('[GpsService] Note on syncing playback points to DB: $e');
+    }
+
+    return points;
   }
 }

@@ -17,4 +17,12 @@ abstract class GpsProvider {
     required String deviceIdentifier,
     required String password,
   });
+
+  /// Fetches historical GPS playback points from the provider server.
+  Future<List<Map<String, dynamic>>> getPlaybackHistory({
+    required String deviceIdentifier,
+    required String password,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async => [];
 }

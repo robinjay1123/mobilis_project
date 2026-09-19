@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:intl/intl.dart';
 
 import '../../../services/tracking_service.dart';
+import '../../../services/gps_service.dart';
 import '../../../utils/philippine_geocoding.dart';
 import '../../widgets/skeleton_loading.dart';
 
@@ -211,9 +212,38 @@ class _TripRouteHistoryScreenState extends State<TripRouteHistoryScreen> {
         }
       }
 
-      // 3. Road route playback generation:
-      // If pts has < 2 points (no live hardware GPS telemetry logs for this period in DB):
-      // Reconstruct the real road route connecting key stops, aligned with the selected date window!
+      // 2.5 If still sparse (< 2 points), fetch authentic GPS trail directly from provider server (e.g. AIKA168)
+      if (pts.length < 2 && (vId.isNotEmpty || trackerId.isNotEmpty)) {
+        try {
+          final now = DateTime.now();
+          final start = _filterStartDate ?? DateTime(now.year, now.month, now.day, 0, 0, 0);
+          final end = _filterEndDate ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
+          final remoteLogs = await GpsService().fetchAndSyncPlaybackHistory(
+            vehicleId: vId,
+            trackerDeviceId: trackerId,
+            bookingId: bId,
+            startDate: start,
+            endDate: end,
+          );
+          if (remoteLogs.length >= 2) {
+            data = _buildAuditDataFromPoints(
+              remoteLogs,
+              isSimulation: false,
+              isReconstructed: false,
+              booking: (data['booking'] as Map<String, dynamic>?),
+            );
+            pts = (data['routePoints'] as List<dynamic>? ?? [])
+                .map((p) => p as Map<String, dynamic>)
+                .toList();
+          }
+        } catch (gpsSyncErr) {
+          debugPrint('Error syncing remote GPS history from provider: $gpsSyncErr');
+        }
+      }
+
+      // 3. Road route playback generation fallback:
+      // If pts still has < 2 points (no live hardware GPS telemetry logs for this period):
+      // Reconstruct the road route connecting key stops, aligned with the selected date window
       if (pts.length < 2) {
         data = await _buildRoadRouteFromStops(
           bookingId: bId,

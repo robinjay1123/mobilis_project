@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Antigravity-AI">
   <diagram id="page-1-exact" name="Page-1">
-    <mxGraphModel dx="160" dy="94" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1400" pageHeight="1000" background="#000000" math="0" shadow="0">
+    <mxGraphModel dx="1195" dy="701" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1400" pageHeight="1000" background="#000000" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -10,22 +10,22 @@
         <mxCell id="proc_0_body" parent="proc_0" style="align=center;strokeColor=none;fillColor=#000000;fontColor=#ffffff;spacingLeft=4;spacingRight=4;fontSize=12;fontStyle=1;verticalAlign=middle;resizable=0;rotatable=0;part=1;html=1;whiteSpace=wrap;" value="MOBILIS CAR RENTAL&lt;br&gt;MANAGEMENT SYSTEM" vertex="1">
           <mxGeometry height="120" width="210" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="ent_renter" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="Renter / Customer" vertex="1">
+        <mxCell id="ent_renter" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="Renter" vertex="1">
           <mxGeometry height="50" width="130" x="100" y="220" as="geometry" />
         </mxCell>
         <mxCell id="ent_driver" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="Driver" vertex="1">
           <mxGeometry height="50" width="130" x="100" y="430" as="geometry" />
         </mxCell>
-        <mxCell id="ent_partner" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="Fleet Partner / Owner" vertex="1">
+        <mxCell id="ent_partner" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="Partner" vertex="1">
           <mxGeometry height="50" width="140" x="100" y="640" as="geometry" />
         </mxCell>
-        <mxCell id="ent_admin" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="System ADMIN" vertex="1">
+        <mxCell id="ent_admin" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="ADMIN" vertex="1">
           <mxGeometry height="50" width="130" x="960" y="220" as="geometry" />
         </mxCell>
         <mxCell id="ent_operator" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="Operator / Inspector" vertex="1">
           <mxGeometry height="50" width="140" x="960" y="410" as="geometry" />
         </mxCell>
-        <mxCell id="ent_gateway" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="Payment Gateway&lt;br&gt;(GCash / Maya / Card)" vertex="1">
+        <mxCell id="ent_gateway" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="Payment Window" vertex="1">
           <mxGeometry height="55" width="150" x="960" y="580" as="geometry" />
         </mxCell>
         <mxCell id="ent_gps" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;strokeWidth=2;fillColor=#000000;strokeColor=#ffffff;fontColor=#ffffff;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" value="GPS Telemetry Server&lt;br&gt;(Traccar / Aika GPS)" vertex="1">
@@ -116,12 +116,11 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_partner_app" edge="1" parent="1" source="ent_partner" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=1;exitY=0.3;entryX=0.35;entryY=1;" target="proc_0_body" value="Vehicle Registration, OR/CR &amp; Partner Dossier">
+        <mxCell id="e_partner_app" edge="1" parent="1" source="ent_partner" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=1;exitY=0.3;entryX=0.607;entryY=1.019;entryDx=0;entryDy=0;entryPerimeter=0;" target="proc_0_body" value="Vehicle Registration, OR/CR &amp; Partner Dossier">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="350" y="655" />
-              <mxPoint x="350" y="630" />
-              <mxPoint x="573" y="630" />
+              <mxPoint x="627" y="655" />
+              <mxPoint x="627" y="542" />
             </Array>
           </mxGeometry>
         </mxCell>
@@ -133,26 +132,29 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_sys_partner_revenue" edge="1" parent="1" source="proc_0_body" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0.55;exitY=1;entryX=0.5;entryY=0;" target="ent_partner" value="Partner Revenue Remittance &amp; Payout Statements">
+        <mxCell id="e_sys_partner_revenue" edge="1" parent="1" source="proc_0_body" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0.55;exitY=1;entryX=1;entryY=0;entryDx=0;entryDy=0;" target="ent_partner" value="Partner Revenue Remittance &amp; Payout Statements">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="615" y="630" />
-              <mxPoint x="170" y="630" />
+              <mxPoint x="616" y="630" />
+              <mxPoint x="240" y="630" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_admin_decision" edge="1" parent="1" source="ent_admin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0;exitY=0.3;entryX=0.8;entryY=0;" target="proc_0" value="Identity, Partner &amp; Fleet Approval Decisions">
-          <mxGeometry relative="1" as="geometry">
+        <mxCell id="e_admin_decision" edge="1" parent="1" source="ent_admin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0;exitY=0.3;entryX=0.8;entryY=0;" target="proc_0" value="Identity, Driver &amp;amp; Vehicle Approval Decisions">
+          <mxGeometry relative="1" x="-0.3289" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
               <mxPoint x="668" y="235" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_sys_admin_audit" edge="1" parent="1" source="proc_0_body" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=1;exitY=0.2;entryX=0;entryY=0.8;" target="ent_admin" value="Audit Logs, Risk Alerts &amp; Financial Reports">
-          <mxGeometry relative="1" as="geometry">
+        <mxCell id="e_sys_admin_audit" edge="1" parent="1" source="proc_0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0.913;exitY=-0.018;entryX=0;entryY=0.8;exitDx=0;exitDy=0;exitPerimeter=0;" target="ent_admin" value="Audit Logs, Risk Alerts &amp; Financial Reports">
+          <mxGeometry relative="1" x="0.2581" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="860" y="444" />
-              <mxPoint x="860" y="260" />
+              <mxPoint x="692" y="390" />
+              <mxPoint x="690" y="390" />
+              <mxPoint x="690" y="260" />
             </Array>
           </mxGeometry>
         </mxCell>
@@ -164,39 +166,38 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_op_handover_auth" edge="1" parent="1" source="ent_operator" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0;exitY=0.7;entryX=1;entryY=0.55;" target="proc_0_body" value="Vehicle Key Release &amp; Check-In Validation">
+        <mxCell id="e_op_handover_auth" edge="1" parent="1" source="ent_operator" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0.25;exitY=1;entryX=1;entryY=0.55;exitDx=0;exitDy=0;" target="proc_0_body" value="Vehicle Key Release &amp; Check-In Validation">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_sys_op_overview" edge="1" parent="1" source="proc_0_body" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0.9;exitY=1;entryX=0.5;entryY=1;" target="ent_operator" value="Damage Comparison Report &amp; Fleet Operational Queue">
+        <mxCell id="e_sys_op_overview" edge="1" parent="1" source="proc_0_body" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=1;exitY=0.75;entryX=0.5;entryY=1;exitDx=0;exitDy=0;" target="ent_operator" value="Damage Comparison Report&amp;nbsp;">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="689" y="560" />
-              <mxPoint x="1030" y="560" />
+              <mxPoint x="1030" y="510" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_sys_gateway_charge" edge="1" parent="1" source="proc_0_body" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=1;exitY=0.7;entryX=0;entryY=0.3;" target="ent_gateway" value="Payment Charge &amp; Escrow Hold Request">
-          <mxGeometry relative="1" as="geometry">
+        <mxCell id="e_sys_gateway_charge" edge="1" parent="1" source="proc_0" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=1;exitY=1;entryX=0;entryY=0.3;exitDx=0;exitDy=0;" target="ent_gateway" value="Payment Charge">
+          <mxGeometry relative="1" x="0.217" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="840" y="504" />
-              <mxPoint x="840" y="596" />
+              <mxPoint x="710" y="597" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_gateway_callback" edge="1" parent="1" source="ent_gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0;exitY=0.7;entryX=1;entryY=0.85;" target="proc_0_body" value="Payment Approval &amp; Webhook Transaction Token">
-          <mxGeometry relative="1" as="geometry">
+        <mxCell id="e_gateway_callback" edge="1" parent="1" source="ent_gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0;exitY=0.7;entryX=0.857;entryY=1;entryDx=0;entryDy=0;entryPerimeter=0;" target="proc_0_body" value="Payment Approval&amp;nbsp;">
+          <mxGeometry relative="1" x="-0.1074" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="810" y="618" />
-              <mxPoint x="810" y="522" />
+              <mxPoint x="680" y="619" />
             </Array>
           </mxGeometry>
         </mxCell>
         <mxCell id="e_gps_telemetry" edge="1" parent="1" source="ent_gps" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=1.5;fontColor=#ffffff;labelBackgroundColor=#000000;fontSize=10;exitX=0;exitY=0.5;entryX=0.75;entryY=1;" target="proc_0_body" value="Real-Time Coordinates, Speed &amp; Geofence Telemetry">
-          <mxGeometry relative="1" as="geometry">
+          <mxGeometry relative="1" x="-0.307" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="800" y="757" />
-              <mxPoint x="800" y="580" />
-              <mxPoint x="657" y="580" />
+              <mxPoint x="658" y="758" />
+              <mxPoint x="658" y="580" />
             </Array>
           </mxGeometry>
         </mxCell>

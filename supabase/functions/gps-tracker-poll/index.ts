@@ -275,6 +275,110 @@ async function aikaGetTrackingTelemetry(
   return null;
 }
 
+async function aikaGetHistoryTelemetry(
+  session: AikaSession,
+  startDate: string,
+  endDate: string,
+): Promise<any[] | null> {
+  if (!session.internalDeviceId) return null;
+
+  try {
+    const payload = JSON.stringify({
+      DeviceID: session.internalDeviceId,
+      Start: startDate,
+      End: endDate,
+      TimeZone: "China Standard Time",
+      ShowLBS: 0,
+    });
+
+    const resp = await fetch(`${session.server}/Ajax/DevicesAjax.asmx/GetDevicesHistory`, {
+      method: "POST",
+      signal: AbortSignal.timeout(15000),
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Cookie: session.cookie,
+        Referer: `${session.server}/Playback.aspx`,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+      body: payload,
+    });
+
+    if (!resp.ok) return null;
+
+    const data = await resp.json();
+    if (!data || !data.d) return null;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(data.d);
+    } catch {
+      try {
+        let jsonStr = data.d.trim().replace(/([{,])\s*([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+        parsed = JSON.parse(jsonStr);
+      } catch (evalErr) {
+        console.error("Failed to parse Aika history JSON:", evalErr);
+        return null;
+      }
+    }
+
+    if (!parsed || !Array.isArray(parsed.devices)) {
+      return [];
+    }
+
+    const points: any[] = [];
+    for (const d of parsed.devices) {
+      const lat = parseFloat(d.latitude ?? "0");
+      const lng = parseFloat(d.longitude ?? "0");
+      if (lat === 0 && lng === 0) continue;
+
+      const speedKph = parseFloat(d.speed ?? "0");
+      const heading = parseFloat(d.course ?? "0");
+      const recordedAt = d.deviceUtcDate ?? d.serverUtcTime ?? new Date().toISOString();
+
+      points.push({
+        latitude: lat,
+        longitude: lng,
+        speed_kph: speedKph,
+        speed_mps: speedKph / 3.6,
+        heading_degrees: heading,
+        is_stop: d.isStop === 1,
+        source: "gps_tracker",
+        recorded_at: recordedAt,
+      });
+    }
+
+    return points;
+  } catch (err) {
+    console.error("Error in aikaGetHistoryTelemetry:", err);
+    return null;
+  }
+}
+
+async function pollAikaHistory(
+  deviceIdentifier: string,
+  password: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ success: boolean; points?: any[]; error?: string }> {
+  for (const baseServer of AIKA_SERVERS) {
+    const session = await aikaLoginWebForms(baseServer, deviceIdentifier, password);
+    if (session.success) {
+      const points = await aikaGetHistoryTelemetry(session, startDate, endDate);
+      if (points !== null) {
+        return {
+          success: true,
+          points,
+        };
+      }
+    }
+  }
+
+  return {
+    success: false,
+    error: `Could not retrieve history for device ${deviceIdentifier} from AIKA servers.`,
+  };
+}
+
 async function pollAika(
   deviceIdentifier: string,
   password: string,
@@ -314,7 +418,7 @@ Deno.serve(async (request) => {
 
   try {
     const body = await request.json();
-    const { device_identifier, password, provider, action } = body;
+    const { device_identifier, password, provider, action, start_date, end_date } = body;
 
     if (!device_identifier) {
       return jsonResponse(
@@ -346,6 +450,15 @@ Deno.serve(async (request) => {
           error: "Authentication failed with AIKA server. Please check Device ID/IMEI and Password.",
           logs,
         });
+      }
+
+      if (requestAction === "history") {
+        const fmtStart = (start_date ?? "").toString().trim() ||
+          new Date(Date.now() - 86400000).toISOString().replace("T", " ").substring(0, 19);
+        const fmtEnd = (end_date ?? "").toString().trim() ||
+          new Date().toISOString().replace("T", " ").substring(0, 19);
+        const result = await pollAikaHistory(device_identifier, cleanPassword, fmtStart, fmtEnd);
+        return jsonResponse(result);
       }
 
       // Default: fetch location
