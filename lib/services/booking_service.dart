@@ -804,6 +804,43 @@ class BookingService {
             booking['partner_payout_disbursed_at'] = partnerPayout['released_at']?.toString() ?? partnerPayout['created_at']?.toString();
           }
         }
+
+        // Also hydrate refunds from booking_refunds
+        try {
+          final refundsResp = await supabase
+              .from('booking_refunds')
+              .select('*')
+              .inFilter('booking_id', targetBookingIds);
+          final refundByBooking = <String, Map<String, dynamic>>{};
+          for (final r in List<Map<String, dynamic>>.from(refundsResp)) {
+            final bId = r['booking_id']?.toString();
+            if (bId != null) refundByBooking[bId] = r;
+          }
+
+          for (final booking in bookings) {
+            final bId = booking['id']?.toString();
+            if (bId == null) continue;
+            final r = refundByBooking[bId];
+            if (r != null) {
+              booking['refund_status'] ??= r['status'] ?? 'refunded';
+              booking['refund_amount'] ??= (r['amount'] as num?)?.toDouble();
+              booking['refund_reference'] ??= r['payment_reference'] ?? r['refund_reference'];
+              booking['refund_reason'] ??= r['reason'];
+            }
+
+            // Hydrate sparse fields from metadata jsonb if table column was normalized
+            final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata']) : <String, dynamic>{};
+            if (meta.isNotEmpty) {
+              booking['co_traveler_name'] ??= meta['co_traveler_name'];
+              booking['co_traveler_phone'] ??= meta['co_traveler_phone'];
+              booking['co_traveler_license'] ??= meta['co_traveler_license'];
+              booking['renter_signature_url'] ??= meta['renter_signature_url'];
+              booking['delivery_fee'] ??= (meta['delivery_fee'] as num?)?.toDouble();
+            }
+          }
+        } catch (e) {
+          debugPrint('Error hydrating refunds from booking_refunds: $e');
+        }
       } catch (e) {
         debugPrint('Error hydrating payouts from booking_payouts: $e');
       }
