@@ -3135,6 +3135,41 @@ class AdminService {
     }
   }
 
+  /// Prune old GPS tracking logs (Recommendation No. 3)
+  /// Purges tracking_location_logs older than [retentionDays] (default 60).
+  Future<Map<String, dynamic>> pruneOldTelemetry({
+    int retentionDays = 60,
+    int batchLimit = 10000,
+  }) async {
+    try {
+      debugPrint('[AdminService] Calling prune_old_tracking_logs RPC with retention $retentionDays days...');
+      final response = await supabase.rpc(
+        'prune_old_tracking_logs',
+        params: {
+          'p_retention_days': retentionDays,
+          'p_batch_limit': batchLimit,
+        },
+      );
+
+      final data = response is Map<String, dynamic>
+          ? response
+          : (response != null ? Map<String, dynamic>.from(response as Map) : <String, dynamic>{});
+
+      debugPrint('[AdminService] Telemetry prune result: $data');
+      return {
+        'success': true,
+        'data': data,
+        'deleted_count': data['deleted_count'] ?? 0,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('[AdminService] Database error pruning telemetry: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('[AdminService] Error pruning telemetry: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   /// Get error message from exception
   String getErrorMessage(dynamic error) {
     if (error is PostgrestException) {
