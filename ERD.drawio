@@ -5,11 +5,11 @@
       <root>
 <mxCell id="0"/>
 <mxCell id="1" parent="0"/>
-<mxCell id="title_block" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;rounded=0;" value="&lt;b&gt;&lt;font style=&quot;font-size: 26px; color: #FFFFFF; font-family: Segoe UI, sans-serif;&quot;&gt;MOBILIS CAR RENTAL SYSTEM - COMPLETE DATABASE ARCHITECTURE&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: #94A3B8; font-family: Segoe UI, sans-serif;&quot;&gt;Exhaustive 28-Entity Relational Model | All Active Database Columns | Crow&#x27;s Foot ER Notation | Arc Jump Connectors | Zero Entity Collisions&lt;/font&gt;" vertex="1">
-  <mxGeometry x="80" y="30" width="1800" height="60" as="geometry"/>
+<mxCell id="title_block" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;rounded=0;" value="&lt;b&gt;&lt;font style=&quot;font-size: 26px; color: #FFFFFF; font-family: Segoe UI, sans-serif;&quot;&gt;MOBILIS CAR RENTAL SYSTEM - COMPLETE DATABASE ARCHITECTURE&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 13px; color: #94A3B8; font-family: Segoe UI, sans-serif;&quot;&gt;Exhaustive 28-Entity Relational Model | All Active Database Columns | Zero Entity Collisions | Arc Jump Connectors | PostgreSQL 15&lt;/font&gt;" vertex="1">
+  <mxGeometry x="120" y="30" width="1800" height="60" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_driver_tier_history" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="driver_tier_history (6 cols)" vertex="1">
-  <mxGeometry height="204" width="340" x="80" y="140" as="geometry"/>
+  <mxGeometry height="204" width="340" x="120" y="140" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_driver_tier_history_r0" parent="tbl_driver_tier_history" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -66,7 +66,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_driver_availability_schedule" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="driver_availability_schedule (8 cols)" vertex="1">
-  <mxGeometry height="260" width="340" x="80" y="440" as="geometry"/>
+  <mxGeometry height="260" width="340" x="120" y="440" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_driver_availability_schedule_r0" parent="tbl_driver_availability_schedule" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -141,7 +141,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_driver_trips" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="driver_trips (15 cols)" vertex="1">
-  <mxGeometry height="456" width="340" x="80" y="800" as="geometry"/>
+  <mxGeometry height="456" width="340" x="120" y="800" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_driver_trips_r0" parent="tbl_driver_trips" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -279,7 +279,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_driver_documents" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="driver_documents (12 cols)" vertex="1">
-  <mxGeometry height="372" width="340" x="80" y="1360" as="geometry"/>
+  <mxGeometry height="372" width="340" x="120" y="1360" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_driver_documents_r0" parent="tbl_driver_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -390,7 +390,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_driver_earnings" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="driver_earnings (12 cols)" vertex="1">
-  <mxGeometry height="372" width="340" x="80" y="1820" as="geometry"/>
+  <mxGeometry height="372" width="340" x="120" y="1820" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_driver_earnings_r0" parent="tbl_driver_earnings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -501,7 +501,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_drivers" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="drivers (18 cols)" vertex="1">
-  <mxGeometry height="540" width="340" x="520" y="800" as="geometry"/>
+  <mxGeometry height="540" width="340" x="560" y="800" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_drivers_r0" parent="tbl_drivers" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -666,7 +666,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_driver_job_assignments" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="driver_job_assignments (9 cols)" vertex="1">
-  <mxGeometry height="288" width="340" x="520" y="1440" as="geometry"/>
+  <mxGeometry height="288" width="340" x="560" y="1440" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_driver_job_assignments_r0" parent="tbl_driver_job_assignments" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -750,7 +750,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_partner_vehicles" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="partner_vehicles (33 cols)" vertex="1">
-  <mxGeometry height="960" width="340" x="960" y="140" as="geometry"/>
+  <mxGeometry height="960" width="340" x="1000" y="140" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_partner_vehicles_r0" parent="tbl_partner_vehicles" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -1050,7 +1050,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_partner_vehicle_applications" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="partner_vehicle_applications (25 cols)" vertex="1">
-  <mxGeometry height="736" width="340" x="960" y="1200" as="geometry"/>
+  <mxGeometry height="736" width="340" x="1000" y="1200" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_partner_vehicle_applications_r0" parent="tbl_partner_vehicle_applications" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -1278,7 +1278,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_partner_vehicle_documents" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="partner_vehicle_documents (7 cols)" vertex="1">
-  <mxGeometry height="232" width="340" x="960" y="2040" as="geometry"/>
+  <mxGeometry height="232" width="340" x="1000" y="2040" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_partner_vehicle_documents_r0" parent="tbl_partner_vehicle_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -1344,7 +1344,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_vehicle_documents" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="vehicle_documents (5 cols)" vertex="1">
-  <mxGeometry height="176" width="340" x="1420" y="140" as="geometry"/>
+  <mxGeometry height="176" width="340" x="1460" y="140" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_vehicle_documents_r0" parent="tbl_vehicle_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -1392,7 +1392,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_vehicles" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="vehicles (32 cols)" vertex="1">
-  <mxGeometry height="932" width="340" x="1420" y="400" as="geometry"/>
+  <mxGeometry height="932" width="340" x="1460" y="400" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_vehicles_r0" parent="tbl_vehicles" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -1683,7 +1683,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_vehicle_applications" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="vehicle_applications (15 cols)" vertex="1">
-  <mxGeometry height="456" width="340" x="1420" y="1440" as="geometry"/>
+  <mxGeometry height="456" width="340" x="1460" y="1440" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_vehicle_applications_r0" parent="tbl_vehicle_applications" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -1821,7 +1821,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_vehicle_images" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="vehicle_images (7 cols)" vertex="1">
-  <mxGeometry height="232" width="340" x="1420" y="1980" as="geometry"/>
+  <mxGeometry height="232" width="340" x="1460" y="1980" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_vehicle_images_r0" parent="tbl_vehicle_images" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -1887,7 +1887,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_users" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="users (36 cols)" vertex="1">
-  <mxGeometry height="1044" width="340" x="1880" y="400" as="geometry"/>
+  <mxGeometry height="1044" width="340" x="1920" y="400" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_users_r0" parent="tbl_users" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -2214,7 +2214,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_user_verifications" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="user_verifications (21 cols)" vertex="1">
-  <mxGeometry height="624" width="340" x="1880" y="1560" as="geometry"/>
+  <mxGeometry height="624" width="340" x="1920" y="1560" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_user_verifications_r0" parent="tbl_user_verifications" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -2406,7 +2406,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_partners" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="partners (10 cols)" vertex="1">
-  <mxGeometry height="316" width="340" x="2360" y="140" as="geometry"/>
+  <mxGeometry height="316" width="340" x="2400" y="140" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_partners_r0" parent="tbl_partners" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -2499,7 +2499,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_bookings" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="bookings (31 cols)" vertex="1">
-  <mxGeometry height="904" width="340" x="2360" y="540" as="geometry"/>
+  <mxGeometry height="904" width="340" x="2400" y="540" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_bookings_r0" parent="tbl_bookings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -2781,7 +2781,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_renters" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="renters (9 cols)" vertex="1">
-  <mxGeometry height="288" width="340" x="2360" y="1560" as="geometry"/>
+  <mxGeometry height="288" width="340" x="2400" y="1560" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_renters_r0" parent="tbl_renters" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -2865,7 +2865,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_booking_financials" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="booking_financials (12 cols)" vertex="1">
-  <mxGeometry height="372" width="340" x="2840" y="140" as="geometry"/>
+  <mxGeometry height="372" width="340" x="2880" y="140" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_booking_financials_r0" parent="tbl_booking_financials" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -2976,7 +2976,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_booking_events" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="booking_events (8 cols)" vertex="1">
-  <mxGeometry height="260" width="340" x="2840" y="600" as="geometry"/>
+  <mxGeometry height="260" width="340" x="2880" y="600" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_booking_events_r0" parent="tbl_booking_events" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -3051,7 +3051,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_booking_renter_documents" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="booking_renter_documents (10 cols)" vertex="1">
-  <mxGeometry height="316" width="340" x="2840" y="940" as="geometry"/>
+  <mxGeometry height="316" width="340" x="2880" y="940" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_booking_renter_documents_r0" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -3144,7 +3144,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_transactions" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="transactions (7 cols)" vertex="1">
-  <mxGeometry height="232" width="340" x="2840" y="1340" as="geometry"/>
+  <mxGeometry height="232" width="340" x="2880" y="1340" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_transactions_r0" parent="tbl_transactions" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -3210,7 +3210,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_notifications" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="notifications (9 cols)" vertex="1">
-  <mxGeometry height="288" width="340" x="3300" y="140" as="geometry"/>
+  <mxGeometry height="288" width="340" x="3360" y="140" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_notifications_r0" parent="tbl_notifications" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -3294,7 +3294,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_conversations" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="conversations (8 cols)" vertex="1">
-  <mxGeometry height="260" width="340" x="3300" y="520" as="geometry"/>
+  <mxGeometry height="260" width="340" x="3360" y="520" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_conversations_r0" parent="tbl_conversations" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -3369,7 +3369,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_conversation_participants" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="conversation_participants (3 cols)" vertex="1">
-  <mxGeometry height="120" width="340" x="3300" y="860" as="geometry"/>
+  <mxGeometry height="120" width="340" x="3360" y="860" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_conversation_participants_r0" parent="tbl_conversation_participants" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -3399,7 +3399,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_messages" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="messages (16 cols)" vertex="1">
-  <mxGeometry height="484" width="340" x="3300" y="1060" as="geometry"/>
+  <mxGeometry height="484" width="340" x="3360" y="1060" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_messages_r0" parent="tbl_messages" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -3546,7 +3546,7 @@
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
 <mxCell id="tbl_trip_ratings" parent="1" style="shape=table;startSize=36;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=13;fontFamily=Segoe UI,sans-serif;fillColor=#181B24;strokeColor=#475569;strokeWidth=1.8;fontColor=#FFFFFF;rounded=1;arcSize=6;" value="trip_ratings (12 cols)" vertex="1">
-  <mxGeometry height="372" width="340" x="3300" y="1640" as="geometry"/>
+  <mxGeometry height="372" width="340" x="3360" y="1640" as="geometry"/>
 </mxCell>
 <mxCell id="tbl_trip_ratings_r0" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;top=0;left=0;right=0;bottom=1;strokeColor=#334155;" value="" vertex="1">
   <mxGeometry height="28" width="340" y="36" as="geometry"/>
@@ -3656,27 +3656,27 @@
 <mxCell id="tbl_trip_ratings_r11_v" parent="tbl_trip_ratings_r11" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#E2E8F0;fontSize=11;fontFamily=Segoe UI,sans-serif;fontStyle=0;align=left;spacingLeft=8;strokeColor=#334155;" value="updated_at" vertex="1">
   <mxGeometry height="28" width="294" x="46" as="geometry"><mxRectangle height="28" width="294" as="alternateBounds"/></mxGeometry>
 </mxCell>
-<mxCell id="edge_0" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.4;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;" value="operates_as" edge="1" source="tbl_users" target="tbl_drivers">
+<mxCell id="edge_0" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.3;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="operates_as" edge="1" source="tbl_users" target="tbl_drivers">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="1820" y="818"/>
-  <mxPoint x="1820" y="962"/>
+  <mxPoint x="2022" y="80"/>
+  <mxPoint x="730" y="80"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="manages" edge="1" source="tbl_users" target="tbl_partners">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2260" y="504"/>
-  <mxPoint x="2260" y="298"/>
+  <mxPoint x="2300" y="504"/>
+  <mxPoint x="2300" y="298"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_2" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="registers_as" edge="1" source="tbl_users" target="tbl_renters">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2280" y="1235"/>
-  <mxPoint x="2280" y="1704"/>
+  <mxPoint x="2300" y="1235"/>
+  <mxPoint x="2300" y="1704"/>
 </Array>
   </mxGeometry>
 </mxCell>
@@ -3693,50 +3693,52 @@
 <mxCell id="edge_5" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.85;exitDx=0;exitDy=0;entryX=1;entryY=0.4;entryDx=0;entryDy=0;" value="submits" edge="1" source="tbl_users" target="tbl_vehicle_applications">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="1820" y="1287"/>
-  <mxPoint x="1820" y="1622"/>
+  <mxPoint x="1840" y="1287"/>
+  <mxPoint x="1840" y="1622"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_6" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.8;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="receives" edge="1" source="tbl_users" target="tbl_notifications">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2152" y="60"/>
-  <mxPoint x="3470" y="60"/>
+  <mxPoint x="2192" y="60"/>
+  <mxPoint x="3530" y="60"/>
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_7" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.9;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="sends" edge="1" source="tbl_users" target="tbl_messages">
+<mxCell id="edge_7" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.9;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="sends" edge="1" source="tbl_users" target="tbl_messages">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2186" y="1490"/>
-  <mxPoint x="3240" y="1490"/>
-  <mxPoint x="3240" y="1302"/>
+  <mxPoint x="2320" y="1340"/>
+  <mxPoint x="2320" y="2420"/>
+  <mxPoint x="3300" y="2420"/>
+  <mxPoint x="3300" y="1302"/>
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_8" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.7;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="member" edge="1" source="tbl_users" target="tbl_conversation_participants">
+<mxCell id="edge_8" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.95;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="member" edge="1" source="tbl_users" target="tbl_conversation_participants">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2118" y="1470"/>
-  <mxPoint x="3220" y="1470"/>
-  <mxPoint x="3220" y="920"/>
+  <mxPoint x="2340" y="1392"/>
+  <mxPoint x="2340" y="2440"/>
+  <mxPoint x="3320" y="2440"/>
+  <mxPoint x="3320" y="920"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_9" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="availability" edge="1" source="tbl_drivers" target="tbl_driver_availability_schedule">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="460" y="854"/>
-  <mxPoint x="460" y="570"/>
+  <mxPoint x="500" y="854"/>
+  <mxPoint x="500" y="570"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_10" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.05;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="tier_history" edge="1" source="tbl_drivers" target="tbl_driver_tier_history">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="440" y="827"/>
-  <mxPoint x="440" y="242"/>
+  <mxPoint x="480" y="827"/>
+  <mxPoint x="480" y="242"/>
 </Array>
   </mxGeometry>
 </mxCell>
@@ -3748,16 +3750,16 @@
 <mxCell id="edge_12" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="provides" edge="1" source="tbl_drivers" target="tbl_driver_documents">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="460" y="1232"/>
-  <mxPoint x="460" y="1546"/>
+  <mxPoint x="500" y="1232"/>
+  <mxPoint x="500" y="1546"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_13" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.95;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="earns" edge="1" source="tbl_drivers" target="tbl_driver_earnings">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="440" y="1313"/>
-  <mxPoint x="440" y="2006"/>
+  <mxPoint x="480" y="1313"/>
+  <mxPoint x="480" y="2006"/>
 </Array>
   </mxGeometry>
 </mxCell>
@@ -3766,13 +3768,11 @@
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_15" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.3;exitDx=0;exitDy=0;entryX=1;entryY=0.2;entryDx=0;entryDy=0;" value="owns" edge="1" source="tbl_partners" target="tbl_partner_vehicles">
+<mxCell id="edge_15" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.3;exitY=0;exitDx=0;exitDy=0;entryX=0.7;entryY=0;entryDx=0;entryDy=0;" value="owns" edge="1" source="tbl_partners" target="tbl_partner_vehicles">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2300" y="235"/>
-  <mxPoint x="2300" y="80"/>
-  <mxPoint x="1360" y="80"/>
-  <mxPoint x="1360" y="332"/>
+  <mxPoint x="2502" y="70"/>
+  <mxPoint x="1238" y="70"/>
 </Array>
   </mxGeometry>
 </mxCell>
@@ -3791,9 +3791,12 @@
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_19" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="displays" edge="1" source="tbl_vehicles" target="tbl_vehicle_images">
+<mxCell id="edge_19" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.9;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="displays" edge="1" source="tbl_vehicles" target="tbl_vehicle_images">
   <mxGeometry relative="1" as="geometry">
-    
+    <Array as="points">
+  <mxPoint x="1840" y="1238"/>
+  <mxPoint x="1840" y="2096"/>
+</Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_20" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.3;exitY=0;exitDx=0;exitDy=0;entryX=0.3;entryY=1;entryDx=0;entryDy=0;" value="approved_as" edge="1" source="tbl_vehicle_applications" target="tbl_vehicles">
@@ -3801,89 +3804,94 @@
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_21" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.15;entryDx=0;entryDy=0;" value="booked_in (vehicle_id)" edge="1" source="tbl_vehicles" target="tbl_bookings">
+<mxCell id="edge_21" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.05;exitDx=0;exitDy=0;entryX=0;entryY=0.15;entryDx=0;entryDy=0;" value="booked_in (vehicle_id)" edge="1" source="tbl_vehicles" target="tbl_bookings">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="1820" y="586"/>
-  <mxPoint x="1820" y="675"/>
+  <mxPoint x="1840" y="446"/>
+  <mxPoint x="1840" y="350"/>
+  <mxPoint x="2340" y="350"/>
+  <mxPoint x="2340" y="675"/>
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_22" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0;entryY=0.45;entryDx=0;entryDy=0;" value="booked_in (partner_vehicle_id)" edge="1" source="tbl_partner_vehicles" target="tbl_bookings">
+<mxCell id="edge_22" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.9;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.45;entryDx=0;entryDy=0;" value="booked_in (partner_vehicle_id)" edge="1" source="tbl_partner_vehicles" target="tbl_bookings">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="1380" y="716"/>
-  <mxPoint x="1380" y="500"/>
-  <mxPoint x="2310" y="500"/>
-  <mxPoint x="2310" y="946"/>
+  <mxPoint x="1306" y="90"/>
+  <mxPoint x="2320" y="90"/>
+  <mxPoint x="2320" y="946"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_23" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="financial_breakdown" edge="1" source="tbl_bookings" target="tbl_booking_financials">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2760" y="630"/>
-  <mxPoint x="2760" y="326"/>
+  <mxPoint x="2800" y="630"/>
+  <mxPoint x="2800" y="326"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_24" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERzeroToMany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="lifecycle_timeline" edge="1" source="tbl_bookings" target="tbl_booking_events">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2770" y="766"/>
-  <mxPoint x="2770" y="730"/>
+  <mxPoint x="2810" y="766"/>
+  <mxPoint x="2810" y="730"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_25" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="verifies_with" edge="1" source="tbl_bookings" target="tbl_booking_renter_documents">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2760" y="1082"/>
-  <mxPoint x="2760" y="1098"/>
+  <mxPoint x="2800" y="1082"/>
+  <mxPoint x="2800" y="1098"/>
 </Array>
   </mxGeometry>
 </mxCell>
 <mxCell id="edge_26" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.9;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="bills" edge="1" source="tbl_bookings" target="tbl_transactions">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2760" y="1353"/>
-  <mxPoint x="2760" y="1456"/>
+  <mxPoint x="2800" y="1353"/>
+  <mxPoint x="2800" y="1456"/>
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_27" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERzeroToMany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.6;entryDx=0;entryDy=0;" value="receives_reviews" edge="1" source="tbl_bookings" target="tbl_trip_ratings">
+<mxCell id="edge_27" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERzeroToMany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="receives_reviews" edge="1" source="tbl_bookings" target="tbl_trip_ratings">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2632" y="1470"/>
-  <mxPoint x="3240" y="1470"/>
-  <mxPoint x="3240" y="1860"/>
+  <mxPoint x="2800" y="1218"/>
+  <mxPoint x="2800" y="2380"/>
+  <mxPoint x="3320" y="2380"/>
+  <mxPoint x="3320" y="1826"/>
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_28" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;" value="dispatches" edge="1" source="tbl_bookings" target="tbl_driver_job_assignments">
+<mxCell id="edge_28" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.9;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="dispatches" edge="1" source="tbl_bookings" target="tbl_driver_job_assignments">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2300" y="1263"/>
-  <mxPoint x="2300" y="1526"/>
+  <mxPoint x="2340" y="1354"/>
+  <mxPoint x="2340" y="2500"/>
+  <mxPoint x="940" y="2500"/>
+  <mxPoint x="940" y="1584"/>
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_29" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.95;exitDx=0;exitDy=0;entryX=1;entryY=0.8;entryDx=0;entryDy=0;" value="executes" edge="1" source="tbl_bookings" target="tbl_driver_trips">
+<mxCell id="edge_29" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0;exitY=0.95;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="executes" edge="1" source="tbl_bookings" target="tbl_driver_trips">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2280" y="1398"/>
-  <mxPoint x="2280" y="2350"/>
-  <mxPoint x="460" y="2350"/>
-  <mxPoint x="460" y="1164"/>
+  <mxPoint x="2320" y="1398"/>
+  <mxPoint x="2320" y="2530"/>
+  <mxPoint x="60" y="2530"/>
+  <mxPoint x="60" y="1028"/>
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_30" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.9;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" value="booking_id" edge="1" source="tbl_bookings" target="tbl_messages">
+<mxCell id="edge_30" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" value="booking_id" edge="1" source="tbl_bookings" target="tbl_messages">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="2664" y="1490"/>
-  <mxPoint x="3250" y="1490"/>
-  <mxPoint x="3250" y="1205"/>
+  <mxPoint x="2820" y="1263"/>
+  <mxPoint x="2820" y="2400"/>
+  <mxPoint x="3300" y="2400"/>
+  <mxPoint x="3300" y="1205"/>
 </Array>
   </mxGeometry>
 </mxCell>
@@ -3892,11 +3900,11 @@
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_32" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="contains" edge="1" source="tbl_conversations" target="tbl_messages">
+<mxCell id="edge_32" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;arcSize=14;jumpStyle=arc;jumpSize=10;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#94A3B8;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#F1F5F9;fontSize=10;fontFamily=Segoe UI,sans-serif;fontStyle=1;labelBackgroundColor=#0F172A;labelBorderColor=#334155;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;" value="contains" edge="1" source="tbl_conversations" target="tbl_messages">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
-  <mxPoint x="3470" y="780"/>
-  <mxPoint x="3470" y="1060"/>
+  <mxPoint x="3740" y="650"/>
+  <mxPoint x="3740" y="1205"/>
 </Array>
   </mxGeometry>
 </mxCell>
