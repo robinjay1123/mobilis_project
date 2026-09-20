@@ -77,10 +77,17 @@ class BookingService {
           if (match != null && match.groupCount >= 1) {
             final missingCol = match.group(1)!;
             debugPrint(
-              '⚠️ Column "$missingCol" does not exist in bookings schema cache. Stripping and retrying...',
+              '⚠️ Column "$missingCol" does not exist in bookings schema cache. Packing to metadata and retrying...',
             );
-            payload.remove(missingCol);
-            continue; // Retry without the missing column
+            final val = payload.remove(missingCol);
+            if (missingCol != 'metadata' && val != null) {
+              final existingMeta = payload['metadata'] is Map
+                  ? Map<String, dynamic>.from(payload['metadata'] as Map)
+                  : <String, dynamic>{};
+              existingMeta[missingCol] = val;
+              payload['metadata'] = existingMeta;
+            }
+            continue; // Retry with metadata-packed payload
           }
         }
         rethrow;
