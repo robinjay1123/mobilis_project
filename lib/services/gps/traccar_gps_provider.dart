@@ -37,4 +37,15 @@ class TraccarGpsProvider implements GpsProvider {
       receivedAt: DateTime.now(),
     );
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> getPlaybackHistory({
+    required String deviceIdentifier,
+    required String password,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    debugPrint('[TraccarGPS] Playback history stub called for $deviceIdentifier');
+    return [];
+  }
 }
