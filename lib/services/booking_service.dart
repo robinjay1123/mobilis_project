@@ -96,6 +96,25 @@ class BookingService {
                 }),
               );
             }
+            if (const {
+              'rental_subtotal',
+              'delivery_fee',
+              'driver_fee',
+              'total_cost',
+              'reservation_payment_type',
+              'reservation_payment_status',
+              'final_payment_status',
+            }.contains(missingCol) && val != null) {
+              unawaited(
+                supabase.from('booking_financials').upsert({
+                  'booking_id': bookingId,
+                  missingCol: val,
+                  'updated_at': DateTime.now().toIso8601String(),
+                }).catchError((err) {
+                  debugPrint('Non-blocking financials upsert error: $err');
+                }),
+              );
+            }
             if (missingCol != 'metadata' && val != null) {
               final existingMeta = payload['metadata'] is Map
                   ? Map<String, dynamic>.from(payload['metadata'] as Map)
@@ -894,6 +913,69 @@ class BookingService {
       } catch (e) {
         debugPrint('Error hydrating documents from booking_renter_documents: $e');
       }
+
+      // Hydrate financial breakdown from booking_financials
+      try {
+        final finRows = await supabase
+            .from('booking_financials')
+            .select('*')
+            .inFilter('booking_id', targetBookingIds);
+        final finByBooking = <String, Map<String, dynamic>>{};
+        for (final f in List<Map<String, dynamic>>.from(finRows)) {
+          final bId = f['booking_id']?.toString();
+          if (bId != null) finByBooking[bId] = f;
+        }
+
+        for (final booking in bookings) {
+          final bId = booking['id']?.toString();
+          if (bId == null) continue;
+          final fin = finByBooking[bId];
+          if (fin != null) {
+            booking['rental_subtotal'] ??= (fin['rental_subtotal'] as num?)?.toDouble();
+            booking['delivery_fee'] ??= (fin['delivery_fee'] as num?)?.toDouble();
+            booking['driver_fee'] ??= (fin['driver_fee'] as num?)?.toDouble();
+            booking['total_cost'] ??= (fin['total_cost'] as num?)?.toDouble();
+            booking['reservation_payment_type'] ??= fin['reservation_payment_type'];
+            booking['reservation_payment_status'] ??= fin['reservation_payment_status'];
+            booking['final_payment_status'] ??= fin['final_payment_status'];
+          }
+        }
+      } catch (e) {
+        debugPrint('Error hydrating financials from booking_financials: $e');
+      }
+
+      // Hydrate latest lifecycle events from booking_events
+      try {
+        final eventRows = await supabase
+            .from('booking_events')
+            .select('booking_id, event_type, notes, created_at')
+            .inFilter('booking_id', targetBookingIds)
+            .order('created_at', ascending: true);
+
+        for (final ev in List<Map<String, dynamic>>.from(eventRows)) {
+          final bId = ev['booking_id']?.toString();
+          final type = ev['event_type']?.toString();
+          final at = ev['created_at']?.toString();
+          final notes = ev['notes']?.toString();
+          if (bId == null || type == null) continue;
+
+          for (final booking in bookings) {
+            if (booking['id']?.toString() == bId) {
+              if (type == 'approved') {
+                booking['approved_at'] = at;
+                if (notes != null && notes.isNotEmpty) booking['operator_notes'] = notes;
+              } else if (type == 'rejected') {
+                booking['rejected_at'] = at;
+                if (notes != null && notes.isNotEmpty) booking['rejection_reason'] = notes;
+              } else if (type == 'driver_assigned') {
+                booking['driver_assigned_at'] = at;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error hydrating events from booking_events: $e');
+      }
     }
 
     return bookings;
@@ -1533,6 +1615,32 @@ class BookingService {
           });
         } catch (docErr) {
           debugPrint('Non-blocking: could not insert booking_renter_documents: $docErr');
+        }
+      }
+
+      // Persist line-item financials in dedicated booking_financials table
+      if (bookingId != null && bookingId.isNotEmpty) {
+        try {
+          await supabase.from('booking_financials').upsert({
+            'booking_id': bookingId,
+            'rental_subtotal': rentalSubtotal ?? 0.0,
+            'delivery_fee': deliveryFee ?? 0.0,
+            'driver_fee': driverFee ?? 0.0,
+            'reservation_payment_type': reservationPaymentType,
+          });
+        } catch (fErr) {
+          debugPrint('Non-blocking: could not insert booking_financials: $fErr');
+        }
+
+        try {
+          await supabase.from('booking_events').insert({
+            'booking_id': bookingId,
+            'event_type': 'created',
+            'actor_id': renterId,
+            'actor_role': 'renter',
+          });
+        } catch (eErr) {
+          debugPrint('Non-blocking: could not insert booking_events: $eErr');
         }
       }
 
