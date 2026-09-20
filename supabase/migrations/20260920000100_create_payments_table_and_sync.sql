@@ -61,7 +61,8 @@ CREATE INDEX IF NOT EXISTS idx_payments_created_at ON public.payments(created_at
 ALTER TABLE public.bookings
   ADD COLUMN IF NOT EXISTS total_paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
   ADD COLUMN IF NOT EXISTS last_payment_id UUID REFERENCES public.payments(id) ON DELETE SET NULL,
-  ADD COLUMN IF NOT EXISTS last_payment_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS last_payment_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'pending';
 
 CREATE INDEX IF NOT EXISTS idx_bookings_total_paid_amount ON public.bookings(total_paid_amount);
 
@@ -251,7 +252,7 @@ BEGIN
   -- B. Sync Extension Payment
   v_ext_ref := NULLIF(TRIM(COALESCE(NEW.extension_payment_reference, '')), '');
   IF v_ext_ref IS NOT NULL OR NEW.extension_payment_proof_url IS NOT NULL THEN
-    v_ext_amount := COALESCE(NEW.extension_cost, 0.00);
+    v_ext_amount := COALESCE(NEW.extension_additional_price, 0.00);
     INSERT INTO public.payments (
       booking_id,
       payer_user_id,
