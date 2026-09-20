@@ -7,6 +7,7 @@ import 'booking_settlement_service.dart';
 import 'image_optimization_service.dart';
 import 'notification_service.dart';
 import 'loyalty_service.dart';
+import 'booking_service.dart';
 
 class TripRatingService {
   static final TripRatingService _instance = TripRatingService._internal();
@@ -1398,37 +1399,19 @@ class TripRatingService {
     final completionContext = await _assertAllRequiredRatingsComplete(
       bookingId,
     );
-    final ratingsResponse = await supabase
-        .from('trip_ratings')
-        .select('rating')
-        .eq('booking_id', bookingId);
-    final ratings = List<Map<String, dynamic>>.from(ratingsResponse);
-    final ratingCount = ratings.length;
-    final ratingAverage = ratingCount == 0
-        ? 0.0
-        : ratings.fold<double>(
-                0,
-                (sum, row) => sum + ((row['rating'] as num?)?.toDouble() ?? 0),
-              ) /
-              ratingCount;
 
     // Completion is the source of truth for trip history and revenue. Commit
     // it before the retryable accounting work so a temporary ledger failure
     // cannot leave a fully paid and fully rated trip stuck as ongoing.
-    await supabase
-        .from('bookings')
-        .update({
-          'status': 'completed',
-          'completed_at': completedAt,
-          'renter_trip_confirmed_at': completedAt,
-          'completion_stage': 'completed',
-          'completion_rating_average': ratingAverage,
-          'completion_rating_count': ratingCount,
-          'commission_status': 'processing',
-          'commission_eligible_at': completedAt,
-          'updated_at': completedAt,
-        })
-        .eq('id', bookingId);
+    await BookingService.safeUpdateBooking(bookingId, {
+      'status': 'completed',
+      'completed_at': completedAt,
+      'renter_trip_confirmed_at': completedAt,
+      'completion_stage': 'completed',
+      'commission_status': 'processing',
+      'commission_eligible_at': completedAt,
+      'updated_at': completedAt,
+    });
 
     final completionOperator =
         completionContext['operator_user'] is Map<String, dynamic>
@@ -1569,19 +1552,16 @@ class TripRatingService {
         bookingId,
         operatorFallbackUserId: operatorFallbackUserId,
       );
-      await supabase
-          .from('bookings')
-          .update({'commission_status': 'released', 'updated_at': updatedAt})
-          .eq('id', bookingId);
+      await BookingService.safeUpdateBooking(bookingId, {
+        'commission_status': 'released',
+        'updated_at': updatedAt,
+      });
     } catch (error) {
       debugPrint('Settlement retry required for booking $bookingId: $error');
-      await supabase
-          .from('bookings')
-          .update({
-            'commission_status': 'settlement_failed',
-            'updated_at': updatedAt,
-          })
-          .eq('id', bookingId);
+      await BookingService.safeUpdateBooking(bookingId, {
+        'commission_status': 'settlement_failed',
+        'updated_at': updatedAt,
+      });
     }
   }
 

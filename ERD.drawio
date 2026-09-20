@@ -1889,7 +1889,182 @@
 <mxCell id="tbl_transactions_r4_v" parent="tbl_transactions_r4" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="created_at" vertex="1">
   <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_0" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="operates_as" edge="1" source="tbl_users" target="tbl_drivers">
+<mxCell id="tbl_booking_renter_documents" parent="1" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#000000;strokeColor=#ffffff;strokeWidth=1.8;fontColor=#ffffff;" value="booking_renter_documents" vertex="1">
+  <mxGeometry height="300" width="300" x="2360" y="1780" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r0" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=1;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="30" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r0_k" parent="tbl_booking_renter_documents_r0" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;fontColor=#ffffff;fontSize=11;align=center;strokeColor=#555555;" value="PK" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r0_v" parent="tbl_booking_renter_documents_r0" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="id" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r1" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="60" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r1_k" parent="tbl_booking_renter_documents_r1" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;fontColor=#cccccc;fontSize=11;align=center;strokeColor=#555555;" value="FK" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r1_v" parent="tbl_booking_renter_documents_r1" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="booking_id" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r2" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="90" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r2_k" parent="tbl_booking_renter_documents_r2" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;fontColor=#cccccc;fontSize=11;align=center;strokeColor=#555555;" value="FK" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r2_v" parent="tbl_booking_renter_documents_r2" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="renter_id" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r3" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="120" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r3_k" parent="tbl_booking_renter_documents_r3" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r3_v" parent="tbl_booking_renter_documents_r3" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="renter_signature_url" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r4" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="150" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r4_k" parent="tbl_booking_renter_documents_r4" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r4_v" parent="tbl_booking_renter_documents_r4" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="renter_signature_text" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r5" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="180" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r5_k" parent="tbl_booking_renter_documents_r5" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r5_v" parent="tbl_booking_renter_documents_r5" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="renter_valid_id_url" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r6" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="210" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r6_k" parent="tbl_booking_renter_documents_r6" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r6_v" parent="tbl_booking_renter_documents_r6" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="renter_selfie_url" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r7" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="240" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r7_k" parent="tbl_booking_renter_documents_r7" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r7_v" parent="tbl_booking_renter_documents_r7" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="metadata [jsonb]" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r8" parent="tbl_booking_renter_documents" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="270" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r8_k" parent="tbl_booking_renter_documents_r8" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_booking_renter_documents_r8_v" parent="tbl_booking_renter_documents_r8" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="created_at" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings" parent="1" style="shape=table;startSize=30;container=1;collapsible=1;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;resizeLast=1;fontSize=14;fillColor=#000000;strokeColor=#ffffff;strokeWidth=1.8;fontColor=#ffffff;" value="trip_ratings" vertex="1">
+  <mxGeometry height="270" width="300" x="2820" y="1490" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r0" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=1;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="30" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r0_k" parent="tbl_trip_ratings_r0" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;fontColor=#ffffff;fontSize=11;align=center;strokeColor=#555555;" value="PK" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r0_v" parent="tbl_trip_ratings_r0" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="id" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r1" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="60" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r1_k" parent="tbl_trip_ratings_r1" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;fontColor=#cccccc;fontSize=11;align=center;strokeColor=#555555;" value="FK" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r1_v" parent="tbl_trip_ratings_r1" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="booking_id" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r2" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="90" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r2_k" parent="tbl_trip_ratings_r2" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;fontColor=#cccccc;fontSize=11;align=center;strokeColor=#555555;" value="FK" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r2_v" parent="tbl_trip_ratings_r2" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="reviewer_user_id" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r3" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="120" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r3_k" parent="tbl_trip_ratings_r3" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r3_v" parent="tbl_trip_ratings_r3" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="reviewer_role" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r4" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="150" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r4_k" parent="tbl_trip_ratings_r4" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=1;overflow=hidden;fontColor=#cccccc;fontSize=11;align=center;strokeColor=#555555;" value="FK" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r4_v" parent="tbl_trip_ratings_r4" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="target_user_id" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r5" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="180" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r5_k" parent="tbl_trip_ratings_r5" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r5_v" parent="tbl_trip_ratings_r5" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="rating [numeric]" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r6" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="210" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r6_k" parent="tbl_trip_ratings_r6" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r6_v" parent="tbl_trip_ratings_r6" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="comment [text]" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r7" parent="tbl_trip_ratings" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;top=0;left=0;right=0;bottom=0;strokeColor=#ffffff;" value="" vertex="1">
+  <mxGeometry height="30" width="300" y="240" as="geometry"/>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r7_k" parent="tbl_trip_ratings_r7" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=0;overflow=hidden;fontColor=#777777;fontSize=11;align=center;strokeColor=#555555;" value="" vertex="1">
+  <mxGeometry height="30" width="45" as="geometry"><mxRectangle height="30" width="45" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="tbl_trip_ratings_r7_v" parent="tbl_trip_ratings_r7" style="shape=partialRectangle;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;overflow=hidden;fontColor=#ffffff;fontSize=11;align=left;spacingLeft=6;strokeColor=#555555;" value="created_at" vertex="1">
+  <mxGeometry height="30" width="255" x="45" as="geometry"><mxRectangle height="30" width="255" as="alternateBounds"/></mxGeometry>
+</mxCell>
+<mxCell id="edge_visual-wireframe-erd_0" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="verifies_with" edge="1" source="tbl_bookings" target="tbl_booking_renter_documents">
+  <mxGeometry relative="1" as="geometry">
+    <Array as="points">
+  <mxPoint x="2270" y="1420"/>
+  <mxPoint x="2270" y="1910"/>
+</Array>
+  </mxGeometry>
+</mxCell>
+<mxCell id="edge_visual-wireframe-erd_1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERzeroToMany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="receives_reviews" edge="1" source="tbl_bookings" target="tbl_trip_ratings">
+  <mxGeometry relative="1" as="geometry">
+    <Array as="points">
+  <mxPoint x="2290" y="1360"/>
+  <mxPoint x="2290" y="1610"/>
+</Array>
+  </mxGeometry>
+</mxCell>
+<mxCell id="edge_visual-wireframe-erd_2" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="operates_as" edge="1" source="tbl_users" target="tbl_drivers">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1310" y="1415"/>
@@ -1897,7 +2072,7 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="manages" edge="1" source="tbl_users" target="tbl_partners">
+<mxCell id="edge_visual-wireframe-erd_3" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="manages" edge="1" source="tbl_users" target="tbl_partners">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1790" y="1316"/>
@@ -1905,7 +2080,7 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_2" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="registers_as" edge="1" source="tbl_users" target="tbl_renters">
+<mxCell id="edge_visual-wireframe-erd_4" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="registers_as" edge="1" source="tbl_users" target="tbl_renters">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1790" y="1514"/>
@@ -1913,17 +2088,17 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_3" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="verifies" edge="1" source="tbl_users" target="tbl_user_verifications">
+<mxCell id="edge_visual-wireframe-erd_5" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="verifies" edge="1" source="tbl_users" target="tbl_user_verifications">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_4" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;" value="creates" edge="1" source="tbl_users" target="tbl_bookings">
+<mxCell id="edge_visual-wireframe-erd_6" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;" value="creates" edge="1" source="tbl_users" target="tbl_bookings">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_5" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.9;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="receives" edge="1" source="tbl_users" target="tbl_notifications">
+<mxCell id="edge_visual-wireframe-erd_7" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.9;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="receives" edge="1" source="tbl_users" target="tbl_notifications">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1670" y="800"/>
@@ -1931,7 +2106,7 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_6" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="participates" edge="1" source="tbl_users" target="tbl_conversation_participants">
+<mxCell id="edge_visual-wireframe-erd_8" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.8;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="participates" edge="1" source="tbl_users" target="tbl_conversation_participants">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1640" y="1720"/>
@@ -1940,7 +2115,7 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_7" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.2;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="submits" edge="1" source="tbl_users" target="tbl_vehicle_applications">
+<mxCell id="edge_visual-wireframe-erd_9" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.2;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="submits" edge="1" source="tbl_users" target="tbl_vehicle_applications">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1460" y="800"/>
@@ -1950,12 +2125,12 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_8" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="earns" edge="1" source="tbl_drivers" target="tbl_driver_earnings">
+<mxCell id="edge_visual-wireframe-erd_10" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="earns" edge="1" source="tbl_drivers" target="tbl_driver_earnings">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_9" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.2;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="sets" edge="1" source="tbl_drivers" target="tbl_driver_availability_schedule">
+<mxCell id="edge_visual-wireframe-erd_11" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.2;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="sets" edge="1" source="tbl_drivers" target="tbl_driver_availability_schedule">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="850" y="1528"/>
@@ -1963,7 +2138,7 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_10" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.3;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="has" edge="1" source="tbl_drivers" target="tbl_driver_tier_history">
+<mxCell id="edge_visual-wireframe-erd_12" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.3;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="has" edge="1" source="tbl_drivers" target="tbl_driver_tier_history">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="850" y="1567"/>
@@ -1972,17 +2147,17 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_11" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.6;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="conducts" edge="1" source="tbl_drivers" target="tbl_driver_trips">
+<mxCell id="edge_visual-wireframe-erd_13" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.6;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="conducts" edge="1" source="tbl_drivers" target="tbl_driver_trips">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_12" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="assigned" edge="1" source="tbl_drivers" target="tbl_driver_job_assignments">
+<mxCell id="edge_visual-wireframe-erd_14" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="assigned" edge="1" source="tbl_drivers" target="tbl_driver_job_assignments">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_13" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="provides" edge="1" source="tbl_drivers" target="tbl_driver_documents">
+<mxCell id="edge_visual-wireframe-erd_15" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" value="provides" edge="1" source="tbl_drivers" target="tbl_driver_documents">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="850" y="1762"/>
@@ -1990,7 +2165,7 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_14" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.2;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="owns" edge="1" source="tbl_partners" target="tbl_partner_vehicles">
+<mxCell id="edge_visual-wireframe-erd_16" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.2;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="owns" edge="1" source="tbl_partners" target="tbl_partner_vehicles">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1940" y="780"/>
@@ -1998,17 +2173,17 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_15" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.4;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;" value="applies" edge="1" source="tbl_partner_vehicles" target="tbl_partner_vehicle_applications">
+<mxCell id="edge_visual-wireframe-erd_17" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.4;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;" value="applies" edge="1" source="tbl_partner_vehicles" target="tbl_partner_vehicle_applications">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_16" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="contains" edge="1" source="tbl_partner_vehicle_applications" target="tbl_partner_vehicle_documents">
+<mxCell id="edge_visual-wireframe-erd_18" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="contains" edge="1" source="tbl_partner_vehicle_applications" target="tbl_partner_vehicle_documents">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_17" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0.2;entryY=1;entryDx=0;entryDy=0;" value="manages" edge="1" source="tbl_partners" target="tbl_vehicles">
+<mxCell id="edge_visual-wireframe-erd_19" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0.2;entryY=1;entryDx=0;entryDy=0;" value="manages" edge="1" source="tbl_partners" target="tbl_vehicles">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="2250" y="913"/>
@@ -2017,12 +2192,12 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_18" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="has" edge="1" source="tbl_vehicles" target="tbl_vehicle_documents">
+<mxCell id="edge_visual-wireframe-erd_20" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="has" edge="1" source="tbl_vehicles" target="tbl_vehicle_documents">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_19" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="displays" edge="1" source="tbl_vehicles" target="tbl_vehicle_images">
+<mxCell id="edge_visual-wireframe-erd_21" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="displays" edge="1" source="tbl_vehicles" target="tbl_vehicle_images">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="2700" y="456"/>
@@ -2032,12 +2207,12 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_20" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.2;entryDx=0;entryDy=0;" value="approved_to" edge="1" source="tbl_vehicle_applications" target="tbl_vehicles">
+<mxCell id="edge_visual-wireframe-erd_22" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmandOne;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.2;entryDx=0;entryDy=0;" value="approved_to" edge="1" source="tbl_vehicle_applications" target="tbl_vehicles">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_21" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="booked_in" edge="1" source="tbl_vehicles" target="tbl_bookings">
+<mxCell id="edge_visual-wireframe-erd_23" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" value="booked_in" edge="1" source="tbl_vehicles" target="tbl_bookings">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="2470" y="800"/>
@@ -2047,7 +2222,7 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_22" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.9;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="dispatches" edge="1" source="tbl_bookings" target="tbl_driver_job_assignments">
+<mxCell id="edge_visual-wireframe-erd_24" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.9;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="dispatches" edge="1" source="tbl_bookings" target="tbl_driver_job_assignments">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1760" y="1612"/>
@@ -2056,7 +2231,7 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_23" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="executes" edge="1" source="tbl_bookings" target="tbl_driver_trips">
+<mxCell id="edge_visual-wireframe-erd_25" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="executes" edge="1" source="tbl_bookings" target="tbl_driver_trips">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1730" y="1564"/>
@@ -2066,12 +2241,12 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_24" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="bills" edge="1" source="tbl_bookings" target="tbl_transactions">
+<mxCell id="edge_visual-wireframe-erd_26" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="bills" edge="1" source="tbl_bookings" target="tbl_transactions">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_25" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.1;exitDx=0;exitDy=0;entryX=0.3;entryY=1;entryDx=0;entryDy=0;" value="booking_id" edge="1" source="tbl_bookings" target="tbl_messages">
+<mxCell id="edge_visual-wireframe-erd_27" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.1;exitDx=0;exitDy=0;entryX=0.3;entryY=1;entryDx=0;entryDy=0;" value="booking_id" edge="1" source="tbl_bookings" target="tbl_messages">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="2250" y="1228"/>
@@ -2080,17 +2255,17 @@
 </Array>
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_26" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="has" edge="1" source="tbl_conversations" target="tbl_conversation_participants">
+<mxCell id="edge_visual-wireframe-erd_28" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="has" edge="1" source="tbl_conversations" target="tbl_conversation_participants">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_27" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="contains" edge="1" source="tbl_conversations" target="tbl_messages">
+<mxCell id="edge_visual-wireframe-erd_29" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" value="contains" edge="1" source="tbl_conversations" target="tbl_messages">
   <mxGeometry relative="1" as="geometry">
     
   </mxGeometry>
 </mxCell>
-<mxCell id="edge_visual-wireframe-erd_28" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.6;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="sends" edge="1" source="tbl_users" target="tbl_messages">
+<mxCell id="edge_visual-wireframe-erd_30" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#ffffff;strokeWidth=2;startArrow=ERmandOne;startFill=0;endArrow=ERmany;endFill=0;fontColor=#ffffff;fontSize=11;labelBackgroundColor=#000000;exitX=0.6;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" value="sends" edge="1" source="tbl_users" target="tbl_messages">
   <mxGeometry relative="1" as="geometry">
     <Array as="points">
   <mxPoint x="1580" y="820"/>

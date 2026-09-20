@@ -80,6 +80,22 @@ class BookingService {
               '⚠️ Column "$missingCol" does not exist in bookings schema cache. Packing to metadata and retrying...',
             );
             final val = payload.remove(missingCol);
+            if (const {
+              'renter_signature_url',
+              'renter_signature_text',
+              'renter_valid_id_url',
+              'renter_selfie_url',
+            }.contains(missingCol) && val != null) {
+              unawaited(
+                supabase.from('booking_renter_documents').upsert({
+                  'booking_id': bookingId,
+                  missingCol: val,
+                  'updated_at': DateTime.now().toIso8601String(),
+                }).catchError((err) {
+                  debugPrint('Non-blocking doc upsert error: $err');
+                }),
+              );
+            }
             if (missingCol != 'metadata' && val != null) {
               final existingMeta = payload['metadata'] is Map
                   ? Map<String, dynamic>.from(payload['metadata'] as Map)
@@ -851,6 +867,33 @@ class BookingService {
       } catch (e) {
         debugPrint('Error hydrating payouts from booking_payouts: $e');
       }
+
+      // Hydrate digital renter documents from booking_renter_documents
+      try {
+        final docRows = await supabase
+            .from('booking_renter_documents')
+            .select('booking_id, renter_signature_url, renter_signature_text, renter_valid_id_url, renter_selfie_url')
+            .inFilter('booking_id', targetBookingIds);
+        final docsByBooking = <String, Map<String, dynamic>>{};
+        for (final d in List<Map<String, dynamic>>.from(docRows)) {
+          final bId = d['booking_id']?.toString();
+          if (bId != null) docsByBooking[bId] = d;
+        }
+
+        for (final booking in bookings) {
+          final bId = booking['id']?.toString();
+          if (bId == null) continue;
+          final doc = docsByBooking[bId];
+          if (doc != null) {
+            booking['renter_signature_url'] ??= doc['renter_signature_url'];
+            booking['renter_signature_text'] ??= doc['renter_signature_text'];
+            booking['renter_valid_id_url'] ??= doc['renter_valid_id_url'];
+            booking['renter_selfie_url'] ??= doc['renter_selfie_url'];
+          }
+        }
+      } catch (e) {
+        debugPrint('Error hydrating documents from booking_renter_documents: $e');
+      }
     }
 
     return bookings;
@@ -1472,6 +1515,25 @@ class BookingService {
             );
           }),
         );
+      }
+
+      // Persist digital documents in dedicated booking_renter_documents table
+      final hasDocs = renterSignatureUrl.trim().isNotEmpty ||
+          renterValidIdUrl.trim().isNotEmpty ||
+          renterSelfieUrl.trim().isNotEmpty;
+      if (bookingId != null && bookingId.isNotEmpty && hasDocs) {
+        try {
+          await supabase.from('booking_renter_documents').upsert({
+            'booking_id': bookingId,
+            'renter_id': renterId,
+            'renter_signature_url': renterSignatureUrl.trim(),
+            'renter_signature_text': renterSignatureText?.trim(),
+            'renter_valid_id_url': renterValidIdUrl.trim(),
+            'renter_selfie_url': renterSelfieUrl.trim(),
+          });
+        } catch (docErr) {
+          debugPrint('Non-blocking: could not insert booking_renter_documents: $docErr');
+        }
       }
 
       debugPrint('Booking created successfully');
