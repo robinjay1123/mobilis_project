@@ -595,9 +595,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       },
     );
     _actionLogsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 4),
       (_) {
-        if (mounted && _selectedIndex == 12) {
+        if (mounted && (_selectedIndex == 12 || _selectedIndex == 0)) {
           _loadActionLogs(showLoading: false);
         }
       },
@@ -1004,7 +1004,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       if (mounted) {
         _actionLogsRealtimeDebounce?.cancel();
         _actionLogsRealtimeDebounce = Timer(
-          const Duration(milliseconds: 2500),
+          const Duration(milliseconds: 1000),
           () {
             if (mounted && (_selectedIndex == 12 || _selectedIndex == 0)) {
               _loadActionLogs(showLoading: false);
@@ -1026,6 +1026,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'bookings',
+          callback: handleActionLogChange,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'booking_events',
           callback: handleActionLogChange,
         )
         .onPostgresChanges(
@@ -5372,9 +5378,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             } else if (index == 12) {
               _unreadActionLogsCount = 0;
               _saveLastSeenActionLogCount(_actionLogs.length);
-              if (_actionLogs.isEmpty) {
-                _loadActionLogs();
-              }
+              _loadActionLogs(showLoading: _actionLogs.isEmpty);
             } else if (index == 7) {
               _unreadSupportCount = 0;
               _saveLastSeenSupportCount(_supportConversations.length);
@@ -5605,6 +5609,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
     if (_selectedIndex == 7) {
       await _loadSupportInbox();
+      return;
+    }
+    if (_selectedIndex == 12) {
+      await _loadActionLogs(showLoading: false);
       return;
     }
     await _loadDashboardData();
@@ -23407,6 +23415,52 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       ),
                                     ),
                                   ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: _isLoadingActionLogs
+                                    ? null
+                                    : () => _loadActionLogs(showLoading: true),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? Colors.white.withValues(alpha: 0.08)
+                                        : Colors.black.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _isLoadingActionLogs
+                                          ? const SizedBox(
+                                              width: 10,
+                                              height: 10,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 1.5,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.refresh_rounded,
+                                              size: 13,
+                                              color: AppColors.primary,
+                                            ),
+                                      const SizedBox(width: 4),
+                                      const Text(
+                                        'REFRESH',
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],

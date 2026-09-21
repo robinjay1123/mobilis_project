@@ -1437,7 +1437,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final response = await _supabase
           .from('users')
           .select(
-            'id, full_name, email, phone, location, avatar_url, profile_picture_url',
+            'id, full_name, email, phone, location, avatar_url',
           )
           .eq('id', currentUser.id)
           .maybeSingle();
@@ -2426,8 +2426,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   location,
                   latitude,
                   longitude,
-                  avatar_url,
-                  profile_picture_url
+                  avatar_url
                 ),
                 vehicle_images(id, image_url, display_order)
               ),
@@ -2456,8 +2455,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     full_name,
                     email,
                     phone,
-                    avatar_url,
-                    profile_picture_url
+                    avatar_url
                   )
                 ),
                 vehicle_images(id, image_url, display_order)
@@ -2471,7 +2469,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 latitude,
                 longitude,
                 avatar_url,
-                profile_picture_url,
                 id_verified,
                 verification_status
               ),
@@ -2482,8 +2479,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   full_name,
                   email,
                   phone,
-                  avatar_url,
-                  profile_picture_url
+                  avatar_url
                 )
               ),
               job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (
@@ -2560,8 +2556,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 full_name,
                 email,
                 phone,
-                avatar_url,
-                profile_picture_url
+                avatar_url
               )
             ''')
             .neq('extension_status', 'none')
@@ -2671,22 +2666,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             id,
             operator_id,
             vehicle_id,
+            partner_vehicle_id,
             renter_id,
             status,
+            payment_status,
             total_price,
-            total_cost,
-            final_payment_status,
+            total_paid_amount,
             final_payment_confirmed_at,
             completion_stage,
-            commission_status,
             created_at,
             completed_at,
+            booking_financials (
+              total_cost,
+              final_payment_status,
+              reservation_payment_status
+            ),
             renter:users!bookings_renter_id_fkey (
               id,
               full_name,
               email,
-              avatar_url,
-              profile_picture_url
+              avatar_url
             ),
             vehicles:vehicle_id (
               id,
@@ -2696,10 +2695,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               plate_number,
               vehicle_name,
               owner_role,
-              operator_id
+              operator_id,
+              vehicle_images (
+                id,
+                image_url,
+                display_order
+              )
             )
           ''')
-          .eq('operator_id', operatorId)
           .order('created_at', ascending: false);
       _operatorRevenueBookings = List<Map<String, dynamic>>.from(response);
     } catch (e) {
@@ -2749,16 +2752,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final candidates = _operatorRevenueBookings
         .where((booking) {
           final status = bookingStatusGroup(booking['status']);
-          final paymentStatus = booking['final_payment_status']
+          final financials = booking['booking_financials'];
+          final finStatus = financials is Map
+              ? financials['final_payment_status']?.toString().trim().toLowerCase()
+              : null;
+          final paymentStatus = (booking['payment_status'] ??
+                  booking['final_payment_status'] ??
+                  finStatus)
               ?.toString()
               .trim()
               .toLowerCase();
+          final isPaid = paymentStatus == 'paid' ||
+              paymentStatus == 'completed' ||
+              (booking['total_paid_amount'] as num? ?? 0) > 0;
           final commissionStatus = booking['commission_status']
               ?.toString()
               .trim()
               .toLowerCase();
           return status == BookingStatusGroup.completed &&
-              paymentStatus == 'paid' &&
+              isPaid &&
               commissionStatus != 'released';
         })
         .take(8);
@@ -6510,11 +6522,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (operatorId == null || operatorId.isEmpty) {
       return const <Map<String, dynamic>>[];
     }
-    return _operatorRevenueBookings;
+    final source = _operatorRevenueBookings.isNotEmpty
+        ? _operatorRevenueBookings
+        : _recentBookings;
+
+    final filtered = source.where((booking) {
+      final bOpId = booking['operator_id']?.toString().trim();
+      if (bOpId != null && bOpId.isNotEmpty) {
+        return bOpId == operatorId;
+      }
+      final v = booking['vehicles'];
+      if (v is Map) {
+        final vOpId = v['operator_id']?.toString().trim();
+        if (vOpId != null && vOpId.isNotEmpty) {
+          return vOpId == operatorId;
+        }
+      }
+      return true;
+    }).toList();
+
+    return filtered.isNotEmpty ? filtered : source;
+  }
+
+  Map<String, dynamic>? _extractBookingFinancials(Map<String, dynamic> booking) {
+    final raw = booking['booking_financials'];
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is List && raw.isNotEmpty && raw.first is Map) {
+      return Map<String, dynamic>.from(raw.first as Map);
+    }
+    return null;
   }
 
   double _bookingAmount(Map<String, dynamic> booking) {
+    final financials = _extractBookingFinancials(booking);
+    final finCost = (financials?['total_cost'] as num?)?.toDouble();
     return (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_paid_amount'] as num?)?.toDouble() ??
+        finCost ??
         (booking['total_cost'] as num?)?.toDouble() ??
         0;
   }
@@ -6538,13 +6583,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   bool _isPaidCompletedBooking(Map<String, dynamic> booking) {
-    final paymentStatus = booking['final_payment_status']
+    final financials = _extractBookingFinancials(booking);
+    final finStatus =
+        financials?['final_payment_status']?.toString().trim().toLowerCase();
+    final paymentStatus = (booking['payment_status'] ??
+            booking['final_payment_status'] ??
+            finStatus)
         ?.toString()
         .trim()
         .toLowerCase();
+    final isPaid = paymentStatus == 'paid' ||
+        paymentStatus == 'completed' ||
+        (booking['total_paid_amount'] as num? ?? 0) > 0;
     return bookingStatusGroup(booking['status']) ==
             BookingStatusGroup.completed &&
-        paymentStatus == 'paid';
+        isPaid;
   }
 
   Set<String> _settlementBookingIds(List<Map<String, dynamic>> settlements) {
@@ -6628,11 +6681,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         .toList();
     final releasedBookingIds = _settlementBookingIds(releasedSettlements);
     final fullyPaid = managed.where((booking) {
-      final paymentStatus = booking['final_payment_status']
+      final financials = _extractBookingFinancials(booking);
+      final finStatus =
+          financials?['final_payment_status']?.toString().trim().toLowerCase();
+      final paymentStatus = (booking['payment_status'] ??
+              booking['final_payment_status'] ??
+              finStatus)
           ?.toString()
           .trim()
           .toLowerCase();
+      final hasPaidAmount = (booking['total_paid_amount'] as num? ?? 0) > 0;
       return paymentStatus == 'paid' ||
+          paymentStatus == 'completed' ||
+          hasPaidAmount ||
           releasedBookingIds.contains(booking['id']?.toString());
     }).toList();
     final completed = managed
@@ -14139,7 +14200,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         final dRes = await _supabase
             .from('drivers')
             .select(
-                'id, user_id, user:users!drivers_user_id_fkey(id, full_name, email, phone, avatar_url, profile_picture_url)')
+                'id, user_id, user:users!drivers_user_id_fkey(id, full_name, email, phone, avatar_url)')
             .eq('id', driverId)
             .maybeSingle();
         if (dRes != null && dRes['user'] != null) {
@@ -14148,7 +14209,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           final uRes = await _supabase
               .from('users')
               .select(
-                  'id, full_name, email, phone, avatar_url, profile_picture_url')
+                  'id, full_name, email, phone, avatar_url')
               .eq('id', driverId)
               .maybeSingle();
           if (uRes != null) {
@@ -14189,7 +14250,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         final uRes = await _supabase
             .from('users')
             .select(
-                'id, full_name, email, phone, avatar_url, profile_picture_url, role')
+                'id, full_name, email, phone, avatar_url, role')
             .eq('id', partnerId.toString())
             .maybeSingle();
         if (uRes != null) {
@@ -14198,7 +14259,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           final pRes = await _supabase
               .from('partners')
               .select(
-                  'id, business_name, business_phone, user:users(id, full_name, email, phone, avatar_url, profile_picture_url)')
+                  'id, business_name, business_phone, user:users(id, full_name, email, phone, avatar_url)')
               .eq('id', partnerId.toString())
               .maybeSingle();
           if (pRes != null) {

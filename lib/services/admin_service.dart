@@ -1214,10 +1214,26 @@ class AdminService {
             .from('bookings')
             .select('''
               *,
-              renter:users!renter_id(full_name, email, role),
-              vehicle:vehicles!vehicle_id(brand, model, vehicle_name, owner_id),
-              driver_user:users!driver_id(full_name),
-              operator_user:users!operator_id(full_name)
+              vehicles:vehicle_id (
+                id,
+                brand,
+                model,
+                vehicle_name,
+                owner_id,
+                owner_role,
+                operator_id
+              ),
+              renter:renter_id (id, full_name, email, role),
+              drivers:drivers!bookings_driver_id_fkey (
+                id,
+                user_id,
+                users:users!drivers_user_id_fkey (id, full_name, email)
+              ),
+              booking_financials (
+                total_cost,
+                final_payment_status,
+                reservation_payment_status
+              )
             ''')
             .order('updated_at', ascending: false)
             .limit(limit);
@@ -1242,17 +1258,21 @@ class AdminService {
               ? renterMap['full_name'].toString().trim()
               : 'Renter (${renterMap['email'] ?? 'Unknown'})';
 
-          final vehicleMap = booking['vehicle'] is Map<String, dynamic>
-              ? Map<String, dynamic>.from(booking['vehicle'])
+          final vehicleMap = (booking['vehicles'] ?? booking['vehicle']) is Map<String, dynamic>
+              ? Map<String, dynamic>.from(booking['vehicles'] ?? booking['vehicle'])
               : <String, dynamic>{};
           final vehicleName = vehicleMap['vehicle_name']?.toString().trim().isNotEmpty == true
               ? vehicleMap['vehicle_name'].toString().trim()
               : '${vehicleMap['brand'] ?? ''} ${vehicleMap['model'] ?? ''}'.trim();
           final vehicleDisplay = vehicleName.isNotEmpty ? vehicleName : 'Vehicle';
 
-          final driverMap = booking['driver_user'] is Map<String, dynamic>
-              ? Map<String, dynamic>.from(booking['driver_user'])
-              : <String, dynamic>{};
+          final driverData = booking['drivers'];
+          final driverUser = driverData is Map ? driverData['users'] : null;
+          final driverMap = driverUser is Map<String, dynamic>
+              ? driverUser
+              : (booking['driver_user'] is Map<String, dynamic>
+                  ? booking['driver_user'] as Map<String, dynamic>
+                  : <String, dynamic>{});
           final driverName = driverMap['full_name']?.toString().trim().isNotEmpty == true
               ? driverMap['full_name'].toString().trim()
               : 'Assigned Driver';
@@ -1421,9 +1441,19 @@ class AdminService {
           }
 
           // Log F: Final Payment Confirmed
-          final paymentStatus = booking['final_payment_status']?.toString().toLowerCase();
+          final fin = booking['booking_financials'];
+          final finMap = fin is Map ? fin : (fin is List && fin.isNotEmpty ? fin.first as Map : null);
+          final finStatus = finMap?['final_payment_status']?.toString().toLowerCase();
+          final paymentStatus = (booking['payment_status'] ??
+                  booking['final_payment_status'] ??
+                  finStatus)
+              ?.toString()
+              .toLowerCase();
+          final isPaid = paymentStatus == 'paid' ||
+              paymentStatus == 'completed' ||
+              (booking['total_paid_amount'] as num? ?? 0) > 0;
           final paymentConfirmedAt = booking['final_payment_confirmed_at']?.toString();
-          if (paymentStatus == 'paid' && paymentConfirmedAt != null && paymentConfirmedAt.isNotEmpty) {
+          if (isPaid && paymentConfirmedAt != null && paymentConfirmedAt.isNotEmpty) {
             final key = 'payment-$bookingId';
             if (!seenKeys.contains(key)) {
               seenKeys.add(key);
@@ -1657,11 +1687,143 @@ class AdminService {
             'metadata': {'inspector_name': inspectorName, 'inspection_type': type},
           });
         }
+      // 5. Fetch append-only booking_events timeline entries
+      try {
+        final eventRows = await supabase
+            .from('booking_events')
+            .select('''
+              id,
+              booking_id,
+              event_type,
+              actor_id,
+              actor_role,
+              notes,
+              event_payload,
+              created_at
+            ''')
+            .order('created_at', ascending: false)
+            .limit(limit);
+
+        final actorIds = <String>{};
+        for (final ev in List<Map<String, dynamic>>.from(eventRows)) {
+          final aId = ev['actor_id']?.toString().trim();
+          if (aId != null && aId.isNotEmpty) {
+            actorIds.add(aId);
+          }
+        }
+        final actorMap = <String, String>{};
+        if (actorIds.isNotEmpty) {
+          try {
+            final uRows = await supabase
+                .from('users')
+                .select('id, full_name, email')
+                .inFilter('id', actorIds.toList());
+            for (final u in List<Map<String, dynamic>>.from(uRows)) {
+              final uid = u['id']?.toString() ?? '';
+              final name = u['full_name']?.toString().trim();
+              final email = u['email']?.toString().trim();
+              actorMap[uid] = (name != null && name.isNotEmpty)
+                  ? name
+                  : (email != null && email.isNotEmpty ? email : 'User');
+            }
+          } catch (uErr) {
+            debugPrint('Warning resolving actor users: $uErr');
+          }
+        }
+
+        for (final row in List<Map<String, dynamic>>.from(eventRows)) {
+          final id = row['id']?.toString() ?? '';
+          final key = 'bevent-$id';
+          if (seenKeys.contains(key)) continue;
+          seenKeys.add(key);
+
+          final eventType = row['event_type']?.toString().toLowerCase().trim() ?? 'event';
+          final bookingId = row['booking_id']?.toString() ?? '';
+          final shortId = bookingId.length > 8
+              ? '#${bookingId.substring(0, 8).toUpperCase()}'
+              : '#$bookingId';
+          final actorId = row['actor_id']?.toString().trim() ?? '';
+          final actorRole = row['actor_role']?.toString().toLowerCase().trim() ?? 'operator';
+          final actorName = actorMap[actorId] ??
+              (actorRole == 'renter'
+                  ? 'Renter'
+                  : (actorRole == 'admin'
+                      ? 'Administrator'
+                      : (actorRole == 'partner' ? 'Partner Host' : 'Operator Desk')));
+          final notes = row['notes']?.toString().trim() ?? '';
+          final payload = row['event_payload'] is Map
+              ? Map<String, dynamic>.from(row['event_payload'])
+              : <String, dynamic>{};
+          final createdAt = row['created_at']?.toString() ?? '';
+
+          String category = 'SYSTEM';
+          String displayNotes = notes;
+
+          switch (eventType) {
+            case 'created':
+              category = 'RENTER REQUEST';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : '$actorName submitted reservation $shortId';
+              break;
+            case 'approved':
+              category = 'BOOKING APPROVAL';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : '$actorName approved reservation $shortId';
+              break;
+            case 'rejected':
+            case 'cancelled':
+            case 'auto_cancelled':
+              category = 'BOOKING CANCEL';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : 'Reservation $shortId was $eventType';
+              break;
+            case 'driver_assigned':
+              category = 'DRIVER ASSIGNMENT';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : '$actorName assigned driver to $shortId';
+              break;
+            case 'picked_up':
+              category = 'TRIP PICKUP';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : 'Vehicle released and trip started for $shortId';
+              break;
+            case 'returned':
+              category = 'TRIP RETURN';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : 'Vehicle returned for reservation $shortId';
+              break;
+            case 'completed':
+              category = 'TRIP COMPLETED';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : 'Trip completed for reservation $shortId';
+              break;
+            case 'payment_verified':
+            case 'final_payment_paid':
+              category = 'PAYMENT CONFIRMED';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : 'Payment confirmed for reservation $shortId';
+              break;
+            case 'extension_requested':
+            case 'extension_approved':
+            case 'extension_finalized':
+              category = 'TRIP EXTENSION';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : 'Extension update ($eventType) for reservation $shortId';
+              break;
+            default:
+              category = 'SYSTEM';
+              displayNotes = displayNotes.isNotEmpty ? displayNotes : '$eventType on reservation $shortId';
+          }
+
+          logs.add({
+            'id': key,
+            'timestamp': createdAt,
+            'category': category,
+            'action_type': eventType,
+            'entity_type': 'booking_event',
+            'actor_name': actorName,
+            'actor_role': actorRole,
+            'notes': displayNotes,
+            'booking_id': bookingId,
+            'metadata': payload,
+          });
+        }
       } catch (e) {
-        debugPrint('Warning fetching inspection action logs: $e');
+        debugPrint('Warning fetching booking_events logs: $e');
       }
 
-      // 5. Sort all combined logs by timestamp descending
+      // 6. Sort all combined logs by timestamp descending
       logs.sort((a, b) {
         final aTime = DateTime.tryParse(a['timestamp']?.toString() ?? '') ?? DateTime(1970);
         final bTime = DateTime.tryParse(b['timestamp']?.toString() ?? '') ?? DateTime(1970);
