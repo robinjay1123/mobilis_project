@@ -2163,7 +2163,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             .from('users')
             .select(
               'id, email, full_name, phone, role, created_at, id_verified, '
-              'verification_status, updated_at, avatar_url, profile_picture_url, profile_image, image_url, '
+              'verification_status, updated_at, avatar_url, '
               'is_archived, archived_at, is_active, restriction_reason, archive_reason',
             )
             .order('created_at', ascending: false)
@@ -2175,7 +2175,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     .from('users')
                     .select(
                       'id, email, full_name, phone, role, created_at, id_verified, '
-                      'verification_status, updated_at, avatar_url, profile_picture_url, profile_image, image_url, '
+                      'verification_status, updated_at, avatar_url, '
                       'is_active, restriction_reason',
                     )
                     .order('created_at', ascending: false);

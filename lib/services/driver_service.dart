@@ -2050,7 +2050,7 @@ class DriverService {
           final vRows = await supabase
               .from('vehicles')
               .select(
-                'id, brand, model, year, vehicle_name, plate_number, owner_id, image_url, vehicle_images(image_url, display_order)',
+                'id, brand, model, year, vehicle_name, plate_number, owner_id, vehicle_images(image_url, display_order)',
               )
               .inFilter('id', vehicleIds);
           for (final v in List<Map<String, dynamic>>.from(vRows)) {
@@ -2071,7 +2071,7 @@ class DriverService {
           final pvRows = await supabase
               .from('partner_vehicles')
               .select(
-                'id, brand, model, year, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order)',
+                'id, brand, model, year, vehicle_name, plate_number, vehicle_images(image_url, display_order)',
               )
               .inFilter('id', partnerVehicleIds);
           for (final pv in List<Map<String, dynamic>>.from(pvRows)) {

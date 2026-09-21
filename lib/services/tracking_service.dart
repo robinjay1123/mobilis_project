@@ -1208,7 +1208,7 @@ class TrackingService {
         try {
           allVehicles = await supabase
               .from('vehicles')
-              .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, image_url, vehicle_images(id, image_url, display_order)')
+              .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude, vehicle_images(id, image_url, display_order)')
               .not('latitude', 'is', null)
               .not('longitude', 'is', null);
         } catch (_) {

@@ -40,7 +40,7 @@ class ChatService {
             .from('bookings')
             .select(
               'id, status, start_at, end_at, start_date, end_date, vehicle_id, '
-              'vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order))',
+              'vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name, plate_number, vehicle_images(image_url, display_order))',
             )
             .eq('id', bookingId)
             .maybeSingle();
@@ -65,7 +65,7 @@ class ChatService {
             final vehicle = await supabase
                 .from('vehicles')
                 .select(
-                  'id, brand, model, vehicle_name, plate_number, image_url, vehicle_images(image_url, display_order)',
+                  'id, brand, model, vehicle_name, plate_number, vehicle_images(image_url, display_order)',
                 )
                 .eq('id', vehicleId)
                 .maybeSingle();
@@ -75,7 +75,7 @@ class ChatService {
               final pv = await supabase
                   .from('partner_vehicles')
                   .select(
-                    'id, brand, model, vehicle_name, plate_number, image_url',
+                    'id, brand, model, vehicle_name, plate_number',
                   )
                   .eq('id', vehicleId)
                   .maybeSingle();
@@ -89,7 +89,7 @@ class ChatService {
             final pv = await supabase
                 .from('partner_vehicles')
                 .select(
-                  'id, brand, model, vehicle_name, plate_number, image_url',
+                  'id, brand, model, vehicle_name, plate_number',
                 )
                 .eq('id', partnerVehicleId)
                 .maybeSingle();
@@ -188,7 +188,6 @@ class ChatService {
                   model,
                   vehicle_name,
                   plate_number,
-                  image_url,
                   vehicle_images(image_url, display_order)
                 )
               )

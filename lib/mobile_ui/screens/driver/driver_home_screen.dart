@@ -4889,38 +4889,6 @@ class _DriverVehicleThumbnailState extends State<_DriverVehicleThumbnail> {
           return;
         }
       }
-
-      final vRow = await supabase
-          .from('vehicles')
-          .select('image_url')
-          .eq('id', vId)
-          .maybeSingle();
-      if (vRow != null && vRow['image_url'] != null) {
-        final resolved = _resolveDriverVehicleImageUrl(vRow);
-        if (resolved.isNotEmpty && mounted) {
-          setState(() {
-            _imageUrl = resolved;
-            _isLoading = false;
-          });
-          return;
-        }
-      }
-
-      final pvRow = await supabase
-          .from('partner_vehicles')
-          .select('image_url')
-          .eq('id', vId)
-          .maybeSingle();
-      if (pvRow != null && pvRow['image_url'] != null) {
-        final resolved = _resolveDriverVehicleImageUrl(pvRow);
-        if (resolved.isNotEmpty && mounted) {
-          setState(() {
-            _imageUrl = resolved;
-            _isLoading = false;
-          });
-          return;
-        }
-      }
     } catch (e) {
       debugPrint('Error lazily fetching vehicle image for driver modal: $e');
     } finally {
