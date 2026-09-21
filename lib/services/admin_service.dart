@@ -1687,6 +1687,10 @@ class AdminService {
             'metadata': {'inspector_name': inspectorName, 'inspection_type': type},
           });
         }
+      } catch (e) {
+        debugPrint('Warning fetching vehicle inspection logs: $e');
+      }
+
       // 5. Fetch append-only booking_events timeline entries
       try {
         final eventRows = await supabase
