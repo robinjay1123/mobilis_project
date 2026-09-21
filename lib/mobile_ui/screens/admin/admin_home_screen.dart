@@ -117,13 +117,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       // Total bookings
       final totalBookingsResponse = await _supabase
           .from('bookings')
-          .select('id, total_cost');
+          .select('id, total_price');
       _totalBookings = (totalBookingsResponse as List).length;
 
       // Total revenue
       _totalRevenue = 0;
       for (var booking in totalBookingsResponse) {
-        _totalRevenue += (booking['total_cost'] as num?)?.toDouble() ?? 0;
+        _totalRevenue += (booking['total_price'] as num?)?.toDouble() ??
+            (booking['total_cost'] as num?)?.toDouble() ??
+            0;
       }
     } catch (e) {
       debugPrint('Error loading stats: $e');

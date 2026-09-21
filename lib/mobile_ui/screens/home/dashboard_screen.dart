@@ -8313,7 +8313,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final now = DateTime.now().toUtc().toIso8601String();
       final isDeskPayment = proof.method == 'psdc_desk_counter';
 
-      await Supabase.instance.client.from('bookings').update({
+      await BookingService.safeUpdateBooking(bookingId, {
         'reservation_payment_covers_total': true,
         'reservation_payment_type': 'full_payment',
         'reservation_payment_status': isDeskPayment ? 'verified' : 'pending_review',
@@ -8335,7 +8335,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             'final_payment_confirmed_by': proof.operatorId,
         },
         'updated_at': now,
-      }).eq('id', bookingId);
+      });
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

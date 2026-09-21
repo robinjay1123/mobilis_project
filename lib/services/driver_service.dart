@@ -863,7 +863,6 @@ class DriverService {
               .from('bookings')
               .update({
                 'driver_id': null,
-                'driver_assigned_at': null,
                 'status': 'pending',
                 'updated_at': now,
               })

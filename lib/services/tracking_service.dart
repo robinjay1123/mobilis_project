@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'notification_service.dart';
 import 'gps_service.dart';
+import 'booking_service.dart';
 import '../models/gps_tracker_model.dart';
 import '../utils/philippine_geocoding.dart';
 
@@ -2750,12 +2751,13 @@ class TrackingService {
           .maybeSingle();
 
       final booking = bookingResponse != null
-          ? Map<String, dynamic>.from(bookingResponse)
+          ? (await BookingService().hydrateBookings([Map<String, dynamic>.from(bookingResponse)])).first
           : <String, dynamic>{};
 
       // Resolve pickup coordinates (fallback to synchronous geocoding if null or 0)
-      double? pickupLat = _asDouble(booking['pickup_latitude']);
-      double? pickupLng = _asDouble(booking['pickup_longitude']);
+      final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : null;
+      double? pickupLat = _asDouble(booking['pickup_latitude'] ?? meta?['pickup_latitude']);
+      double? pickupLng = _asDouble(booking['pickup_longitude'] ?? meta?['pickup_longitude']);
       if ((pickupLat == null || pickupLng == null || (pickupLat == 0.0 && pickupLng == 0.0)) &&
           booking['pickup_location'] != null &&
           booking['pickup_location'].toString().trim().isNotEmpty) {

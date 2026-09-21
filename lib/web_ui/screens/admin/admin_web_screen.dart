@@ -2048,7 +2048,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         if (_allBookings.isEmpty) {
           final totalBookingsResponse = await _supabase
               .from('bookings')
-              .select('id, total_cost, status');
+              .select('id, total_price, status');
           final bList = List<Map<String, dynamic>>.from(totalBookingsResponse);
           _totalBookings = bList.length;
           _pendingBookingsCount =
@@ -2061,7 +2061,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           final validRevenueBookings = bList.where((b) => _isValidRevenueBooking(b));
           _totalRevenue = validRevenueBookings.fold(
             0.0,
-            (sum, b) => sum + ((b['total_cost'] as num?)?.toDouble() ?? 0),
+            (sum, b) => sum + ((b['total_price'] as num?)?.toDouble() ?? (b['total_cost'] as num?)?.toDouble() ?? 0),
           );
         }
 

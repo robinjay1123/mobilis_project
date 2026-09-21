@@ -50,16 +50,257 @@ class BookingService {
   }
 
   /// Safely updates a booking row in Supabase.
-  /// If Supabase returns PGRST204 (column missing in schema cache), it automatically
-  /// strips the unrecognized column(s) and retries the update so database calls never crash.
+  /// Automatically routes satellite columns (financials, documents, events) and sparse metadata
+  /// directly to their normalized tables/jsonb, preventing PGRST204 column mismatch errors.
   static Future<void> safeUpdateBooking(
     String bookingId,
     Map<String, dynamic> updateData,
   ) async {
     final payload = Map<String, dynamic>.from(updateData);
     final supabase = Supabase.instance.client;
+    final nowIso = DateTime.now().toIso8601String();
 
-    for (int attempt = 0; attempt < 20; attempt++) {
+    // 1. Proactively dispatch documents to booking_renter_documents
+    final docCols = {
+      'renter_signature_url',
+      'renter_signature_text',
+      'renter_valid_id_url',
+      'renter_selfie_url',
+    };
+    final docData = <String, dynamic>{};
+    for (final c in docCols) {
+      if (payload.containsKey(c)) {
+        final val = payload.remove(c);
+        if (val != null) docData[c] = val;
+      }
+    }
+    if (docData.isNotEmpty) {
+      docData['booking_id'] = bookingId;
+      docData['updated_at'] = nowIso;
+      unawaited(
+        supabase.from('booking_renter_documents').upsert(docData, onConflict: 'booking_id').catchError((err) {
+          debugPrint('Non-blocking doc upsert error: $err');
+        }),
+      );
+    }
+
+    // 2. Proactively dispatch financial breakdown to booking_financials
+    final finCols = {
+      'rental_subtotal',
+      'delivery_fee',
+      'driver_fee',
+      'total_cost',
+      'reservation_payment_type',
+      'reservation_payment_status',
+      'final_payment_status',
+    };
+    final finData = <String, dynamic>{};
+    for (final c in finCols) {
+      if (payload.containsKey(c)) {
+        final val = payload.remove(c);
+        if (val != null) finData[c] = val;
+      }
+    }
+    if (finData.isNotEmpty) {
+      finData['booking_id'] = bookingId;
+      finData['updated_at'] = nowIso;
+      unawaited(
+        supabase.from('booking_financials').upsert(finData, onConflict: 'booking_id').catchError((err) {
+          debugPrint('Non-blocking financials upsert error: $err');
+        }),
+      );
+    }
+
+    // 3. Proactively log lifecycle events to booking_events
+    final eventCols = {
+      'approved_at',
+      'rejected_at',
+      'rejection_reason',
+      'driver_assigned_at',
+      'operator_notes',
+    };
+    final eventData = <String, dynamic>{};
+    for (final c in eventCols) {
+      if (payload.containsKey(c)) {
+        final val = payload.remove(c);
+        if (val != null) eventData[c] = val;
+      }
+    }
+    if (eventData.isNotEmpty) {
+      String eventType = 'status_updated';
+      if (eventData.containsKey('approved_at')) {
+        eventType = 'approved';
+      } else if (eventData.containsKey('rejected_at') || eventData.containsKey('rejection_reason')) {
+        eventType = 'rejected';
+      } else if (eventData.containsKey('driver_assigned_at')) {
+        eventType = 'driver_assigned';
+      }
+      unawaited(
+        supabase.from('booking_events').insert({
+          'booking_id': bookingId,
+          'event_type': eventType,
+          'notes': eventData['rejection_reason'] ?? eventData['operator_notes'],
+          'event_payload': eventData,
+          'created_at': nowIso,
+        }).catchError((err) {
+          debugPrint('Non-blocking booking_events insert error: $err');
+        }),
+      );
+    }
+
+    // 4. Proactively pack sparse / operational fields into metadata JSONB
+    final sparseCols = {
+      'daily_destination_surcharge',
+      'destination_fee',
+      'destination_fee_notes',
+      'principal_total_price',
+      'co_traveler_name',
+      'co_traveler_phone',
+      'co_traveler_license',
+      'co_traveler_selfie_url',
+      'co_traveler_signature_text',
+      'co_traveler_signature_url',
+      'co_traveler_valid_id_url',
+      'emergency_contact_name',
+      'emergency_contact_phone',
+      'emergency_contact_relationship',
+      'pickup_latitude',
+      'pickup_longitude',
+      'dropoff_latitude',
+      'dropoff_longitude',
+      'delivery_distance_km',
+      'delivery_rate_per_km',
+      'reschedule_count',
+      'reschedule_reason',
+      'rescheduled_at',
+      'original_start_at',
+      'original_end_at',
+      'late_return_days',
+      'late_return_hours',
+      'late_return_fee',
+      'renter_return_payment_submitted',
+      'renter_return_payment_amount',
+      'return_confirmed_at',
+      'return_confirmed_by',
+      'payment_verified',
+      'payment_verified_at',
+      'payment_verified_by',
+      'payment_verification_notes',
+      'conversation_created',
+      'handover_verified_at',
+      'handover_verified_by',
+      'handover_verifier_role',
+      'return_verified_at',
+      'return_verified_by',
+      'return_verifier_role',
+      'partner_booking_confirmed_at',
+      'partner_booking_confirmed_by',
+      'partner_booking_rejected_at',
+      'partner_booking_rejection_reason',
+      'operator_trip_confirmed_at',
+      'partner_trip_confirmed_at',
+      'driver_trip_confirmed_at',
+      'renter_trip_confirmed_at',
+      'extension_days',
+      'extension_additional_price',
+      'extension_requested_at',
+      'extension_requested_end_at',
+      'extension_requested_destination',
+      'extension_payment_status',
+      'extension_payment_method',
+      'extension_payment_reference',
+      'extension_payment_proof_url',
+      'extension_payment_submitted_at',
+      'extension_payment_verified_at',
+      'extension_payment_verified_by',
+      'extension_finalized_at',
+      'extension_finalized_by',
+      'extension_rejection_reason',
+      'extension_conversation_id',
+      'extension_refund_status',
+      'extension_refund_completed',
+      'extension_refund_amount',
+      'extension_refund_method',
+      'extension_refund_ref',
+      'extension_refund_receipt_url',
+      'extension_refund_notes',
+      'extension_refunded_by',
+      'extension_refunded_at',
+      'reservation_payment_covers_total',
+      'reservation_payment_method',
+      'reservation_payment_proof_url',
+      'reservation_payment_reference',
+      'reservation_payment_sender_phone',
+      'reservation_payment_submitted_at',
+      'final_payment_confirmed_at',
+      'final_payment_confirmed_by',
+      'final_payment_method',
+      'final_payment_proof_url',
+      'final_payment_reference',
+      'refund_status',
+      'refund_completed',
+      'refund_amount',
+      'refund_method',
+      'refund_notes',
+      'refund_operator_id',
+      'refund_phone',
+      'refund_processed_at',
+      'refund_reason',
+      'refund_receipt_url',
+      'refund_ref',
+      'refund_reference',
+      'refunded_at',
+      'refunded_by',
+      'security_deposit_refund_amount',
+      'security_deposit_refund_deduction',
+      'security_deposit_refund_method',
+      'security_deposit_refund_notes',
+      'security_deposit_refund_ref',
+      'security_deposit_refunded',
+      'security_deposit_refunded_at',
+      'security_deposit_refunded_by',
+      'security_deposit_ineligibility_reason',
+      'security_deposit_return_eligible',
+      'security_deposit_status',
+      'deposit_forfeited',
+      'rental_terms_accepted_at',
+      'rental_terms_snapshot',
+      'action_deadline',
+      'commission_eligible_at',
+      'commission_status',
+    };
+
+    final sparseData = <String, dynamic>{};
+    for (final c in sparseCols) {
+      if (payload.containsKey(c)) {
+        final val = payload.remove(c);
+        if (val != null) sparseData[c] = val;
+      }
+    }
+    if (sparseData.isNotEmpty) {
+      Map<String, dynamic> existingMeta = payload['metadata'] is Map
+          ? Map<String, dynamic>.from(payload['metadata'] as Map)
+          : <String, dynamic>{};
+      try {
+        final currentRec = await supabase
+            .from('bookings')
+            .select('metadata')
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (currentRec != null && currentRec['metadata'] is Map) {
+          final dbMeta = Map<String, dynamic>.from(currentRec['metadata'] as Map);
+          dbMeta.addAll(existingMeta);
+          existingMeta = dbMeta;
+        }
+      } catch (err) {
+        debugPrint('safeUpdateBooking metadata fetch warning: $err');
+      }
+      existingMeta.addAll(sparseData);
+      payload['metadata'] = existingMeta;
+    }
+
+    // 5. Update the core bookings table with remaining valid columns
+    for (int attempt = 0; attempt < 10; attempt++) {
       if (payload.isEmpty) return;
       try {
         await supabase.from('bookings').update(payload).eq('id', bookingId);
@@ -80,41 +321,6 @@ class BookingService {
               '⚠️ Column "$missingCol" does not exist in bookings schema cache. Packing to metadata and retrying...',
             );
             final val = payload.remove(missingCol);
-            if (const {
-              'renter_signature_url',
-              'renter_signature_text',
-              'renter_valid_id_url',
-              'renter_selfie_url',
-            }.contains(missingCol) && val != null) {
-              unawaited(
-                supabase.from('booking_renter_documents').upsert({
-                  'booking_id': bookingId,
-                  missingCol: val,
-                  'updated_at': DateTime.now().toIso8601String(),
-                }).catchError((err) {
-                  debugPrint('Non-blocking doc upsert error: $err');
-                }),
-              );
-            }
-            if (const {
-              'rental_subtotal',
-              'delivery_fee',
-              'driver_fee',
-              'total_cost',
-              'reservation_payment_type',
-              'reservation_payment_status',
-              'final_payment_status',
-            }.contains(missingCol) && val != null) {
-              unawaited(
-                supabase.from('booking_financials').upsert({
-                  'booking_id': bookingId,
-                  missingCol: val,
-                  'updated_at': DateTime.now().toIso8601String(),
-                }).catchError((err) {
-                  debugPrint('Non-blocking financials upsert error: $err');
-                }),
-              );
-            }
             if (missingCol != 'metadata' && val != null) {
               final existingMeta = payload['metadata'] is Map
                   ? Map<String, dynamic>.from(payload['metadata'] as Map)
@@ -873,11 +1079,9 @@ class BookingService {
             // Hydrate sparse fields from metadata jsonb if table column was normalized
             final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata']) : <String, dynamic>{};
             if (meta.isNotEmpty) {
-              booking['co_traveler_name'] ??= meta['co_traveler_name'];
-              booking['co_traveler_phone'] ??= meta['co_traveler_phone'];
-              booking['co_traveler_license'] ??= meta['co_traveler_license'];
-              booking['renter_signature_url'] ??= meta['renter_signature_url'];
-              booking['delivery_fee'] ??= (meta['delivery_fee'] as num?)?.toDouble();
+              meta.forEach((key, value) {
+                booking[key] ??= value;
+              });
             }
           }
         } catch (e) {
@@ -979,6 +1183,11 @@ class BookingService {
     }
 
     return bookings;
+  }
+
+  /// Public alias to fully hydrate booking maps with vehicles, renters, drivers, financials, documents, refunds, and events.
+  Future<List<Map<String, dynamic>>> hydrateBookings(List<Map<String, dynamic>> bookings) async {
+    return hydrateBookingVehicles(bookings);
   }
 
   // Get bookings for a renter
@@ -1284,6 +1493,48 @@ class BookingService {
         effectiveDriverFee = (days <= 0 ? 1 : days) * PricingPolicy.driverDailyRate;
       }
 
+      final metadataMap = <String, dynamic>{
+        if (discountAmount != null && discountAmount > 0)
+          'discount_amount': discountAmount,
+        if (appliedVoucher != null && appliedVoucher.isNotEmpty)
+          'applied_voucher': appliedVoucher,
+        if (deliveryDistanceKm != null)
+          'delivery_distance_km': deliveryDistanceKm,
+        if (deliveryRatePerKm != null)
+          'delivery_rate_per_km': deliveryRatePerKm,
+        if (pickupLatitude != null) 'pickup_latitude': pickupLatitude,
+        if (pickupLongitude != null) 'pickup_longitude': pickupLongitude,
+        if (dropoffLatitude != null) 'dropoff_latitude': dropoffLatitude,
+        if (dropoffLongitude != null) 'dropoff_longitude': dropoffLongitude,
+        if (securityDeposit != null) 'security_deposit': securityDeposit,
+        if (rentalTermsAcceptedAt != null)
+          'rental_terms_accepted_at': rentalTermsAcceptedAt.toIso8601String(),
+        if (rentalTermsSnapshot != null)
+          'rental_terms_snapshot': rentalTermsSnapshot,
+        if (emergencyContactName != null && emergencyContactName.trim().isNotEmpty)
+          'emergency_contact_name': emergencyContactName.trim(),
+        if (emergencyContactPhone != null && emergencyContactPhone.trim().isNotEmpty)
+          'emergency_contact_phone': emergencyContactPhone.trim(),
+        if (emergencyContactRelationship != null && emergencyContactRelationship.trim().isNotEmpty)
+          'emergency_contact_relationship': emergencyContactRelationship.trim(),
+        if (coTravelerName != null && coTravelerName.trim().isNotEmpty)
+          'co_traveler_name': coTravelerName.trim(),
+        if (coTravelerPhone != null && coTravelerPhone.trim().isNotEmpty)
+          'co_traveler_phone': coTravelerPhone.trim(),
+        if (coTravelerLicense != null && coTravelerLicense.trim().isNotEmpty)
+          'co_traveler_license': coTravelerLicense.trim(),
+        if (coTravelerSignatureText != null && coTravelerSignatureText.trim().isNotEmpty)
+          'co_traveler_signature_text': coTravelerSignatureText.trim(),
+        if (coTravelerSignatureUrl != null && coTravelerSignatureUrl.trim().isNotEmpty)
+          'co_traveler_signature_url': coTravelerSignatureUrl.trim(),
+        if (coTravelerValidIdUrl != null && coTravelerValidIdUrl.trim().isNotEmpty)
+          'co_traveler_valid_id_url': coTravelerValidIdUrl.trim(),
+        if (coTravelerSelfieUrl != null && coTravelerSelfieUrl.trim().isNotEmpty)
+          'co_traveler_selfie_url': coTravelerSelfieUrl.trim(),
+      };
+
+      final cleanPaymentType = reservationPaymentType?.trim().toLowerCase();
+
       final bookingPayload = <String, dynamic>{
         'renter_id': renterId,
         'vehicle_id': vehicleId,
@@ -1293,7 +1544,6 @@ class BookingService {
         if (ownerId != null && ownerId.isNotEmpty) 'owner_id': ownerId,
         'start_at': startAt.toIso8601String(),
         'end_at': endAt.toIso8601String(),
-        // Keep legacy fields for existing screens/queries (date-only intent).
         'start_date': DateTime(
           startAt.toLocal().year,
           startAt.toLocal().month,
@@ -1305,143 +1555,14 @@ class BookingService {
           endAt.toLocal().day,
         ).toIso8601String(),
         'total_price': totalPrice,
-        'rental_subtotal': rentalSubtotal ?? totalPrice,
-        if (discountAmount != null && discountAmount > 0)
-          'discount_amount': discountAmount,
-        if (appliedVoucher != null && appliedVoucher.isNotEmpty)
-          'applied_voucher': appliedVoucher,
-        if (deliveryDistanceKm != null)
-          'delivery_distance_km': deliveryDistanceKm,
-        if (deliveryRatePerKm != null)
-          'delivery_rate_per_km': deliveryRatePerKm,
-        'delivery_fee': deliveryFee ?? 0,
         'with_driver': withDriver,
-        if (effectiveDriverFee != null && effectiveDriverFee > 0)
-          'driver_fee': effectiveDriverFee,
         'pickup_location': pickupLocation,
         'dropoff_location': cleanDestination,
-        if (pickupLatitude != null) 'pickup_latitude': pickupLatitude,
-        if (pickupLongitude != null) 'pickup_longitude': pickupLongitude,
-        if (dropoffLatitude != null) 'dropoff_latitude': dropoffLatitude,
-        if (dropoffLongitude != null) 'dropoff_longitude': dropoffLongitude,
         'status': 'pending',
+        'metadata': metadataMap,
         'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       };
-
-      if (securityDeposit != null) {
-        bookingPayload['security_deposit'] = securityDeposit;
-      }
-
-      if (reservationFeeAmount != null) {
-        bookingPayload['reservation_fee_amount'] = reservationFeeAmount;
-      }
-
-      final cleanPaymentType = reservationPaymentType?.trim().toLowerCase();
-      if (cleanPaymentType != null && cleanPaymentType.isNotEmpty) {
-        bookingPayload['reservation_payment_type'] = cleanPaymentType;
-        bookingPayload['reservation_payment_covers_total'] =
-            cleanPaymentType == 'full_payment';
-      }
-
-      if (reservationPaymentReference != null &&
-          reservationPaymentReference.trim().isNotEmpty) {
-        bookingPayload['reservation_payment_reference'] =
-            reservationPaymentReference.trim();
-        bookingPayload['reservation_payment_status'] = 'pending_review';
-        bookingPayload['reservation_payment_submitted_at'] = DateTime.now()
-            .toIso8601String();
-      }
-
-      if (reservationPaymentProofUrl != null &&
-          reservationPaymentProofUrl.trim().isNotEmpty) {
-        bookingPayload['reservation_payment_proof_url'] =
-            reservationPaymentProofUrl.trim();
-      }
-
-      if (reservationPaymentMethod != null &&
-          reservationPaymentMethod.trim().isNotEmpty) {
-        bookingPayload['reservation_payment_method'] = reservationPaymentMethod
-            .trim();
-      }
-
-      if (reservationPaymentSenderPhone != null &&
-          reservationPaymentSenderPhone.trim().isNotEmpty) {
-        final cleanSenderPhone = reservationPaymentSenderPhone.trim();
-        bookingPayload['reservation_payment_sender_phone'] = cleanSenderPhone;
-      }
-
-      if (rentalTermsAcceptedAt != null) {
-        bookingPayload['rental_terms_accepted_at'] = rentalTermsAcceptedAt
-            .toIso8601String();
-      }
-
-      if (rentalTermsSnapshot != null) {
-        bookingPayload['rental_terms_snapshot'] = rentalTermsSnapshot;
-      }
-
-      if (emergencyContactName != null &&
-          emergencyContactName.trim().isNotEmpty) {
-        bookingPayload['emergency_contact_name'] = emergencyContactName.trim();
-      }
-
-      if (emergencyContactPhone != null &&
-          emergencyContactPhone.trim().isNotEmpty) {
-        bookingPayload['emergency_contact_phone'] = emergencyContactPhone
-            .trim();
-      }
-
-      if (emergencyContactRelationship != null &&
-          emergencyContactRelationship.trim().isNotEmpty) {
-        bookingPayload['emergency_contact_relationship'] =
-            emergencyContactRelationship.trim();
-      }
-
-      if (renterSignatureText != null &&
-          renterSignatureText.trim().isNotEmpty) {
-        bookingPayload['renter_signature_text'] = renterSignatureText.trim();
-      }
-
-      bookingPayload['renter_signature_url'] = renterSignatureUrl.trim();
-
-      bookingPayload['renter_valid_id_url'] = renterValidIdUrl.trim();
-
-      bookingPayload['renter_selfie_url'] = renterSelfieUrl.trim();
-
-      if (coTravelerName != null && coTravelerName.trim().isNotEmpty) {
-        bookingPayload['co_traveler_name'] = coTravelerName.trim();
-      }
-
-      if (coTravelerPhone != null && coTravelerPhone.trim().isNotEmpty) {
-        bookingPayload['co_traveler_phone'] = coTravelerPhone.trim();
-      }
-
-      if (coTravelerLicense != null && coTravelerLicense.trim().isNotEmpty) {
-        bookingPayload['co_traveler_license'] = coTravelerLicense.trim();
-      }
-
-      if (coTravelerSignatureText != null &&
-          coTravelerSignatureText.trim().isNotEmpty) {
-        bookingPayload['co_traveler_signature_text'] = coTravelerSignatureText
-            .trim();
-      }
-
-      if (coTravelerSignatureUrl != null &&
-          coTravelerSignatureUrl.trim().isNotEmpty) {
-        bookingPayload['co_traveler_signature_url'] =
-            coTravelerSignatureUrl.trim();
-      }
-
-      if (coTravelerValidIdUrl != null &&
-          coTravelerValidIdUrl.trim().isNotEmpty) {
-        bookingPayload['co_traveler_valid_id_url'] =
-            coTravelerValidIdUrl.trim();
-      }
-
-      if (coTravelerSelfieUrl != null &&
-          coTravelerSelfieUrl.trim().isNotEmpty) {
-        bookingPayload['co_traveler_selfie_url'] =
-            coTravelerSelfieUrl.trim();
-      }
 
       Map<String, dynamic> response;
       var currentPayload = Map<String, dynamic>.from(bookingPayload);
@@ -1623,13 +1744,33 @@ class BookingService {
         try {
           await supabase.from('booking_financials').upsert({
             'booking_id': bookingId,
-            'rental_subtotal': rentalSubtotal ?? 0.0,
+            'rental_subtotal': rentalSubtotal ?? totalPrice,
             'delivery_fee': deliveryFee ?? 0.0,
-            'driver_fee': driverFee ?? 0.0,
-            'reservation_payment_type': reservationPaymentType,
-          });
+            'driver_fee': effectiveDriverFee ?? 0.0,
+            'total_cost': totalPrice,
+            'reservation_payment_type': cleanPaymentType,
+            'reservation_payment_status': reservationPaymentReference != null ? 'pending_review' : 'unpaid',
+            'updated_at': DateTime.now().toIso8601String(),
+          }, onConflict: 'booking_id');
         } catch (fErr) {
           debugPrint('Non-blocking: could not insert booking_financials: $fErr');
+        }
+
+        if (reservationPaymentReference != null && reservationPaymentReference.trim().isNotEmpty) {
+          try {
+            await supabase.from('payments').insert({
+              'booking_id': bookingId,
+              'payer_user_id': renterId,
+              'amount': reservationFeeAmount ?? (cleanPaymentType == 'full_payment' ? totalPrice : 0.0),
+              'payment_type': 'reservation',
+              'payment_method': reservationPaymentMethod ?? 'gcash',
+              'status': 'submitted',
+              'reference_number': reservationPaymentReference.trim(),
+              'created_at': DateTime.now().toIso8601String(),
+            });
+          } catch (pErr) {
+            debugPrint('Non-blocking: could not insert reservation payment: $pErr');
+          }
         }
 
         try {
@@ -2110,7 +2251,7 @@ class BookingService {
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
 
-    await supabase.from('bookings').update({
+    await safeUpdateBooking(bookingId, {
       'reservation_payment_covers_total': true,
       'reservation_payment_type': 'full_payment',
       'reservation_payment_status': 'verified',
@@ -2122,7 +2263,7 @@ class BookingService {
       'final_payment_confirmed_at': now,
       'final_payment_confirmed_by': actorId,
       'updated_at': now,
-    }).eq('id', bookingId);
+    });
   }
 
   /// Verify renter reservation payment proof (Operator action)
@@ -2147,21 +2288,7 @@ class BookingService {
       'updated_at': now,
     };
 
-    try {
-      await supabase
-          .from('bookings')
-          .update(payloadWithDetails)
-          .eq('id', bookingId);
-    } catch (e) {
-      debugPrint(
-        'Extended payment verification columns not available in schema cache yet, falling back: $e',
-      );
-      // Resilient fallback updating guaranteed reservation_payment_status column
-      await supabase.from('bookings').update({
-        'reservation_payment_status': 'verified',
-        'updated_at': now,
-      }).eq('id', bookingId);
-    }
+    await safeUpdateBooking(bookingId, payloadWithDetails);
 
     // Notify renter that payment was verified
     final renterId = booking['renter_id']?.toString();
@@ -2214,30 +2341,21 @@ class BookingService {
       debugPrint('[settleBookingRefund] Warning upserting booking_refunds: $e');
     }
 
-    // 2. Update bookings table with safe fallback if refund_amount is not yet in schema cache
-    try {
-      await supabase.from('bookings').update({
-        'refund_status': 'refunded',
-        'refund_completed': true,
-        'refund_amount': amount,
-        'refund_method': method,
-        'refund_ref': reference,
-        'refund_reference': reference,
-        if (receiptUrl != null && receiptUrl.isNotEmpty) 'refund_receipt_url': receiptUrl,
-        if (notes != null && notes.isNotEmpty) 'refund_notes': notes,
-        if (operatorId != null && operatorId.isNotEmpty) 'refunded_by': operatorId,
-        'refunded_at': now,
-        'refund_processed_at': now,
-        'updated_at': now,
-      }).eq('id', bookingId);
-    } catch (e) {
-      debugPrint('[settleBookingRefund] Full update hit PostgREST schema cache: $e. Falling back to guaranteed columns.');
-      await supabase.from('bookings').update({
-        'refund_status': 'refunded',
-        'refund_processed_at': now,
-        'updated_at': now,
-      }).eq('id', bookingId);
-    }
+    // 2. Update bookings table via safeUpdateBooking
+    await safeUpdateBooking(bookingId, {
+      'refund_status': 'refunded',
+      'refund_completed': true,
+      'refund_amount': amount,
+      'refund_method': method,
+      'refund_ref': reference,
+      'refund_reference': reference,
+      if (receiptUrl != null && receiptUrl.isNotEmpty) 'refund_receipt_url': receiptUrl,
+      if (notes != null && notes.isNotEmpty) 'refund_notes': notes,
+      if (operatorId != null && operatorId.isNotEmpty) 'refunded_by': operatorId,
+      'refunded_at': now,
+      'refund_processed_at': now,
+      'updated_at': now,
+    });
 
     // Notify renter that refund is disbursed
     final renterId = booking['renter_id']?.toString();
@@ -2558,18 +2676,13 @@ class BookingService {
     final updatePayload = <String, dynamic>{
       'partner_booking_confirmed_at': now,
       'partner_booking_confirmed_by': partnerId,
-      'updated_at': now,
     };
-
     // If reservation payment was already verified, lock it
     if (booking['reservation_payment_status'] == 'verified') {
       updatePayload['reservation_payment_status'] = 'verified';
     }
 
-    await supabase
-        .from('bookings')
-        .update(updatePayload)
-        .eq('id', bookingId);
+    await safeUpdateBooking(bookingId, updatePayload);
 
     // Notify operators and renter asynchronously in background
     unawaited(
@@ -2580,7 +2693,7 @@ class BookingService {
             'The vehicle partner confirmed availability. You can now approve the booking.',
         action: 'partner_booking_confirmed',
       ).catchError(
-        (e) => debugPrint('Error notifying operators on partner confirm: $e'),
+        (e) => debugPrint('Error notifying operators of partner confirmation: $e'),
       ),
     );
 
@@ -2629,15 +2742,16 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, status, renter_id, user_id, vehicle_id, driver_id, partner_id, reservation_fee_amount, total_price, total_amount, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+            '*, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
           )
           .eq('id', bookingId)
           .maybeSingle();
       if (response != null) {
+        final hydrated = await hydrateBookings([Map<String, dynamic>.from(response)]);
         if (booking != null) {
-          booking.addAll(Map<String, dynamic>.from(response));
+          booking.addAll(hydrated.first);
         } else {
-          booking = Map<String, dynamic>.from(response);
+          booking = hydrated.first;
         }
       }
     }
@@ -2720,22 +2834,7 @@ class BookingService {
       updatePayload['refund_amount'] = paidAmount;
     }
 
-    try {
-      await supabase
-          .from('bookings')
-          .update(updatePayload)
-          .eq('id', bookingId);
-    } catch (e) {
-      if (updatePayload.containsKey('refund_amount')) {
-        updatePayload.remove('refund_amount');
-        await supabase
-            .from('bookings')
-            .update(updatePayload)
-            .eq('id', bookingId);
-      } else {
-        rethrow;
-      }
-    }
+    await safeUpdateBooking(bookingId, updatePayload);
 
     // Cancel driver assignment in parallel if any
     final assignedDriverId = booking['driver_id']?.toString();
@@ -2999,13 +3098,12 @@ class BookingService {
       if (booking == null) {
         final response = await supabase
             .from('bookings')
-            .select(
-              'id, status, renter_id, vehicle_id, driver_id, total_price, total_cost, reservation_fee_amount, reservation_payment_type, reservation_payment_covers_total, reservation_payment_reference, reservation_payment_proof_url, reservation_payment_status, final_payment_status, vehicles:vehicle_id(id, brand, model)',
-            )
+            .select('*, vehicles:vehicle_id(id, brand, model)')
             .eq('id', bookingId)
             .maybeSingle();
         if (response != null) {
-          booking = Map<String, dynamic>.from(response);
+          final hydrated = await hydrateBookings([Map<String, dynamic>.from(response)]);
+          booking = hydrated.first;
         }
       }
       if (booking == null) {
@@ -3041,19 +3139,7 @@ class BookingService {
         },
       };
 
-      try {
-        await supabase
-            .from('bookings')
-            .update(updatePayload)
-            .eq('id', bookingId);
-      } catch (e) {
-        updatePayload.remove('refund_amount');
-        updatePayload.remove('refund_reason');
-        await supabase
-            .from('bookings')
-            .update(updatePayload)
-            .eq('id', bookingId);
-      }
+      await safeUpdateBooking(bookingId, updatePayload);
 
       final assignedDriverId = booking['driver_id']?.toString();
       if (assignedDriverId != null && assignedDriverId.isNotEmpty) {
@@ -3196,15 +3282,11 @@ class BookingService {
 
           // 2. Reset booking driver allocation so operator/partner can reassign immediately
           if (bookingId.isNotEmpty) {
-            await supabase
-                .from('bookings')
-                .update({
-                  'driver_id': null,
-                  'driver_assigned_at': null,
-                  'status': 'pending',
-                  'updated_at': nowIso,
-                })
-                .eq('id', bookingId);
+            await safeUpdateBooking(bookingId, {
+              'driver_id': null,
+              'status': 'pending',
+              'updated_at': nowIso,
+            });
           }
 
           // 3. Mark driver available
@@ -3263,7 +3345,7 @@ class BookingService {
 
       final booking = await supabase
           .from('bookings')
-          .select('id, with_driver, driver_fee, start_at, end_at, start_date, end_date, status, renter_id, operator_id')
+          .select('id, with_driver, start_at, end_at, start_date, end_date, status, renter_id, operator_id, metadata')
           .eq('id', bookingId)
           .maybeSingle();
 
@@ -3273,7 +3355,23 @@ class BookingService {
 
       double effectiveTripFee = tripFee;
       if (effectiveTripFee <= 0) {
-        final existingFee = (booking['driver_fee'] as num?)?.toDouble() ?? 0.0;
+        double existingFee = 0.0;
+        try {
+          final fin = await supabase
+              .from('booking_financials')
+              .select('driver_fee')
+              .eq('booking_id', bookingId)
+              .maybeSingle();
+          if (fin != null && fin['driver_fee'] != null) {
+            existingFee = (fin['driver_fee'] as num).toDouble();
+          }
+        } catch (_) {}
+        if (existingFee <= 0) {
+          final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : null;
+          if (meta?['driver_fee'] != null) {
+            existingFee = (meta!['driver_fee'] as num).toDouble();
+          }
+        }
         if (existingFee > 0) {
           effectiveTripFee = existingFee;
         } else {
@@ -3356,10 +3454,7 @@ class BookingService {
           updateData['operator_id'] = effectiveOperatorId;
         }
 
-        await supabase
-            .from('bookings')
-            .update(updateData)
-            .eq('id', bookingId);
+        await safeUpdateBooking(bookingId, updateData);
       } catch (_) {
         if (assignmentId != null && assignmentId.isNotEmpty) {
           await supabase
@@ -3516,33 +3611,27 @@ class BookingService {
 
     final now = DateTime.now().toIso8601String();
     if (currentStatus != 'confirmed') {
-      await supabase
-          .from('bookings')
-          .update({
-            'status': 'confirmed',
-            'operator_id': operatorId,
-            'approved_at': now,
-            'updated_at': now,
-            if (wasPaymentVerified) ...{
-              'reservation_payment_status': 'verified',
-              'payment_verified': true,
-              if (isFullyPaid) 'final_payment_status': 'paid',
-            },
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'status': 'confirmed',
+        'operator_id': operatorId,
+        'approved_at': now,
+        'updated_at': now,
+        if (wasPaymentVerified) ...{
+          'reservation_payment_status': 'verified',
+          'payment_verified': true,
+          if (isFullyPaid) 'final_payment_status': 'paid',
+        },
+      });
     } else if (booking['operator_id']?.toString() != operatorId) {
-      await supabase
-          .from('bookings')
-          .update({
-            'operator_id': operatorId,
-            'updated_at': now,
-            if (wasPaymentVerified) ...{
-              'reservation_payment_status': 'verified',
-              'payment_verified': true,
-              if (isFullyPaid) 'final_payment_status': 'paid',
-            },
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'operator_id': operatorId,
+        'updated_at': now,
+        if (wasPaymentVerified) ...{
+          'reservation_payment_status': 'verified',
+          'payment_verified': true,
+          if (isFullyPaid) 'final_payment_status': 'paid',
+        },
+      });
     }
 
     if (acceptedAssignment != null) {
@@ -3645,15 +3734,11 @@ class BookingService {
           .maybeSingle();
       final driverId = booking?['driver_id']?.toString();
       final now = DateTime.now().toIso8601String();
-      await supabase
-          .from('bookings')
-          .update({
-            'driver_id': null,
-            'driver_assigned_at': null,
-            'status': 'pending',
-            'updated_at': now,
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'driver_id': null,
+        'status': 'pending',
+        'updated_at': now,
+      });
 
       await supabase
           .from('driver_job_assignments')
@@ -5106,8 +5191,7 @@ class BookingService {
       var query = supabase
           .from('bookings')
           .select('''
-            id, renter_id, operator_id, driver_id, status, start_at, start_date, end_at, end_date,
-            total_price, total_cost, with_driver, conversation_created,
+            *,
             vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name, plate_number, owner_id, operator_id),
             users!bookings_renter_id_fkey(id, full_name, email, phone)
           ''')
@@ -5118,7 +5202,7 @@ class BookingService {
       }
 
       final rows = await query.order('updated_at', ascending: false).limit(30);
-      final bookings = List<Map<String, dynamic>>.from(rows);
+      final bookings = await hydrateBookings(List<Map<String, dynamic>>.from(rows));
 
       for (final booking in bookings) {
         if (booking['conversation_created'] == true) continue;
@@ -5189,10 +5273,7 @@ class BookingService {
       conversation['id'] as String,
     );
     if (hasSummary) {
-      await supabase
-          .from('bookings')
-          .update({'conversation_created': true})
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {'conversation_created': true});
       return;
     }
 
@@ -5273,10 +5354,7 @@ class BookingService {
       isAutoGenerated: true,
     );
 
-    await supabase
-        .from('bookings')
-        .update({'conversation_created': true})
-        .eq('id', bookingId);
+    await safeUpdateBooking(bookingId, {'conversation_created': true});
   }
 
   Future<bool> _conversationHasBookingSummary(String conversationId) async {
@@ -6126,14 +6204,11 @@ class BookingService {
       final addPrice =
           (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
 
-      await supabase
-          .from('bookings')
-          .update({
-            'extension_status': 'payment_pending',
-            'extension_payment_status': 'unpaid',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'extension_status': 'payment_pending',
+        'extension_payment_status': 'unpaid',
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -6185,18 +6260,15 @@ class BookingService {
     final effectiveProofUrl = proofUrl ?? '';
 
     try {
-      await supabase
-          .from('bookings')
-          .update({
-            'extension_payment_method': effectiveMethod.trim(),
-            'extension_payment_reference': effectiveReference.trim(),
-            'extension_payment_proof_url': effectiveProofUrl.trim(),
-            'extension_payment_submitted_at': DateTime.now().toIso8601String(),
-            'extension_payment_status': 'pending_review',
-            'extension_status': 'payment_completed',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'extension_payment_method': effectiveMethod.trim(),
+        'extension_payment_reference': effectiveReference.trim(),
+        'extension_payment_proof_url': effectiveProofUrl.trim(),
+        'extension_payment_submitted_at': DateTime.now().toIso8601String(),
+        'extension_payment_status': 'pending_review',
+        'extension_status': 'payment_completed',
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -6262,16 +6334,13 @@ class BookingService {
         }
       }
 
-      await supabase
-          .from('bookings')
-          .update({
-            'extension_payment_status': 'verified',
-            'extension_payment_verified_at': DateTime.now().toIso8601String(),
-            'extension_payment_verified_by': verifierId,
-            'extension_status': 'pending_final_confirmation',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'extension_payment_status': 'verified',
+        'extension_payment_verified_at': DateTime.now().toIso8601String(),
+        'extension_payment_verified_by': verifierId,
+        'extension_status': 'pending_final_confirmation',
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -6342,18 +6411,15 @@ class BookingService {
           ? reference!.trim()
           : 'CASH-DESK-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
 
-      await supabase
-          .from('bookings')
-          .update({
-            'extension_payment_method': 'Cash / Desk',
-            'extension_payment_reference': effectiveRef,
-            'extension_payment_status': 'verified',
-            'extension_payment_verified_at': DateTime.now().toIso8601String(),
-            'extension_payment_verified_by': verifierId,
-            'extension_status': 'pending_final_confirmation',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'extension_payment_method': 'Cash / Desk',
+        'extension_payment_reference': effectiveRef,
+        'extension_payment_status': 'verified',
+        'extension_payment_verified_at': DateTime.now().toIso8601String(),
+        'extension_payment_verified_by': verifierId,
+        'extension_status': 'pending_final_confirmation',
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -6434,23 +6500,7 @@ class BookingService {
         'updated_at': DateTime.now().toIso8601String(),
       };
 
-      try {
-        await supabase
-            .from('bookings')
-            .update(updatePayload)
-            .eq('id', bookingId);
-      } catch (err) {
-        debugPrint('Note: Error updating extension rejection reason: $err. Falling back to core fields.');
-        await supabase
-            .from('bookings')
-            .update({
-              'extension_payment_status': 'unpaid',
-              'extension_status': 'payment_pending',
-              'extension_payment_proof_url': null,
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', bookingId);
-      }
+      await safeUpdateBooking(bookingId, updatePayload);
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -6535,23 +6585,19 @@ class BookingService {
       final extDays = (booking['extension_days'] as num?)?.toInt() ?? 1;
       final totalDays = currentDays + extDays;
 
-      await supabase
-          .from('bookings')
-          .update({
-            'end_at': newEndAt.toIso8601String(),
-            'end_date': newEndAt.toIso8601String(),
-            'total_price': newTotal,
-            'totalCost': newTotal,
-            'days': totalDays,
-            if (requestedDest != null && requestedDest.trim().isNotEmpty)
-              'dropoff_location': requestedDest.trim(),
-            'extension_status': 'finalized',
-            'extension_payment_status': 'paid',
-            'extension_finalized_at': DateTime.now().toIso8601String(),
-            'extension_finalized_by': finalizerId,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'end_at': newEndAt.toIso8601String(),
+        'end_date': newEndAt.toIso8601String(),
+        'total_price': newTotal,
+        'days': totalDays,
+        if (requestedDest != null && requestedDest.trim().isNotEmpty)
+          'dropoff_location': requestedDest.trim(),
+        'extension_status': 'finalized',
+        'extension_payment_status': 'paid',
+        'extension_finalized_at': DateTime.now().toIso8601String(),
+        'extension_finalized_by': finalizerId,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -6668,10 +6714,7 @@ class BookingService {
         updates['extension_refund_amount'] = addPrice;
       }
 
-      await supabase
-          .from('bookings')
-          .update(updates)
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, updates);
 
       final refundNotice = (hasPayment && addPrice > 0)
           ? ' Since you already paid for the extension fee of PHP ${addPrice.toStringAsFixed(2)}, a refund has been initiated and will be returned to you.'
@@ -6741,7 +6784,7 @@ class BookingService {
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
 
-    await supabase.from('bookings').update({
+    await safeUpdateBooking(bookingId, {
       'extension_refund_status': 'refunded',
       'extension_refund_completed': true,
       'extension_refund_amount': amount,
@@ -6755,7 +6798,7 @@ class BookingService {
         'extension_refunded_by': effectiveSettlerId,
       'extension_refunded_at': now,
       'updated_at': now,
-    }).eq('id', bookingId);
+    });
 
     // Notify renter that extension refund is disbursed
     final renterId = booking['renter_id']?.toString();
@@ -6831,10 +6874,17 @@ class BookingService {
             )
           ''')
           .neq('extension_status', 'none')
-          .order('extension_requested_at', ascending: false);
+          .order('updated_at', ascending: false);
 
       final response = await query;
-      return List<Map<String, dynamic>>.from(response);
+      final rows = List<Map<String, dynamic>>.from(response);
+      final hydrated = await hydrateBookings(rows);
+      hydrated.sort((a, b) {
+        final aAt = a['extension_requested_at']?.toString() ?? a['updated_at']?.toString() ?? '';
+        final bAt = b['extension_requested_at']?.toString() ?? b['updated_at']?.toString() ?? '';
+        return bAt.compareTo(aAt);
+      });
+      return hydrated;
     } catch (e) {
       debugPrint('Error fetching extension requests: $e');
       return [];
@@ -6878,26 +6928,7 @@ class BookingService {
         updates['renter_return_payment_amount'] = settledAmount;
       }
 
-      try {
-        await supabase.from('bookings').update(updates).eq('id', bookingId);
-      } catch (dbError) {
-        debugPrint(
-          'Full update failed, attempting fallback return update: $dbError',
-        );
-        final fallbackUpdates = <String, dynamic>{
-          'status': 'return_pending_inspection',
-          'returned_at': now.toIso8601String(),
-          'updated_at': now.toIso8601String(),
-        };
-        if (lateHours != null && lateHours > 0) {
-          fallbackUpdates['late_return_hours'] = lateHours;
-          fallbackUpdates['late_return_fee'] = lateFee ?? (lateHours * 300.0);
-        }
-        await supabase
-            .from('bookings')
-            .update(fallbackUpdates)
-            .eq('id', bookingId);
-      }
+      await safeUpdateBooking(bookingId, updates);
 
       // 🚀 Non-blocking async notification dispatch so the return UI pops up immediately!
       unawaited(() async {
@@ -6995,7 +7026,7 @@ class BookingService {
         bookingUpdate['completion_stage'] = 'awaiting_payment';
       }
 
-      await supabase.from('bookings').update(bookingUpdate).eq('id', bookingId);
+      await safeUpdateBooking(bookingId, bookingUpdate);
 
       await TripRatingService().syncRatingFlowForBooking(bookingId);
 
@@ -7092,26 +7123,17 @@ class BookingService {
         debugPrint('[processRefundDisbursement] booking_refunds notice: $e');
       }
 
-      try {
-        await supabase.from('bookings').update({
-          'refund_status': 'refunded',
-          'refund_reference': cleanRef,
-          'refund_ref': cleanRef,
-          'refund_amount': amount,
-          'refund_notes': notes?.trim(),
-          'refund_processed_at': now.toIso8601String(),
-          if (operatorId != null && operatorId.isNotEmpty)
-            'refund_operator_id': operatorId,
-          'updated_at': now.toIso8601String(),
-        }).eq('id', bookingId);
-      } catch (e) {
-        debugPrint('[processRefundDisbursement] Full update error: $e, falling back to core columns');
-        await supabase.from('bookings').update({
-          'refund_status': 'refunded',
-          'refund_processed_at': now.toIso8601String(),
-          'updated_at': now.toIso8601String(),
-        }).eq('id', bookingId);
-      }
+      await safeUpdateBooking(bookingId, {
+        'refund_status': 'refunded',
+        'refund_reference': cleanRef,
+        'refund_ref': cleanRef,
+        'refund_amount': amount,
+        'refund_notes': notes?.trim(),
+        'refund_processed_at': now.toIso8601String(),
+        if (operatorId != null && operatorId.isNotEmpty)
+          'refund_operator_id': operatorId,
+        'updated_at': now.toIso8601String(),
+      });
 
       // 1. Notify Renter
       if (renterId.isNotEmpty) {
@@ -7245,7 +7267,7 @@ class BookingService {
         updateData['dropoff_longitude'] = newDropoffLongitude;
       }
 
-      await supabase.from('bookings').update(updateData).eq('id', bookingId);
+      await safeUpdateBooking(bookingId, updateData);
 
       // Notify operator & partner
       try {

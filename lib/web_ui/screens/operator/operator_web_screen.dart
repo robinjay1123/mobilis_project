@@ -2398,96 +2398,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final response = await _supabase
           .from('bookings')
           .select('''
-              id,
-              vehicle_id,
-              renter_id,
-              driver_id,
-              operator_id,
-              status,
-              start_at,
-              end_at,
-              start_date,
-              end_date,
-              total_price,
-              total_cost,
-              rental_subtotal,
-              delivery_distance_km,
-              delivery_rate_per_km,
-              delivery_fee,
-              daily_destination_surcharge,
-              destination_fee,
-              destination_fee_notes,
-              reservation_fee_amount,
-              reservation_payment_type,
-              reservation_payment_covers_total,
-              reservation_payment_reference,
-              reservation_payment_status,
-              reservation_payment_submitted_at,
-              reservation_payment_proof_url,
-              reservation_payment_method,
-              refund_status,
-              refund_processed_at,
-              refund_phone,
-              late_return_days,
-              late_return_fee,
-              emergency_contact_name,
-              emergency_contact_phone,
-              emergency_contact_relationship,
-              renter_signature_text,
-              renter_signature_url,
-              renter_valid_id_url,
-              renter_selfie_url,
-              co_traveler_name,
-              co_traveler_phone,
-              co_traveler_license,
-              co_traveler_signature_text,
-              co_traveler_signature_url,
-              co_traveler_valid_id_url,
-              co_traveler_selfie_url,
-              final_payment_status,
-              final_payment_confirmed_at,
-              completion_stage,
-              commission_status,
-              with_driver,
-              pickup_location,
-              dropoff_location,
-              pickup_latitude,
-              pickup_longitude,
-              dropoff_latitude,
-              dropoff_longitude,
-              picked_up_at,
-              returned_at,
-              completed_at,
-              operator_trip_confirmed_at,
-              partner_trip_confirmed_at,
-              driver_trip_confirmed_at,
-              renter_trip_confirmed_at,
-              extension_status,
-              extension_days,
-              extension_additional_price,
-              extension_requested_at,
-              extension_requested_end_at,
-              extension_requested_destination,
-              extension_payment_status,
-              extension_payment_method,
-              extension_payment_reference,
-              extension_payment_proof_url,
-              extension_payment_submitted_at,
-              extension_payment_verified_at,
-              extension_payment_verified_by,
-              extension_finalized_at,
-              extension_finalized_by,
-              extension_rejection_reason,
-              extension_conversation_id,
-              security_deposit_refunded,
-              security_deposit_refund_amount,
-              security_deposit_refund_deduction,
-              security_deposit_refund_notes,
-              security_deposit_refund_method,
-              security_deposit_refund_ref,
-              security_deposit_refund_receipt_url,
-              security_deposit_refunded_at,
-              created_at,
+              *,
               vehicles:vehicle_id (
                 id,
                 brand,
@@ -2594,38 +2505,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         final List<dynamic> extQuery = await _supabase
             .from('bookings')
             .select('''
-              id,
-              status,
-              start_date,
-              end_date,
-              start_at,
-              end_at,
-              total_price,
-              totalCost,
-              rental_type,
-              rentalType,
-              days,
-              final_payment_status,
-              reservation_payment_status,
-              payment_verified,
-              safety_freeze,
-              extension_status,
-              extension_days,
-              extension_additional_price,
-              extension_requested_at,
-              extension_requested_end_at,
-              extension_requested_destination,
-              extension_payment_status,
-              extension_payment_method,
-              extension_payment_reference,
-              extension_payment_proof_url,
-              extension_payment_submitted_at,
-              extension_payment_verified_at,
-              extension_payment_verified_by,
-              extension_finalized_at,
-              extension_finalized_by,
-              extension_rejection_reason,
-              extension_conversation_id,
+              *,
               vehicles:vehicle_id (
                 id,
                 brand,
@@ -3397,10 +3277,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         updatePayload['principal_total_price'] = updatedPrincipalTotalPrice;
       }
 
-      await _supabase
-          .from('bookings')
-          .update(updatePayload)
-          .eq('id', bookingId);
+      await BookingService.safeUpdateBooking(bookingId, updatePayload);
 
       if (driverId != null) {
         await bookingService.assignDriver(bookingId, driverId, 0.0);
@@ -3429,7 +3306,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (mounted) {
         await _showActionFeedbackModal(
           title: 'Approval Failed',
-          message: e.toString().replaceFirst('Exception: ', ''),
+          message: 'Error approving booking: $e',
           isError: true,
         );
       }
@@ -3518,13 +3395,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         participantIds: participantIds.toList(),
       );
 
-      await _supabase
-          .from('bookings')
-          .update({
-            'conversation_created': true,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await BookingService.safeUpdateBooking(bookingId, {
+        'conversation_created': true,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       debugPrint('Group chat created for booking: $bookingId');
     } catch (e) {

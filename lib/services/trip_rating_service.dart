@@ -2164,16 +2164,17 @@ class TripRatingService {
       try {
         final bRow = await supabase
             .from('bookings')
-            .select('partner_vehicle_id, partner_booking_confirmed_by')
+            .select('partner_vehicle_id, metadata')
             .eq('id', bookingId)
             .maybeSingle();
         if (bRow != null) {
           if (bRow['partner_vehicle_id'] != null) {
             context['partner_vehicle_id'] ??= bRow['partner_vehicle_id'];
           }
-          if (bRow['partner_booking_confirmed_by'] != null) {
-            context['partner_booking_confirmed_by'] ??=
-                bRow['partner_booking_confirmed_by'];
+          final meta = bRow['metadata'] is Map ? (bRow['metadata'] as Map) : null;
+          final confirmedBy = meta?['partner_booking_confirmed_by'];
+          if (confirmedBy != null) {
+            context['partner_booking_confirmed_by'] ??= confirmedBy;
           }
         }
       } catch (_) {}

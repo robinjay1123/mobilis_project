@@ -3307,7 +3307,6 @@ class _TripCardState extends State<_TripCard> {
           await Supabase.instance.client.from('bookings').update({
             'status': 'pending',
             'driver_id': null,
-            'driver_assigned_at': null,
             'updated_at': now,
           }).eq('id', bookingId);
         }

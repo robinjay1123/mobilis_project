@@ -148,12 +148,14 @@ class LoyaltyService {
       if (resolvedRenterId.isEmpty) {
         final b = await _supabase
             .from('bookings')
-            .select('renter_id, total_cost')
+            .select('renter_id, total_price')
             .eq('id', bookingId)
             .maybeSingle();
         if (b != null) {
           resolvedRenterId = b['renter_id']?.toString() ?? '';
-          resolvedCost = (b['total_cost'] as num?)?.toDouble() ?? totalCost;
+          resolvedCost = (b['total_price'] as num?)?.toDouble() ??
+              (b['total_cost'] as num?)?.toDouble() ??
+              totalCost;
         }
       }
       if (resolvedRenterId.trim().isEmpty) return;

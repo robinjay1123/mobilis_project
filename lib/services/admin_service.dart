@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'booking_service.dart';
 import 'notification_service.dart';
 import 'renter_marketing_notification_service.dart';
 
@@ -1212,56 +1213,7 @@ class AdminService {
         final bookingRows = await supabase
             .from('bookings')
             .select('''
-              id,
-              status,
-              completion_stage,
-              created_at,
-              updated_at,
-              operator_trip_confirmed_at,
-              partner_trip_confirmed_at,
-              picked_up_at,
-              returned_at,
-              completed_at,
-              final_payment_status,
-              final_payment_confirmed_at,
-              final_payment_confirmed_by,
-              with_driver,
-              driver_id,
-              operator_id,
-              renter_id,
-              vehicle_id,
-              is_partner_booking,
-              partner_id,
-              security_deposit_refunded,
-              security_deposit_refund_amount,
-              security_deposit_refund_method,
-              security_deposit_refund_ref,
-              security_deposit_refunded_at,
-              security_deposit_refunded_by,
-              partner_payout_disbursed,
-              partner_payout_amount,
-              partner_payout_method,
-              partner_payout_ref,
-              partner_payout_disbursed_at,
-              partner_payout_disbursed_by,
-              driver_payout_disbursed,
-              driver_payout_amount,
-              driver_payout_method,
-              driver_payout_ref,
-              driver_payout_disbursed_at,
-              driver_payout_disbursed_by,
-              extension_status,
-              extension_requested_at,
-              extension_requested_end_at,
-              extension_requested_destination,
-              extension_additional_price,
-              extension_payment_status,
-              extension_payment_submitted_at,
-              extension_payment_verified_at,
-              extension_finalized_at,
-              extension_finalized_by,
-              extension_payment_method,
-              extension_payment_reference,
+              *,
               renter:users!renter_id(full_name, email, role),
               vehicle:vehicles!vehicle_id(brand, model, vehicle_name, owner_id),
               driver_user:users!driver_id(full_name),
@@ -1270,7 +1222,11 @@ class AdminService {
             .order('updated_at', ascending: false)
             .limit(limit);
 
-        for (final booking in List<Map<String, dynamic>>.from(bookingRows)) {
+        final hydratedRows = await BookingService().hydrateBookingVehicles(
+          List<Map<String, dynamic>>.from(bookingRows),
+        );
+
+        for (final booking in hydratedRows) {
           final bookingId = booking['id']?.toString() ?? '';
           final shortId = bookingId.length > 8
               ? '#${bookingId.substring(0, 8).toUpperCase()}'
