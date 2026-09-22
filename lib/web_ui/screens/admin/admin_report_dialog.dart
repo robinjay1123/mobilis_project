@@ -321,7 +321,7 @@ class _AdminReportDialogState extends State<AdminReportDialog> {
                                 ),
                                 const SizedBox(height: 1),
                                 const Text(
-                                  'PSDC Operations HQ, Clark Global City, Philippines',
+                                  'PSDC Main Operations HQ & Garage, XGFW+JQ Urdaneta City, Pangasinan, Philippines',
                                   style: TextStyle(fontSize: 9.5, color: Color(0xFF94A3B8)),
                                 ),
                               ],
