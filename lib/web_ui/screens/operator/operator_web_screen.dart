@@ -2438,14 +2438,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 plate_number,
                 vehicle_name,
                 price_per_day,
-                price_per_hour,
                 transmission,
                 vehicle_type,
-                category,
                 seats,
                 location,
-                latitude,
-                longitude,
                 partners:partner_id (
                   id,
                   business_name,
@@ -35365,7 +35361,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         try {
           await _supabase.from('partner_vehicles').update({
             'price_per_day': reqDaily,
-            'price_per_hour': reqHourly,
             'updated_at': DateTime.now().toIso8601String(),
           }).eq('id', partnerVehicleId);
         } catch (err) {
@@ -35382,7 +35377,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           if (resolvedPvId != null && resolvedPvId.isNotEmpty) {
             await _supabase.from('partner_vehicles').update({
               'price_per_day': reqDaily,
-              'price_per_hour': reqHourly,
               'updated_at': DateTime.now().toIso8601String(),
             }).eq('id', resolvedPvId);
           }

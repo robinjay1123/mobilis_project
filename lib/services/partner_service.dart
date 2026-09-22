@@ -142,7 +142,7 @@ class PartnerService {
       if (partnerVehicleIds.isNotEmpty) {
         final partnerVehicles = await supabase
             .from('partner_vehicles')
-            .select('id,vehicle_id,is_available,status,price_per_day,price_per_hour')
+            .select('id,vehicle_id,status,price_per_day')
             .inFilter('id', partnerVehicleIds);
         for (final vehicle in List<Map<String, dynamic>>.from(
           partnerVehicles,
@@ -164,7 +164,7 @@ class PartnerService {
       if (canonicalVehicleIds.isNotEmpty) {
         final vehicles = await supabase
             .from('vehicles')
-            .select('id,is_posted,is_available,status,price_per_day,price_per_hour')
+            .select('id,status,price_per_day')
             .inFilter('id', canonicalVehicleIds.toList());
         for (final vehicle in List<Map<String, dynamic>>.from(vehicles)) {
           vehiclesById[vehicle['id'].toString()] = vehicle;
@@ -178,13 +178,15 @@ class PartnerService {
             application['created_vehicle_id']?.toString() ??
             partnerVehicle?['vehicle_id']?.toString();
         final vehicle = vehiclesById[canonicalId];
-        application['vehicle_status'] =
-            vehicle?['status'] ?? partnerVehicle?['status'];
+        final vStatus = vehicle?['status'] ?? partnerVehicle?['status'];
+        application['vehicle_status'] = vStatus;
         application['is_available'] =
             vehicle?['is_available'] ??
             partnerVehicle?['is_available'] ??
-            false;
-        application['is_posted'] = vehicle?['is_posted'] ?? false;
+            (vStatus == 'available' || vStatus == 'active');
+        application['is_posted'] = vehicle?['is_posted'] ??
+            partnerVehicle?['is_posted'] ??
+            (vStatus == 'available' || vStatus == 'active');
         application['created_vehicle_id'] ??= canonicalId;
 
         // Use active rates from partner_vehicles (or canonical vehicles) if verified
