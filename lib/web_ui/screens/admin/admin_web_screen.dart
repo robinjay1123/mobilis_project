@@ -17,6 +17,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
+import '../../../services/admin_report_service.dart';
+import 'admin_report_dialog.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
@@ -23005,273 +23007,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _generateAndExportReport(bool isDark) async {
     try {
-      final reportText = _buildReportText();
-      final pdf = pw.Document();
-
-      pw.MemoryImage? image;
-      try {
-        final imageData = await rootBundle.load('assets/icon/logo1.png');
-        image = pw.MemoryImage(imageData.buffer.asUint8List());
-      } catch (logoError) {
-        debugPrint('Warning: Could not load logo: $logoError');
-      }
-
-      final lines = reportText.split('\n');
-
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: pw.EdgeInsets.all(30),
-          build: (pw.Context context) {
-            final widgets = <pw.Widget>[
-              if (image != null) ...[
-                pw.Center(child: pw.Image(image, height: 60)),
-                pw.SizedBox(height: 20),
-              ],
-              pw.Center(
-                child: pw.Text(
-                  'ADMIN REPORT',
-                  style: pw.TextStyle(
-                    fontSize: 24,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Center(
-                child: pw.Text(
-                  'Generated: ${DateTime.now().toString().substring(0, 19)}',
-                  style: const pw.TextStyle(fontSize: 10),
-                ),
-              ),
-              pw.SizedBox(height: 20),
-              pw.Divider(),
-              pw.SizedBox(height: 20),
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: lines
-                    .map(
-                      (line) => pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                        child: pw.Text(
-                          line,
-                          style: const pw.TextStyle(fontSize: 9),
-                        ),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ];
-            return widgets;
-          },
-        ),
+      final reportData = AdminReportData.fromDashboard(
+        allBookings: _allBookings,
+        allVehicles: _allVehicles,
+        allUsers: _allUsers,
+        verificationRecords: _verificationRecords,
+        trackingLocations: _trackingLocations,
+        totalRevenue: _totalRevenue,
       );
-
-      final pdfBytes = await pdf.save();
-      final fileName =
-          'mobilis_admin_report_${DateTime.now().millisecondsSinceEpoch}.pdf';
-
-      if (kIsWeb) {
-        final blob = html.Blob([pdfBytes], 'application/pdf');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..target = 'blank'
-          ..download = fileName;
-        html.document.body?.append(anchor);
-        anchor.click();
-        html.Url.revokeObjectUrl(url);
-        anchor.remove();
-      } else {
-        await Printing.sharePdf(bytes: pdfBytes, filename: fileName);
-      }
-
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('PDF report downloaded/shared successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        await AdminReportDialog.show(context, reportData: reportData);
       }
     } catch (e) {
-      debugPrint('Error generating PDF: $e');
+      debugPrint('Error generating report preview: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error generating report: $e'), backgroundColor: Colors.red),
         );
       }
     }
   }
 
-  String _buildReportText() {
-    final now = DateTime.now();
-    final dateStr =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    final timeStr =
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-
-    int completedCount = 0;
-    int activeCount = 0;
-    int cancelledCount = 0;
-    int pendingCount = 0;
-    double completedRevenue = 0;
-    double activeRevenue = 0;
-
-    for (var booking in _allBookings) {
-      final status = booking['status'] as String?;
-      final total = (booking['total_cost'] as num?)?.toDouble() ?? 0;
-
-      if (status == 'completed') {
-        completedCount++;
-        completedRevenue += total;
-      } else if (status == 'active') {
-        activeCount++;
-        activeRevenue += total;
-      } else if (status == 'cancelled') {
-        cancelledCount++;
-      } else {
-        pendingCount++;
-      }
-    }
-
-    final buffer = StringBuffer();
-    final divider = List.filled(70, '=').join();
-    final subDivider = List.filled(70, '-').join();
-
-    buffer.writeln(divider);
-    buffer.writeln('MOBILIS CAR RENTAL - ADMIN REPORT'.padLeft(50));
-    buffer.writeln(divider);
-    buffer.writeln('');
-    buffer.writeln('Report Generated: $dateStr at $timeStr');
-    buffer.writeln('');
-
-    buffer.writeln('SYSTEM OVERVIEW');
-    buffer.writeln(subDivider);
-    buffer.writeln('Total Users (Renters)    : $_totalUsers');
-    buffer.writeln('Total Partners           : $_totalPartners');
-    buffer.writeln('Total Operators          : $_totalOperators');
-    buffer.writeln('Total Vehicles           : $_totalVehicles');
-    buffer.writeln('Pending Verifications    : $_pendingVerifications');
-    buffer.writeln('');
-
-    buffer.writeln('REVENUE SUMMARY');
-    buffer.writeln(subDivider);
-    buffer.writeln(
-      'Total Revenue                : PHP ${_totalRevenue.toStringAsFixed(2)}',
-    );
-    buffer.writeln(
-      'Completed Bookings Revenue   : PHP ${completedRevenue.toStringAsFixed(2)}',
-    );
-    buffer.writeln(
-      'Ongoing Bookings Revenue     : PHP ${activeRevenue.toStringAsFixed(2)}',
-    );
-    buffer.writeln('');
-
-    buffer.writeln('BOOKINGS ANALYTICS');
-    buffer.writeln(subDivider);
-    buffer.writeln('Total Bookings      : $_totalBookings');
-    buffer.writeln('Ongoing Bookings    : $_activeBookings');
-    buffer.writeln('Completed Bookings  : $completedCount');
-    buffer.writeln('Pending Bookings    : $pendingCount');
-    buffer.writeln('Cancelled Bookings  : $cancelledCount');
-    buffer.writeln('');
-
-    final pendingVerifCount = _verificationRecords
-        .where(
-          (r) =>
-              (r['verification_status']?.toString().toLowerCase() ?? '') ==
-              'pending',
-        )
-        .length;
-
-    buffer.writeln('VERIFICATION STATUS');
-    buffer.writeln(subDivider);
-    buffer.writeln('Pending Verifications : $pendingVerifCount');
-    buffer.writeln('');
-
-    buffer.writeln('RECENT BOOKINGS (Last 6)');
-    buffer.writeln(subDivider);
-    if (_allBookings.isEmpty) {
-      buffer.writeln('No bookings found.');
-    } else {
-      buffer.writeln('');
-      for (var i = 0; i < _allBookings.take(6).length; i++) {
-        final booking = _allBookings.take(6).elementAt(i);
-        final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-        final user = booking['users'] as Map<String, dynamic>?;
-        final status = booking['status'] as String? ?? 'pending';
-        final total = (booking['total_cost'] as num?)?.toDouble() ?? 0;
-
-        final vehicleName = vehicle != null
-            ? '${vehicle['brand']} ${vehicle['model']}'
-            : 'Unknown Vehicle';
-        final userName = user?['full_name'] ?? 'Unknown User';
-
-        buffer.writeln('Booking ${i + 1}:');
-        buffer.writeln('  Vehicle: $vehicleName');
-        buffer.writeln('  Renter: $userName');
-        buffer.writeln('  Status: $status');
-        buffer.writeln('  Amount: PHP ${total.toStringAsFixed(2)}');
-        buffer.writeln('');
-      }
-    }
-
-    buffer.writeln('ALL VEHICLES (${_allVehicles.length})');
-    buffer.writeln(subDivider);
-    if (_allVehicles.isEmpty) {
-      buffer.writeln('No vehicles found.');
-    } else {
-      buffer.writeln('');
-      for (var i = 0; i < _allVehicles.take(10).length; i++) {
-        final vehicle = _allVehicles.take(10).elementAt(i);
-        final owner = vehicle['owner'] as Map<String, dynamic>?;
-        final status = vehicle['status'] as String? ?? 'pending';
-        final price = vehicle['price_per_day'] ?? 0;
-
-        final vehicleName = '${vehicle['brand']} ${vehicle['model']}';
-        final ownerName = owner?['full_name'] ?? 'Unknown';
-
-        buffer.writeln('Vehicle ${i + 1}: $vehicleName');
-        buffer.writeln('  Owner: $ownerName');
-        buffer.writeln('  Price per Day: PHP $price');
-        buffer.writeln('  Status: $status');
-        buffer.writeln('');
-      }
-    }
-
-    final pendingRecords = _verificationRecords
-        .where(
-          (r) =>
-              (r['verification_status']?.toString().toLowerCase() ?? '') ==
-              'pending',
-        )
-        .toList();
-
-    buffer.writeln('PENDING VERIFICATIONS (${pendingRecords.length})');
-    buffer.writeln(subDivider);
-    if (pendingRecords.isEmpty) {
-      buffer.writeln('All verifications have been reviewed!');
-    } else {
-      buffer.writeln('');
-      for (var i = 0; i < pendingRecords.take(10).length; i++) {
-        final app = pendingRecords.take(10).elementAt(i);
-        final user = app['users'] as Map<String, dynamic>?;
-        final appId = app['id'] ?? 'N/A';
-        final partnerName = user?['full_name'] ?? 'Unknown';
-
-        buffer.writeln('Verification ${i + 1}: $appId');
-        buffer.writeln('  User: $partnerName');
-        buffer.writeln('  Status: Pending Review');
-        buffer.writeln('');
-      }
-    }
-
-    buffer.writeln(divider);
-    buffer.writeln('End of Report');
-    buffer.writeln(divider);
-
-    return buffer.toString();
-  }
 
   Widget _buildActionLogsContent(bool isDark) {
     final search = _actionLogSearchQuery.trim().toLowerCase();
