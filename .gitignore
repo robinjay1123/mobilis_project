@@ -7,20 +7,6 @@
 .atom/
 .build/
 .buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
-.env
-
-# Documentation files (local analysis and notes)
-*.md
-
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
 
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
@@ -97,3 +83,20 @@ android/.gradle/
 android/local.properties
 *.lock
 *.bkp
+
+# Documentation & diagram files (local only)
+*.drawio
+
+# Local SQL seed / admin scripts
+CREATE_TEST_ADMIN.sql
+supabase_seed_admin.sql
+supabase_migrations/
+
+# Debug / scratch Python scripts
+get_run_details.py
+monitor_run.py
+*.py
+
+# Build logs & scratch screenshots
+build_errors.txt
+flutter_01.png
