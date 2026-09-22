@@ -1306,7 +1306,7 @@ class AdminService {
                 owner_role,
                 operator_id
               ),
-              renter:renter_id (id, full_name, email, role),
+              renter:users!bookings_renter_id_fkey (id, full_name, email, role),
               drivers:drivers!bookings_driver_id_fkey (
                 id,
                 user_id,
@@ -2214,7 +2214,7 @@ class AdminService {
           ? 'driver_documents'
           : docType == 'vehicle'
           ? 'vehicle_documents'
-          : 'renter_verification_documents';
+          : 'renter_documents';
 
       // Update document status to approved
       await supabase
@@ -2256,7 +2256,7 @@ class AdminService {
           ? 'driver_documents'
           : docType == 'vehicle'
           ? 'vehicle_documents'
-          : 'renter_verification_documents';
+          : 'renter_documents';
 
       // Update document status to rejected
       await supabase
@@ -2331,25 +2331,25 @@ class AdminService {
       // Get pending vehicle documents
       if (docType == null || docType == 'vehicle') {
         try {
-          final vehicleDocs = await supabase
-              .from('vehicle_documents')
-              .select('*, vehicles(brand, model)')
+          final pVehicleDocs = await supabase
+              .from('partner_vehicle_documents')
+              .select('*')
               .eq('status', 'pending')
               .order('created_at', ascending: false);
 
-          for (var doc in vehicleDocs) {
+          for (var doc in pVehicleDocs) {
             pendingDocs.add({...doc, 'document_type': 'vehicle_documents'});
           }
         } catch (e) {
-          debugPrint('Falling back for vehicle docs in pending renewals: $e');
+          debugPrint('Note fetching partner_vehicle_documents: $e');
           try {
-            final vehicleDocs = await supabase
-                .from('vehicle_documents')
-                .select('*')
-                .eq('status', 'pending')
-                .order('created_at', ascending: false);
-            for (var doc in vehicleDocs) {
-              pendingDocs.add({...doc, 'document_type': 'vehicle_documents'});
+            final pVehicleDocs = await supabase
+                .from('partner_vehicle_documents')
+                .select('*');
+            for (var doc in pVehicleDocs) {
+              if (doc['status'] == 'pending') {
+                pendingDocs.add({...doc, 'document_type': 'vehicle_documents'});
+              }
             }
           } catch (_) {}
         }
@@ -2359,8 +2359,8 @@ class AdminService {
       if (docType == null || docType == 'renter') {
         try {
           final renterDocs = await supabase
-              .from('renter_verification_documents')
-              .select('*, users(full_name, email)')
+              .from('renter_documents')
+              .select('*, renters:renter_id(full_name, phone)')
               .eq('status', 'pending')
               .order('created_at', ascending: false);
 
@@ -2371,10 +2371,9 @@ class AdminService {
           debugPrint('Falling back for renter docs in pending renewals: $e');
           try {
             final renterDocs = await supabase
-                .from('renter_verification_documents')
+                .from('renter_documents')
                 .select('*')
-                .eq('status', 'pending')
-                .order('created_at', ascending: false);
+                .eq('status', 'pending');
             for (var doc in renterDocs) {
               pendingDocs.add({...doc, 'document_type': 'renter_documents'});
             }

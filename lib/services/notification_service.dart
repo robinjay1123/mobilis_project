@@ -1444,65 +1444,9 @@ class NotificationService {
         debugPrint('Error checking driver_documents expiries: $e');
       }
 
-      // Check vehicle documents
-      try {
-        final vehicleDocs = await supabase
-            .from('vehicle_documents')
-            .select(
-              'id, vehicle_id, document_type, expiry_date, vehicles(owner_id)',
-            )
-            .not('expiry_date', 'is', null)
-            .gte('expiry_date', now.toIso8601String())
-            .lte('expiry_date', thresholdDate.toIso8601String());
-
-        for (var doc in vehicleDocs) {
-          final vehicleMap = doc['vehicles'] is Map ? doc['vehicles'] as Map<String, dynamic> : null;
-          final ownerId = vehicleMap?['owner_id']?.toString() ?? '';
-          if (ownerId.isEmpty) continue;
-          final docType = doc['document_type'] as String;
-          final expiryDate = DateTime.parse(doc['expiry_date'] as String);
-          final daysUntilExpiry = expiryDate.difference(now).inDays;
-
-          final created = await createDocumentExpiryNotification(
-            userId: ownerId,
-            documentType: docType,
-            daysUntilExpiry: daysUntilExpiry,
-            documentId: doc['id'],
-          );
-
-          if (created) notificationsCreated++;
-        }
-      } catch (e) {
-        debugPrint('Error checking vehicle_documents expiries: $e');
-      }
-
-      // Check renter verification documents
-      try {
-        final renterDocs = await supabase
-            .from('renter_verification_documents')
-            .select('id, user_id, document_type, expiry_date')
-            .not('expiry_date', 'is', null)
-            .gte('expiry_date', now.toIso8601String())
-            .lte('expiry_date', thresholdDate.toIso8601String());
-
-        for (var doc in renterDocs) {
-          final userId = doc['user_id'] as String;
-          final docType = doc['document_type'] as String;
-          final expiryDate = DateTime.parse(doc['expiry_date'] as String);
-          final daysUntilExpiry = expiryDate.difference(now).inDays;
-
-          final created = await createDocumentExpiryNotification(
-            userId: userId,
-            documentType: docType,
-            daysUntilExpiry: daysUntilExpiry,
-            documentId: doc['id'],
-          );
-
-          if (created) notificationsCreated++;
-        }
-      } catch (e) {
-        debugPrint('Error checking renter_verification_documents expiries: $e');
-      }
+      // Note: vehicle_documents and renter_documents in current schema store upload history
+      // Driver licenses and driver documents are the canonical source for expiry alerts.
+      // (Skipping vehicle_documents / renter_verification_documents to prevent 400/404 errors)
 
       debugPrint('Created $notificationsCreated document expiry notifications');
       return notificationsCreated;

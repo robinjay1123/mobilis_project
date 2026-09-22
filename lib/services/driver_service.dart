@@ -511,7 +511,7 @@ class DriverService {
                   plate_number,
                   owner_id
                 ),
-                renter:renter_id (
+                renter:users!bookings_renter_id_fkey (
                   id,
                   full_name,
                   email,
@@ -983,7 +983,7 @@ class DriverService {
             bookings:booking_id (
               *,
               vehicles:vehicle_id (brand, model, year, plate_number),
-              renter:renter_id (full_name, phone, location)
+              renter:users!bookings_renter_id_fkey (full_name, phone)
             )
           ''')
           .eq('driver_id', driverId)
@@ -1016,7 +1016,7 @@ class DriverService {
             bookings:booking_id (
               *,
               vehicles:vehicle_id (brand, model, year),
-              renter:renter_id (full_name)
+              renter:users!bookings_renter_id_fkey (full_name)
             )
           ''')
           .or('driver_id.eq.$driverId,driver_id.eq.$targetUserId')
@@ -1236,7 +1236,9 @@ class DriverService {
             *,
             driver_trips:trip_id (
               booking_id,
-              renter:renter_id (full_name),
+              bookings:booking_id (
+                renter:users!bookings_renter_id_fkey (full_name)
+              ),
               distance_km,
               duration_minutes
             )
@@ -1843,7 +1845,7 @@ class DriverService {
                   image_url,
                   display_order
                 ),
-                owner:owner_id (
+                owner:users!vehicles_owner_id_fkey (
                   role
                 )
               ),
@@ -1864,7 +1866,7 @@ class DriverService {
                   business_name
                 )
               ),
-              renter:renter_id (
+              renter:users!bookings_renter_id_fkey (
                 id,
                 full_name,
                 email,

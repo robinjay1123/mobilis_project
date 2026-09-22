@@ -2439,7 +2439,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               partner_id,
               vehicle_images(image_url, display_order)
             ),
-            renter:renter_id (id, full_name, email, phone),
+            renter:users!bookings_renter_id_fkey (id, full_name, email, phone),
             drivers:drivers!bookings_driver_id_fkey (
               id,
               user_id,
@@ -2650,7 +2650,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .from('vehicles')
           .select('''
             *,
-            owner:owner_id (full_name, email, role)
+            owner:users!vehicles_owner_id_fkey (full_name, email, role)
           ''')
           .order('created_at', ascending: false);
 

@@ -2417,7 +2417,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 vehicle_type,
                 category,
                 seats,
-                owner:owner_id (
+                owner:users!vehicles_owner_id_fkey (
                   id,
                   role,
                   full_name,
@@ -2510,7 +2510,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 transmission,
                 vehicle_type,
                 seats,
-                owner:owner_id (
+                owner:users!vehicles_owner_id_fkey (
                   id,
                   role,
                   full_name,

@@ -95,13 +95,10 @@ class RenterService {
       }
 
       final response =
-          await supabase.from('renter_verification_documents').insert({
-            'user_id': userId,
+          await supabase.from('renter_documents').insert({
             'renter_id': renterProfile['id'],
             'document_type': documentType,
-            'file_url': fileUrl,
-            'expiry_date': expiryDate,
-            'upload_date': DateTime.now().toIso8601String(),
+            'document_url': fileUrl,
             'status': 'pending',
           }).select();
 
@@ -125,10 +122,10 @@ class RenterService {
     try {
       debugPrint('Fetching verification documents for user: $userId');
       final response = await supabase
-          .from('renter_verification_documents')
+          .from('renter_documents')
           .select('*')
-          .eq('user_id', userId)
-          .order('upload_date', ascending: false);
+          .eq('renter_id', userId)
+          .order('created_at', ascending: false);
 
       return List<Map<String, dynamic>>.from(response);
     } on PostgrestException catch (e) {
@@ -150,9 +147,9 @@ class RenterService {
     try {
       debugPrint('Fetching $documentType document for user: $userId');
       final response = await supabase
-          .from('renter_verification_documents')
+          .from('renter_documents')
           .select('*')
-          .eq('user_id', userId)
+          .eq('renter_id', userId)
           .eq('document_type', documentType)
           .maybeSingle();
 
@@ -171,7 +168,7 @@ class RenterService {
     try {
       debugPrint('Deleting verification document: $documentId');
       await supabase
-          .from('renter_verification_documents')
+          .from('renter_documents')
           .delete()
           .eq('id', documentId);
 
@@ -501,7 +498,7 @@ class RenterService {
 
       // Get the old document
       final oldDoc = await supabase
-          .from('renter_verification_documents')
+          .from('renter_documents')
           .select()
           .eq('id', documentId)
           .maybeSingle();
@@ -512,14 +509,11 @@ class RenterService {
 
       // Update the document with new file and expiry
       final updated = await supabase
-          .from('renter_verification_documents')
+          .from('renter_documents')
           .update({
-            'file_url': newFileUrl,
-            if (newExpiryDate != null)
-              'expiry_date': newExpiryDate.toIso8601String(),
+            'document_url': newFileUrl,
             'status': 'pending',
             'updated_at': DateTime.now().toIso8601String(),
-            'renewal_count': (oldDoc['renewal_count'] ?? 0) + 1,
           })
           .eq('id', documentId)
           .select()
@@ -550,9 +544,9 @@ class RenterService {
       final thresholdDate = now.add(Duration(days: daysThreshold));
 
       final docs = await supabase
-          .from('renter_verification_documents')
+          .from('renter_documents')
           .select()
-          .eq('user_id', userId);
+          .eq('renter_id', userId);
 
       final pendingRenewal = docs.where((doc) {
         final expiryDate = doc['expiry_date'] as String?;

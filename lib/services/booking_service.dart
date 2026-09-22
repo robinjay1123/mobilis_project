@@ -850,7 +850,7 @@ class BookingService {
           final vRows = await supabase
               .from('vehicles')
               .select(
-                '*, vehicle_images(image_url, display_order), owner:owner_id(id, full_name, role, email, phone)',
+                '*, vehicle_images(image_url, display_order), owner:users!vehicles_owner_id_fkey(id, full_name, role, email, phone)',
               )
               .inFilter('id', remainingIds);
           for (final row in List<Map<String, dynamic>>.from(vRows)) {
@@ -6913,10 +6913,10 @@ class BookingService {
           .from('bookings')
           .select('''
             *,
-            users:renter_id (*),
+            users:users!bookings_renter_id_fkey (*),
             vehicles:vehicle_id (
               *,
-              owner:owner_id (*)
+              owner:users!vehicles_owner_id_fkey (*)
             )
           ''')
           .neq('extension_status', 'none')

@@ -494,7 +494,7 @@ class TrackingService {
           pickup_longitude,
           dropoff_latitude,
           dropoff_longitude,
-          renter:renter_id (
+          renter:users!bookings_renter_id_fkey (
             id,
             full_name,
             email,
@@ -726,9 +726,9 @@ class TrackingService {
                   vehicle_name,
                   vehicle_images(id, image_url, display_order),
                   owner_id,
-                  owner:owner_id (id, role)
+                  owner:users!vehicles_owner_id_fkey (id, role)
                 ),
-                renter:renter_id (id, full_name, email),
+                renter:users!bookings_renter_id_fkey (id, full_name, email),
                 drivers:drivers!bookings_driver_id_fkey (
                   id,
                   user_id,
@@ -766,7 +766,7 @@ class TrackingService {
                     vehicle_name,
                     owner_id
                   ),
-                  renter:renter_id (id, full_name, email)
+                  renter:users!bookings_renter_id_fkey (id, full_name, email)
                 )
               ''')
               .order('recorded_at', ascending: false)
@@ -829,9 +829,9 @@ class TrackingService {
                 owner_id,
                 latitude,
                 longitude,
-                owner:owner_id (id, role)
+                owner:users!vehicles_owner_id_fkey (id, role)
               ),
-              renter:renter_id (id, full_name, email),
+              renter:users!bookings_renter_id_fkey (id, full_name, email),
               drivers:drivers!bookings_driver_id_fkey (
                 id,
                 user_id,
@@ -881,7 +881,7 @@ class TrackingService {
                   latitude,
                   longitude
                 ),
-                renter:renter_id (id, full_name, email)
+                renter:users!bookings_renter_id_fkey (id, full_name, email)
               ''')
               .inFilter('status', [
                 'ongoing',
@@ -1556,9 +1556,9 @@ class TrackingService {
                   model,
                   plate_number,
                   owner_id,
-                  owner:owner_id (id, role)
+                  owner:users!vehicles_owner_id_fkey (id, role)
                 ),
-                renter:renter_id (id, full_name, email),
+                renter:users!bookings_renter_id_fkey (id, full_name, email),
                 drivers:drivers!bookings_driver_id_fkey (
                   id,
                   user_id,
@@ -1594,7 +1594,7 @@ class TrackingService {
                   plate_number,
                   owner_id
                 ),
-                renter:renter_id (id, full_name, email)
+                renter:users!bookings_renter_id_fkey (id, full_name, email)
               )
             ''')
               .inFilter('vehicle_id', partnerVehicleIds.toList())
@@ -1628,7 +1628,7 @@ class TrackingService {
                     plate_number,
                     owner_id
                   ),
-                  renter:renter_id (id, full_name, email)
+                  renter:users!bookings_renter_id_fkey (id, full_name, email)
                 )
               ''')
                 .inFilter('booking_id', partnerBookingIds.toList())
@@ -1898,9 +1898,9 @@ class TrackingService {
                   model,
                   plate_number,
                   owner_id,
-                  owner:owner_id (id, role)
+                  owner:users!vehicles_owner_id_fkey (id, role)
                 ),
-                renter:renter_id (id, full_name, email, phone),
+                renter:users!bookings_renter_id_fkey (id, full_name, email, phone),
                 drivers:drivers!bookings_driver_id_fkey (
                   id,
                   user_id,
@@ -1937,7 +1937,7 @@ class TrackingService {
                   plate_number,
                   owner_id
                 ),
-                renter:renter_id (id, full_name, email, phone)
+                renter:users!bookings_renter_id_fkey (id, full_name, email, phone)
               )
             ''')
             .eq('booking_id', bookingId)

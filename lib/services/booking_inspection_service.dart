@@ -429,7 +429,7 @@ class BookingInspectionService {
   Future<Map<String, dynamic>> _getInspectionBooking(String bookingId) async {
     final response = await supabase
         .from('bookings')
-        .select('*, vehicles(*, owner:owner_id(id, role, full_name))')
+        .select('*, vehicles(*, owner:users!vehicles_owner_id_fkey(id, role, full_name))')
         .eq('id', bookingId)
         .maybeSingle();
     if (response == null) throw Exception('Booking not found');
