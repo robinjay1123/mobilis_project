@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Comprehensive Row Level Security (RLS) Policy Architecture
--- Migration: 20260923000100_comprehensive_rls_security.sql
+-- Migration: 20260923000700_comprehensive_rls_security.sql
 -- Description: Enables and enforces granular RLS policies across critical tables:
 --   - public.users
 --   - public.vehicles, vehicle_images, partner_vehicles
@@ -180,7 +180,7 @@ CREATE POLICY "vehicles_insert_staff_or_partner"
   TO authenticated
   WITH CHECK (
     public.is_staff_user() 
-    OR (public.is_partner_user() AND (owner_id = auth.uid() OR partner_id = auth.uid()))
+    OR (public.is_partner_user() AND owner_id = auth.uid())
   );
 
 DROP POLICY IF EXISTS "vehicles_update_staff_or_partner" ON public.vehicles;
@@ -190,11 +190,11 @@ CREATE POLICY "vehicles_update_staff_or_partner"
   TO authenticated
   USING (
     public.is_staff_user() 
-    OR (owner_id = auth.uid() OR partner_id = auth.uid())
+    OR owner_id = auth.uid()
   )
   WITH CHECK (
     public.is_staff_user() 
-    OR (owner_id = auth.uid() OR partner_id = auth.uid())
+    OR owner_id = auth.uid()
   );
 
 DROP POLICY IF EXISTS "vehicles_delete_staff_or_partner" ON public.vehicles;
@@ -204,7 +204,7 @@ CREATE POLICY "vehicles_delete_staff_or_partner"
   TO authenticated
   USING (
     public.is_staff_user() 
-    OR (owner_id = auth.uid() OR partner_id = auth.uid())
+    OR owner_id = auth.uid()
   );
 
 -- Vehicle Images
@@ -227,7 +227,7 @@ CREATE POLICY "vehicle_images_manage_staff_or_partner"
     OR EXISTS (
       SELECT 1 FROM public.vehicles v
       WHERE v.id = vehicle_images.vehicle_id
-        AND (v.owner_id = auth.uid() OR v.partner_id = auth.uid())
+        AND v.owner_id = auth.uid()
     )
   )
   WITH CHECK (
@@ -235,7 +235,7 @@ CREATE POLICY "vehicle_images_manage_staff_or_partner"
     OR EXISTS (
       SELECT 1 FROM public.vehicles v
       WHERE v.id = vehicle_images.vehicle_id
-        AND (v.owner_id = auth.uid() OR v.partner_id = auth.uid())
+        AND v.owner_id = auth.uid()
     )
   );
 
@@ -266,11 +266,10 @@ CREATE POLICY "bookings_select_participants"
     OR renter_id = auth.uid()
     OR driver_id = auth.uid()
     OR operator_id = auth.uid()
-    OR partner_id = auth.uid()
     OR EXISTS (
       SELECT 1 FROM public.vehicles v
       WHERE v.id = bookings.vehicle_id
-        AND (v.owner_id = auth.uid() OR v.partner_id = auth.uid())
+        AND v.owner_id = auth.uid()
     )
   );
 
@@ -294,14 +293,22 @@ CREATE POLICY "bookings_update_participants"
     OR renter_id = auth.uid()
     OR driver_id = auth.uid()
     OR operator_id = auth.uid()
-    OR partner_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = bookings.vehicle_id
+        AND v.owner_id = auth.uid()
+    )
   )
   WITH CHECK (
     public.is_staff_user()
     OR renter_id = auth.uid()
     OR driver_id = auth.uid()
     OR operator_id = auth.uid()
-    OR partner_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = bookings.vehicle_id
+        AND v.owner_id = auth.uid()
+    )
   );
 
 DROP POLICY IF EXISTS "bookings_delete_admin" ON public.bookings;
@@ -653,7 +660,7 @@ BEGIN
   IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'booking_financials') THEN
     EXECUTE 'ALTER TABLE public.booking_financials ENABLE ROW LEVEL SECURITY;';
     EXECUTE 'DROP POLICY IF EXISTS "booking_financials_select" ON public.booking_financials;';
-    EXECUTE 'CREATE POLICY "booking_financials_select" ON public.booking_financials FOR SELECT TO authenticated USING (public.is_staff_user() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = booking_financials.booking_id AND (b.renter_id = auth.uid() OR b.partner_id = auth.uid() OR b.driver_id = auth.uid())));';
+    EXECUTE 'CREATE POLICY "booking_financials_select" ON public.booking_financials FOR SELECT TO authenticated USING (public.is_staff_user() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = booking_financials.booking_id AND (b.renter_id = auth.uid() OR b.driver_id = auth.uid() OR b.operator_id = auth.uid() OR EXISTS (SELECT 1 FROM public.vehicles v WHERE v.id = b.vehicle_id AND v.owner_id = auth.uid()))));';
     EXECUTE 'DROP POLICY IF EXISTS "booking_financials_manage_staff" ON public.booking_financials;';
     EXECUTE 'CREATE POLICY "booking_financials_manage_staff" ON public.booking_financials FOR ALL TO authenticated USING (public.is_staff_user()) WITH CHECK (public.is_staff_user());';
   END IF;
@@ -665,7 +672,7 @@ BEGIN
   IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'booking_settlements') THEN
     EXECUTE 'ALTER TABLE public.booking_settlements ENABLE ROW LEVEL SECURITY;';
     EXECUTE 'DROP POLICY IF EXISTS "booking_settlements_select" ON public.booking_settlements;';
-    EXECUTE 'CREATE POLICY "booking_settlements_select" ON public.booking_settlements FOR SELECT TO authenticated USING (public.is_staff_user() OR partner_id = auth.uid() OR driver_id = auth.uid());';
+    EXECUTE 'CREATE POLICY "booking_settlements_select" ON public.booking_settlements FOR SELECT TO authenticated USING (public.is_staff_user() OR partner_user_id = auth.uid() OR driver_user_id = auth.uid() OR operator_user_id = auth.uid());';
     EXECUTE 'DROP POLICY IF EXISTS "booking_settlements_manage_staff" ON public.booking_settlements;';
     EXECUTE 'CREATE POLICY "booking_settlements_manage_staff" ON public.booking_settlements FOR ALL TO authenticated USING (public.is_staff_user()) WITH CHECK (public.is_staff_user());';
   END IF;
@@ -677,7 +684,7 @@ BEGIN
   IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'booking_payouts') THEN
     EXECUTE 'ALTER TABLE public.booking_payouts ENABLE ROW LEVEL SECURITY;';
     EXECUTE 'DROP POLICY IF EXISTS "booking_payouts_select" ON public.booking_payouts;';
-    EXECUTE 'CREATE POLICY "booking_payouts_select" ON public.booking_payouts FOR SELECT TO authenticated USING (public.is_staff_user() OR partner_id = auth.uid());';
+    EXECUTE 'CREATE POLICY "booking_payouts_select" ON public.booking_payouts FOR SELECT TO authenticated USING (public.is_staff_user() OR recipient_user_id = auth.uid());';
     EXECUTE 'DROP POLICY IF EXISTS "booking_payouts_manage_staff" ON public.booking_payouts;';
     EXECUTE 'CREATE POLICY "booking_payouts_manage_staff" ON public.booking_payouts FOR ALL TO authenticated USING (public.is_staff_user()) WITH CHECK (public.is_staff_user());';
   END IF;
@@ -693,9 +700,9 @@ BEGIN
   IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'booking_vehicle_inspections') THEN
     EXECUTE 'ALTER TABLE public.booking_vehicle_inspections ENABLE ROW LEVEL SECURITY;';
     EXECUTE 'DROP POLICY IF EXISTS "booking_vehicle_inspections_select" ON public.booking_vehicle_inspections;';
-    EXECUTE 'CREATE POLICY "booking_vehicle_inspections_select" ON public.booking_vehicle_inspections FOR SELECT TO authenticated USING (public.is_staff_user() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = booking_vehicle_inspections.booking_id AND (b.renter_id = auth.uid() OR b.driver_id = auth.uid() OR b.partner_id = auth.uid())));';
+    EXECUTE 'CREATE POLICY "booking_vehicle_inspections_select" ON public.booking_vehicle_inspections FOR SELECT TO authenticated USING (public.is_staff_user() OR inspector_id = auth.uid() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = booking_vehicle_inspections.booking_id AND (b.renter_id = auth.uid() OR b.driver_id = auth.uid() OR b.operator_id = auth.uid())));';
     EXECUTE 'DROP POLICY IF EXISTS "booking_vehicle_inspections_manage" ON public.booking_vehicle_inspections;';
-    EXECUTE 'CREATE POLICY "booking_vehicle_inspections_manage" ON public.booking_vehicle_inspections FOR ALL TO authenticated USING (public.is_staff_user() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = booking_vehicle_inspections.booking_id AND (b.driver_id = auth.uid() OR b.partner_id = auth.uid()))) WITH CHECK (public.is_staff_user() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = booking_vehicle_inspections.booking_id AND (b.driver_id = auth.uid() OR b.partner_id = auth.uid())));';
+    EXECUTE 'CREATE POLICY "booking_vehicle_inspections_manage" ON public.booking_vehicle_inspections FOR ALL TO authenticated USING (public.is_staff_user() OR inspector_id = auth.uid() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = booking_vehicle_inspections.booking_id AND (b.driver_id = auth.uid() OR b.operator_id = auth.uid()))) WITH CHECK (public.is_staff_user() OR inspector_id = auth.uid() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = booking_vehicle_inspections.booking_id AND (b.driver_id = auth.uid() OR b.operator_id = auth.uid())));';
   END IF;
 END $$;
 
