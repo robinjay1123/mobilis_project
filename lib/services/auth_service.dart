@@ -316,10 +316,10 @@ class AuthService {
           'full_name': normalizedFullName,
           'id_type': idType,
           'id_number': idNumber,
-          'location': location,
-          'phone': normalizedPhone,
+          'id_front_url': idDocumentUrl,
           'id_document_url': idDocumentUrl,
           'verification_status': 'pending',
+          'updated_at': DateTime.now().toIso8601String(),
         }, onConflict: 'user_id');
       }
 

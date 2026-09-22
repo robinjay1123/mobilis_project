@@ -51,9 +51,11 @@ class PartnerVerificationService {
           .from('user_verifications')
           .upsert({
             'user_id': userId,
+            'id_front_url': idDocumentUrl,
             'id_document_url': idDocumentUrl,
             'verification_status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
           }, onConflict: 'user_id')
           .select()
           .single();
