@@ -593,7 +593,7 @@ CREATE POLICY "tracking_locations_select"
   TO authenticated
   USING (
     public.is_staff_user()
-    OR driver_id = auth.uid()
+    OR tracked_user_id = auth.uid()
     OR EXISTS (
       SELECT 1 FROM public.bookings b
       WHERE b.id = tracking_locations.booking_id
@@ -608,7 +608,7 @@ CREATE POLICY "tracking_locations_insert"
   TO authenticated
   WITH CHECK (
     public.is_staff_user()
-    OR driver_id = auth.uid()
+    OR tracked_user_id = auth.uid()
     OR EXISTS (
       SELECT 1 FROM public.bookings b
       WHERE b.id = tracking_locations.booking_id
@@ -621,8 +621,8 @@ CREATE POLICY "tracking_locations_update_staff"
   ON public.tracking_locations
   FOR UPDATE
   TO authenticated
-  USING (public.is_staff_user() OR driver_id = auth.uid())
-  WITH CHECK (public.is_staff_user() OR driver_id = auth.uid());
+  USING (public.is_staff_user() OR tracked_user_id = auth.uid())
+  WITH CHECK (public.is_staff_user() OR tracked_user_id = auth.uid());
 
 -- Tracking Location Logs
 DO $$
@@ -630,9 +630,9 @@ BEGIN
   IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'tracking_location_logs') THEN
     EXECUTE 'ALTER TABLE public.tracking_location_logs ENABLE ROW LEVEL SECURITY;';
     EXECUTE 'DROP POLICY IF EXISTS "tracking_location_logs_select" ON public.tracking_location_logs;';
-    EXECUTE 'CREATE POLICY "tracking_location_logs_select" ON public.tracking_location_logs FOR SELECT TO authenticated USING (public.is_staff_user() OR driver_id = auth.uid());';
+    EXECUTE 'CREATE POLICY "tracking_location_logs_select" ON public.tracking_location_logs FOR SELECT TO authenticated USING (public.is_staff_user() OR tracked_user_id = auth.uid());';
     EXECUTE 'DROP POLICY IF EXISTS "tracking_location_logs_insert" ON public.tracking_location_logs;';
-    EXECUTE 'CREATE POLICY "tracking_location_logs_insert" ON public.tracking_location_logs FOR INSERT TO authenticated WITH CHECK (public.is_staff_user() OR driver_id = auth.uid());';
+    EXECUTE 'CREATE POLICY "tracking_location_logs_insert" ON public.tracking_location_logs FOR INSERT TO authenticated WITH CHECK (public.is_staff_user() OR tracked_user_id = auth.uid());';
   END IF;
 END $$;
 
@@ -646,9 +646,9 @@ BEGIN
   IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'payments') THEN
     EXECUTE 'ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;';
     EXECUTE 'DROP POLICY IF EXISTS "payments_select" ON public.payments;';
-    EXECUTE 'CREATE POLICY "payments_select" ON public.payments FOR SELECT TO authenticated USING (public.is_staff_user() OR user_id = auth.uid() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = payments.booking_id AND b.renter_id = auth.uid()));';
+    EXECUTE 'CREATE POLICY "payments_select" ON public.payments FOR SELECT TO authenticated USING (public.is_staff_user() OR payer_user_id = auth.uid() OR EXISTS (SELECT 1 FROM public.bookings b WHERE b.id = payments.booking_id AND b.renter_id = auth.uid()));';
     EXECUTE 'DROP POLICY IF EXISTS "payments_insert" ON public.payments;';
-    EXECUTE 'CREATE POLICY "payments_insert" ON public.payments FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid() OR public.is_staff_user());';
+    EXECUTE 'CREATE POLICY "payments_insert" ON public.payments FOR INSERT TO authenticated WITH CHECK (payer_user_id = auth.uid() OR public.is_staff_user());';
     EXECUTE 'DROP POLICY IF EXISTS "payments_update_staff" ON public.payments;';
     EXECUTE 'CREATE POLICY "payments_update_staff" ON public.payments FOR UPDATE TO authenticated USING (public.is_staff_user()) WITH CHECK (public.is_staff_user());';
   END IF;
