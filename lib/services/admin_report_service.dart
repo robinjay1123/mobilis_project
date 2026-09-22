@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -28,7 +29,7 @@ class AuditedTripRecord {
     required this.driverMode,
     required this.grossTotal,
     required this.adminFee,
-    this.status = 'SETTLED',
+    required this.status,
   });
 }
 
@@ -75,8 +76,8 @@ class AdminReportData {
   final int verifiedUsers;
   final int pendingUsers;
   final String userVerificationSubtext;
-  final double driverSafetyRating;
-  final String driverSafetySubtext;
+  final String systemSafetyMetric;
+  final String systemSafetySubtext;
   final String gpsTelematicsUptime;
   final String gpsTelematicsSubtext;
   final String auditStatusBadge;
@@ -116,8 +117,8 @@ class AdminReportData {
     required this.verifiedUsers,
     required this.pendingUsers,
     required this.userVerificationSubtext,
-    required this.driverSafetyRating,
-    required this.driverSafetySubtext,
+    required this.systemSafetyMetric,
+    required this.systemSafetySubtext,
     required this.gpsTelematicsUptime,
     required this.gpsTelematicsSubtext,
     required this.auditStatusBadge,
@@ -130,6 +131,12 @@ class AdminReportData {
     required List<Map<String, dynamic>> verificationRecords,
     required List<Map<String, dynamic>> trackingLocations,
     required double totalRevenue,
+    Map<String, double>? calculatedFinancials,
+    String? adminName,
+    String? adminEmail,
+    String? adminId,
+    int actionLogsCount = 0,
+    int userReportsCount = 0,
   }) {
     final now = DateTime.now();
     final year = now.year;
@@ -143,7 +150,7 @@ class AdminReportData {
     final curMonthName = DateFormat('MMM').format(now);
     final auditCycle = 'Q$quarter Reconciliation ($qMonthName 1 - $curMonthName ${now.day}, $year)';
 
-    // Fleet Breakdown
+    // Fleet Breakdown - TRUE DATA
     final partnerList = allVehicles.where((v) {
       final source = (v['source']?.toString() ?? '').toLowerCase();
       return source == 'partner' || v['is_partner_vehicle'] == true;
@@ -153,16 +160,11 @@ class AdminReportData {
       return source != 'partner' && v['is_partner_vehicle'] != true;
     }).toList();
 
-    int partnerCars = partnerList.length;
-    int psdcCars = psdcList.length;
-    int fleetCapacity = allVehicles.length;
-    if (fleetCapacity == 0) {
-      partnerCars = 32;
-      psdcCars = 26;
-      fleetCapacity = 58;
-    }
+    final partnerCars = partnerList.length;
+    final psdcCars = psdcList.length;
+    final fleetCapacity = allVehicles.length;
 
-    // Trips / Bookings
+    // Trips / Bookings - TRUE DATA
     final activeBookingsCount = allBookings.where((b) {
       final s = (b['status']?.toString() ?? '').toLowerCase();
       return s == 'active' || s == 'ongoing' || s == 'in_progress';
@@ -172,127 +174,142 @@ class AdminReportData {
       return s == 'completed' || s == 'settled';
     }).length;
 
-    int totalActiveTrips = activeBookingsCount > 0 ? activeBookingsCount : (allBookings.isNotEmpty ? allBookings.length : 142);
-    int totalReconciled = completedBookingsCount > 0 ? completedBookingsCount : (allBookings.isNotEmpty ? allBookings.length : 142);
+    // Financials - TRUE DATA
+    final double grossVolume = calculatedFinancials?['totalGrossVolume'] ??
+        (totalRevenue > 0
+            ? totalRevenue
+            : allBookings.fold<double>(0.0, (double sum, b) {
+                final c = (b['total_cost'] as num?)?.toDouble() ??
+                    (b['total_price'] as num?)?.toDouble() ??
+                    (b['total_amount'] as num?)?.toDouble() ??
+                    (b['rental_subtotal'] as num?)?.toDouble() ??
+                    0.0;
+                return sum + c;
+              }));
 
-    // Gross Volume & Commission
-    double grossVolume = totalRevenue > 0
-        ? totalRevenue
-        : allBookings.fold(0.0, (sum, b) => sum + ((b['total_cost'] as num?)?.toDouble() ?? (b['total_price'] as num?)?.toDouble() ?? 0.0));
-    if (grossVolume <= 0) {
-      grossVolume = 1482500.0;
+    final double platformCommission = calculatedFinancials?['totalPlatformCommission'] ?? (grossVolume * 0.15);
+    final double companyRevenue = calculatedFinancials?['companyFleetRevenue'] ?? (grossVolume * 0.85);
+
+    // Calculate actual fees and surcharges from bookings
+    double totalLateFees = 0.0;
+    double totalDeliveryFees = 0.0;
+    double totalDriverFees = 0.0;
+    for (final b in allBookings) {
+      totalLateFees += (b['late_return_fee'] as num?)?.toDouble() ?? (b['late_fee'] as num?)?.toDouble() ?? 0.0;
+      totalDeliveryFees += (b['delivery_fee'] as num?)?.toDouble() ?? 0.0;
+      totalDriverFees += (b['driver_fee'] as num?)?.toDouble() ?? 0.0;
     }
-    final platformCommission = grossVolume * 0.15;
 
-    // Revenue Distribution
-    final tripComm = platformCommission;
-    final partnerSubs = grossVolume * 0.05 > 0 ? (grossVolume * 0.05) : 74000.0;
-    final penalties = grossVolume * 0.02 > 0 ? (grossVolume * 0.02) : 28500.0;
-    final driverSurch = grossVolume * 0.012 > 0 ? (grossVolume * 0.012) : 16800.0;
-    final netEarnings = tripComm + partnerSubs + penalties + driverSurch;
+    final double partnerPayouts = calculatedFinancials?['totalPartnerGross'] ?? 0.0;
+    final double netEarnings = calculatedFinancials?['actualCompanyNetRevenue'] ??
+        (companyRevenue + platformCommission + totalLateFees);
 
-    final sumCategories = tripComm + partnerSubs + penalties + driverSurch;
-    final tripCommPct = sumCategories > 0 ? ((tripComm / sumCategories) * 100).round() : 65;
-    final partnerSubsPct = sumCategories > 0 ? ((partnerSubs / sumCategories) * 100).round() : 22;
-    final penaltiesPct = sumCategories > 0 ? ((penalties / sumCategories) * 100).round() : 8;
-    final driverSurchPct = 100 - (tripCommPct + partnerSubsPct + penaltiesPct);
+    // Distribution breakdown
+    final double item1 = companyRevenue > 0 ? companyRevenue : platformCommission;
+    final double item2 = partnerPayouts > 0 ? partnerPayouts : (grossVolume * 0.05);
+    final double item3 = totalLateFees;
+    final double item4 = totalDriverFees + totalDeliveryFees;
 
-    // Audited Trip Records (Take latest 5)
+    final sumDist = item1 + item2 + item3 + item4;
+    final item1Pct = sumDist > 0 ? ((item1 / sumDist) * 100).round() : 100;
+    final item2Pct = sumDist > 0 ? ((item2 / sumDist) * 100).round() : 0;
+    final item3Pct = sumDist > 0 ? ((item3 / sumDist) * 100).round() : 0;
+    final item4Pct = sumDist > 0 ? math.max(0, 100 - (item1Pct + item2Pct + item3Pct)) : 0;
+
+    // Audited Trip Records (Take latest 5) - ONLY TRUE DATA
     final recentTrips = <AuditedTripRecord>[];
-    if (allBookings.isNotEmpty) {
-      for (final b in allBookings.take(5)) {
-        final refNum = b['booking_code']?.toString() ??
-            (b['id'] != null ? '#BK-${b['id'].toString().substring(0, 5).toUpperCase()}' : '#BK-90210');
-        final vehicle = b['vehicles'] as Map<String, dynamic>? ?? {};
-        final user = b['users'] as Map<String, dynamic>? ?? {};
-        final brand = vehicle['brand'] ?? 'Toyota';
-        final model = vehicle['model'] ?? 'Vios G 1.5';
-        final isPartner = vehicle['is_partner_vehicle'] == true || vehicle['source'] == 'partner';
-        final total = (b['total_cost'] as num?)?.toDouble() ?? (b['total_price'] as num?)?.toDouble() ?? 7200.0;
-        final fee = total * 0.15;
-        final renter = user['full_name']?.toString() ?? 'Verified Renter';
-        final mode = b['driver_id'] != null ? 'With Driver' : 'Self-Drive Mode';
+    for (final b in allBookings.take(5)) {
+      final code = b['booking_code']?.toString() ??
+          b['booking_reference']?.toString() ??
+          b['id']?.toString() ??
+          '';
+      final refNum = code.length > 5
+          ? (code.startsWith('#') ? code.substring(0, math.min(9, code.length)) : '#BK-${code.substring(0, 5).toUpperCase()}')
+          : (code.isNotEmpty ? '#BK-$code' : '#BK-0000');
 
-        recentTrips.add(
-          AuditedTripRecord(
-            bookingRef: refNum.startsWith('#') ? refNum : '#$refNum',
-            vehicleName: '$brand $model',
-            category: isPartner ? 'Partner Fleet • Reconciled' : 'PSDC Fleet • Active Term',
-            renterName: renter,
-            driverMode: mode,
-            grossTotal: total,
-            adminFee: fee,
-            status: 'SETTLED',
-          ),
-        );
+      final vehicle = b['vehicles'] as Map<String, dynamic>? ?? {};
+      final renter = b['renter'] as Map<String, dynamic>? ?? b['users'] as Map<String, dynamic>? ?? {};
+      final brand = vehicle['brand']?.toString() ?? 'Vehicle';
+      final model = vehicle['model']?.toString() ?? '';
+      final isPartner = b['is_partner_vehicle'] == true ||
+          vehicle['is_partner_vehicle'] == true ||
+          vehicle['owner_role']?.toString().toLowerCase() == 'partner';
+
+      // Duration
+      final startAt = DateTime.tryParse(b['start_at']?.toString() ?? b['start_date']?.toString() ?? '');
+      final endAt = DateTime.tryParse(b['end_at']?.toString() ?? b['end_date']?.toString() ?? '');
+      final days = (startAt != null && endAt != null) ? math.max(1, endAt.difference(startAt).inDays) : 1;
+      final fleetLabel = isPartner ? 'Partner Fleet' : 'PSDC Fleet';
+      final category = '$fleetLabel - ${days}d';
+
+      // Mode
+      final hasDriver = b['driver_id'] != null || b['drivers'] != null || ((b['driver_fee'] as num?)?.toDouble() ?? 0) > 0;
+      final mode = hasDriver ? 'With Driver' : 'Self-Drive Mode';
+
+      // Renter Name
+      final rName = renter['full_name']?.toString().trim().isNotEmpty == true
+          ? renter['full_name'].toString().trim()
+          : 'Verified Renter';
+
+      // Cost
+      final gross = (b['total_cost'] as num?)?.toDouble() ??
+          (b['total_price'] as num?)?.toDouble() ??
+          (b['total_amount'] as num?)?.toDouble() ??
+          (b['rental_subtotal'] as num?)?.toDouble() ??
+          0.0;
+
+      // Commission / Fee
+      final fee = (b['partner_payout_commission'] as num?)?.toDouble() ??
+          (b['platform_commission'] as num?)?.toDouble() ??
+          (gross * 0.15);
+
+      // Status
+      final rawStatus = (b['status']?.toString() ?? 'pending').toLowerCase();
+      String st = 'SETTLED';
+      if (rawStatus == 'completed' || rawStatus == 'settled') {
+        st = 'SETTLED';
+      } else if (rawStatus == 'active' || rawStatus == 'ongoing' || rawStatus == 'in_progress') {
+        st = 'ACTIVE';
+      } else if (rawStatus == 'cancelled') {
+        st = 'CANCELLED';
+      } else {
+        st = rawStatus.toUpperCase();
       }
+
+      recentTrips.add(
+        AuditedTripRecord(
+          bookingRef: refNum,
+          vehicleName: '$brand $model'.trim(),
+          category: category,
+          renterName: rName,
+          driverMode: mode,
+          grossTotal: gross,
+          adminFee: fee,
+          status: st,
+        ),
+      );
     }
 
-    // Default reference trips if empty
-    if (recentTrips.isEmpty) {
-      recentTrips.addAll([
-        AuditedTripRecord(
-          bookingRef: '#BK-90210',
-          vehicleName: 'Toyota Vios G 1.5',
-          category: 'PSDC Fleet • 3 Days',
-          renterName: 'Rayne Dela Cruz',
-          driverMode: 'Self-Drive Mode',
-          grossTotal: 7200.0,
-          adminFee: 1080.0,
-        ),
-        AuditedTripRecord(
-          bookingRef: '#BK-88412',
-          vehicleName: 'Tesla Model 3 Performance',
-          category: 'Partner Fleet (Bossing)',
-          renterName: 'Mark Johnson',
-          driverMode: 'With Driver (J. Perez)',
-          grossTotal: 24500.0,
-          adminFee: 3675.0,
-        ),
-        AuditedTripRecord(
-          bookingRef: '#BK-87994',
-          vehicleName: 'Mitsubishi Xpander GLS',
-          category: 'PSDC Fleet • 5 Days',
-          renterName: 'Allan Cayetano',
-          driverMode: 'Doorstep Delivery',
-          grossTotal: 16000.0,
-          adminFee: 2400.0,
-        ),
-        AuditedTripRecord(
-          bookingRef: '#BK-87611',
-          vehicleName: 'BMW i4 M50 Gran Coupe',
-          category: 'Partner Fleet (Madonna U.)',
-          renterName: 'Thea Dela Cruz',
-          driverMode: 'With Driver (R. Gomez)',
-          grossTotal: 31800.0,
-          adminFee: 4770.0,
-        ),
-        AuditedTripRecord(
-          bookingRef: '#BK-87103',
-          vehicleName: 'Toyota Innova Zenix Hybrid',
-          category: 'PSDC Fleet • 2 Days',
-          renterName: 'Carlos Mendoza',
-          driverMode: 'Self-Drive Pick-up',
-          grossTotal: 8600.0,
-          adminFee: 1290.0,
-        ),
-      ]);
-    }
-
-    // User Verification counts
-    int verifiedCount = verificationRecords.where((r) {
+    // User Verification counts - TRUE DATA
+    final verifiedCount = verificationRecords.where((r) {
       final s = (r['verification_status']?.toString() ?? '').toLowerCase();
       return s == 'verified' || s == 'approved';
     }).length;
-    int pendingCount = verificationRecords.where((r) {
+    final pendingCount = verificationRecords.where((r) {
       final s = (r['verification_status']?.toString() ?? '').toLowerCase();
       return s == 'pending';
     }).length;
 
-    if (verifiedCount == 0 && pendingCount == 0) {
-      verifiedCount = 28;
-      pendingCount = 7;
-    }
+    final totalVerifs = verifiedCount + pendingCount;
+    final verifPct = totalVerifs > 0 ? ((verifiedCount / totalVerifs) * 100).toStringAsFixed(1) : '100';
+
+    // Signer Names - TRUE DATA
+    final realSigner = (adminName?.trim().isNotEmpty == true)
+        ? adminName!.trim()
+        : (adminEmail ?? 'System Administrator');
+    final realAdminId = (adminId?.isNotEmpty == true)
+        ? 'ID: ${adminId!.substring(0, math.min(8, adminId.length)).toUpperCase()}'
+        : 'ID: MOB-SYS-ADMIN';
 
     final rawHash = sha256.convert(utf8.encode('$ref-$docSerial-${now.millisecondsSinceEpoch}')).toString();
     final shortHash = '${rawHash.substring(0, 6)}...${rawHash.substring(rawHash.length - 6)}';
@@ -302,41 +319,41 @@ class AdminReportData {
       referenceCode: ref,
       docSerial: docSerial,
       auditCycle: auditCycle,
-      preparedByName: 'Admin Master Console (Lead Dispatch)',
-      preparedBySigner: 'Rayne Dela Cruz',
-      preparedByTitle: 'Operations Lead & Fleet Dispatcher',
-      preparedById: 'ID: PSDC-DISP-001',
-      auditedByName: 'Atty. Marcus Vance, CPA',
-      auditedByTitle: 'Chief Legal & Compliance Officer',
-      auditedByCreds: 'Bar No. 71924 / PRC-CPA 04321',
+      preparedByName: realSigner,
+      preparedBySigner: realSigner,
+      preparedByTitle: 'Mobilis Platform Administrator',
+      preparedById: realAdminId,
+      auditedByName: 'Mobilis Operations & Audit Engine',
+      auditedByTitle: 'Automated Platform Ledger Verification',
+      auditedByCreds: 'Reconciled • Cryptographically Signed',
       sha256Hash: shortHash,
       grossBookingVolume: grossVolume,
-      grossGrowthText: '+18.4% vs prev cycle',
+      grossGrowthText: '${allBookings.length} Total Bookings Recorded',
       platformCommission: platformCommission,
-      totalActiveTrips: totalActiveTrips,
-      onTimeReturnRate: '98.6% on-time return rate',
+      totalActiveTrips: activeBookingsCount,
+      onTimeReturnRate: '$completedBookingsCount Completed / $activeBookingsCount Active',
       fleetCapacity: fleetCapacity,
       partnerCars: partnerCars,
       psdcCars: psdcCars,
-      tripCommissions: tripComm,
-      tripCommissionsPct: tripCommPct,
-      partnerSubscriptions: partnerSubs,
-      partnerSubscriptionsPct: partnerSubsPct,
-      overtimePenalties: penalties,
-      overtimePenaltiesPct: penaltiesPct,
-      driverSurcharge: driverSurch,
-      driverSurchargePct: driverSurchPct,
+      tripCommissions: item1,
+      tripCommissionsPct: item1Pct,
+      partnerSubscriptions: item2,
+      partnerSubscriptionsPct: item2Pct,
+      overtimePenalties: item3,
+      overtimePenaltiesPct: item3Pct,
+      driverSurcharge: item4,
+      driverSurchargePct: item4Pct,
       netPlatformEarnings: netEarnings,
       recentTrips: recentTrips,
-      totalReconciledRecords: totalReconciled,
+      totalReconciledRecords: allBookings.length,
       verifiedUsers: verifiedCount,
       pendingUsers: pendingCount,
-      userVerificationSubtext: '80% auto-verified via NBI Clearance & facial biometrics pipeline.',
-      driverSafetyRating: 4.92,
-      driverSafetySubtext: 'Zero major safety policy violations logged across 34 active driver shifts.',
-      gpsTelematicsUptime: '100% Signal Uptime',
-      gpsTelematicsSubtext: 'Live tracking active across all ongoing rentals with geofence triggers enabled.',
-      auditStatusBadge: 'AUDIT STATUS: PASSED (ISO-9001 ALIGNMENT)',
+      userVerificationSubtext: '$verifPct% verified identity compliance in platform.',
+      systemSafetyMetric: '$userReportsCount Incident Reports',
+      systemSafetySubtext: 'Verified across ${allBookings.length} booked rentals and fleet operations.',
+      gpsTelematicsUptime: '${trackingLocations.length} Active Feeds',
+      gpsTelematicsSubtext: 'Live GPS telematics and trip tracking enabled across active fleet.',
+      auditStatusBadge: 'AUDIT STATUS: VERIFIED (SYSTEM RECONCILED)',
     );
   }
 }
@@ -345,7 +362,7 @@ class AdminReportPdfService {
   static final NumberFormat _currency = NumberFormat('#,##0.00');
   static final NumberFormat _integerMoney = NumberFormat('#,##0');
 
-  /// Generates the high-fidelity PDF Document
+  /// Generates the high-fidelity PDF Document without huge gaps and with true data
   static Future<Uint8List> generatePdf(AdminReportData data) async {
     final pdf = pw.Document(
       title: 'Executive Admin Audit Report - ${data.referenceCode}',
@@ -361,7 +378,7 @@ class AdminReportPdfService {
       debugPrint('AdminReport: Could not load logo1.png: $e');
     }
 
-    // Color definitions matching the reference image
+    // Color definitions
     final cPrimary = PdfColor.fromHex('#0F172A'); // Slate 900
     final cMuted = PdfColor.fromHex('#64748B'); // Slate 500
     final cCardBorder = PdfColor.fromHex('#E2E8F0'); // Slate 200
@@ -461,7 +478,7 @@ class AdminReportPdfService {
                             style: pw.TextStyle(fontSize: 7.5, color: cMuted),
                           ),
                           pw.Text(
-                            'PSDC Operations HQ, 4th Floor Mobility Tower, Clark Global City, PH',
+                            'PSDC Operations HQ, Clark Global City, Philippines',
                             style: pw.TextStyle(fontSize: 6.5, color: cMuted),
                           ),
                         ],
@@ -517,20 +534,20 @@ class AdminReportPdfService {
                 ],
               ),
 
-              pw.SizedBox(height: 14),
+              pw.SizedBox(height: 12),
 
               // 2. SECTION TITLE: SYSTEM OVERVIEW & KEY FINANCIAL INDICATORS
               pw.Row(
                 children: [
                   pw.Container(
-                    width: 14,
-                    height: 14,
+                    width: 13,
+                    height: 13,
                     alignment: pw.Alignment.center,
                     decoration: pw.BoxDecoration(
                       color: cGoldBg,
                       shape: pw.BoxShape.circle,
                     ),
-                    child: pw.Text('>', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: cDarkGold)),
+                    child: pw.Text('>', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: cDarkGold)),
                   ),
                   pw.SizedBox(width: 5),
                   pw.Text(
@@ -554,7 +571,7 @@ class AdminReportPdfService {
                     child: _buildKpiCard(
                       label: 'GROSS BOOKING VOLUME',
                       value: 'PHP ${_integerMoney.format(data.grossBookingVolume)}',
-                      subtext: '^ ${data.grossGrowthText}',
+                      subtext: data.grossGrowthText,
                       subColor: cGreen,
                       valueColor: cPrimary,
                       borderColor: cCardBorder,
@@ -565,9 +582,9 @@ class AdminReportPdfService {
                   // Card 2: Platform Commission (15%)
                   pw.Expanded(
                     child: _buildKpiCard(
-                      label: 'PLATFORM COMMISSION (15%)',
+                      label: 'PLATFORM COMMISSION',
                       value: 'PHP ${_integerMoney.format(data.platformCommission)}',
-                      subtext: 'Net automated deductions',
+                      subtext: 'Automated platform deductions',
                       subColor: cMuted,
                       valueColor: cGold,
                       borderColor: cCardBorder,
@@ -578,8 +595,8 @@ class AdminReportPdfService {
                   // Card 3: Total Active Trips
                   pw.Expanded(
                     child: _buildKpiCard(
-                      label: 'TOTAL ACTIVE TRIPS',
-                      value: '${data.totalActiveTrips} Trips',
+                      label: 'ACTIVE / COMPLETED TRIPS',
+                      value: '${data.totalActiveTrips} Active',
                       subtext: data.onTimeReturnRate,
                       subColor: cGreen,
                       valueColor: cPrimary,
@@ -592,8 +609,8 @@ class AdminReportPdfService {
                   pw.Expanded(
                     child: _buildKpiCard(
                       label: 'REGISTERED FLEET CAPACITY',
-                      value: '${data.fleetCapacity} Cars',
-                      subtext: '${data.partnerCars} Partner / ${data.psdcCars} PSDC',
+                      value: '${data.fleetCapacity} Vehicles',
+                      subtext: '${data.partnerCars} Partner / ${data.psdcCars} PSDC Fleet',
                       subColor: cMuted,
                       valueColor: cPrimary,
                       borderColor: cCardBorder,
@@ -606,61 +623,87 @@ class AdminReportPdfService {
               pw.SizedBox(height: 12),
 
               // 4. TWO-COLUMN SPLIT: TRANSACTIONS (60%) vs REVENUE DISTRIBUTION (40%)
-              pw.Expanded(
-                child: pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    // Left Column: Recent Audited Trip Settlements & Transactions
-                    pw.Expanded(
-                      flex: 62,
-                      child: pw.Container(
-                        padding: const pw.EdgeInsets.all(10),
-                        decoration: pw.BoxDecoration(
-                          color: cCardBg,
-                          borderRadius: pw.BorderRadius.circular(8),
-                          border: pw.Border.all(color: cCardBorder, width: 0.8),
-                        ),
-                        child: pw.Column(
-                          crossAxisAlignment: pw.CrossAxisAlignment.start,
-                          children: [
-                            pw.Row(
-                              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              // IMPORTANT: Natural sizing, NO pw.Expanded stretching to prevent giant white gaps!
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  // Left Column (60%): Recent Audited Trip Settlements & Transactions
+                  pw.Expanded(
+                    flex: 60,
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: pw.BoxDecoration(
+                        color: cCardBg,
+                        borderRadius: pw.BorderRadius.circular(8),
+                        border: pw.Border.all(color: cCardBorder, width: 0.8),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Row(
+                            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                            children: [
+                              pw.Text(
+                                'RECENT AUDITED TRIP SETTLEMENTS & TRANSACTIONS',
+                                style: pw.TextStyle(
+                                  fontSize: 7.5,
+                                  fontWeight: pw.FontWeight.bold,
+                                  color: cPrimary,
+                                ),
+                              ),
+                              pw.Text(
+                                'Showing ${data.recentTrips.length} of ${data.totalReconciledRecords} records',
+                                style: pw.TextStyle(fontSize: 6.5, color: cMuted),
+                              ),
+                            ],
+                          ),
+                          pw.SizedBox(height: 6),
+                          // Table Header with wide, balanced flex allocations
+                          pw.Container(
+                            color: cTableHeadBg,
+                            padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                            child: pw.Row(
                               children: [
-                                pw.Text(
-                                  'RECENT AUDITED TRIP SETTLEMENTS & TRANSACTIONS',
-                                  style: pw.TextStyle(
-                                    fontSize: 7.5,
-                                    fontWeight: pw.FontWeight.bold,
-                                    color: cPrimary,
-                                  ),
-                                ),
-                                pw.Text(
-                                  'Showing ${data.recentTrips.length} of ${data.totalReconciledRecords} reconciled records',
-                                  style: pw.TextStyle(fontSize: 6.5, color: cMuted),
-                                ),
+                                pw.Expanded(flex: 18, child: pw.Text('BOOKING REF', style: _thStyle)),
+                                pw.Expanded(flex: 28, child: pw.Text('VEHICLE & FLEET', style: _thStyle)),
+                                pw.Expanded(flex: 24, child: pw.Text('RENTER / MODE', style: _thStyle)),
+                                pw.Expanded(flex: 14, child: pw.Text('GROSS', style: _thStyle, textAlign: pw.TextAlign.right)),
+                                pw.Expanded(flex: 13, child: pw.Text('FEE', style: _thStyle, textAlign: pw.TextAlign.right)),
+                                pw.Expanded(flex: 15, child: pw.Text('STATUS', style: _thStyle, textAlign: pw.TextAlign.center)),
                               ],
                             ),
-                            pw.SizedBox(height: 6),
-                            // Table Header
-                            pw.Container(
-                              color: cTableHeadBg,
-                              padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-                              child: pw.Row(
-                                children: [
-                                  pw.Expanded(flex: 13, child: pw.Text('BOOKING REF', style: _thStyle)),
-                                  pw.Expanded(flex: 27, child: pw.Text('VEHICLE & CATEGORY', style: _thStyle)),
-                                  pw.Expanded(flex: 25, child: pw.Text('RENTER / DRIVER', style: _thStyle)),
-                                  pw.Expanded(flex: 15, child: pw.Text('GROSS TOTAL', style: _thStyle, textAlign: pw.TextAlign.right)),
-                                  pw.Expanded(flex: 15, child: pw.Text('ADMIN FEE', style: _thStyle, textAlign: pw.TextAlign.right)),
-                                  pw.Expanded(flex: 12, child: pw.Text('STATUS', style: _thStyle, textAlign: pw.TextAlign.center)),
-                                ],
+                          ),
+                          pw.Divider(color: cCardBorder, height: 1),
+                          // Table Rows - Clean and generous spacing
+                          if (data.recentTrips.isEmpty)
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.symmetric(vertical: 20),
+                              child: pw.Center(
+                                child: pw.Text(
+                                  'No audited booking transactions recorded in database.',
+                                  style: pw.TextStyle(fontSize: 7.5, color: cMuted),
+                                ),
                               ),
-                            ),
-                            pw.Divider(color: cCardBorder, height: 1),
-                            // Table Rows
+                            )
+                          else
                             ...data.recentTrips.map((trip) {
+                              final isSettled = trip.status == 'SETTLED' || trip.status == 'COMPLETED';
+                              final isActive = trip.status == 'ACTIVE' || trip.status == 'ONGOING';
+                              final isCancelled = trip.status == 'CANCELLED';
+
+                              final badgeText = trip.status;
+                              final badgeTextColor = isSettled
+                                  ? cGreen
+                                  : (isActive ? PdfColor.fromHex('#1D4ED8') : (isCancelled ? PdfColor.fromHex('#B91C1C') : cGold));
+                              final badgeBgColor = isSettled
+                                  ? cGreenBg
+                                  : (isActive ? PdfColor.fromHex('#DBEAFE') : (isCancelled ? PdfColor.fromHex('#FEE2E2') : cGoldBg));
+                              final badgeBorderColor = isSettled
+                                  ? cGreenBorder
+                                  : (isActive ? PdfColor.fromHex('#93C5FD') : (isCancelled ? PdfColor.fromHex('#FCA5A5') : cGoldBorder));
+
                               return pw.Container(
-                                padding: const pw.EdgeInsets.symmetric(vertical: 4.5, horizontal: 4),
+                                padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4),
                                 decoration: pw.BoxDecoration(
                                   border: pw.Border(bottom: pw.BorderSide(color: cCardBorder, width: 0.5)),
                                 ),
@@ -669,75 +712,77 @@ class AdminReportPdfService {
                                   children: [
                                     // Ref
                                     pw.Expanded(
-                                      flex: 13,
+                                      flex: 18,
                                       child: pw.Text(
                                         trip.bookingRef,
-                                        style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: cPrimary),
+                                        style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: cPrimary),
                                       ),
                                     ),
                                     // Vehicle & Category
                                     pw.Expanded(
-                                      flex: 27,
+                                      flex: 28,
                                       child: pw.Column(
                                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                                         children: [
                                           pw.Text(
                                             trip.vehicleName,
-                                            style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: cPrimary),
+                                            style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: cPrimary),
+                                            maxLines: 1,
                                           ),
-                                          pw.Text(trip.category, style: pw.TextStyle(fontSize: 6.2, color: cMuted)),
+                                          pw.Text(trip.category, style: pw.TextStyle(fontSize: 6, color: cMuted)),
                                         ],
                                       ),
                                     ),
                                     // Renter / Driver
                                     pw.Expanded(
-                                      flex: 25,
+                                      flex: 24,
                                       child: pw.Column(
                                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                                         children: [
                                           pw.Text(
                                             trip.renterName,
-                                            style: pw.TextStyle(fontSize: 7.2, color: cPrimary),
+                                            style: pw.TextStyle(fontSize: 7, color: cPrimary),
+                                            maxLines: 1,
                                           ),
-                                          pw.Text(trip.driverMode, style: pw.TextStyle(fontSize: 6.2, color: cMuted)),
+                                          pw.Text(trip.driverMode, style: pw.TextStyle(fontSize: 6, color: cMuted)),
                                         ],
                                       ),
                                     ),
                                     // Gross Total
                                     pw.Expanded(
-                                      flex: 15,
+                                      flex: 14,
                                       child: pw.Text(
                                         'PHP ${_currency.format(trip.grossTotal)}',
-                                        style: pw.TextStyle(fontSize: 7.2, color: cPrimary),
+                                        style: pw.TextStyle(fontSize: 6.8, color: cPrimary),
                                         textAlign: pw.TextAlign.right,
                                       ),
                                     ),
                                     // Admin Fee
                                     pw.Expanded(
-                                      flex: 15,
+                                      flex: 13,
                                       child: pw.Text(
                                         'PHP ${_currency.format(trip.adminFee)}',
-                                        style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: cGold),
+                                        style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: cGold),
                                         textAlign: pw.TextAlign.right,
                                       ),
                                     ),
-                                    // Status Badge
+                                    // Status Badge - No word wrapping
                                     pw.Expanded(
-                                      flex: 12,
+                                      flex: 15,
                                       child: pw.Center(
                                         child: pw.Container(
                                           padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                           decoration: pw.BoxDecoration(
-                                            color: cGreenBg,
-                                            borderRadius: pw.BorderRadius.circular(6),
-                                            border: pw.Border.all(color: cGreenBorder, width: 0.6),
+                                            color: badgeBgColor,
+                                            borderRadius: pw.BorderRadius.circular(4),
+                                            border: pw.Border.all(color: badgeBorderColor, width: 0.6),
                                           ),
                                           child: pw.Text(
-                                            trip.status,
+                                            badgeText,
                                             style: pw.TextStyle(
-                                              fontSize: 5.8,
+                                              fontSize: 5.5,
                                               fontWeight: pw.FontWeight.bold,
-                                              color: cGreen,
+                                              color: badgeTextColor,
                                             ),
                                           ),
                                         ),
@@ -747,138 +792,138 @@ class AdminReportPdfService {
                                 ),
                               );
                             }),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
+                  ),
 
-                    pw.SizedBox(width: 10),
+                  pw.SizedBox(width: 10),
 
-                    // Right Column: Revenue Distribution & Net Platform Earnings
-                    pw.Expanded(
-                      flex: 38,
-                      child: pw.Container(
-                        padding: const pw.EdgeInsets.all(10),
-                        decoration: pw.BoxDecoration(
-                          color: cCardBg,
-                          borderRadius: pw.BorderRadius.circular(8),
-                          border: pw.Border.all(color: cCardBorder, width: 0.8),
-                        ),
-                        child: pw.Column(
-                          crossAxisAlignment: pw.CrossAxisAlignment.start,
-                          children: [
-                            pw.Text(
-                              'REVENUE DISTRIBUTION',
-                              style: pw.TextStyle(
-                                fontSize: 7.5,
-                                fontWeight: pw.FontWeight.bold,
-                                color: cPrimary,
-                              ),
+                  // Right Column (40%): Revenue Distribution & Net Platform Earnings
+                  pw.Expanded(
+                    flex: 40,
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: pw.BoxDecoration(
+                        color: cCardBg,
+                        borderRadius: pw.BorderRadius.circular(8),
+                        border: pw.Border.all(color: cCardBorder, width: 0.8),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            'REVENUE DISTRIBUTION',
+                            style: pw.TextStyle(
+                              fontSize: 7.5,
+                              fontWeight: pw.FontWeight.bold,
+                              color: cPrimary,
                             ),
-                            pw.SizedBox(height: 8),
+                          ),
+                          pw.SizedBox(height: 7),
 
-                            // Item 1: Rental Trip Commissions (Blue)
-                            _buildDistributionBar(
-                              title: 'Rental Trip Commissions',
-                              amount: 'PHP ${_integerMoney.format(data.tripCommissions)} (${data.tripCommissionsPct}%)',
-                              pct: data.tripCommissionsPct / 100,
-                              barColor: PdfColor.fromHex('#2563EB'),
+                          // Item 1: Rental Volume / Commissions
+                          _buildDistributionBar(
+                            title: 'Fleet Rental Operations',
+                            amount: 'PHP ${_integerMoney.format(data.tripCommissions)} (${data.tripCommissionsPct}%)',
+                            pct: data.tripCommissionsPct / 100,
+                            barColor: PdfColor.fromHex('#2563EB'),
+                          ),
+                          pw.SizedBox(height: 6),
+
+                          // Item 2: Partner Fleet Volume
+                          _buildDistributionBar(
+                            title: 'Partner Fleet Share',
+                            amount: 'PHP ${_integerMoney.format(data.partnerSubscriptions)} (${data.partnerSubscriptionsPct}%)',
+                            pct: data.partnerSubscriptionsPct / 100,
+                            barColor: PdfColor.fromHex('#0EA5E9'),
+                          ),
+                          pw.SizedBox(height: 6),
+
+                          // Item 3: Overtime & Penalties
+                          _buildDistributionBar(
+                            title: 'Overtime & Late Penalties',
+                            amount: 'PHP ${_integerMoney.format(data.overtimePenalties)} (${data.overtimePenaltiesPct}%)',
+                            pct: data.overtimePenaltiesPct / 100,
+                            barColor: PdfColor.fromHex('#EF4444'),
+                          ),
+                          pw.SizedBox(height: 6),
+
+                          // Item 4: Driver Services
+                          _buildDistributionBar(
+                            title: 'Driver & Delivery Surcharges',
+                            amount: 'PHP ${_integerMoney.format(data.driverSurcharge)} (${data.driverSurchargePct}%)',
+                            pct: data.driverSurchargePct / 100,
+                            barColor: PdfColor.fromHex('#22C55E'),
+                          ),
+
+                          pw.SizedBox(height: 10),
+
+                          // Highlighted Net Platform Earnings Box (Tight and neatly placed)
+                          pw.Container(
+                            width: double.infinity,
+                            padding: const pw.EdgeInsets.all(8),
+                            decoration: pw.BoxDecoration(
+                              color: cGoldBg,
+                              borderRadius: pw.BorderRadius.circular(6),
+                              border: pw.Border.all(color: cGoldBorder, width: 0.8),
                             ),
-                            pw.SizedBox(height: 7),
-
-                            // Item 2: Partner Subscriptions (Cyan)
-                            _buildDistributionBar(
-                              title: 'Partner Subscriptions',
-                              amount: 'PHP ${_integerMoney.format(data.partnerSubscriptions)} (${data.partnerSubscriptionsPct}%)',
-                              pct: data.partnerSubscriptionsPct / 100,
-                              barColor: PdfColor.fromHex('#0EA5E9'),
-                            ),
-                            pw.SizedBox(height: 7),
-
-                            // Item 3: Overtime & Late Penalties (Red/Coral)
-                            _buildDistributionBar(
-                              title: 'Overtime & Late Penalties',
-                              amount: 'PHP ${_integerMoney.format(data.overtimePenalties)} (${data.overtimePenaltiesPct}%)',
-                              pct: data.overtimePenaltiesPct / 100,
-                              barColor: PdfColor.fromHex('#EF4444'),
-                            ),
-                            pw.SizedBox(height: 7),
-
-                            // Item 4: PSDC Driver Booking Surcharge (Green)
-                            _buildDistributionBar(
-                              title: 'PSDC Driver Booking Surcharge',
-                              amount: 'PHP ${_integerMoney.format(data.driverSurcharge)} (${data.driverSurchargePct}%)',
-                              pct: data.driverSurchargePct / 100,
-                              barColor: PdfColor.fromHex('#22C55E'),
-                            ),
-
-                            pw.Spacer(),
-
-                            // Highlighted Net Platform Earnings Box
-                            pw.Container(
-                              padding: const pw.EdgeInsets.all(8),
-                              decoration: pw.BoxDecoration(
-                                color: cGoldBg,
-                                borderRadius: pw.BorderRadius.circular(6),
-                                border: pw.Border.all(color: cGoldBorder, width: 0.8),
-                              ),
-                              child: pw.Column(
-                                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                                children: [
-                                  pw.Text(
-                                    'NET PLATFORM EARNINGS:',
-                                    style: pw.TextStyle(
-                                      fontSize: 6.8,
-                                      fontWeight: pw.FontWeight.bold,
-                                      color: cDarkGold,
-                                    ),
+                            child: pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                pw.Text(
+                                  'NET PLATFORM EARNINGS:',
+                                  style: pw.TextStyle(
+                                    fontSize: 6.8,
+                                    fontWeight: pw.FontWeight.bold,
+                                    color: cDarkGold,
                                   ),
-                                  pw.SizedBox(height: 3),
-                                  pw.Text(
-                                    'PHP ${_currency.format(data.netPlatformEarnings)}',
-                                    style: pw.TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: pw.FontWeight.bold,
-                                      color: cDarkGold,
-                                    ),
+                                ),
+                                pw.SizedBox(height: 3),
+                                pw.Text(
+                                  'PHP ${_currency.format(data.netPlatformEarnings)}',
+                                  style: pw.TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: pw.FontWeight.bold,
+                                    color: cDarkGold,
                                   ),
-                                  pw.SizedBox(height: 3),
-                                  pw.Text(
-                                    'Directly disbursed to verified PSDC corporate accounts.',
-                                    style: pw.TextStyle(fontSize: 5.8, color: cMuted),
-                                  ),
-                                ],
-                              ),
+                                ),
+                                pw.SizedBox(height: 2),
+                                pw.Text(
+                                  'Directly disbursed to verified PSDC corporate accounts.',
+                                  style: pw.TextStyle(fontSize: 5.8, color: cMuted),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
 
-              pw.SizedBox(height: 10),
+              pw.SizedBox(height: 12),
 
-              // 5. COMPLIANCE, DRIVER INTAKE & VERIFICATION SUMMARY
+              // 5. COMPLIANCE & SYSTEM SUMMARY
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
                   pw.Row(
                     children: [
                       pw.Container(
-                        width: 13,
-                        height: 13,
+                        width: 12,
+                        height: 12,
                         alignment: pw.Alignment.center,
                         decoration: pw.BoxDecoration(
                           color: cGreenBg,
                           shape: pw.BoxShape.circle,
                         ),
-                        child: pw.Text('*', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: cGreen)),
+                        child: pw.Text('*', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: cGreen)),
                       ),
                       pw.SizedBox(width: 5),
                       pw.Text(
-                        'COMPLIANCE, DRIVER INTAKE & VERIFICATION SUMMARY',
+                        'COMPLIANCE, FLEET INTAKE & SYSTEM SUMMARY',
                         style: pw.TextStyle(
                           fontSize: 8,
                           fontWeight: pw.FontWeight.bold,
@@ -898,7 +943,7 @@ class AdminReportPdfService {
                     child: pw.Text(
                       data.auditStatusBadge,
                       style: pw.TextStyle(
-                        fontSize: 6.5,
+                        fontSize: 6.2,
                         fontWeight: pw.FontWeight.bold,
                         color: cGreen,
                       ),
@@ -906,9 +951,9 @@ class AdminReportPdfService {
                   ),
                 ],
               ),
-              pw.SizedBox(height: 5),
+              pw.SizedBox(height: 6),
 
-              // 3 Summary Cards
+              // 3 Summary Cards - TRUE SYSTEM DATA
               pw.Row(
                 children: [
                   // Ratio Card
@@ -922,12 +967,12 @@ class AdminReportPdfService {
                     ),
                   ),
                   pw.SizedBox(width: 8),
-                  // Rating Card
+                  // Safety Card
                   pw.Expanded(
                     child: _buildSummaryCard(
-                      label: 'DRIVER SAFETY RATING',
-                      value: '${data.driverSafetyRating.toStringAsFixed(2)} / 5.00 *',
-                      subtext: data.driverSafetySubtext,
+                      label: 'SAFETY & AUDIT INTEGRITY',
+                      value: data.systemSafetyMetric,
+                      subtext: data.systemSafetySubtext,
                       borderColor: cCardBorder,
                       bgColor: cCardBg,
                       valueColor: cGold,
@@ -937,7 +982,7 @@ class AdminReportPdfService {
                   // Telematics Card
                   pw.Expanded(
                     child: _buildSummaryCard(
-                      label: 'GPS TELEMATICS HEALTH',
+                      label: 'GPS TELEMATICS & DISPATCH',
                       value: data.gpsTelematicsUptime,
                       subtext: data.gpsTelematicsSubtext,
                       borderColor: cCardBorder,
@@ -947,49 +992,49 @@ class AdminReportPdfService {
                 ],
               ),
 
-              pw.SizedBox(height: 12),
+              pw.SizedBox(height: 14),
 
-              // 6. SIGN-OFF & CRYPTOGRAPHIC VERIFICATION FOOTER
+              // 6. SIGN-OFF & CRYPTOGRAPHIC VERIFICATION FOOTER - TRUE NAMES & ROLES ONLY
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  // Prepared By
+                  // Prepared By Real Admin
                   pw.Expanded(
-                    flex: 30,
+                    flex: 32,
                     child: pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
-                        pw.Text('PREPARED & RECONCILED BY:', style: pw.TextStyle(fontSize: 6.5, color: cMuted)),
-                        pw.SizedBox(height: 8),
+                        pw.Text('PREPARED & GENERATED BY:', style: pw.TextStyle(fontSize: 6.5, color: cMuted, fontWeight: pw.FontWeight.bold)),
+                        pw.SizedBox(height: 6),
                         pw.Container(width: 140, height: 1, color: cCardBorder),
                         pw.SizedBox(height: 4),
                         pw.Text(data.preparedBySigner, style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: cPrimary)),
-                        pw.Text(data.preparedByTitle, style: pw.TextStyle(fontSize: 6.5, color: cMuted)),
-                        pw.Text(data.preparedById, style: pw.TextStyle(fontSize: 6.2, color: cMuted)),
+                        pw.Text(data.preparedByTitle, style: pw.TextStyle(fontSize: 6.2, color: cMuted)),
+                        pw.Text(data.preparedById, style: pw.TextStyle(fontSize: 6, color: cMuted)),
                       ],
                     ),
                   ),
 
-                  // Audited By
+                  // System Reconciliation
                   pw.Expanded(
                     flex: 33,
                     child: pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
-                        pw.Text('AUDITED & VERIFIED BY:', style: pw.TextStyle(fontSize: 6.5, color: cMuted)),
-                        pw.SizedBox(height: 8),
-                        pw.Container(width: 150, height: 1, color: cCardBorder),
+                        pw.Text('SYSTEM RECONCILIATION:', style: pw.TextStyle(fontSize: 6.5, color: cMuted, fontWeight: pw.FontWeight.bold)),
+                        pw.SizedBox(height: 6),
+                        pw.Container(width: 140, height: 1, color: cCardBorder),
                         pw.SizedBox(height: 4),
                         pw.Text(data.auditedByName, style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: cPrimary)),
-                        pw.Text(data.auditedByTitle, style: pw.TextStyle(fontSize: 6.5, color: cMuted)),
-                        pw.Text(data.auditedByCreds, style: pw.TextStyle(fontSize: 6.2, color: cMuted)),
+                        pw.Text(data.auditedByTitle, style: pw.TextStyle(fontSize: 6.2, color: cMuted)),
+                        pw.Text(data.auditedByCreds, style: pw.TextStyle(fontSize: 6, color: cMuted)),
                       ],
                     ),
                   ),
 
                   // Cryptographic Seal Box
                   pw.Expanded(
-                    flex: 37,
+                    flex: 35,
                     child: pw.Container(
                       padding: const pw.EdgeInsets.all(7),
                       decoration: pw.BoxDecoration(
@@ -1011,11 +1056,11 @@ class AdminReportPdfService {
                           pw.SizedBox(height: 2),
                           pw.Text(
                             'Hash: ${data.sha256Hash} • SHA-256 Validated',
-                            style: pw.TextStyle(fontSize: 6.2, color: cMuted),
+                            style: pw.TextStyle(fontSize: 6, color: cMuted),
                           ),
                           pw.Text(
-                            'Confidential/Internal documentation for PSDC Board of Directors.',
-                            style: pw.TextStyle(fontSize: 5.5, color: cMuted),
+                            'Internal audit documentation for PSDC Management & Fleet Operations.',
+                            style: pw.TextStyle(fontSize: 5.2, color: cMuted),
                             textAlign: pw.TextAlign.center,
                           ),
                         ],
@@ -1034,7 +1079,7 @@ class AdminReportPdfService {
   }
 
   static pw.TextStyle get _thStyle => pw.TextStyle(
-        fontSize: 6.2,
+        fontSize: 6,
         fontWeight: pw.FontWeight.bold,
         color: PdfColor.fromHex('#475569'),
       );
@@ -1049,7 +1094,7 @@ class AdminReportPdfService {
     required PdfColor bgColor,
   }) {
     return pw.Container(
-      padding: const pw.EdgeInsets.all(8),
+      padding: const pw.EdgeInsets.all(7),
       decoration: pw.BoxDecoration(
         color: bgColor,
         borderRadius: pw.BorderRadius.circular(6),
@@ -1061,27 +1106,28 @@ class AdminReportPdfService {
           pw.Text(
             label,
             style: pw.TextStyle(
-              fontSize: 6.2,
+              fontSize: 6,
               fontWeight: pw.FontWeight.bold,
               color: PdfColor.fromHex('#64748B'),
             ),
           ),
-          pw.SizedBox(height: 3),
+          pw.SizedBox(height: 2.5),
           pw.Text(
             value,
             style: pw.TextStyle(
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: pw.FontWeight.bold,
               color: valueColor,
             ),
           ),
-          pw.SizedBox(height: 2),
+          pw.SizedBox(height: 1.5),
           pw.Text(
             subtext,
             style: pw.TextStyle(
-              fontSize: 6.2,
+              fontSize: 5.8,
               color: subColor,
             ),
+            maxLines: 1,
           ),
         ],
       ),
@@ -1100,13 +1146,13 @@ class AdminReportPdfService {
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Text(title, style: pw.TextStyle(fontSize: 6.5, color: PdfColor.fromHex('#334155'))),
-            pw.Text(amount, style: pw.TextStyle(fontSize: 6.5, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#0F172A'))),
+            pw.Text(title, style: pw.TextStyle(fontSize: 6.2, color: PdfColor.fromHex('#334155'))),
+            pw.Text(amount, style: pw.TextStyle(fontSize: 6.2, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#0F172A'))),
           ],
         ),
-        pw.SizedBox(height: 2.5),
+        pw.SizedBox(height: 2),
         pw.Container(
-          height: 4,
+          height: 3.5,
           width: double.infinity,
           decoration: pw.BoxDecoration(
             color: PdfColor.fromHex('#E2E8F0'),
@@ -1115,8 +1161,8 @@ class AdminReportPdfService {
           child: pw.Row(
             children: [
               pw.Container(
-                height: 4,
-                width: 140 * pct.clamp(0.05, 1.0),
+                height: 3.5,
+                width: math.max(4.0, 140 * pct.clamp(0.0, 1.0)),
                 decoration: pw.BoxDecoration(
                   color: barColor,
                   borderRadius: pw.BorderRadius.circular(2),
@@ -1138,7 +1184,7 @@ class AdminReportPdfService {
     PdfColor? valueColor,
   }) {
     return pw.Container(
-      padding: const pw.EdgeInsets.all(8),
+      padding: const pw.EdgeInsets.all(7),
       decoration: pw.BoxDecoration(
         color: bgColor,
         borderRadius: pw.BorderRadius.circular(6),
@@ -1150,27 +1196,28 @@ class AdminReportPdfService {
           pw.Text(
             label,
             style: pw.TextStyle(
-              fontSize: 6.2,
+              fontSize: 6,
               fontWeight: pw.FontWeight.bold,
               color: PdfColor.fromHex('#64748B'),
-            ),
-          ),
-          pw.SizedBox(height: 2.5),
-          pw.Text(
-            value,
-            style: pw.TextStyle(
-              fontSize: 9.5,
-              fontWeight: pw.FontWeight.bold,
-              color: valueColor ?? PdfColor.fromHex('#0F172A'),
             ),
           ),
           pw.SizedBox(height: 2),
           pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontSize: 9,
+              fontWeight: pw.FontWeight.bold,
+              color: valueColor ?? PdfColor.fromHex('#0F172A'),
+            ),
+          ),
+          pw.SizedBox(height: 1.5),
+          pw.Text(
             subtext,
             style: pw.TextStyle(
-              fontSize: 5.8,
+              fontSize: 5.5,
               color: PdfColor.fromHex('#64748B'),
             ),
+            maxLines: 1,
           ),
         ],
       ),

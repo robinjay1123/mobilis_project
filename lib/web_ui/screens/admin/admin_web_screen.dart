@@ -23007,6 +23007,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _generateAndExportReport(bool isDark) async {
     try {
+      final currentAdminId = _supabase.auth.currentUser?.id ?? '';
+      final adminEmail = _supabase.auth.currentUser?.email ?? 'admin@mobilis.ph';
+      final adminMatch = _allUsers.firstWhere(
+        (u) => u['id'] == currentAdminId,
+        orElse: () => <String, dynamic>{},
+      );
+      final adminFullName = (adminMatch['full_name']?.toString().trim().isNotEmpty == true)
+          ? adminMatch['full_name'].toString().trim()
+          : adminEmail;
+
+      final calculatedFin = _calculatePlatformFinancials();
+
       final reportData = AdminReportData.fromDashboard(
         allBookings: _allBookings,
         allVehicles: _allVehicles,
@@ -23014,6 +23026,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         verificationRecords: _verificationRecords,
         trackingLocations: _trackingLocations,
         totalRevenue: _totalRevenue,
+        calculatedFinancials: calculatedFin,
+        adminName: adminFullName,
+        adminEmail: adminEmail,
+        adminId: currentAdminId,
+        actionLogsCount: _actionLogs.length,
+        userReportsCount: _userReports.length,
       );
       if (mounted) {
         await AdminReportDialog.show(context, reportData: reportData);
