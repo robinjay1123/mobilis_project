@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'audit_service.dart';
 import 'booking_service.dart';
 import 'notification_service.dart';
 import 'renter_marketing_notification_service.dart';
@@ -85,8 +86,17 @@ class AdminService {
       debugPrint('Verifying user: $userId');
       await supabase
           .from('users')
-          .update({'id_verified': true})
+          .update({'id_verified': true, 'verification_status': 'verified'})
           .eq('id', userId);
+
+      await AuditService().logAdminAction(
+        action: 'user_verified',
+        category: 'USER VERIFICATION',
+        entityId: userId,
+        entityType: 'user_verification',
+        notes: 'Administrator approved identity verification for User #$userId',
+        metadata: {'user_id': userId, 'id_verified': true},
+      );
 
       debugPrint('User verified successfully');
     } on PostgrestException catch (e) {
@@ -106,6 +116,15 @@ class AdminService {
           .from('users')
           .update({'id_verified': false, 'verification_status': 'rejected'})
           .eq('id', userId);
+
+      await AuditService().logAdminAction(
+        action: 'user_verification_rejected',
+        category: 'USER VERIFICATION',
+        entityId: userId,
+        entityType: 'user_verification',
+        notes: 'Administrator rejected identity verification for User #$userId. Reason: $reason',
+        metadata: {'user_id': userId, 'reason': reason},
+      );
 
       debugPrint('User verification rejected');
     } on PostgrestException catch (e) {
@@ -130,6 +149,15 @@ class AdminService {
           })
           .eq('id', userId);
 
+      await AuditService().logAdminAction(
+        action: 'user_suspended',
+        category: 'ACCOUNT SECURITY & BANS',
+        entityId: userId,
+        entityType: 'user_suspension',
+        notes: 'Administrator suspended User #$userId. Reason: $reason',
+        metadata: {'user_id': userId, 'reason': reason},
+      );
+
       debugPrint('User suspended successfully');
     } on PostgrestException catch (e) {
       debugPrint('Database error suspending user: ${e.message}');
@@ -152,6 +180,15 @@ class AdminService {
             'suspended_at': null,
           })
           .eq('id', userId);
+
+      await AuditService().logAdminAction(
+        action: 'user_unsuspended',
+        category: 'ACCOUNT SECURITY & BANS',
+        entityId: userId,
+        entityType: 'user_suspension',
+        notes: 'Administrator restored / unsuspended User #$userId',
+        metadata: {'user_id': userId},
+      );
 
       debugPrint('User unsuspended successfully');
     } on PostgrestException catch (e) {
@@ -969,13 +1006,36 @@ class AdminService {
     String notes,
   ) async {
     try {
-      await supabase.from('admin_audit_logs').insert({
-        'entity_id': entityId,
-        'entity_type': entityType,
-        'action': action,
-        'notes': notes,
-        'created_at': DateTime.now().toIso8601String(),
-      });
+      final currentAdmin = supabase.auth.currentUser;
+      final adminId = currentAdmin?.id;
+      final adminMeta = currentAdmin?.userMetadata ?? {};
+      final adminName = (adminMeta['full_name'] ?? adminMeta['name'] ?? currentAdmin?.email?.split('@').first ?? 'Administrator').toString();
+
+      String category = 'ADMIN ACTION';
+      if (entityType == 'partner') {
+        category = 'PARTNER APPROVAL';
+      } else if (entityType == 'driver') {
+        category = 'DRIVER ASSIGNMENT';
+      } else if (entityType == 'vehicle') {
+        category = 'PARTNER FLEET';
+      }
+
+      await AuditService().logAdminAction(
+        action: '${entityType}_application_$action',
+        category: category,
+        entityId: entityId,
+        entityType: entityType,
+        adminId: adminId,
+        actorName: adminName,
+        notes: notes.isNotEmpty ? notes : '$adminName ${action.toLowerCase()} $entityType application #$entityId',
+        metadata: {
+          'entity_id': entityId,
+          'entity_type': entityType,
+          'status': action,
+          'admin_id': adminId,
+          'admin_name': adminName,
+        },
+      );
     } catch (e) {
       debugPrint('Warning: Failed to log action: $e');
       // Don't rethrow - logging failure shouldn't block main operation
@@ -1170,24 +1230,47 @@ class AdminService {
               ? Map<String, dynamic>.from(row['metadata'])
               : <String, dynamic>{};
 
-          String category = 'SYSTEM';
-          if (action.contains('desk_payment') || action == 'desk_payment_authorized') {
-            category = 'DESK PAYMENT MPIN';
-          } else if (action.contains('operator_mpin') || action.contains('mpin')) {
-            category = 'OPERATOR MPIN';
-          } else if (action.contains('extension')) {
-            category = 'TRIP EXTENSION';
-          } else if (action.contains('approved') || action.contains('confirm')) {
-            category = 'BOOKING APPROVAL';
-          } else if (action.contains('driver') || action.contains('assign')) {
-            category = 'DRIVER ASSIGNMENT';
-          } else if (action.contains('payment')) {
-            category = 'PAYMENT CONFIRMED';
-          } else if (action.contains('partner')) {
-            category = 'PARTNER APPROVAL';
-          } else if (action.contains('verification')) {
-            category = 'USER VERIFICATION';
+          String category = metadata['category']?.toString() ?? 'SYSTEM';
+          if (category == 'SYSTEM' || category.isEmpty) {
+            final actLower = action.toLowerCase();
+            if (actLower.contains('favorite') || actLower.contains('wishlist') || actLower.contains('like')) {
+              category = 'FAVORITES & WISHLIST';
+            } else if (actLower.contains('ban') || actLower.contains('block') || actLower.contains('suspend')) {
+              category = 'ACCOUNT SECURITY & BANS';
+            } else if (actLower.contains('desk_payment') || actLower == 'desk_payment_authorized') {
+              category = 'DESK PAYMENT MPIN';
+            } else if (actLower.contains('operator_mpin') || actLower.contains('mpin')) {
+              category = 'OPERATOR MPIN';
+            } else if (actLower.contains('extension')) {
+              category = 'TRIP EXTENSION';
+            } else if (actLower.contains('cancel') || actLower.contains('cancelled') || actLower.contains('refund_needed')) {
+              category = 'BOOKING CANCEL';
+            } else if (actLower.contains('booking_created') || actLower.contains('booking_requested')) {
+              category = 'RENTER REQUEST';
+            } else if (actLower.contains('approved') || actLower.contains('confirm')) {
+              category = 'BOOKING APPROVAL';
+            } else if (actLower.contains('driver') || actLower.contains('assign')) {
+              category = 'DRIVER ASSIGNMENT';
+            } else if (actLower.contains('payment')) {
+              category = 'PAYMENT CONFIRMED';
+            } else if (actLower.contains('partner')) {
+              category = 'PARTNER APPROVAL';
+            } else if (actLower.contains('verification') || actLower.contains('verified')) {
+              category = 'USER VERIFICATION';
+            } else if (actLower.contains('audit_report') || actLower.contains('report_export')) {
+              category = 'EXECUTIVE AUDIT';
+            } else if (entityType == 'vehicle' || actLower.contains('vehicle')) {
+              category = 'PARTNER FLEET';
+            } else if (actLower.contains('admin')) {
+              category = 'ADMIN ACTION';
+            }
           }
+
+          final rawActorName = metadata['actor_name']?.toString() ?? metadata['operator_name']?.toString();
+          final rawActorRole = metadata['actor_role']?.toString();
+
+          final resolvedRole = rawActorRole ?? (row['admin_id'] != null ? 'admin' : (row['renter_id'] != null ? 'renter' : (row['driver_id'] != null ? 'driver' : 'operator')));
+          final resolvedName = rawActorName ?? (resolvedRole == 'admin' ? 'Administrator' : (resolvedRole == 'renter' ? 'Renter' : (resolvedRole == 'driver' ? 'Driver' : 'Operator Desk')));
 
           logs.add({
             'id': key,
@@ -1195,8 +1278,8 @@ class AdminService {
             'category': category,
             'action_type': action,
             'entity_type': entityType,
-            'actor_name': metadata['actor_name']?.toString() ?? metadata['operator_name']?.toString() ?? 'System / Operator',
-            'actor_role': metadata['actor_role']?.toString() ?? 'operator',
+            'actor_name': resolvedName,
+            'actor_role': resolvedRole,
             'notes': notes.isNotEmpty ? notes : '$action ($entityType)',
             'booking_id': row['booking_id']?.toString(),
             'driver_id': row['driver_id']?.toString(),
@@ -1825,6 +1908,63 @@ class AdminService {
         }
       } catch (e) {
         debugPrint('Warning fetching booking_events logs: $e');
+      }
+
+      // 5b. Fetch Wishlist / Liked Vehicles for audit trail synthesis
+      try {
+        final favRows = await supabase
+            .from('favorite_vehicles')
+            .select('''
+              user_id,
+              vehicle_id,
+              created_at,
+              users:user_id (id, full_name, email),
+              vehicles:vehicle_id (id, brand, model, vehicle_name, plate_number)
+            ''')
+            .order('created_at', ascending: false)
+            .limit(60);
+
+        for (final fav in List<Map<String, dynamic>>.from(favRows)) {
+          final uId = fav['user_id']?.toString() ?? '';
+          final vId = fav['vehicle_id']?.toString() ?? '';
+          final key = 'fav-$uId-$vId';
+          if (seenKeys.contains(key)) continue;
+          seenKeys.add(key);
+
+          final userMap = fav['users'] is Map<String, dynamic> ? Map<String, dynamic>.from(fav['users']) : <String, dynamic>{};
+          final vehicleMap = fav['vehicles'] is Map<String, dynamic> ? Map<String, dynamic>.from(fav['vehicles']) : <String, dynamic>{};
+
+          final userName = userMap['full_name']?.toString().trim().isNotEmpty == true
+              ? userMap['full_name'].toString().trim()
+              : (userMap['email']?.toString() ?? 'Renter');
+
+          final carName = vehicleMap['vehicle_name']?.toString().trim().isNotEmpty == true
+              ? vehicleMap['vehicle_name'].toString().trim()
+              : '${vehicleMap['brand'] ?? ''} ${vehicleMap['model'] ?? ''}'.trim();
+          final carDisplay = carName.isNotEmpty ? carName : 'Vehicle';
+
+          logs.add({
+            'id': key,
+            'timestamp': fav['created_at']?.toString() ?? '',
+            'category': 'FAVORITES & WISHLIST',
+            'action_type': 'favorite_vehicle_added',
+            'entity_type': 'favorite_vehicle',
+            'actor_name': userName,
+            'actor_role': 'renter',
+            'notes': '$userName added $carDisplay to their saved wishlist / likes',
+            'vehicle_id': vId,
+            'metadata': {
+              'renter_id': uId,
+              'renter_name': userName,
+              'vehicle_id': vId,
+              'vehicle_name': carDisplay,
+              'plate_number': vehicleMap['plate_number']?.toString() ?? '',
+              'action': 'favorite_added',
+            },
+          });
+        }
+      } catch (favErr) {
+        debugPrint('Warning synthesizing favorite vehicles audit logs: $favErr');
       }
 
       // 6. Sort all combined logs by timestamp descending

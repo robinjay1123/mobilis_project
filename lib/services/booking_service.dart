@@ -18,6 +18,7 @@ import '../utils/pricing_policy.dart';
 import '../utils/philippine_geocoding.dart';
 import '../utils/booking_status.dart';
 import '../utils/currency_formatter.dart';
+import 'audit_service.dart';
 
 class BookingService {
   static final BookingService _instance = BookingService._internal();
@@ -1783,6 +1784,29 @@ class BookingService {
         } catch (eErr) {
           debugPrint('Non-blocking: could not insert booking_events: $eErr');
         }
+
+        try {
+          final shortCode = bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId;
+          await AuditService().logRenterAction(
+            action: 'booking_requested',
+            renterId: renterId,
+            category: 'RENTER REQUEST',
+            bookingId: bookingId,
+            vehicleId: vehicleId,
+            notes: 'Renter submitted rental reservation #$shortCode (PHP ${totalPrice.toStringAsFixed(2)})',
+            metadata: {
+              'booking_id': bookingId,
+              'vehicle_id': vehicleId,
+              'total_price': totalPrice,
+              'payment_type': cleanPaymentType,
+              'start_date': startAt.toIso8601String(),
+              'end_date': endAt.toIso8601String(),
+              'action': 'booking_requested',
+            },
+          );
+        } catch (auditErr) {
+          debugPrint('Non-blocking: could not log booking audit: $auditErr');
+        }
       }
 
       debugPrint('Booking created successfully');
@@ -1944,6 +1968,28 @@ class BookingService {
               '⚠️ Error sending cancellation notification to operator: $e',
             );
           }
+        }
+
+        // Audit Trail for Cancellation
+        try {
+          final renterId = booking['renter_id']?.toString() ?? '';
+          final shortCode = bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId;
+          await AuditService().logRenterAction(
+            action: 'booking_cancelled',
+            renterId: renterId,
+            category: 'BOOKING CANCEL',
+            bookingId: bookingId,
+            vehicleId: booking['vehicle_id']?.toString(),
+            notes: 'Renter cancelled rental reservation #$shortCode for $vehicleTitle',
+            metadata: {
+              'booking_id': bookingId,
+              'vehicle_title': vehicleTitle,
+              'status': 'cancelled',
+              'cancelled_by': 'renter',
+            },
+          );
+        } catch (auditErr) {
+          debugPrint('Non-blocking: could not log cancellation audit: $auditErr');
         }
 
         // Notify renter about the cancellation

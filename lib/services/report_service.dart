@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'audit_service.dart';
 import 'user_restriction_service.dart';
 
 class ReportService {
@@ -192,6 +193,37 @@ class ReportService {
       });
     } catch (e) {
       debugPrint('Could not send ban notification to user: $e');
+    }
+
+    // 5. Explicit Audit Trail for User Ban
+    try {
+      String targetUserName = 'User #$reportedUserId';
+      try {
+        final u = await _supabase.from('users').select('full_name, email, role').eq('id', reportedUserId).maybeSingle();
+        if (u != null) {
+          final name = u['full_name']?.toString().trim();
+          final email = u['email']?.toString().trim();
+          targetUserName = (name != null && name.isNotEmpty) ? name : (email ?? targetUserName);
+        }
+      } catch (_) {}
+
+      await AuditService().logAdminAction(
+        action: 'user_banned',
+        category: 'ACCOUNT SECURITY & BANS',
+        entityId: reportedUserId,
+        entityType: 'user_ban',
+        adminId: adminId,
+        notes: 'Administrator permanently banned $targetUserName: "$banReason"',
+        metadata: {
+          'report_id': reportId,
+          'target_user_id': reportedUserId,
+          'target_user_name': targetUserName,
+          'ban_reason': banReason,
+          'action': 'user_banned',
+        },
+      );
+    } catch (auditErr) {
+      debugPrint('Warning logging ban audit trail: $auditErr');
     }
   }
 }

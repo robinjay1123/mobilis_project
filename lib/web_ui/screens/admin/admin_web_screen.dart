@@ -49,6 +49,7 @@ import '../../../services/report_service.dart';
 import '../../../services/user_restriction_service.dart';
 import '../../../services/booking_viewed_service.dart';
 import '../../../services/trip_rating_service.dart';
+import '../../../services/audit_service.dart';
 
 class AdminWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -1040,6 +1041,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'booking_vehicle_inspections',
+          callback: handleActionLogChange,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'favorite_vehicles',
+          callback: handleActionLogChange,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'user_reports',
           callback: handleActionLogChange,
         )
         .subscribe();
@@ -23036,6 +23049,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       if (mounted) {
         await AdminReportDialog.show(context, reportData: reportData);
       }
+      try {
+        await AuditService().logAdminAction(
+          action: 'audit_report_generated',
+          category: 'EXECUTIVE AUDIT',
+          adminId: currentAdminId,
+          actorName: adminFullName,
+          notes: '$adminFullName generated Executive Audit Report (${reportData.auditCycle} - Ref: ${reportData.referenceCode})',
+          metadata: {
+            'doc_serial': reportData.docSerial,
+            'reference_code': reportData.referenceCode,
+            'audit_cycle': reportData.auditCycle,
+            'total_bookings': _allBookings.length,
+            'sha256_hash': reportData.sha256Hash,
+          },
+        );
+      } catch (auditErr) {
+        debugPrint('Warning logging report audit: $auditErr');
+      }
     } catch (e) {
       debugPrint('Error generating report preview: $e');
       if (mounted) {
@@ -23075,6 +23106,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       if (category == 'all') return true;
       final logCat = log['category']?.toString() ?? '';
+      if (category == 'wishlist_likes') {
+        return logCat == 'FAVORITES & WISHLIST';
+      }
+      if (category == 'account_security') {
+        return logCat == 'ACCOUNT SECURITY & BANS';
+      }
+      if (category == 'executive_audit') {
+        return logCat == 'EXECUTIVE AUDIT';
+      }
+      if (category == 'booking_cancels') {
+        return logCat == 'BOOKING CANCEL';
+      }
       if (category == 'refunds_payouts') {
         return logCat == 'REFUNDS & PAYOUTS';
       }
@@ -23336,6 +23379,31 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   children: [
                     _buildActionLogCategoryChip('all', 'All Activity', isDark),
                     _buildActionLogCategoryChip(
+                      'account_security',
+                      'Account Security & Bans',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'wishlist_likes',
+                      'Wishlist & Likes',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'renters',
+                      'Renter Requests & Bookings',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'approvals',
+                      'Approvals',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'verifications',
+                      'KYC Verifications',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
                       'refunds_payouts',
                       'Refunds & Disbursements',
                       isDark,
@@ -23351,11 +23419,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       isDark,
                     ),
                     _buildActionLogCategoryChip(
-                      'approvals',
-                      'Approvals',
-                      isDark,
-                    ),
-                    _buildActionLogCategoryChip(
                       'drivers',
                       'Driver Assignments',
                       isDark,
@@ -23366,18 +23429,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       isDark,
                     ),
                     _buildActionLogCategoryChip(
-                      'renters',
-                      'Renter Requests',
-                      isDark,
-                    ),
-                    _buildActionLogCategoryChip(
                       'payments',
                       'Returns & Payments',
                       isDark,
                     ),
                     _buildActionLogCategoryChip(
-                      'verifications',
-                      'Verifications',
+                      'booking_cancels',
+                      'Cancellations',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'executive_audit',
+                      'Executive Audits',
                       isDark,
                     ),
                   ],
@@ -23510,7 +23573,32 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     Color badgeBg = AppColors.primary.withValues(alpha: 0.15);
     Color badgeText = AppColors.primary;
 
-    if (category == 'REFUNDS & PAYOUTS') {
+    if (category == 'FAVORITES & WISHLIST') {
+      iconColor = const Color(0xFFE11D48);
+      iconData = Icons.favorite_rounded;
+      badgeBg = const Color(0xFFE11D48).withValues(alpha: 0.18);
+      badgeText = const Color(0xFFE11D48);
+    } else if (category == 'ACCOUNT SECURITY & BANS') {
+      iconColor = const Color(0xFFDC2626);
+      iconData = Icons.gavel_rounded;
+      badgeBg = const Color(0xFFDC2626).withValues(alpha: 0.18);
+      badgeText = const Color(0xFFDC2626);
+    } else if (category == 'EXECUTIVE AUDIT') {
+      iconColor = const Color(0xFF7C3AED);
+      iconData = Icons.verified_rounded;
+      badgeBg = const Color(0xFF7C3AED).withValues(alpha: 0.18);
+      badgeText = const Color(0xFF7C3AED);
+    } else if (category == 'BOOKING CANCEL') {
+      iconColor = const Color(0xFFEA580C);
+      iconData = Icons.cancel_rounded;
+      badgeBg = const Color(0xFFEA580C).withValues(alpha: 0.18);
+      badgeText = const Color(0xFFEA580C);
+    } else if (category == 'ADMIN ACTION') {
+      iconColor = const Color(0xFF2563EB);
+      iconData = Icons.admin_panel_settings_rounded;
+      badgeBg = const Color(0xFF2563EB).withValues(alpha: 0.18);
+      badgeText = const Color(0xFF2563EB);
+    } else if (category == 'REFUNDS & PAYOUTS') {
       iconColor = const Color(0xFF059669);
       iconData = Icons.account_balance_wallet_rounded;
       badgeBg = const Color(0xFF059669).withValues(alpha: 0.18);
@@ -23755,29 +23843,36 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             const SizedBox(width: 10),
             const Expanded(
               child: Text(
-                'Audit Log Details',
+                'Audit Log Documentation',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
           ],
         ),
         content: SizedBox(
-          width: 500,
+          width: 540,
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                _buildAuditDetailRow('Record ID', item['id']?.toString() ?? 'N/A', isDark),
                 _buildAuditDetailRow('Category', item['category']?.toString() ?? 'SYSTEM', isDark),
                 _buildAuditDetailRow('Action Type', item['action_type']?.toString() ?? 'N/A', isDark),
                 _buildAuditDetailRow('Actor Name', item['actor_name']?.toString() ?? 'System', isDark),
                 _buildAuditDetailRow('Actor Role', (item['actor_role']?.toString() ?? 'Operator').toUpperCase(), isDark),
+                if (metadata['actor_email'] != null && metadata['actor_email'].toString().isNotEmpty)
+                  _buildAuditDetailRow('Actor Email', metadata['actor_email'].toString(), isDark),
                 _buildAuditDetailRow('Timestamp', item['timestamp']?.toString() ?? 'N/A', isDark),
                 if (item['booking_id'] != null && item['booking_id'].toString().isNotEmpty)
                   _buildAuditDetailRow('Booking ID', item['booking_id'].toString(), isDark),
+                if (item['vehicle_id'] != null && item['vehicle_id'].toString().isNotEmpty)
+                  _buildAuditDetailRow('Vehicle ID', item['vehicle_id'].toString(), isDark),
+                if (item['driver_id'] != null && item['driver_id'].toString().isNotEmpty)
+                  _buildAuditDetailRow('Driver ID', item['driver_id'].toString(), isDark),
                 const Divider(height: 24),
                 const Text(
-                  'Event Description',
+                  'Event Description / Audit Notes',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 6),
@@ -23796,7 +23891,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 if (metadata.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   const Text(
-                    'Metadata Payload',
+                    'Metadata & Audit Context Payload',
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 6),
@@ -23844,6 +23939,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
         ),
         actions: [
+          OutlinedButton.icon(
+            icon: const Icon(Icons.copy_rounded, size: 14),
+            label: const Text('Copy Audit JSON', style: TextStyle(fontSize: 12)),
+            onPressed: () {
+              final jsonStr = const JsonEncoder.withIndent('  ').convert(item);
+              Clipboard.setData(ClipboardData(text: jsonStr));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Audit record JSON copied to clipboard'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close'),

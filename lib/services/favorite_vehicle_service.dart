@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'audit_service.dart';
 import 'vehicle_service.dart';
 
 class FavoriteVehicleService {
@@ -95,6 +96,30 @@ class FavoriteVehicleService {
     final ids = await _getLocalFavoriteIds(userId);
     ids.add(vehicleId);
     await _setLocalFavoriteIds(userId, ids);
+
+    // Audit Logging
+    try {
+      final vehicle = await _vehicleService.getVehicleById(vehicleId);
+      final vehicleTitle = vehicle != null
+          ? (vehicle['vehicle_name'] ?? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}').toString().trim()
+          : 'Vehicle #$vehicleId';
+      final plateNumber = vehicle?['plate_number']?.toString() ?? '';
+      await AuditService().logRenterAction(
+        action: 'favorite_vehicle_added',
+        renterId: userId,
+        category: 'FAVORITES & WISHLIST',
+        vehicleId: vehicleId,
+        notes: 'Renter added $vehicleTitle to their saved wishlist / likes',
+        metadata: {
+          'vehicle_id': vehicleId,
+          'vehicle_name': vehicleTitle,
+          'plate_number': plateNumber,
+          'action': 'favorite_added',
+        },
+      );
+    } catch (auditErr) {
+      debugPrint('Warning logging favorite audit: $auditErr');
+    }
   }
 
   Future<void> _removeFavorite({
@@ -116,6 +141,28 @@ class FavoriteVehicleService {
     final ids = await _getLocalFavoriteIds(userId);
     ids.remove(vehicleId);
     await _setLocalFavoriteIds(userId, ids);
+
+    // Audit Logging
+    try {
+      final vehicle = await _vehicleService.getVehicleById(vehicleId);
+      final vehicleTitle = vehicle != null
+          ? (vehicle['vehicle_name'] ?? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}').toString().trim()
+          : 'Vehicle #$vehicleId';
+      await AuditService().logRenterAction(
+        action: 'favorite_vehicle_removed',
+        renterId: userId,
+        category: 'FAVORITES & WISHLIST',
+        vehicleId: vehicleId,
+        notes: 'Renter removed $vehicleTitle from their saved wishlist / likes',
+        metadata: {
+          'vehicle_id': vehicleId,
+          'vehicle_name': vehicleTitle,
+          'action': 'favorite_removed',
+        },
+      );
+    } catch (auditErr) {
+      debugPrint('Warning logging unfavorite audit: $auditErr');
+    }
   }
 
   Future<Set<String>> _getLocalFavoriteIds(String userId) async {
