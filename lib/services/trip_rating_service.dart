@@ -123,9 +123,7 @@ class TripRatingService {
       if (renterId != null && renterId.isNotEmpty) {
         final renter = await supabase
             .from('users')
-            .select(
-              'id, full_name, email, role, avatar_url, profile_picture_url',
-            )
+            .select('id, full_name, email, role, avatar_url')
             .eq('id', renterId)
             .maybeSingle();
         if (renter != null) {
@@ -304,9 +302,7 @@ class TripRatingService {
       if (operatorId != null && operatorId.isNotEmpty) {
         final operator = await supabase
             .from('users')
-            .select(
-              'id, full_name, email, role, avatar_url, profile_picture_url',
-            )
+            .select('id, full_name, email, role, avatar_url')
             .eq('id', operatorId)
             .maybeSingle();
         if (operator != null) {
@@ -817,15 +813,11 @@ class TripRatingService {
       try {
         final userRow = await supabase
             .from('users')
-            .select('avatar_url, profile_picture_url')
+            .select('avatar_url')
             .eq('id', uid)
             .maybeSingle();
         if (userRow != null) {
-          final url = (userRow['avatar_url']?.toString().trim().isNotEmpty == true
-                  ? userRow['avatar_url']
-                  : userRow['profile_picture_url'])
-              ?.toString()
-              .trim();
+          final url = userRow['avatar_url']?.toString().trim();
           if (url != null && url.isNotEmpty) {
             target['avatarUrl'] = url;
           }

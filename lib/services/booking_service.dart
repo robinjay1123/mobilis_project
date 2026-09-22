@@ -904,7 +904,7 @@ class BookingService {
       try {
         final rRows = await supabase
             .from('users')
-            .select('id, full_name, email, phone, role, avatar_url, profile_picture_url, location, latitude, longitude, id_verified, verification_status')
+            .select('id, full_name, email, phone, role, avatar_url, location, verification_status')
             .inFilter('id', missingRenterIds.toList());
         for (final r in List<Map<String, dynamic>>.from(rRows)) {
           final id = r['id']?.toString();
@@ -931,7 +931,7 @@ class BookingService {
       try {
         final dRows = await supabase
             .from('users')
-            .select('id, full_name, email, phone, avatar_url, profile_picture_url')
+            .select('id, full_name, email, phone, avatar_url')
             .inFilter('id', missingDriverIds.toList());
         for (final d in List<Map<String, dynamic>>.from(dRows)) {
           final id = d['id']?.toString();
@@ -3990,7 +3990,7 @@ class BookingService {
         final response = await supabase
             .from('drivers')
             .select(
-              'id, user_id, verification_status, driver_tier, rating, total_trips, is_available, preferred_days, license_verified, nbi_verified, users:user_id(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active)',
+              'id, user_id, verification_status, driver_tier, rating, total_trips, is_available, preferred_days, license_verified, nbi_verified, users:user_id(id, full_name, email, phone, role, verification_status, application_status, avatar_url, location, is_active)',
             );
         for (final row in List<Map<String, dynamic>>.from(response)) {
           final u = row['users'] as Map<String, dynamic>?;
@@ -4032,7 +4032,7 @@ class BookingService {
         final usersResponse = await supabase
             .from('users')
             .select(
-              'id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active',
+              'id, full_name, email, phone, role, verification_status, application_status, avatar_url, location, is_active',
             )
             .eq('role', 'driver')
             .not('is_active', 'is', false);

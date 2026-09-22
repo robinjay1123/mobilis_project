@@ -2466,10 +2466,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 email,
                 phone,
                 location,
-                latitude,
-                longitude,
                 avatar_url,
-                id_verified,
                 verification_status
               ),
               driver:drivers!bookings_driver_id_fkey (

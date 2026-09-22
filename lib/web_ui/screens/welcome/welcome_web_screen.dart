@@ -75,7 +75,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
       try {
         final companyRes = await supabase
             .from('vehicles')
-            .select('id, brand, model, year, plate_number, price_per_day, price_per_hour, seats, transmission, fuel_type, category, vehicle_type, vehicle_name, description, status, is_available, is_posted, rating, rating_count, vehicle_images(image_url, display_order)')
+            .select('id, brand, model, year, plate_number, price_per_day, seats, transmission, fuel_type, vehicle_type, vehicle_name, description, status, rating, rating_count, vehicle_images(image_url, display_order)')
             .neq('status', 'deleted')
             .order('created_at', ascending: false);
 

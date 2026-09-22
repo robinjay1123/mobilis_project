@@ -103,15 +103,15 @@ class PayoutMethodService {
         }
       }
 
-      // 2. Try reading from public.users table raw_user_meta_data
+      // 2. Try reading from public.users table user_metadata
       final userRow = await _supabase
           .from('users')
-          .select('raw_user_meta_data')
+          .select('user_metadata, raw_user_meta_data')
           .eq('id', userId)
           .maybeSingle();
 
-      if (userRow != null && userRow['raw_user_meta_data'] != null) {
-        final rawMeta = userRow['raw_user_meta_data'];
+      if (userRow != null) {
+        final rawMeta = userRow['user_metadata'] ?? userRow['raw_user_meta_data'];
         if (rawMeta is Map && rawMeta['payout_methods'] is List) {
           final list = (rawMeta['payout_methods'] as List)
               .map((e) => PayoutMethod.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -185,15 +185,15 @@ class PayoutMethodService {
       } catch (_) {}
     }
 
-    // B. Check public.users table raw_user_meta_data
+    // B. Check public.users table user_metadata
     try {
       final userRow = await _supabase
           .from('users')
-          .select('raw_user_meta_data')
+          .select('user_metadata, raw_user_meta_data')
           .eq('id', userId)
           .maybeSingle();
 
-      final meta = userRow?['raw_user_meta_data'];
+      final meta = userRow?['user_metadata'] ?? userRow?['raw_user_meta_data'];
       if (meta is Map) {
         final qr = meta['qr_code_url'] ??
             meta['gcash_qr_url'] ??
@@ -430,13 +430,14 @@ class PayoutMethodService {
     try {
       final userRow = await _supabase
           .from('users')
-          .select('raw_user_meta_data')
+          .select('user_metadata, raw_user_meta_data')
           .eq('id', userId)
           .maybeSingle();
 
       Map<String, dynamic> currentMeta = {};
-      if (userRow != null && userRow['raw_user_meta_data'] is Map) {
-        currentMeta = Map<String, dynamic>.from(userRow['raw_user_meta_data'] as Map);
+      final existingMeta = userRow?['user_metadata'] ?? userRow?['raw_user_meta_data'];
+      if (existingMeta is Map) {
+        currentMeta = Map<String, dynamic>.from(existingMeta as Map);
       }
       currentMeta['payout_methods'] = jsonList;
 
@@ -454,10 +455,13 @@ class PayoutMethodService {
 
       await _supabase
           .from('users')
-          .update({'raw_user_meta_data': currentMeta})
+          .update({
+            'user_metadata': currentMeta,
+            'raw_user_meta_data': currentMeta,
+          })
           .eq('id', userId);
     } catch (e) {
-      debugPrint('⚠️ Error updating public.users raw_user_meta_data: $e');
+      debugPrint('⚠️ Error updating public.users user_metadata: $e');
     }
 
     // 4. Sync to public.renters, public.partners, and public.drivers tables
