@@ -1055,6 +1055,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           table: 'user_reports',
           callback: handleActionLogChange,
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'partner_vehicle_applications',
+          callback: handleActionLogChange,
+        )
         .subscribe();
   }
 
@@ -4184,6 +4190,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         vehicleTitle: vehicleTitle.isEmpty ? null : vehicleTitle,
       );
 
+      // Audit Log: Vehicle Application Approved
+      try {
+        await AuditService().logAdminAction(
+          action: 'vehicle_application_approved',
+          category: 'PARTNER FLEET',
+          entityId: partnerVehicleId.toString(),
+          entityType: 'vehicle_application',
+          partnerId: partnerId,
+          vehicleId: partnerVehicleId.toString(),
+          notes: 'Admin approved partner vehicle application: ${vehicleTitle.isNotEmpty ? vehicleTitle : 'Vehicle'} (Plate: ${application['plate_number'] ?? 'N/A'}) for Partner $partnerName',
+          metadata: {
+            'application_id': appId,
+            'partner_id': partnerId,
+            'partner_name': partnerName,
+            'vehicle_name': vehicleTitle,
+            'plate_number': application['plate_number'],
+            'price_per_day': application['price_per_day'],
+            'owner_is_driver': application['owner_is_driver'],
+          },
+        );
+      } catch (auditErr) {
+        debugPrint('Warning logging vehicle approval audit: $auditErr');
+      }
+
       dismissLoading();
       if (!mounted) return;
       _showActionSuccessModal(
@@ -4296,6 +4326,29 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             .from('partner_vehicles')
             .update({'status': 'disabled', 'is_available': false})
             .eq('plate_number', plateNumber);
+      }
+
+      // Audit Log: Vehicle Application Rejected
+      try {
+        final partnerId = application['partner_id']?.toString();
+        await AuditService().logAdminAction(
+          action: 'vehicle_application_rejected',
+          category: 'PARTNER FLEET',
+          entityId: appId,
+          entityType: 'vehicle_application',
+          partnerId: partnerId,
+          vehicleId: partnerVehicleId,
+          notes: 'Admin rejected vehicle application: ${vehicleTitle.isNotEmpty ? vehicleTitle : 'Vehicle'} (Plate: ${plateNumber ?? application['plate_number'] ?? 'N/A'}). Reason: ${rejectionReason.trim()}',
+          metadata: {
+            'application_id': appId,
+            'partner_id': partnerId,
+            'vehicle_name': vehicleTitle,
+            'plate_number': plateNumber ?? application['plate_number'],
+            'rejection_reason': rejectionReason.trim(),
+          },
+        );
+      } catch (auditErr) {
+        debugPrint('Warning logging vehicle rejection audit: $auditErr');
       }
 
       dismissLoading();
@@ -4448,6 +4501,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         );
       } catch (_) {}
 
+      // Audit Log: Driver Application Approved
+      try {
+        await AuditService().logAdminAction(
+          action: 'driver_application_approved',
+          category: 'DRIVER APPLICATION',
+          entityId: userId,
+          entityType: 'driver_application',
+          driverId: userId,
+          notes: 'Admin approved driver onboarding application for $displayName ($userId)',
+          metadata: {
+            'driver_user_id': userId,
+            'driver_name': displayName,
+            'driver_tier': 'standard',
+            'action': 'approved',
+          },
+        );
+      } catch (auditErr) {
+        debugPrint('Warning logging driver approval audit: $auditErr');
+      }
+
       dismissLoading();
       if (!mounted) return;
       _showActionSuccessModal(
@@ -4547,6 +4620,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           data: {'event': 'driver_rejected', 'user_id': userId, 'reason': reason},
         );
       } catch (_) {}
+
+      // Audit Log: Driver Application Rejected
+      try {
+        await AuditService().logAdminAction(
+          action: 'driver_application_rejected',
+          category: 'DRIVER APPLICATION',
+          entityId: userId,
+          entityType: 'driver_application',
+          driverId: userId,
+          notes: 'Admin rejected driver application for $displayName ($userId). Reason: ${reason.trim()}',
+          metadata: {
+            'driver_user_id': userId,
+            'driver_name': displayName,
+            'rejection_reason': reason.trim(),
+            'action': 'rejected',
+          },
+        );
+      } catch (auditErr) {
+        debugPrint('Warning logging driver rejection audit: $auditErr');
+      }
 
       dismissLoading();
       if (!mounted) return;
@@ -23105,9 +23198,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return logCat == 'TRIP EXTENSION';
       }
       if (category == 'approvals') {
-        return logCat == 'BOOKING APPROVAL' || logCat == 'PARTNER APPROVAL';
+        return logCat == 'BOOKING APPROVAL' ||
+            logCat == 'PARTNER APPROVAL' ||
+            logCat == 'PARTNER FLEET' ||
+            logCat == 'DRIVER APPLICATION';
       }
-      if (category == 'drivers') return logCat == 'DRIVER ASSIGNMENT';
+      if (category == 'drivers') {
+        return logCat == 'DRIVER ASSIGNMENT' || logCat == 'DRIVER APPLICATION';
+      }
       if (category == 'pricing_vehicles') {
         return logCat == 'PRICING & VEHICLES' || logCat == 'PARTNER FLEET';
       }
@@ -23120,7 +23218,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             logCat == 'TRIP RETURN' ||
             logCat == 'TRIP COMPLETED';
       }
-      if (category == 'verifications') return logCat == 'USER VERIFICATION';
+      if (category == 'verifications') {
+        return logCat == 'USER VERIFICATION' || logCat == 'DRIVER APPLICATION';
+      }
 
       return true;
     }).toList();
@@ -23640,6 +23740,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       iconData = Icons.verified_user_rounded;
       badgeBg = Colors.teal.withValues(alpha: 0.15);
       badgeText = Colors.teal;
+    } else if (category == 'DRIVER APPLICATION') {
+      iconColor = Colors.teal.shade700;
+      iconData = Icons.badge_rounded;
+      badgeBg = Colors.teal.withValues(alpha: 0.18);
+      badgeText = Colors.teal.shade700;
     }
 
     final parsedTime = DateTime.tryParse(timestampStr);

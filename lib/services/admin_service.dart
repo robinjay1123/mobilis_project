@@ -995,7 +995,7 @@ class AdminService {
     String entityId,
     String entityType,
     String action,
-    String notes,
+    String? notes,
   ) async {
     try {
       final currentAdmin = supabase.auth.currentUser;
@@ -1007,7 +1007,7 @@ class AdminService {
       if (entityType == 'partner') {
         category = 'PARTNER APPROVAL';
       } else if (entityType == 'driver') {
-        category = 'DRIVER ASSIGNMENT';
+        category = 'DRIVER APPLICATION';
       } else if (entityType == 'vehicle') {
         category = 'PARTNER FLEET';
       }
@@ -1016,14 +1016,18 @@ class AdminService {
         action: '${entityType}_application_$action',
         category: category,
         entityId: entityId,
-        entityType: entityType,
+        entityType: '${entityType}_application',
         adminId: adminId,
         actorName: adminName,
-        notes: notes.isNotEmpty ? notes : '$adminName ${action.toLowerCase()} $entityType application #$entityId',
+        notes: (notes != null && notes.isNotEmpty) ? notes : '$adminName ${action.toLowerCase()} $entityType application #$entityId',
         metadata: {
           'entity_id': entityId,
           'entity_type': entityType,
+          'application_type': entityType,
+          'application_id': entityId,
           'status': action,
+          'action': action,
+          'notes': notes,
           'admin_id': adminId,
           'admin_name': adminName,
         },
@@ -1959,6 +1963,179 @@ class AdminService {
         debugPrint('Warning synthesizing favorite vehicles audit logs: $favErr');
       }
 
+      // 5c. Fetch Partner Vehicle Applications for action logs synthesis
+      try {
+        final vehicleAppRows = await supabase
+            .from('partner_vehicle_applications')
+            .select('''
+              id,
+              partner_id,
+              partner_vehicle_id,
+              brand,
+              model,
+              plate_number,
+              application_status,
+              rejection_reason,
+              created_at,
+              reviewed_at,
+              verified_at,
+              partner:partners!partner_id (
+                id,
+                business_name,
+                full_name
+              )
+            ''')
+            .order('created_at', ascending: false)
+            .limit(50);
+
+        for (final row in List<Map<String, dynamic>>.from(vehicleAppRows)) {
+          final appId = row['id']?.toString() ?? '';
+          final status = (row['application_status'] ?? '').toString().toLowerCase().trim();
+          final vehicleTitle = '${row['brand'] ?? 'Vehicle'} ${row['model'] ?? ''}'.trim();
+          final plate = row['plate_number']?.toString() ?? 'N/A';
+          final partnerMap = row['partner'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(row['partner'])
+              : <String, dynamic>{};
+          final partnerName = partnerMap['business_name']?.toString().trim().isNotEmpty == true
+              ? partnerMap['business_name'].toString().trim()
+              : (partnerMap['full_name']?.toString().trim().isNotEmpty == true
+                  ? partnerMap['full_name'].toString().trim()
+                  : 'Partner');
+
+          // Log application submission
+          final createdAt = row['created_at']?.toString() ?? '';
+          if (createdAt.isNotEmpty) {
+            final key = 'vapp-sub-$appId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': createdAt,
+                'category': 'PARTNER FLEET',
+                'action_type': 'vehicle_application_submitted',
+                'entity_type': 'vehicle_application',
+                'actor_name': partnerName,
+                'actor_role': 'partner',
+                'notes': '$partnerName submitted vehicle application for $vehicleTitle (Plate: $plate)',
+                'vehicle_id': row['partner_vehicle_id']?.toString(),
+                'metadata': {
+                  'application_id': appId,
+                  'partner_id': row['partner_id'],
+                  'partner_name': partnerName,
+                  'vehicle_name': vehicleTitle,
+                  'plate_number': plate,
+                  'status': status,
+                },
+              });
+            }
+          }
+
+          // Log approval / rejection
+          final reviewedAt = row['reviewed_at']?.toString() ?? row['verified_at']?.toString();
+          if (reviewedAt != null && reviewedAt.isNotEmpty) {
+            final isApp = status == 'approved';
+            final isRej = status == 'rejected';
+            if (isApp || isRej) {
+              final key = 'vapp-review-$appId';
+              if (!seenKeys.contains(key)) {
+                seenKeys.add(key);
+                final rejReason = row['rejection_reason']?.toString() ?? '';
+                logs.add({
+                  'id': key,
+                  'timestamp': reviewedAt,
+                  'category': 'PARTNER FLEET',
+                  'action_type': isApp ? 'vehicle_application_approved' : 'vehicle_application_rejected',
+                  'entity_type': 'vehicle_application',
+                  'actor_name': 'Administrator',
+                  'actor_role': 'admin',
+                  'notes': isApp
+                      ? 'Admin approved vehicle application for $vehicleTitle (Plate: $plate) of Partner $partnerName'
+                      : 'Admin rejected vehicle application for $vehicleTitle (Plate: $plate). Reason: ${rejReason.isNotEmpty ? rejReason : 'Requirements incomplete'}',
+                  'vehicle_id': row['partner_vehicle_id']?.toString(),
+                  'metadata': {
+                    'application_id': appId,
+                    'partner_id': row['partner_id'],
+                    'partner_name': partnerName,
+                    'vehicle_name': vehicleTitle,
+                    'plate_number': plate,
+                    'status': status,
+                    if (isRej && rejReason.isNotEmpty) 'rejection_reason': rejReason,
+                  },
+                });
+              }
+            }
+          }
+        }
+      } catch (vAppErr) {
+        debugPrint('Warning synthesizing vehicle applications audit logs: $vAppErr');
+      }
+
+      // 5d. Fetch Driver Onboarding Applications for action logs synthesis
+      try {
+        final driverAppRows = await supabase
+            .from('users')
+            .select('id, full_name, email, role, application_status, verification_status, created_at, updated_at')
+            .eq('role', 'driver')
+            .order('updated_at', ascending: false)
+            .limit(50);
+
+        for (final user in List<Map<String, dynamic>>.from(driverAppRows)) {
+          final uId = user['id']?.toString() ?? '';
+          final name = user['full_name']?.toString().trim().isNotEmpty == true
+              ? user['full_name'].toString().trim()
+              : (user['email']?.toString() ?? 'Driver Applicant');
+          final appStatus = (user['application_status'] ?? '').toString().toLowerCase();
+
+          if (appStatus == 'approved' || appStatus == 'verified') {
+            final key = 'dapp-app-$uId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              final timestamp = user['updated_at']?.toString() ?? user['created_at']?.toString() ?? '';
+              logs.add({
+                'id': key,
+                'timestamp': timestamp,
+                'category': 'DRIVER APPLICATION',
+                'action_type': 'driver_application_approved',
+                'entity_type': 'driver_application',
+                'actor_name': 'Administrator',
+                'actor_role': 'admin',
+                'notes': 'Admin approved driver onboarding application for $name',
+                'driver_id': uId,
+                'metadata': {
+                  'driver_user_id': uId,
+                  'driver_name': name,
+                  'status': appStatus,
+                },
+              });
+            }
+          } else if (appStatus == 'rejected') {
+            final key = 'dapp-rej-$uId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              final timestamp = user['updated_at']?.toString() ?? user['created_at']?.toString() ?? '';
+              logs.add({
+                'id': key,
+                'timestamp': timestamp,
+                'category': 'DRIVER APPLICATION',
+                'action_type': 'driver_application_rejected',
+                'entity_type': 'driver_application',
+                'actor_name': 'Administrator',
+                'actor_role': 'admin',
+                'notes': 'Admin rejected driver onboarding application for $name',
+                'driver_id': uId,
+                'metadata': {
+                  'driver_user_id': uId,
+                  'driver_name': name,
+                  'status': appStatus,
+                },
+              });
+            }
+          }
+        }
+      } catch (dAppErr) {
+        debugPrint('Warning synthesizing driver applications audit logs: $dAppErr');
+      }
+
       // 6. Sort all combined logs by timestamp descending
       logs.sort((a, b) {
         final aTime = DateTime.tryParse(a['timestamp']?.toString() ?? '') ?? DateTime(1970);
@@ -2522,6 +2699,7 @@ class AdminService {
       return false;
     }
   }
+
 
   /// Get renter transaction history
   Future<List<Map<String, dynamic>>> getRenterTransactionHistory(
