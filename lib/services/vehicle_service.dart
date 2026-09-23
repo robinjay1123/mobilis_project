@@ -10,12 +10,12 @@ class VehicleService {
   // Single clean select string — no extra whitespace or newlines
   // NOTE: vehicle_images fetched separately, not joined here
   static const String _vehicleSelect =
-      'id,brand,model,year,plate_number,price_per_day,price_per_hour,'
+      'id,brand,model,year,plate_number,price_per_day,'
       'category,vehicle_type,vehicle_name,description,color,fuel_type,'
       'transmission,location,'
       'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
       'owner_role,owner_name,rating,rating_count,'
-      'vehicle_images!vehicle_images_vehicle_id_fkey(image_url,display_order)';
+      'vehicle_images(image_url,display_order)';
   static const List<String> _bookingBlockingStatuses = [
     'pending',
     'Pending',
@@ -132,6 +132,18 @@ class VehicleService {
     }).toList();
 
     merged['vehicle_images'] = normalizedImages;
+
+    // price_per_hour was dropped from the DB — derive it from price_per_day so
+    // the UI can still display a meaningful hourly rate (price_per_day / 10) instead of 0.0 or ??.
+    final pricePerDay = (merged['price_per_day'] as num?)?.toDouble() ?? 0.0;
+    final existingPricePerHour = (merged['price_per_hour'] as num?)?.toDouble();
+    if (existingPricePerHour != null && existingPricePerHour > 0) {
+      merged['price_per_hour'] = existingPricePerHour;
+    } else {
+      merged['price_per_hour'] =
+          pricePerDay > 0 ? (pricePerDay / 10).roundToDouble() : 0.0;
+    }
+
     final rawRating = (merged['rating'] as num?)?.toDouble() ?? 0.0;
     final rawCount = (merged['rating_count'] as num?)?.toInt() ?? 0;
     if (rawCount <= 0) {
@@ -1510,7 +1522,8 @@ class VehicleService {
     required int year,
     required String plateNumber,
     required double pricePerDay,
-    required double pricePerHour,
+    // price_per_hour removed — column dropped from vehicles table (migration 20260923000200).
+    // Hourly rate is derived in _normalizeVehicleRecord as price_per_day / 10.
     String? vehicleName,
     String? category,
     String? vehicleType,
@@ -1533,7 +1546,6 @@ class VehicleService {
           'plate_number': plateNumber,
           'owner_id': ownerId,
           'price_per_day': pricePerDay,
-          'price_per_hour': pricePerHour,
           'vehicle_name': vehicleName,
           'category': category,
           'vehicle_type': vehicleType,
@@ -1562,7 +1574,7 @@ class VehicleService {
     int? year,
     String? plateNumber,
     double? pricePerDay,
-    double? pricePerHour,
+    // price_per_hour removed — column dropped from vehicles table (migration 20260923000200).
     String? vehicleName,
     String? category,
     String? vehicleType,
@@ -1583,7 +1595,6 @@ class VehicleService {
       if (year != null) 'year': year,
       if (plateNumber != null) 'plate_number': plateNumber,
       if (pricePerDay != null) 'price_per_day': pricePerDay,
-      if (pricePerHour != null) 'price_per_hour': pricePerHour,
       if (vehicleName != null) 'vehicle_name': vehicleName,
       if (category != null) 'category': category,
       if (vehicleType != null) 'vehicle_type': vehicleType,

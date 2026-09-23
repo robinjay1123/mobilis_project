@@ -499,13 +499,11 @@ class BookingInspectionService {
       try {
         final pvRows = await supabase
             .from('partner_vehicles')
-            .select('partner_id, user_id, vehicle_id')
+            .select('partner_id, vehicle_id')
             .or('id.eq.$rawVehicleId,vehicle_id.eq.$rawVehicleId');
         for (final pv in List<Map<String, dynamic>>.from(pvRows)) {
           final pId = pv['partner_id']?.toString().trim();
-          final uId = pv['user_id']?.toString().trim();
           if (pId != null && pId.isNotEmpty) ids.add(pId);
-          if (uId != null && uId.isNotEmpty) ids.add(uId);
         }
       } catch (_) {}
 

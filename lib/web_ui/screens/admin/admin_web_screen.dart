@@ -2185,19 +2185,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             .select(
               'id, email, full_name, phone, role, created_at, id_verified, '
               'verification_status, updated_at, avatar_url, '
-              'is_archived, archived_at, is_active, restriction_reason, archive_reason',
+              'is_archived, is_active, is_blocked, restriction_level',
             )
             .order('created_at', ascending: false)
             .then((res) => List<Map<String, dynamic>>.from(res))
             .catchError((e) async {
               try {
-                // If is_archived / archive_reason columns don't exist yet, select without them but WITH is_active and restriction_reason
                 final fallback = await _supabase
                     .from('users')
                     .select(
                       'id, email, full_name, phone, role, created_at, id_verified, '
                       'verification_status, updated_at, avatar_url, '
-                      'is_active, restriction_reason',
+                      'is_archived, is_active',
                     )
                     .order('created_at', ascending: false);
                 return List<Map<String, dynamic>>.from(fallback);
@@ -2207,7 +2206,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       .from('users')
                       .select(
                         'id, email, full_name, phone, role, created_at, '
-                        'is_active, restriction_reason',
+                        'is_active',
                       )
                       .order('created_at', ascending: false);
                   return List<Map<String, dynamic>>.from(fallback2);
@@ -4864,15 +4863,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           await _supabase.from('users').update({
             'is_archived': true,
             'is_active': false,
-            'archived_at': nowStr,
-            'archive_reason': 'Archived by admin',
-            'restriction_reason': 'Archived by admin',
           }).eq('id', userId);
         } catch (e) {
           debugPrint('Notice: standard archive update fallback: $e');
           await _supabase.from('users').update({
             'is_active': false,
-            'restriction_reason': 'Archived by admin',
           }).eq('id', userId);
         }
 
@@ -4974,14 +4969,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           await _supabase.from('users').update({
             'is_archived': false,
             'is_active': true,
-            'archived_at': null,
-            'archive_reason': null,
-            'restriction_reason': null,
           }).eq('id', userId);
         } catch (e) {
           await _supabase.from('users').update({
             'is_active': true,
-            'restriction_reason': null,
           }).eq('id', userId);
         }
 

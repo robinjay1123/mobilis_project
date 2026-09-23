@@ -155,9 +155,7 @@ class ReportService {
       await _supabase.from('users').update({
         'is_active': false,
         'is_blocked': true,
-        'restriction_reason': banReason,
-        'suspension_reason': banReason,
-        'suspended_at': now,
+        // restriction_reason, suspension_reason, suspended_at dropped in migration 20260923000200
         'updated_at': now,
       }).eq('id', reportedUserId);
     } catch (e) {

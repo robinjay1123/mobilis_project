@@ -144,8 +144,7 @@ class AdminService {
           .from('users')
           .update({
             'is_active': false,
-            'suspension_reason': reason,
-            'suspended_at': DateTime.now().toIso8601String(),
+            // restriction_reason, suspension_reason, suspended_at all dropped in migration 20260923000200
           })
           .eq('id', userId);
 
@@ -176,8 +175,7 @@ class AdminService {
           .from('users')
           .update({
             'is_active': true,
-            'suspension_reason': null,
-            'suspended_at': null,
+            // restriction_reason, suspension_reason, suspended_at all dropped in migration 20260923000200
           })
           .eq('id', userId);
 
@@ -717,18 +715,15 @@ class AdminService {
           'plate_number': application['plate_number'],
           'seats': application['seats'] ?? 5,
           'price_per_day': application['price_per_day'] ?? 0,
-          'price_per_hour': application['price_per_hour'] ?? 0,
+          // price_per_hour, category, owner_role, application_status pruned in migration 20260923000400
           'fuel_type': application['fuel_type'] ?? 'Gasoline',
           'transmission': application['transmission'] ?? 'Manual',
-          'category': application['category'] ?? application['vehicle_type'] ?? 'Partner Vehicle',
           'vehicle_type': application['vehicle_type'] ?? application['category'] ?? 'Partner Vehicle',
           'owner_is_driver': application['owner_is_driver'] ?? false,
           'owner_name': partnerName,
-          'owner_role': 'partner',
           'is_available': true,
           'is_posted': true,
           'status': 'available',
-          'application_status': 'approved',
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('id', existingPvId);
         partnerVehicleId = existingPvId;
@@ -744,20 +739,17 @@ class AdminService {
               'plate_number': application['plate_number'],
               'seats': application['seats'] ?? 5,
               'price_per_day': application['price_per_day'] ?? 0,
-              'price_per_hour': application['price_per_hour'] ?? 0,
+              // price_per_hour, category, owner_role, application_status pruned in migration 20260923000400
               'fuel_type': application['fuel_type'] ?? 'Gasoline',
               'transmission': application['transmission'] ?? 'Manual',
-              'category': application['category'] ?? application['vehicle_type'] ?? 'Partner Vehicle',
               'vehicle_type': application['vehicle_type'] ?? application['category'] ?? 'Partner Vehicle',
               'owner_is_driver': application['owner_is_driver'] ?? false,
               'owner_name': partnerName,
-              'owner_role': 'partner',
               'rating': 0.0,
               'rating_count': 0,
               'is_available': true,
               'is_posted': true,
               'status': 'available',
-              'application_status': 'approved',
               'created_at': DateTime.now().toIso8601String(),
               'updated_at': DateTime.now().toIso8601String(),
             })

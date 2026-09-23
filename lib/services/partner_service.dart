@@ -561,7 +561,7 @@ class PartnerService {
             'fuel_type': fuelType,
             'transmission': transmission,
             'status': 'pending',
-            'application_status': 'pending',
+            // application_status pruned from partner_vehicles in migration 20260923000400 (canonical status in partner_vehicle_applications)
             'is_available': false,
             'updated_at': nowIso,
           })

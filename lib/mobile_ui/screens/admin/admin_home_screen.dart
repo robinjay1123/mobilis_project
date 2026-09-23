@@ -348,14 +348,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           await _supabase.from('users').update({
             'is_archived': true,
             'is_active': false,
-            'archived_at': nowStr,
-            'archive_reason': 'Archived by admin',
-            'restriction_reason': 'Archived by admin',
           }).eq('id', userId);
         } catch (_) {
           await _supabase.from('users').update({
             'is_active': false,
-            'restriction_reason': 'Archived by admin',
           }).eq('id', userId);
         }
 
@@ -434,14 +430,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           await _supabase.from('users').update({
             'is_archived': false,
             'is_active': true,
-            'archived_at': null,
-            'archive_reason': null,
-            'restriction_reason': null,
           }).eq('id', userId);
         } catch (_) {
           await _supabase.from('users').update({
             'is_active': true,
-            'restriction_reason': null,
           }).eq('id', userId);
         }
 

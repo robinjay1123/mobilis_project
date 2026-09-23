@@ -255,7 +255,7 @@ class MessageFilterService {
           'message_content, risk_score, risk_level, status, admin_notes, '
           'created_at, reviewed_at, '
           'sender:users!message_flags_sender_id_fkey('
-          'id, name, full_name, email, role, off_platform_flag_count, is_blocked)',
+          'id, name, full_name, email, role, is_blocked)',
         );
     if (status != null && status.isNotEmpty) {
       query = query.eq('status', status);
@@ -281,33 +281,26 @@ class MessageFilterService {
     }
   }
 
-  /// Get user's flag count
+  /// Get user's flag count (now derived from message_flags table since off_platform_flag_count was dropped)
   static Future<int> getUserFlagCount(String userId) async {
     try {
       final response = await supabase
-          .from('users')
-          .select('off_platform_flag_count')
-          .eq('id', userId)
-          .single();
-
-      return response['off_platform_flag_count'] as int? ?? 0;
+          .from('message_flags')
+          .select('id')
+          .eq('sender_id', userId)
+          .eq('status', 'confirmed');
+      return (response as List).length;
     } catch (e) {
       return 0;
     }
   }
 
-  /// Increment user flag count
+  /// Increment user flag count — off_platform_flag_count column dropped; now handled via message_flags
   static Future<void> _incrementUserFlagCount(String userId) async {
     try {
       final currentCount = await getUserFlagCount(userId);
-
-      await supabase
-          .from('users')
-          .update({'off_platform_flag_count': currentCount + 1})
-          .eq('id', userId);
-
-      // Block user if too many flags
-      if (currentCount + 1 >= 3) {
+      // Block user if too many confirmed flags
+      if (currentCount >= 3) {
         await supabase
             .from('users')
             .update({'is_blocked': true})
@@ -512,9 +505,10 @@ class MessageFilterService {
       final usersQuery = await supabase
           .from('users')
           .select(
-            'id, name, full_name, email, role, avatar_url, profile_picture_url, off_platform_flag_count, is_blocked, is_active, suspension_reason, suspended_at, chat_restricted_until, account_restricted_until, restriction_level, restriction_reason',
+            'id, name, full_name, email, role, avatar_url, profile_picture_url, is_blocked, is_active, chat_restricted_until, account_restricted_until, restriction_level',
+            // off_platform_flag_count, suspension_reason, suspended_at, restriction_reason dropped in migration 20260923000200
           )
-          .or('off_platform_flag_count.gt.0,is_blocked.eq.true,is_active.eq.false,account_restricted_until.not.is.null,chat_restricted_until.not.is.null');
+          .or('is_blocked.eq.true,is_active.eq.false,account_restricted_until.not.is.null,chat_restricted_until.not.is.null');
 
       final usersList = List<Map<String, dynamic>>.from(usersQuery);
       final userMap = <String, Map<String, dynamic>>{};
@@ -533,7 +527,7 @@ class MessageFilterService {
         final missingUsers = await supabase
             .from('users')
             .select(
-              'id, name, full_name, email, role, avatar_url, profile_picture_url, off_platform_flag_count, is_blocked, is_active, suspension_reason, suspended_at, chat_restricted_until, account_restricted_until, restriction_level, restriction_reason',
+              'id, name, full_name, email, role, avatar_url, profile_picture_url, is_blocked, is_active, chat_restricted_until, account_restricted_until, restriction_level',
             )
             .inFilter('id', missingUserIds);
         for (final user in List<Map<String, dynamic>>.from(missingUsers)) {

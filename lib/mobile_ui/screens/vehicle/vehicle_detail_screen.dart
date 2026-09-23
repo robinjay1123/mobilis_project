@@ -3577,22 +3577,51 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          pricePerHour > 0 ? 'Price per hour' : 'Price per day',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: secondaryText,
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Daily Rate',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: secondaryText,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '₱${formatAmount(pricePerDay)}/day',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: isDark ? AppColors.primary : const Color(0xFFD97706),
+                              ),
+                            ),
+                          ],
                         ),
-                        Text(
-                          '₱${formatAmount(pricePerHour > 0 ? pricePerHour : pricePerDay)}',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            color: isDark ? AppColors.primary : const Color(0xFFD97706),
+                        if (pricePerHour > 0)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                'Hourly Rate',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: secondaryText,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '₱${formatAmount(pricePerHour)}/hr',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark ? AppColors.primary : const Color(0xFFD97706),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
                       ],
                     ),
                   ),

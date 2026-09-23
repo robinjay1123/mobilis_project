@@ -79,7 +79,8 @@ class UserRestrictionService {
       final response = await supabase
           .from('users')
           .select(
-            'id, role, off_platform_flag_count, is_blocked, is_active, chat_restricted_until, account_restricted_until, restriction_reason, restriction_level',
+            // restriction_reason dropped in migration 20260923000200
+            'id, role, is_blocked, is_active, chat_restricted_until, account_restricted_until, restriction_level',
           )
           .eq('id', userId)
           .maybeSingle();
@@ -121,8 +122,7 @@ class UserRestrictionService {
       }
 
       return UserRestrictionState(
-        violationCount:
-            (response['off_platform_flag_count'] as num?)?.toInt() ?? 0,
+        violationCount: 0, // off_platform_flag_count removed from users table (migration 20260923000200)
         isBlocked:
             isBlocked &&
             (isPermanentBlocked ||
@@ -130,7 +130,7 @@ class UserRestrictionService {
                     accountRestrictedUntil.isAfter(now))),
         chatRestrictedUntil: chatRestrictedUntil,
         accountRestrictedUntil: accountRestrictedUntil,
-        reason: response['restriction_reason']?.toString().trim() ?? '',
+        reason: '', // restriction_reason dropped from users table in migration 20260923000200
         level: level,
       );
     } catch (e) {
@@ -154,7 +154,6 @@ class UserRestrictionService {
             'is_blocked': false,
             'chat_restricted_until': null,
             'account_restricted_until': null,
-            'restriction_reason': null,
             'restriction_level': 'none',
             'verification_status': 'verified',
             'id_verified': true,
@@ -280,11 +279,8 @@ class UserRestrictionService {
             'is_blocked': false,
             'chat_restricted_until': null,
             'account_restricted_until': null,
-            'restriction_reason': null,
+            // restriction_reason, off_platform_flag_count, suspension_reason, suspended_at dropped in migration 20260923000200
             'restriction_level': 'none',
-            'off_platform_flag_count': 0,
-            'suspension_reason': null,
-            'suspended_at': null,
             'verification_status': 'verified',
             'id_verified': true,
           })
@@ -398,7 +394,7 @@ class UserRestrictionService {
         await supabase.from('users').update({
           'is_blocked': true,
           'is_active': false,
-          'restriction_reason': reason,
+          // restriction_reason dropped in migration 20260923000200
           'restriction_level': 'admin_manual_blocked',
           'chat_restricted_until': null,
           'account_restricted_until': null,
@@ -432,7 +428,7 @@ class UserRestrictionService {
         await supabase.from('users').update({
           'is_blocked': true,
           'is_active': false,
-          'restriction_reason': reason,
+          // restriction_reason dropped in migration 20260923000200
           'restriction_level': 'admin_manual_timed',
           'chat_restricted_until': untilIso,
           'account_restricted_until': untilIso,
@@ -482,13 +478,13 @@ class UserRestrictionService {
       final response = await supabase
           .from('users')
           .select(
-            'id, email, phone, role, full_name, off_platform_flag_count, chat_restricted_until, account_restricted_until',
+            'id, email, phone, role, full_name, chat_restricted_until, account_restricted_until',
           )
           .eq('id', userId)
           .single();
 
-      final violationCount =
-          (response['off_platform_flag_count'] as num?)?.toInt() ?? 0;
+      // off_platform_flag_count dropped in migration 20260923000200; default to trigger escalation path after 3+ removals
+      const violationCount = 0;
       final role = response['role']?.toString().trim().toLowerCase() ?? '';
       final now = DateTime.now();
       final currentUntil = DateTime.tryParse(
@@ -498,7 +494,7 @@ class UserRestrictionService {
       );
 
       final updatePayload = <String, dynamic>{
-        'restriction_reason': _defaultReason,
+        // restriction_reason dropped in migration 20260923000200
         'id_verified': false,
         'verification_status': 'rejected',
       };
@@ -586,7 +582,8 @@ class UserRestrictionService {
       final response = await supabase
           .from('users')
           .select(
-            'id, email, full_name, phone, role, restriction_reason, off_platform_flag_count',
+            // restriction_reason dropped in migration 20260923000200
+            'id, email, full_name, phone, role',
           )
           .eq('is_blocked', true)
           .or(filters.join(','))
@@ -624,9 +621,7 @@ class UserRestrictionService {
             'chat_restricted_until': null,
             'account_restricted_until': null,
             'restriction_level': 'third_attempt_blocked',
-            'restriction_reason': reason,
-            'suspension_reason': reason,
-            'suspended_at': now,
+            // restriction_reason, suspension_reason, suspended_at dropped in migration 20260923000200
             'updated_at': now,
           })
           .eq('id', userId);
@@ -660,9 +655,7 @@ class UserRestrictionService {
             'verification_status': 'rejected',
             'application_status': 'rejected',
             'restriction_level': 'matched_blocked_identity',
-            'restriction_reason':
-                reason ??
-                'Matched a permanently blocked user record ($matchedBlockedUserId).',
+            // restriction_reason dropped in migration 20260923000200
           })
           .eq('id', userId);
     } catch (e) {
@@ -1015,8 +1008,7 @@ class UserRestrictionService {
             'email': email,
             'phone': phone,
             'full_name': fullName,
-            'restriction_reason':
-                'Account permanently blocked after repeated off-platform policy violations.',
+            // restriction_reason dropped in migration 20260923000200
           })
           .eq('id', userId);
     } catch (e) {

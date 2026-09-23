@@ -24092,7 +24092,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         try {
           final usersRows = await _supabase
               .from('users')
-              .select('id, full_name, email, phone, avatar_url, is_blocked, off_platform_flag_count, restriction_reason, restriction_level')
+              .select('id, full_name, email, phone, avatar_url, is_blocked, restriction_level')
               .inFilter('id', missingRenterIds.toList());
           final usersMap = {
             for (final u in List<Map<String, dynamic>>.from(usersRows))
