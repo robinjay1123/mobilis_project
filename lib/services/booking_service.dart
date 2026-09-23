@@ -3716,6 +3716,7 @@ class BookingService {
       throw Exception('Booking finalized but could not be reloaded');
     }
     final vehicle = finalized['vehicles'] as Map<String, dynamic>?;
+    final vehicleTitle = _vehicleTitle(vehicle);
     unawaited(() async {
       try {
         if (isEligibleForBookingChat(finalized)) {
