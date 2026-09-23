@@ -174,7 +174,7 @@ class ChatService {
                 partner_vehicle_id,
                 start_at,
                 end_at,
-                total_amount,
+                total_price,
                 renter:users!bookings_renter_id_fkey (
                   id,
                   full_name,
@@ -1262,10 +1262,12 @@ class ChatService {
           .update({'updated_at': DateTime.now().toUtc().toIso8601String()})
           .eq('id', conversationId);
 
-      await _notifyMessageRecipients(
-        conversationId: conversationId,
-        senderId: senderId,
-        content: content,
+      unawaited(
+        _notifyMessageRecipients(
+          conversationId: conversationId,
+          senderId: senderId,
+          content: content,
+        ),
       );
 
       // Flagging and enforcement are handled by the chat screen flow.
@@ -1327,10 +1329,12 @@ class ChatService {
         .from('conversations')
         .update({'updated_at': DateTime.now().toUtc().toIso8601String()})
         .eq('id', conversationId);
-    await _notifyMessageRecipients(
-      conversationId: conversationId,
-      senderId: senderId,
-      content: content,
+    unawaited(
+      _notifyMessageRecipients(
+        conversationId: conversationId,
+        senderId: senderId,
+        content: content,
+      ),
     );
     return Map<String, dynamic>.from(response);
   }

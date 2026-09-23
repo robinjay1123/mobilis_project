@@ -3549,57 +3549,57 @@ class BookingService {
 
       debugPrint('Driver job offer created for booking');
 
-      // ✅ Send notification to renter about driver assignment
-      try {
-        final driverName = driver['full_name'] ?? 'Driver';
-        final renterId = booking['renter_id']?.toString();
-        if (renterId != null && renterId.isNotEmpty) {
-          await NotificationService().createNotification(
-            userId: renterId,
-            title: 'Driver Selection in Progress',
-            message:
-                '$driverName was selected and is reviewing the job offer. Your booking is not finalized yet.',
-            type: 'booking',
-            data: {
-              'booking_id': bookingId,
-              'driver_id': driverUserId,
-              'event': 'driver_offer_sent',
-            },
-          );
+      // ✅ Send notifications to renter and driver asynchronously in background
+      unawaited(() async {
+        try {
+          final driverName = driver['full_name'] ?? 'Driver';
+          final renterId = booking['renter_id']?.toString();
+          if (renterId != null && renterId.isNotEmpty) {
+            await NotificationService().createNotification(
+              userId: renterId,
+              title: 'Driver Selection in Progress',
+              message:
+                  '$driverName was selected and is reviewing the job offer. Your booking is not finalized yet.',
+              type: 'booking',
+              data: {
+                'booking_id': bookingId,
+                'driver_id': driverUserId,
+                'event': 'driver_offer_sent',
+              },
+            );
+          }
+          debugPrint('✅ Driver assignment notification sent to renter');
+        } catch (e) {
+          debugPrint('⚠️ Error sending driver assignment notification: $e');
         }
 
-        debugPrint('✅ Driver assignment notification sent to renter');
-      } catch (e) {
-        debugPrint('⚠️ Error sending driver assignment notification: $e');
-      }
-
-      // ✅ Notify the assigned driver with booking + renter details
-      try {
-        final bookingDetails = await getBookingById(bookingId);
-        final vehicle = bookingDetails?['vehicles'] as Map<String, dynamic>?;
-        final vehicleTitle = _vehicleTitle(vehicle);
-        final renter = bookingDetails?['users'] as Map<String, dynamic>?;
-        final renterName = renter?['full_name']?.toString() ?? 'Renter';
-        final renterPhone = renter?['phone']?.toString() ?? '';
-        await NotificationService().notifyDriverJobAssigned(
-          driverId: driverUserId,
-          bookingId: bookingId,
-          renterId: booking['renter_id']?.toString(),
-          renterName: renterName,
-          renterPhone: renterPhone,
-          vehicleTitle: vehicleTitle,
-          pickupLocation: bookingDetails?['pickup_location']?.toString(),
-          dropoffLocation: bookingDetails?['dropoff_location']?.toString(),
-          startDate: bookingDetails?['start_date']?.toString(),
-          endDate: bookingDetails?['end_date']?.toString(),
-          startAt: bookingDetails?['start_at']?.toString(),
-          endAt: bookingDetails?['end_at']?.toString(),
-          tripFee: effectiveTripFee,
-        );
-        debugPrint('✅ Driver assignment notification sent to driver');
-      } catch (e) {
-        debugPrint('⚠️ Error sending driver notification: $e');
-      }
+        try {
+          final bookingDetails = await getBookingById(bookingId);
+          final vehicle = bookingDetails?['vehicles'] as Map<String, dynamic>?;
+          final vehicleTitle = _vehicleTitle(vehicle);
+          final renter = bookingDetails?['users'] as Map<String, dynamic>?;
+          final renterName = renter?['full_name']?.toString() ?? 'Renter';
+          final renterPhone = renter?['phone']?.toString() ?? '';
+          await NotificationService().notifyDriverJobAssigned(
+            driverId: driverUserId,
+            bookingId: bookingId,
+            renterId: booking['renter_id']?.toString(),
+            renterName: renterName,
+            renterPhone: renterPhone,
+            vehicleTitle: vehicleTitle,
+            pickupLocation: bookingDetails?['pickup_location']?.toString(),
+            dropoffLocation: bookingDetails?['dropoff_location']?.toString(),
+            startDate: bookingDetails?['start_date']?.toString(),
+            endDate: bookingDetails?['end_date']?.toString(),
+            startAt: bookingDetails?['start_at']?.toString(),
+            endAt: bookingDetails?['end_at']?.toString(),
+            tripFee: effectiveTripFee,
+          );
+          debugPrint('✅ Driver assignment notification sent to driver');
+        } catch (e) {
+          debugPrint('⚠️ Error sending driver notification: $e');
+        }
+      }());
 
       unawaited(
         OperatorActivityLogger.logDriverAssigned(
@@ -3716,44 +3716,49 @@ class BookingService {
       throw Exception('Booking finalized but could not be reloaded');
     }
     final vehicle = finalized['vehicles'] as Map<String, dynamic>?;
-    final vehicleTitle = _vehicleTitle(vehicle);
-    if (isEligibleForBookingChat(finalized)) {
-      await _ensureBookingGroupChatAndSummary(
-        booking: finalized,
-        vehicleTitle: vehicleTitle,
-        summaryTitle: 'Booking Confirmed',
-      );
-    }
+    unawaited(() async {
+      try {
+        if (isEligibleForBookingChat(finalized)) {
+          await _ensureBookingGroupChatAndSummary(
+            booking: finalized,
+            vehicleTitle: vehicleTitle,
+            summaryTitle: 'Booking Confirmed',
+          );
+        }
 
-    final renterId = finalized['renter_id']?.toString();
-    if (renterId != null && renterId.isNotEmpty) {
-      await NotificationService().notifyBookingFinalized(
-        userId: renterId,
-        bookingId: bookingId,
-        vehicleTitle: vehicleTitle,
-        role: 'renter',
-      );
-    }
-    if (driverId.isNotEmpty) {
-      await NotificationService().notifyBookingFinalized(
-        userId: driverId,
-        bookingId: bookingId,
-        vehicleTitle: vehicleTitle,
-        role: 'driver',
-      );
-    }
-    final ownerId = vehicle?['owner_id']?.toString();
-    if (ownerId != null &&
-        ownerId.isNotEmpty &&
-        ownerId != operatorId &&
-        ownerId != renterId) {
-      await NotificationService().notifyBookingFinalized(
-        userId: ownerId,
-        bookingId: bookingId,
-        vehicleTitle: vehicleTitle,
-        role: 'partner',
-      );
-    }
+        final renterId = finalized['renter_id']?.toString();
+        if (renterId != null && renterId.isNotEmpty) {
+          await NotificationService().notifyBookingFinalized(
+            userId: renterId,
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            role: 'renter',
+          );
+        }
+        if (driverId.isNotEmpty) {
+          await NotificationService().notifyBookingFinalized(
+            userId: driverId,
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            role: 'driver',
+          );
+        }
+        final ownerId = vehicle?['owner_id']?.toString();
+        if (ownerId != null &&
+            ownerId.isNotEmpty &&
+            ownerId != operatorId &&
+            ownerId != renterId) {
+          await NotificationService().notifyBookingFinalized(
+            userId: ownerId,
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            role: 'partner',
+          );
+        }
+      } catch (postFinalizeErr) {
+        debugPrint('⚠️ Error in post-finalization background tasks: $postFinalizeErr');
+      }
+    }());
 
     return finalized;
   }

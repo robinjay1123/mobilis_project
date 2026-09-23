@@ -3299,9 +3299,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         );
       }
 
-      _loadDashboardData();
-      _loadConversations();
       _hideOperationLoading();
+      _loadDashboardData(showLoading: false);
+      _loadConversations();
 
       if (mounted) {
         await _showActionFeedbackModal(
