@@ -7374,7 +7374,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                         _buildActiveBookingsHero(filteredBookings),
                         const SizedBox(height: 14),
                       ],
-                      if (filteredBookings.isEmpty)
+                      if (_isFetchingPartnerData && bookings.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: MobilisSkeletonList(
+                            isDark: isDark,
+                            itemCount: 4,
+                            padding: EdgeInsets.zero,
+                          ),
+                        )
+                      else if (filteredBookings.isEmpty)
                         RoleEmptyStateCard(
                           icon: Icons.calendar_today_outlined,
                           title:
@@ -12172,6 +12181,7 @@ class BookingDetailModal extends StatefulWidget {
   final VoidCallback? onReceipt;
   final VoidCallback? onRefresh;
   final bool showHeader;
+  final bool? isLoading;
 
   const BookingDetailModal({
     super.key,
@@ -12191,6 +12201,7 @@ class BookingDetailModal extends StatefulWidget {
     this.onReceipt,
     this.onRefresh,
     this.showHeader = true,
+    this.isLoading,
   });
 
   @override
@@ -12198,9 +12209,88 @@ class BookingDetailModal extends StatefulWidget {
 }
 
 class _BookingDetailModalState extends State<BookingDetailModal> {
-  Map<String, dynamic> get booking => widget.booking;
-  Map<String, dynamic>? get vehicle => widget.vehicle ?? booking['vehicles'] as Map<String, dynamic>?;
-  Map<String, dynamic>? get renter => widget.renter ?? booking['users'] as Map<String, dynamic>?;
+  bool _isLoading = true;
+  late Map<String, dynamic> _detailedBooking;
+  Map<String, dynamic>? _vehicle;
+  Map<String, dynamic>? _renter;
+
+  @override
+  void initState() {
+    super.initState();
+    _detailedBooking = Map<String, dynamic>.from(widget.booking);
+    _vehicle = widget.vehicle ??
+        (_detailedBooking['vehicles'] is Map
+            ? Map<String, dynamic>.from(_detailedBooking['vehicles'])
+            : null);
+    _renter = widget.renter ??
+        (_detailedBooking['users'] is Map
+            ? Map<String, dynamic>.from(_detailedBooking['users'])
+            : null);
+
+    if (widget.isLoading == false && _vehicle != null && _renter != null) {
+      _isLoading = false;
+    } else {
+      _loadFullBookingDetails();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant BookingDetailModal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.booking != oldWidget.booking) {
+      _detailedBooking = Map<String, dynamic>.from(widget.booking);
+      _vehicle = widget.vehicle ??
+          (_detailedBooking['vehicles'] is Map
+              ? Map<String, dynamic>.from(_detailedBooking['vehicles'])
+              : null);
+      _renter = widget.renter ??
+          (_detailedBooking['users'] is Map
+              ? Map<String, dynamic>.from(_detailedBooking['users'])
+              : null);
+    }
+  }
+
+  Future<void> _loadFullBookingDetails() async {
+    final bId = _detailedBooking['id']?.toString().trim();
+    if (bId == null || bId.isEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+    try {
+      final fresh = await BookingService().getBookingById(bId);
+      if (fresh != null && mounted) {
+        final hydratedList =
+            await BookingService().hydrateBookingVehicles([fresh]);
+        final hydrated = hydratedList.isNotEmpty ? hydratedList.first : fresh;
+        if (mounted) {
+          setState(() {
+            _detailedBooking = hydrated;
+            _vehicle = widget.vehicle ??
+                (hydrated['vehicles'] is Map
+                    ? Map<String, dynamic>.from(hydrated['vehicles'])
+                    : null);
+            _renter = widget.renter ??
+                (hydrated['users'] is Map
+                    ? Map<String, dynamic>.from(hydrated['users'])
+                    : null);
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading full booking details: $e');
+    }
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Map<String, dynamic> get booking => _detailedBooking;
+  Map<String, dynamic>? get vehicle =>
+      _vehicle ?? (booking['vehicles'] as Map<String, dynamic>?);
+  Map<String, dynamic>? get renter =>
+      _renter ?? (booking['users'] as Map<String, dynamic>?);
 
   Future<void> _callPhone(String? phone) async {
     final clean = phone?.trim() ?? '';
@@ -12345,6 +12435,15 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isLoading || widget.isLoading == true) {
+      return MobilisSkeletonBookingDetail(
+        isDark: isDark,
+        showHeader: widget.showHeader,
+        onClose: widget.showHeader ? () => Navigator.pop(context) : null,
+      );
+    }
+
     final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
         (booking['total_cost'] as num?)?.toDouble() ??
         0.0;

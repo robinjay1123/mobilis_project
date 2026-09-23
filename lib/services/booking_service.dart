@@ -615,6 +615,20 @@ class BookingService {
         }
       }
 
+      if (vehiclePlates.isNotEmpty) {
+        for (final plate in vehiclePlates) {
+          try {
+            final res = await supabase
+                .from('bookings')
+                .select('*')
+                .filter('metadata->>plate_number', 'eq', plate)
+                .order('created_at', ascending: false)
+                .limit(100);
+            addRows(res);
+          } catch (_) {}
+        }
+      }
+
       // Sort all fetched bookings by created_at descending
       bookingList.sort((a, b) {
         final aDate = a['created_at']?.toString() ?? '';
@@ -1578,6 +1592,10 @@ class BookingService {
         'renter_id': renterId,
         'vehicle_id': vehicleId,
         if (isPartnerVehicle) 'partner_vehicle_id': vehicleId,
+        if (partnerId != null && partnerId.trim().isNotEmpty)
+          'partner_id': partnerId.trim(),
+        if (ownerId != null && ownerId.trim().isNotEmpty)
+          'owner_id': ownerId.trim(),
         'start_at': startAt.toIso8601String(),
         'end_at': endAt.toIso8601String(),
         'start_date': DateTime(
