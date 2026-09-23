@@ -587,6 +587,32 @@ class BookingService {
               .limit(300);
           addRows(res);
         } catch (_) {}
+
+        // Fallback: partner_id and owner_id are stored inside the metadata
+        // JSONB column (not as top-level columns) when a booking is created
+        // by the current app version. Query via the JSONB path so those
+        // bookings are still found even when the columns don't exist.
+        for (final pid in pList) {
+          try {
+            final res = await supabase
+                .from('bookings')
+                .select('*')
+                .filter('metadata->>partner_id', 'eq', pid)
+                .order('created_at', ascending: false)
+                .limit(300);
+            addRows(res);
+          } catch (_) {}
+
+          try {
+            final res = await supabase
+                .from('bookings')
+                .select('*')
+                .filter('metadata->>owner_id', 'eq', pid)
+                .order('created_at', ascending: false)
+                .limit(300);
+            addRows(res);
+          } catch (_) {}
+        }
       }
 
       // Sort all fetched bookings by created_at descending
