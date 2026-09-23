@@ -3506,6 +3506,92 @@ class BookingService {
     }
   }
 
+  /// Explicitly expire a single assignment by ID
+  Future<void> expireAssignment(String assignmentId) async {
+    try {
+      final now = DateTime.now();
+      final nowIso = now.toIso8601String();
+
+      final offer = await supabase
+          .from('driver_job_assignments')
+          .select('id, booking_id, driver_id, status')
+          .eq('id', assignmentId)
+          .maybeSingle();
+
+      if (offer == null) return;
+
+      final bookingId = offer['booking_id']?.toString() ?? '';
+      final driverId = offer['driver_id']?.toString() ?? '';
+
+      // 1. Mark assignment as expired
+      await supabase
+          .from('driver_job_assignments')
+          .update({
+            'status': 'expired',
+            'rejection_reason': 'Auto-declined: 10-minute driver acceptance window expired',
+            'replied_at': nowIso,
+            'updated_at': nowIso,
+          })
+          .eq('id', assignmentId);
+
+      // 2. Reset booking driver allocation so operator/partner can reassign immediately
+      if (bookingId.isNotEmpty) {
+        await safeUpdateBooking(bookingId, {
+          'driver_id': null,
+          'status': 'pending',
+          'updated_at': nowIso,
+        });
+      }
+
+      // 3. Mark driver available in both users and drivers tables
+      if (driverId.isNotEmpty) {
+        try {
+          await supabase
+              .from('users')
+              .update({'is_available': true})
+              .eq('id', driverId);
+        } catch (_) {}
+        try {
+          await supabase
+              .from('drivers')
+              .update({'is_available': true})
+              .or('id.eq.$driverId,user_id.eq.$driverId');
+        } catch (_) {}
+      }
+
+      // 4. Send notifications
+      if (bookingId.isNotEmpty) {
+        try {
+          final shortBookingId = bookingId.length >= 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId;
+          await NotificationService().notifyOperatorDriverResponse(
+            bookingId: bookingId,
+            driverId: driverId,
+            driverName: 'Assigned Driver',
+            accepted: false,
+          );
+
+          if (driverId.isNotEmpty) {
+            await NotificationService().createNotification(
+              userId: driverId,
+              title: 'Job Offer Expired (10 min Limit)',
+              message: 'The job offer for booking #$shortBookingId expired because it was not accepted within 10 minutes.',
+              type: 'booking',
+              data: {
+                'booking_id': bookingId,
+                'event': 'driver_offer_expired',
+              },
+            );
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('Error expiring assignment $assignmentId: $e');
+    }
+  }
+
+  /// Alias for checkAndExpireDriverAssignments
+  Future<void> expireStaleDriverAssignments() => checkAndExpireDriverAssignments();
+
   /// Assign driver to booking (operator action)
   Future<void> assignDriver(
     String bookingId,
