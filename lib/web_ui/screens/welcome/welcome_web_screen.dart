@@ -729,10 +729,9 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
             children: [
               // Brand Logo
               InkWell(
-                onTap: () => _scrollController.animateTo(
-                  0,
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.easeInOut,
+                onTap: () => launchUrl(
+                  Uri.parse('https://mobilis.autos'),
+                  mode: LaunchMode.externalApplication,
                 ),
                 child: Row(
                   children: [

@@ -3,6 +3,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'forgot_password_web_screen.dart';
 
 class LoginWebScreen extends StatefulWidget {
@@ -245,23 +246,32 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Logo
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.3),
-                            blurRadius: 30,
-                            spreadRadius: 5,
-                          ),
-                        ],
+                    GestureDetector(
+                      onTap: () => launchUrl(
+                        Uri.parse('https://mobilis.autos'),
+                        mode: LaunchMode.externalApplication,
                       ),
-                      child: Image.asset(
-                        'assets/icon/logo-black.png',
-                        fit: BoxFit.contain,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.primary.withValues(alpha: 0.3),
+                                blurRadius: 30,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                          child: Image.asset(
+                            'assets/icon/logo-black.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 32),
