@@ -2795,26 +2795,41 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Future<void> _loadVehicles() async {
     try {
       await VehicleTurnaroundService().processExpiredTurnarounds();
-      final currentUserId = _supabase.auth.currentUser?.id;
-      var vehicleQuery = _supabase
+      final ownVehicles = await _supabase
           .from('vehicles')
-          .select('*, vehicle_images(id, image_url, display_order)');
-
-      if (currentUserId != null) {
-        vehicleQuery = vehicleQuery.eq('owner_id', currentUserId);
-      }
-
-      final ownVehicles = await vehicleQuery.order(
-        'created_at',
-        ascending: false,
-      );
+          .select('*, vehicle_images(id, image_url, display_order)')
+          .order('created_at', ascending: false);
       debugPrint('vehicles loaded: ${(ownVehicles as List).length}');
 
       final normalizedOwnVehicles = (ownVehicles as List)
           .whereType<Map<String, dynamic>>()
+          .where((vehicle) {
+            final isPartner = vehicle['is_partner_vehicle'] == true ||
+                vehicle['partner_id'] != null ||
+                vehicle['owner_role']?.toString().toLowerCase() == 'partner';
+            return !isPartner;
+          })
           .map((vehicle) {
             final merged = Map<String, dynamic>.from(vehicle);
             merged['_source'] = 'company';
+            merged['source'] = 'company';
+            final rawPosted = vehicle['is_posted'];
+            final rawAvailable = vehicle['is_available'];
+            final rawStatus = vehicle['status']?.toString().toLowerCase();
+
+            final isListed = rawPosted is bool
+                ? rawPosted
+                : (rawAvailable == true ||
+                   rawStatus == 'available' ||
+                   rawStatus == 'active');
+            merged['is_posted'] = isListed;
+            merged['is_available'] = rawAvailable is bool ? rawAvailable : isListed;
+
+            final pricePerDay = (vehicle['price_per_day'] as num?)?.toDouble() ?? 0.0;
+            final existingPerHour = (vehicle['price_per_hour'] as num?)?.toDouble();
+            merged['price_per_hour'] = (existingPerHour != null && existingPerHour > 0)
+                ? existingPerHour
+                : (pricePerDay > 0 ? (pricePerDay / 10).roundToDouble() : 0.0);
             return merged;
           })
           .toList();
@@ -3035,7 +3050,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   pv['category'] ?? pv['vehicle_type'] ?? 'Partner Vehicle'
               ..['vehicle_type'] =
                   pv['vehicle_type'] ?? pv['category'] ?? 'Partner Vehicle'
-              ..['is_posted'] = pv['is_posted'] ?? pv['is_available'] ?? false;
+              ..['is_posted'] = pv['is_posted'] is bool
+                  ? pv['is_posted']
+                  : (pv['is_available'] == true ||
+                     pv['status']?.toString().toLowerCase() == 'available' ||
+                     pv['status']?.toString().toLowerCase() == 'active' ||
+                     pv['status']?.toString().toLowerCase() == 'approved')
+              ..['is_available'] = pv['is_available'] is bool
+                  ? pv['is_available']
+                  : (pv['is_posted'] == true ||
+                     pv['status']?.toString().toLowerCase() == 'available' ||
+                     pv['status']?.toString().toLowerCase() == 'active' ||
+                     pv['status']?.toString().toLowerCase() == 'approved');
+
+            final pvPricePerDay = (merged['price_per_day'] as num?)?.toDouble() ?? 0.0;
+            final pvExistingPerHour = (merged['price_per_hour'] as num?)?.toDouble();
+            merged['price_per_hour'] = (pvExistingPerHour != null && pvExistingPerHour > 0)
+                ? pvExistingPerHour
+                : (pvPricePerDay > 0 ? (pvPricePerDay / 10).roundToDouble() : 0.0);
             return merged;
           })
           .toList();
@@ -28117,11 +28149,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   : const Color(0xFFF7F8FA),
               child: Row(
                 children: [
-                  _vehicleHeaderLabel('Vehicle', isPartnerTab ? 5 : 4, isDark),
+                  _vehicleHeaderLabel('Vehicle', 4, isDark),
                   _vehicleHeaderLabel('Owner', 3, isDark),
                   _vehicleHeaderLabel('Status', 2, isDark),
                   _vehicleHeaderLabel('Pricing', 3, isDark),
-                  if (!isPartnerTab) _vehicleHeaderLabel('Listing', 2, isDark),
+                  _vehicleHeaderLabel('Listing', 2, isDark),
                   _vehicleHeaderLabel(
                     'Actions',
                     2,
@@ -28380,10 +28412,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     _buildOperatorVehicleStatus(vehicle, isDark),
-                    if (!isPartner)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                           Transform.scale(
                             scale: 0.72,
                             child: Switch(
@@ -28462,7 +28493,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         children: [
           cell(
             _buildOperatorVehicleIdentity(vehicle, isDark),
-            isPartner ? 5 : 4,
+            4,
           ),
           cell(
             Text(
@@ -28485,9 +28516,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             3,
           ),
-          if (!isPartner)
-            cell(
-              Row(
+          cell(
+            Row(
                 children: [
                   Transform.scale(
                     scale: 0.72,
@@ -29703,27 +29733,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           } else if (action == 'turnaround') {
             _showVehicleTurnaroundDialog(vehicle, isDark);
           } else if (action == 'relist') {
-            final vehicleId = vehicle['id']?.toString() ?? '';
-            final partnerVehicleId = vehicle['partner_vehicle_id']?.toString() ??
-                vehicle['_partner_vehicle_id']?.toString();
-            await VehicleTurnaroundService().relistVehicleImmediately(
-              vehicleId: vehicleId,
-              partnerVehicleId: partnerVehicleId,
-            );
-            vehicle['is_posted'] = true;
-            vehicle['is_available'] = true;
-            vehicle['status'] = 'active';
-            vehicle['cleaning_until'] = null;
-            vehicle['auto_relist_at'] = null;
-            await _loadVehicles();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Vehicle relisted & marked available immediately!'),
-                  backgroundColor: AppColors.success,
-                ),
-              );
-            }
+            _togglePostingStatus(vehicle, true);
           } else if (action == 'delete') {
             _deleteVehicle(vehicle['id']);
           }
@@ -33374,112 +33384,135 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic> vehicle,
     bool isPosted,
   ) async {
-    try {
-      final isPartnerVehicle =
-          vehicle['_source'] == 'partner' ||
-          vehicle['source'] == 'partner' ||
-          vehicle['is_partner_vehicle'] == true;
-      if (isPartnerVehicle) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Partner vehicle availability is managed directly by the Partner.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-        return;
-      }
-      final vehicleId = vehicle['id']?.toString() ?? '';
-      final partnerVehicleId = vehicle['partner_vehicle_id']?.toString() ??
-          vehicle['_partner_vehicle_id']?.toString();
+    final vehicleTitle = _vehicleTitle(vehicle);
+    final plate = vehicle['plate_number']?.toString().toUpperCase() ?? '';
+    final label = plate.isNotEmpty ? '$vehicleTitle ($plate)' : vehicleTitle;
+    final isDark = Theme.of(context).brightness == Brightness.dark || widget.isDarkMode;
 
-      if (isPosted) {
-        await VehicleTurnaroundService().relistVehicleImmediately(
-          vehicleId: vehicleId,
-          partnerVehicleId: partnerVehicleId,
-        );
-      }
+    final actionTitle = isPosted ? 'Listing Vehicle' : 'Unlisting Vehicle';
+    final actionMessage = isPosted
+        ? 'Activating $label and making it available for bookings...'
+        : 'Unlisting $label and removing from public search...';
+    final successTitle = isPosted ? 'Vehicle Listed!' : 'Vehicle Unlisted!';
+    final successMessage = isPosted
+        ? '$label is now active and listed for bookings.'
+        : '$label has been unlisted and hidden from bookings.';
 
-      if (isPartnerVehicle) {
-        final targetId = partnerVehicleId ?? vehicleId;
-        try {
-          await _supabase
-              .from('partner_vehicles')
-              .update({
-                'is_posted': isPosted,
-                'is_available': isPosted,
-                'status': isPosted ? 'available' : 'hidden',
-                'updated_at': DateTime.now().toIso8601String(),
-              })
-              .eq('id', targetId);
-        } catch (e) {
-          await _supabase
-              .from('partner_vehicles')
-              .update({
-                'is_posted': isPosted,
-                'is_available': isPosted,
-              })
-              .eq('id', targetId);
+    await _showVehicleProcessingModal(
+      parentContext: context,
+      title: actionTitle,
+      message: actionMessage,
+      successTitle: successTitle,
+      successMessage: successMessage,
+      isDark: isDark,
+      operation: (updateStatus) async {
+        final vehicleId = vehicle['id']?.toString() ?? '';
+        final partnerVehicleId = vehicle['partner_vehicle_id']?.toString() ??
+            vehicle['_partner_vehicle_id']?.toString();
+        final isPartnerVehicle =
+            vehicle['_source'] == 'partner' ||
+            vehicle['source'] == 'partner' ||
+            vehicle['is_partner_vehicle'] == true;
+
+        if (isPosted) {
+          updateStatus('Clearing turnaround cleaning buffers...');
+          try {
+            await VehicleTurnaroundService().relistVehicleImmediately(
+              vehicleId: vehicleId,
+              partnerVehicleId: partnerVehicleId,
+            );
+          } catch (turnaroundErr) {
+            debugPrint('Note on turnaround buffer clear: $turnaroundErr');
+          }
         }
-      } else {
-        try {
-          await _supabase
-              .from('vehicles')
-              .update({
-                'is_posted': isPosted,
-                'is_available': isPosted,
-                'status': isPosted ? 'active' : 'hidden',
-              })
-              .eq('id', vehicleId);
-        } catch (e) {
+
+        final targetStatus = isPosted ? 'available' : 'hidden';
+
+        if (isPartnerVehicle) {
+          updateStatus('Updating partner vehicle record...');
+          final targetId = (partnerVehicleId != null && partnerVehicleId.isNotEmpty)
+              ? partnerVehicleId
+              : vehicleId;
+
+          try {
+            await _supabase
+                .from('partner_vehicles')
+                .update({
+                  'is_posted': isPosted,
+                  'is_available': isPosted,
+                  'status': targetStatus,
+                  'updated_at': DateTime.now().toIso8601String(),
+                })
+                .eq('id', targetId);
+          } catch (e) {
+            await _supabase
+                .from('partner_vehicles')
+                .update({
+                  'is_posted': isPosted,
+                  'is_available': isPosted,
+                  'status': targetStatus,
+                })
+                .eq('id', targetId);
+          }
+
+          // Also synchronize in canonical vehicles table if linked
+          final canonicalId = vehicle['vehicle_id']?.toString() ??
+              (targetId != vehicleId ? vehicleId : null);
+          if (canonicalId != null && canonicalId.isNotEmpty) {
+            try {
+              await _supabase
+                  .from('vehicles')
+                  .update({
+                    'is_posted': isPosted,
+                    'is_available': isPosted,
+                    'status': targetStatus,
+                  })
+                  .eq('id', canonicalId);
+            } catch (_) {}
+          }
+        } else {
+          updateStatus('Updating PSDC fleet vehicle record...');
           try {
             await _supabase
                 .from('vehicles')
                 .update({
+                  'is_posted': isPosted,
                   'is_available': isPosted,
-                  'status': isPosted ? 'active' : 'hidden',
+                  'status': targetStatus,
                 })
                 .eq('id', vehicleId);
-          } catch (_) {
-            await _supabase
-                .from('vehicles')
-                .update({
-                  'is_available': isPosted,
-                })
-                .eq('id', vehicleId);
+          } catch (e) {
+            try {
+              await _supabase
+                  .from('vehicles')
+                  .update({
+                    'is_available': isPosted,
+                    'status': targetStatus,
+                  })
+                  .eq('id', vehicleId);
+            } catch (_) {
+              await _supabase
+                  .from('vehicles')
+                  .update({
+                    'is_available': isPosted,
+                  })
+                  .eq('id', vehicleId);
+            }
           }
         }
-      }
 
-      vehicle['is_posted'] = isPosted;
-      vehicle['is_available'] = isPosted;
-      if (isPosted) {
-        vehicle['status'] = 'active';
-        vehicle['cleaning_until'] = null;
-        vehicle['auto_relist_at'] = null;
-      }
-      await _loadVehicles();
+        vehicle['is_posted'] = isPosted;
+        vehicle['is_available'] = isPosted;
+        vehicle['status'] = targetStatus;
+        if (isPosted) {
+          vehicle['cleaning_until'] = null;
+          vehicle['auto_relist_at'] = null;
+        }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              isPosted
-                  ? 'Vehicle posted & available successfully!'
-                  : 'Vehicle unlisted successfully!',
-            ),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
-        );
-      }
-    }
+        updateStatus('Refreshing fleet inventory...');
+        await _loadVehicles();
+      },
+    );
   }
 
   void _showOperatorTurnaroundBufferDialog(bool isDark) async {
