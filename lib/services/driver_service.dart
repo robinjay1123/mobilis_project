@@ -540,10 +540,20 @@ class DriverService {
             try {
               final booking = await supabase
                   .from('bookings')
-                  .select('id, renter_id, operator_id, status, start_date, end_date, start_at, end_at, total_price, total_cost, pickup_location, dropoff_location, vehicle_id')
+                  .select('id, renter_id, operator_id, status, start_date, end_date, start_at, end_at, total_price, pickup_location, dropoff_location, vehicle_id, metadata')
                   .eq('id', bId)
                   .maybeSingle();
               if (booking != null) {
+                booking['total_cost'] ??= booking['total_price'];
+                final meta = booking['metadata'] is Map
+                    ? Map<String, dynamic>.from(booking['metadata'] as Map)
+                    : null;
+                if (meta != null) {
+                  booking['pickup_latitude'] ??= meta['pickup_latitude'];
+                  booking['pickup_longitude'] ??= meta['pickup_longitude'];
+                  booking['dropoff_latitude'] ??= meta['dropoff_latitude'];
+                  booking['dropoff_longitude'] ??= meta['dropoff_longitude'];
+                }
                 final vId = booking['vehicle_id']?.toString();
                 if (vId != null) {
                   final v = await supabase
@@ -1823,13 +1833,9 @@ class DriverService {
               start_date,
               end_date,
               total_price,
-              total_cost,
               pickup_location,
               dropoff_location,
-              pickup_latitude,
-              pickup_longitude,
-              dropoff_latitude,
-              dropoff_longitude,
+              metadata,
               picked_up_at,
               returned_at,
               vehicles:vehicle_id (
@@ -1889,6 +1895,16 @@ class DriverService {
           if (b['vehicles'] == null && b['partner_vehicles'] != null) {
             b['vehicles'] = b['partner_vehicles'];
           }
+          final meta = b['metadata'] is Map
+              ? Map<String, dynamic>.from(b['metadata'] as Map)
+              : null;
+          if (meta != null) {
+            b['pickup_latitude'] ??= meta['pickup_latitude'];
+            b['pickup_longitude'] ??= meta['pickup_longitude'];
+            b['dropoff_latitude'] ??= meta['dropoff_latitude'];
+            b['dropoff_longitude'] ??= meta['dropoff_longitude'];
+          }
+          b['total_cost'] ??= b['total_price'];
         }
       } catch (embedError) {
         debugPrint('Assigned bookings complex embed note: $embedError');
@@ -2109,6 +2125,16 @@ class DriverService {
         if (rId != null && rentersById.containsKey(rId)) {
           booking['renter'] = rentersById[rId];
         }
+        final meta = booking['metadata'] is Map
+            ? Map<String, dynamic>.from(booking['metadata'] as Map)
+            : null;
+        if (meta != null) {
+          booking['pickup_latitude'] ??= meta['pickup_latitude'];
+          booking['pickup_longitude'] ??= meta['pickup_longitude'];
+          booking['dropoff_latitude'] ??= meta['dropoff_latitude'];
+          booking['dropoff_longitude'] ??= meta['dropoff_longitude'];
+        }
+        booking['total_cost'] ??= booking['total_price'];
       }
 
       return bookings;

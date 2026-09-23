@@ -548,33 +548,17 @@ class PayoutMethodService {
 
     try {
       if (normalizedRole == 'renter') {
-        // 1. Fetch renter's bookings with refunds or security deposit refunds
+        // 1. Fetch renter's bookings
         final response = await _supabase
             .from('bookings')
             .select('''
               id,
               start_date,
               end_date,
-              total_cost,
+              total_price,
               status,
-              security_deposit_status,
-              security_deposit_refunded,
-              security_deposit_refund_amount,
-              security_deposit_refund_deduction,
-              security_deposit_refund_notes,
-              security_deposit_refund_method,
-              security_deposit_refund_ref,
-              security_deposit_refund_receipt_url,
-              security_deposit_refunded_at,
-              refund_completed,
-              refund_amount,
-              refund_method,
-              refund_ref,
-              refund_reference,
-              refund_receipt_url,
-              refund_reason,
-              refunded_at,
               created_at,
+              metadata,
               vehicles:vehicle_id (
                 id, brand, model, year, plate_number,
                 vehicle_images (image_url, display_order)
@@ -583,7 +567,48 @@ class PayoutMethodService {
             .eq('renter_id', userId)
             .order('created_at', ascending: false);
 
-        for (final b in List<Map<String, dynamic>>.from(response)) {
+        final rawBookings = List<Map<String, dynamic>>.from(response);
+        final targetBookingIds = rawBookings
+            .map((b) => b['id']?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toList();
+
+        final refundsByBooking = <String, Map<String, dynamic>>{};
+        if (targetBookingIds.isNotEmpty) {
+          try {
+            final refundsResp = await _supabase
+                .from('booking_refunds')
+                .select('*')
+                .inFilter('booking_id', targetBookingIds);
+            for (final r in List<Map<String, dynamic>>.from(refundsResp)) {
+              final bId = r['booking_id']?.toString();
+              if (bId != null) refundsByBooking[bId] = r;
+            }
+          } catch (_) {}
+        }
+
+        for (final b in rawBookings) {
+          final meta = b['metadata'] is Map
+              ? Map<String, dynamic>.from(b['metadata'] as Map)
+              : <String, dynamic>{};
+          meta.forEach((k, v) {
+            b[k] ??= v;
+          });
+
+          final r = refundsByBooking[b['id']?.toString()];
+          if (r != null) {
+            b['refund_completed'] ??=
+                (r['status'] == 'completed' || r['status'] == 'refunded');
+            b['refund_amount'] ??= (r['amount'] as num?)?.toDouble();
+            b['refund_method'] ??= r['payment_method'] ?? r['refund_method'];
+            b['refund_ref'] ??=
+                r['payment_reference'] ?? r['refund_reference'];
+            b['refund_reference'] ??=
+                r['payment_reference'] ?? r['refund_reference'];
+            b['refund_receipt_url'] ??= r['receipt_url'];
+            b['refund_reason'] ??= r['reason'];
+            b['refunded_at'] ??= r['created_at'];
+          }
           final veh = b['vehicles'] as Map<String, dynamic>?;
           final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
           final bookingId = b['id']?.toString() ?? '';

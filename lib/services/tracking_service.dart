@@ -210,10 +210,7 @@ class TrackingService {
             end_at,
             pickup_location,
             dropoff_location,
-            pickup_latitude,
-            pickup_longitude,
-            dropoff_latitude,
-            dropoff_longitude,
+            metadata,
             vehicles:vehicle_id (id, brand, model, plate_number)
           ''')
           .eq('id', bookingId)
@@ -221,6 +218,13 @@ class TrackingService {
       if (bookingResponse == null) return null;
 
       final booking = Map<String, dynamic>.from(bookingResponse);
+      final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : null;
+      if (meta != null) {
+        booking['pickup_latitude'] ??= meta['pickup_latitude'];
+        booking['pickup_longitude'] ??= meta['pickup_longitude'];
+        booking['dropoff_latitude'] ??= meta['dropoff_latitude'];
+        booking['dropoff_longitude'] ??= meta['dropoff_longitude'];
+      }
       final status = booking['status']?.toString().trim().toLowerCase() ?? '';
       if (!{
         'active',
@@ -490,10 +494,7 @@ class TrackingService {
           operator_id,
           vehicle_id,
           end_at,
-          pickup_latitude,
-          pickup_longitude,
-          dropoff_latitude,
-          dropoff_longitude,
+          metadata,
           renter:users!bookings_renter_id_fkey (
             id,
             full_name,
@@ -516,6 +517,13 @@ class TrackingService {
       return null;
     }
     final context = Map<String, dynamic>.from(response);
+    final meta = context['metadata'] is Map ? (context['metadata'] as Map) : null;
+    if (meta != null) {
+      context['pickup_latitude'] ??= meta['pickup_latitude'];
+      context['pickup_longitude'] ??= meta['pickup_longitude'];
+      context['dropoff_latitude'] ??= meta['dropoff_latitude'];
+      context['dropoff_longitude'] ??= meta['dropoff_longitude'];
+    }
     final status = context['status']?.toString().trim().toLowerCase() ?? '';
     final isActive = {'active', 'ongoing'}.contains(status);
     if (!isActive) {
@@ -710,12 +718,10 @@ class TrackingService {
                 id,
                 status,
                 operator_id,
+                partner_vehicle_id,
                 pickup_location,
                 dropoff_location,
-                pickup_latitude,
-                pickup_longitude,
-                dropoff_latitude,
-                dropoff_longitude,
+                metadata,
                 start_at,
                 end_at,
                 vehicles:vehicle_id (
@@ -750,12 +756,10 @@ class TrackingService {
                   id,
                   status,
                   operator_id,
+                  partner_vehicle_id,
                   pickup_location,
                   dropoff_location,
-                  pickup_latitude,
-                  pickup_longitude,
-                  dropoff_latitude,
-                  dropoff_longitude,
+                  metadata,
                   start_at,
                   end_at,
                   vehicles:vehicle_id (
@@ -787,6 +791,20 @@ class TrackingService {
         }
       }
 
+      for (final loc in rawLocations) {
+        final b = loc['bookings'] is Map ? (loc['bookings'] as Map<String, dynamic>) : null;
+        if (b != null) {
+          final meta = b['metadata'] is Map ? (b['metadata'] as Map) : null;
+          if (meta != null) {
+            b['pickup_latitude'] ??= meta['pickup_latitude'];
+            b['pickup_longitude'] ??= meta['pickup_longitude'];
+            b['dropoff_latitude'] ??= meta['dropoff_latitude'];
+            b['dropoff_longitude'] ??= meta['dropoff_longitude'];
+            b['completion_stage'] ??= meta['completion_stage'];
+          }
+        }
+      }
+
       const onTripStatuses = {
         'ongoing',
         'active',
@@ -804,21 +822,17 @@ class TrackingService {
               id,
               status,
               operator_id,
-              partner_id,
+              partner_vehicle_id,
               renter_id,
               driver_id,
               vehicle_id,
               pickup_location,
               dropoff_location,
-              pickup_latitude,
-              pickup_longitude,
-              dropoff_latitude,
-              dropoff_longitude,
+              metadata,
               start_at,
               end_at,
               returned_at,
               completed_at,
-              completion_stage,
               vehicles:vehicle_id (
                 id,
                 brand,
@@ -856,21 +870,17 @@ class TrackingService {
                 id,
                 status,
                 operator_id,
-                partner_id,
+                partner_vehicle_id,
                 renter_id,
                 driver_id,
                 vehicle_id,
                 pickup_location,
                 dropoff_location,
-                pickup_latitude,
-                pickup_longitude,
-                dropoff_latitude,
-                dropoff_longitude,
+                metadata,
                 start_at,
                 end_at,
                 returned_at,
                 completed_at,
-                completion_stage,
                 vehicles:vehicle_id (
                   id,
                   brand,
@@ -891,6 +901,17 @@ class TrackingService {
               ]);
           activeBookingsFromDb = List<Map<String, dynamic>>.from(bRes);
         } catch (_) {}
+      }
+
+      for (final booking in activeBookingsFromDb) {
+        final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : null;
+        if (meta != null) {
+          booking['pickup_latitude'] ??= meta['pickup_latitude'];
+          booking['pickup_longitude'] ??= meta['pickup_longitude'];
+          booking['dropoff_latitude'] ??= meta['dropoff_latitude'];
+          booking['dropoff_longitude'] ??= meta['dropoff_longitude'];
+          booking['completion_stage'] ??= meta['completion_stage'];
+        }
       }
 
       final candidateList = <Map<String, dynamic>>[];
@@ -1472,27 +1493,52 @@ class TrackingService {
 
       // 5. Discover active bookings for this partner (so we know ongoing trip IDs)
       final partnerBookingIds = <String>{};
-      try {
-        final bRes = await supabase
-            .from('bookings')
-            .select('id, vehicle_id, partner_id')
-            .inFilter('partner_id', partnerIds.toList())
-            .inFilter('status', [
-              'ongoing',
-              'active',
-              'picked_up',
-              'in_progress',
-              'return_pending_inspection',
-              'awaiting_completion'
-            ]);
-        for (final b in List<Map<String, dynamic>>.from(bRes)) {
-          final bid = b['id']?.toString().trim() ?? '';
-          if (bid.isNotEmpty) partnerBookingIds.add(bid);
-          final bVid = b['vehicle_id']?.toString().trim() ?? '';
-          if (bVid.isNotEmpty) partnerVehicleIds.add(bVid);
+      if (partnerVehicleIds.isNotEmpty) {
+        try {
+          final bRes = await supabase
+              .from('bookings')
+              .select('id, vehicle_id, partner_vehicle_id')
+              .inFilter('vehicle_id', partnerVehicleIds.toList())
+              .inFilter('status', [
+                'ongoing',
+                'active',
+                'picked_up',
+                'in_progress',
+                'return_pending_inspection',
+                'awaiting_completion'
+              ]);
+          for (final b in List<Map<String, dynamic>>.from(bRes)) {
+            final bid = b['id']?.toString().trim() ?? '';
+            if (bid.isNotEmpty) partnerBookingIds.add(bid);
+            final bVid = b['vehicle_id']?.toString().trim() ?? '';
+            if (bVid.isNotEmpty) partnerVehicleIds.add(bVid);
+          }
+        } catch (e) {
+          debugPrint('Active bookings lookup for partner tracking: $e');
         }
-      } catch (e) {
-        debugPrint('Active bookings lookup for partner tracking: $e');
+
+        try {
+          final bRes = await supabase
+              .from('bookings')
+              .select('id, vehicle_id, partner_vehicle_id')
+              .inFilter('partner_vehicle_id', partnerVehicleIds.toList())
+              .inFilter('status', [
+                'ongoing',
+                'active',
+                'picked_up',
+                'in_progress',
+                'return_pending_inspection',
+                'awaiting_completion'
+              ]);
+          for (final b in List<Map<String, dynamic>>.from(bRes)) {
+            final bid = b['id']?.toString().trim() ?? '';
+            if (bid.isNotEmpty) partnerBookingIds.add(bid);
+            final bVid = b['vehicle_id']?.toString().trim() ?? '';
+            if (bVid.isNotEmpty) partnerVehicleIds.add(bVid);
+          }
+        } catch (e) {
+          debugPrint('Active partner_vehicle_id bookings lookup: $e');
+        }
       }
 
       // 🔒 HARD ISOLATION CHECK:
@@ -1884,12 +1930,10 @@ class TrackingService {
                 status,
                 renter_id,
                 operator_id,
+                partner_vehicle_id,
                 pickup_location,
                 dropoff_location,
-                pickup_latitude,
-                pickup_longitude,
-                dropoff_latitude,
-                dropoff_longitude,
+                metadata,
                 start_at,
                 end_at,
                 vehicles:vehicle_id (
@@ -1922,12 +1966,10 @@ class TrackingService {
                 status,
                 renter_id,
                 operator_id,
+                partner_vehicle_id,
                 pickup_location,
                 dropoff_location,
-                pickup_latitude,
-                pickup_longitude,
-                dropoff_latitude,
-                dropoff_longitude,
+                metadata,
                 start_at,
                 end_at,
                 vehicles:vehicle_id (
@@ -1946,6 +1988,19 @@ class TrackingService {
             .maybeSingle();
       }
 
+      if (response != null) {
+        final b = response['bookings'] is Map ? (response['bookings'] as Map<String, dynamic>) : null;
+        if (b != null) {
+          final meta = b['metadata'] is Map ? (b['metadata'] as Map) : null;
+          if (meta != null) {
+            b['pickup_latitude'] ??= meta['pickup_latitude'];
+            b['pickup_longitude'] ??= meta['pickup_longitude'];
+            b['dropoff_latitude'] ??= meta['dropoff_latitude'];
+            b['dropoff_longitude'] ??= meta['dropoff_longitude'];
+          }
+        }
+      }
+
       if (response == null) {
         // Resilient Fallback: If no driver-app ping exists in tracking_locations yet,
         // resolve vehicle location from vehicle_trackers, vehicle registered coordinates,
@@ -1953,10 +2008,8 @@ class TrackingService {
         final bData = await supabase
             .from('bookings')
             .select('''
-              id, status, renter_id, driver_id, operator_id, partner_id,
-              pickup_location, dropoff_location,
-              pickup_latitude, pickup_longitude,
-              dropoff_latitude, dropoff_longitude,
+              id, status, renter_id, driver_id, operator_id, partner_vehicle_id,
+              pickup_location, dropoff_location, metadata,
               start_at, end_at, vehicle_id
             ''')
             .eq('id', bookingId)
@@ -1964,6 +2017,13 @@ class TrackingService {
         if (bData == null) return null;
 
         final booking = Map<String, dynamic>.from(bData);
+        final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : null;
+        if (meta != null) {
+          booking['pickup_latitude'] ??= meta['pickup_latitude'];
+          booking['pickup_longitude'] ??= meta['pickup_longitude'];
+          booking['dropoff_latitude'] ??= meta['dropoff_latitude'];
+          booking['dropoff_longitude'] ??= meta['dropoff_longitude'];
+        }
         final vid = booking['vehicle_id']?.toString() ?? '';
 
         // Hydrate vehicle details if available

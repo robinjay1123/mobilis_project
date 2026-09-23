@@ -2665,8 +2665,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             payment_status,
             total_price,
             total_paid_amount,
-            final_payment_confirmed_at,
-            completion_stage,
+            metadata,
             created_at,
             completed_at,
             booking_financials (
@@ -2698,6 +2697,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ''')
           .order('created_at', ascending: false);
       _operatorRevenueBookings = List<Map<String, dynamic>>.from(response);
+      for (final b in _operatorRevenueBookings) {
+        final meta = b['metadata'] is Map ? (b['metadata'] as Map) : null;
+        if (meta != null) {
+          b['completion_stage'] ??= meta['completion_stage'];
+          b['final_payment_confirmed_at'] ??= meta['final_payment_confirmed_at'];
+        }
+      }
     } catch (e) {
       debugPrint('Error loading operator revenue analytics: $e');
       _operatorRevenueBookings = [];
@@ -3878,13 +3884,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       try {
         final latest = await _supabase
             .from('bookings')
-            .select(
-              'pickup_location, dropoff_location, pickup_latitude, '
-              'pickup_longitude, dropoff_latitude, dropoff_longitude',
-            )
+            .select('pickup_location, dropoff_location, metadata')
             .eq('id', bookingId)
             .maybeSingle();
-        if (latest != null) routeBooking.addAll(latest);
+        if (latest != null) {
+          final meta = latest['metadata'] is Map
+              ? Map<String, dynamic>.from(latest['metadata'] as Map)
+              : <String, dynamic>{};
+          routeBooking.addAll({
+            if (latest['pickup_location'] != null)
+              'pickup_location': latest['pickup_location'],
+            if (latest['dropoff_location'] != null)
+              'dropoff_location': latest['dropoff_location'],
+            if (meta['pickup_latitude'] != null)
+              'pickup_latitude': meta['pickup_latitude'],
+            if (meta['pickup_longitude'] != null)
+              'pickup_longitude': meta['pickup_longitude'],
+            if (meta['dropoff_latitude'] != null)
+              'dropoff_latitude': meta['dropoff_latitude'],
+            if (meta['dropoff_longitude'] != null)
+              'dropoff_longitude': meta['dropoff_longitude'],
+          });
+        }
       } catch (error) {
         debugPrint('Unable to refresh booking route coordinates: $error');
       }
@@ -34912,24 +34933,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   'inspected_by': _operatorDisplayName(),
                                 };
 
-                                await _supabase
-                                    .from('bookings')
-                                    .update({
-                                      'status': newStatus,
-                                      if (isRelease)
-                                        'operator_release_inspection':
-                                            inspectionPayload,
-                                      if (!isRelease)
-                                        'operator_return_inspection':
-                                            inspectionPayload,
-                                      if (isRelease)
-                                        'operator_released_at': DateTime.now()
-                                            .toIso8601String(),
-                                      if (!isRelease)
-                                        'operator_returned_at': DateTime.now()
-                                            .toIso8601String(),
-                                    })
-                                    .eq('id', booking['id']);
+                                await BookingService.safeUpdateBooking(booking['id'], {
+                                  'status': newStatus,
+                                  if (isRelease)
+                                    'operator_release_inspection':
+                                        inspectionPayload,
+                                  if (!isRelease)
+                                    'operator_return_inspection':
+                                        inspectionPayload,
+                                  if (isRelease)
+                                    'operator_released_at': DateTime.now()
+                                        .toIso8601String(),
+                                  if (!isRelease)
+                                    'operator_returned_at': DateTime.now()
+                                        .toIso8601String(),
+                                });
 
                                 if (bottomSheetContext.mounted) {
                                   Navigator.pop(bottomSheetContext);

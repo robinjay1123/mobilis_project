@@ -38,7 +38,7 @@ class BookingSettlementAmounts {
         ? (ownerServiceAmount - partnerCommission).clamp(0.0, double.infinity).toDouble()
         : 0.0;
     final partnerNet = isPartnerVehicle
-        ? (partnerEarnings + securityDepositDeduction).clamp(0.0, double.infinity).toDouble()
+        ? (partnerEarnings - securityDepositDeduction).clamp(0.0, double.infinity).toDouble()
         : 0.0;
     final driverCommission = driverGross * 0.05;
     return BookingSettlementAmounts(
@@ -188,23 +188,15 @@ class BookingSettlementService {
       return Map<String, dynamic>.from(existing!);
     }
 
-    final booking = await supabase
+    final bookingRaw = await supabase
         .from('bookings')
         .select('''
           id,
           status,
-          final_payment_status,
           operator_id,
-          partner_id,
           driver_id,
           total_price,
-          total_cost,
-          rental_subtotal,
-          delivery_fee,
-          late_return_fee,
-          partner_security_deposit_deduction,
-          partner_payout_deposit_deduction,
-          security_deposit_refund_deduction,
+          metadata,
           vehicles:vehicle_id (
             id,
             owner_id,
@@ -220,7 +212,37 @@ class BookingSettlementService {
         ''')
         .eq('id', bookingId)
         .maybeSingle();
-    if (booking == null) throw Exception('Booking not found for settlement');
+    if (bookingRaw == null) throw Exception('Booking not found for settlement');
+    final booking = Map<String, dynamic>.from(bookingRaw);
+
+    // Hydrate financials from booking_financials
+    try {
+      final fin = await supabase
+          .from('booking_financials')
+          .select('total_cost, rental_subtotal, delivery_fee, final_payment_status')
+          .eq('booking_id', bookingId)
+          .maybeSingle();
+      if (fin != null) {
+        booking['total_cost'] = fin['total_cost'];
+        booking['rental_subtotal'] = fin['rental_subtotal'];
+        booking['delivery_fee'] = fin['delivery_fee'];
+        booking['final_payment_status'] = fin['final_payment_status'];
+      }
+    } catch (_) {}
+
+    // Unpack metadata fields (late fee, deductions, partner_id, etc.)
+    final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : null;
+    if (meta != null) {
+      booking['partner_id'] ??= meta['partner_id'];
+      booking['owner_id'] ??= meta['owner_id'];
+      booking['late_return_fee'] ??= meta['late_return_fee'];
+      booking['partner_security_deposit_deduction'] ??= meta['partner_security_deposit_deduction'];
+      booking['partner_payout_deposit_deduction'] ??= meta['partner_payout_deposit_deduction'];
+      booking['security_deposit_refund_deduction'] ??= meta['security_deposit_refund_deduction'];
+      booking['final_payment_status'] ??= meta['final_payment_status'];
+    }
+    booking['final_payment_status'] ??= booking['status'] == 'completed' ? 'paid' : null;
+
     if (!_isFinalPaymentConfirmed(booking['final_payment_status'])) {
       throw Exception('The booking must be fully paid before releasing funds');
     }

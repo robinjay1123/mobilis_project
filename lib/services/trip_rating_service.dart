@@ -65,27 +65,20 @@ class TripRatingService {
             renter_id,
             vehicle_id,
             partner_vehicle_id,
-            partner_booking_confirmed_by,
             driver_id,
             operator_id,
             with_driver,
             status,
-            completion_stage,
-            final_payment_status,
             returned_at,
             completed_at,
-            operator_trip_confirmed_at,
-            partner_trip_confirmed_at,
-            driver_trip_confirmed_at,
-            renter_trip_confirmed_at,
             start_at,
             end_at,
             start_date,
             end_date,
             total_price,
-            total_cost,
             pickup_location,
             dropoff_location,
+            metadata,
             vehicles:vehicle_id (
               id,
               owner_id,
@@ -119,6 +112,34 @@ class TripRatingService {
       if (booking == null) return null;
 
       final context = Map<String, dynamic>.from(booking);
+
+      final meta = context['metadata'] is Map
+          ? Map<String, dynamic>.from(context['metadata'] as Map)
+          : <String, dynamic>{};
+      context['completion_stage'] ??= meta['completion_stage'];
+      context['partner_booking_confirmed_by'] ??=
+          meta['partner_booking_confirmed_by'];
+      context['operator_trip_confirmed_at'] ??=
+          meta['operator_trip_confirmed_at'];
+      context['partner_trip_confirmed_at'] ??=
+          meta['partner_trip_confirmed_at'];
+      context['driver_trip_confirmed_at'] ??=
+          meta['driver_trip_confirmed_at'];
+      context['renter_trip_confirmed_at'] ??=
+          meta['renter_trip_confirmed_at'];
+
+      try {
+        final fin = await supabase
+            .from('booking_financials')
+            .select('total_cost, final_payment_status')
+            .eq('booking_id', bookingId)
+            .maybeSingle();
+        if (fin != null) {
+          context['total_cost'] = fin['total_cost'];
+          context['final_payment_status'] = fin['final_payment_status'];
+        }
+      } catch (_) {}
+      context['total_cost'] ??= context['total_price'];
       final renterId = context['renter_id']?.toString();
       if (renterId != null && renterId.isNotEmpty) {
         final renter = await supabase
@@ -1156,10 +1177,7 @@ class TripRatingService {
     // final revenue settlement reloads the booking from Supabase, so relying
     // only on the in-memory context can falsely report "already completed" or
     // block completion after a valid rating.
-    await supabase
-        .from('bookings')
-        .update(baseBookingUpdate)
-        .eq('id', bookingId);
+    await BookingService.safeUpdateBooking(bookingId, baseBookingUpdate);
 
     final nextReviewer = await _nextPendingRatingReviewer(
       bookingId: bookingId,
@@ -1171,7 +1189,7 @@ class TripRatingService {
         'completion_stage': '${nextReviewer.role}_rating',
         'updated_at': now,
       };
-      await supabase.from('bookings').update(bookingUpdate).eq('id', bookingId);
+      await BookingService.safeUpdateBooking(bookingId, bookingUpdate);
       await _notifyNextReviewer(
         userId: nextReviewer.userId,
         bookingId: bookingId,

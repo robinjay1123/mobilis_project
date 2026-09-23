@@ -734,7 +734,7 @@ class UserRestrictionService {
       final affected = await supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, status, operator_id, reservation_payment_reference',
+            'id, renter_id, vehicle_id, status, operator_id, metadata',
           )
           .inFilter('vehicle_id', vehicleIds)
           .inFilter('status', ['pending', 'approved', 'confirmed', 'active']);
@@ -819,7 +819,7 @@ class UserRestrictionService {
       final rows = await supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, status, operator_id, start_date, end_date, total_amount, vehicle:vehicles(id, make, model, year, plate_number, owner_id)',
+            'id, renter_id, vehicle_id, status, operator_id, start_date, end_date, total_price, metadata, vehicle:vehicles(id, brand, model, year, plate_number, owner_id)',
           )
           .eq('renter_id', userId)
           .inFilter('status', [

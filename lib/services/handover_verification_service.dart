@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'booking_service.dart';
 
 class HandoverVerificationService {
   HandoverVerificationService._internal();
@@ -52,7 +53,7 @@ class HandoverVerificationService {
     try {
       final booking = await supabase
           .from('bookings')
-          .select('id, user_id, handover_verified_at, handover_verified_by')
+          .select('id, renter_id, metadata')
           .eq('id', bookingId)
           .maybeSingle();
 
@@ -60,7 +61,7 @@ class HandoverVerificationService {
         throw Exception('Booking not found');
       }
 
-      final renterId = booking['user_id']?.toString() ?? '';
+      final renterId = booking['renter_id']?.toString() ?? '';
       final expectedPin = generateHandoverPin(bookingId, renterId);
 
       if (enteredPin.trim() != expectedPin) {
@@ -69,12 +70,12 @@ class HandoverVerificationService {
 
       // Record handover verification timestamp
       final now = DateTime.now().toIso8601String();
-      await supabase.from('bookings').update({
+      await BookingService.safeUpdateBooking(bookingId, {
         'handover_verified_at': now,
         'handover_verified_by': verifierId,
         'handover_verifier_role': verifierRole,
         'updated_at': now,
-      }).eq('id', bookingId);
+      });
 
       debugPrint('Handover pass verified successfully for booking $bookingId by $verifierId ($verifierRole)');
       return true;
@@ -94,7 +95,7 @@ class HandoverVerificationService {
     try {
       final booking = await supabase
           .from('bookings')
-          .select('id, user_id')
+          .select('id, renter_id, metadata')
           .eq('id', bookingId)
           .maybeSingle();
 
@@ -102,7 +103,7 @@ class HandoverVerificationService {
         throw Exception('Booking not found');
       }
 
-      final renterId = booking['user_id']?.toString() ?? '';
+      final renterId = booking['renter_id']?.toString() ?? '';
       final expectedPin = generateHandoverPin(bookingId, renterId);
 
       if (enteredPin.trim() != expectedPin) {
@@ -110,12 +111,12 @@ class HandoverVerificationService {
       }
 
       final now = DateTime.now().toIso8601String();
-      await supabase.from('bookings').update({
+      await BookingService.safeUpdateBooking(bookingId, {
         'return_verified_at': now,
         'return_verified_by': verifierId,
         'return_verifier_role': verifierRole,
         'updated_at': now,
-      }).eq('id', bookingId);
+      });
 
       debugPrint('Return pass verified successfully for booking $bookingId by $verifierId ($verifierRole)');
       return true;

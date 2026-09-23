@@ -269,6 +269,14 @@ class BookingService {
       'action_deadline',
       'commission_eligible_at',
       'commission_status',
+      'completion_stage',
+      'operator_release_inspection',
+      'operator_return_inspection',
+      'operator_released_at',
+      'operator_returned_at',
+      'extension_status',
+      'partner_id',
+      'owner_id',
     };
 
     final sparseData = <String, dynamic>{};
@@ -1532,6 +1540,10 @@ class BookingService {
           'co_traveler_valid_id_url': coTravelerValidIdUrl.trim(),
         if (coTravelerSelfieUrl != null && coTravelerSelfieUrl.trim().isNotEmpty)
           'co_traveler_selfie_url': coTravelerSelfieUrl.trim(),
+        if (ownerId != null && ownerId.trim().isNotEmpty)
+          'owner_id': ownerId.trim(),
+        if (partnerId != null && partnerId.trim().isNotEmpty)
+          'partner_id': partnerId.trim(),
       };
 
       final cleanPaymentType = reservationPaymentType?.trim().toLowerCase();
@@ -1540,9 +1552,6 @@ class BookingService {
         'renter_id': renterId,
         'vehicle_id': vehicleId,
         if (isPartnerVehicle) 'partner_vehicle_id': vehicleId,
-        if (isPartnerVehicle && partnerId != null && partnerId.isNotEmpty)
-          'partner_id': partnerId,
-        if (ownerId != null && ownerId.isNotEmpty) 'owner_id': ownerId,
         'start_at': startAt.toIso8601String(),
         'end_at': endAt.toIso8601String(),
         'start_date': DateTime(
@@ -1641,16 +1650,20 @@ class BookingService {
             if (missingCol != null && currentPayload.containsKey(missingCol)) {
               final val = currentPayload.remove(missingCol);
               debugPrint('Stripped missing column: $missingCol (value: $val)');
-              if (val != null && val.toString().isNotEmpty) {
-                final note = '[$missingCol: $val]';
-                final existingNotes = currentPayload['operator_notes']?.toString() ?? '';
-                currentPayload['operator_notes'] = existingNotes.isNotEmpty
-                    ? '$existingNotes | $note'
-                    : note;
+              if (missingCol != 'metadata' && val != null) {
+                final existingMeta = currentPayload['metadata'] is Map
+                    ? Map<String, dynamic>.from(currentPayload['metadata'] as Map)
+                    : <String, dynamic>{};
+                existingMeta[missingCol] = val;
+                currentPayload['metadata'] = existingMeta;
               }
+              continue;
             } else {
               // Fallback stripping of newer optional columns
               final optionalCols = [
+                'partner_id',
+                'owner_id',
+                'operator_notes',
                 'reservation_payment_sender_phone',
                 'reservation_payment_type',
                 'reservation_payment_covers_total',
@@ -1667,7 +1680,14 @@ class BookingService {
               bool removedAny = false;
               for (final col in optionalCols) {
                 if (currentPayload.containsKey(col)) {
-                  currentPayload.remove(col);
+                  final val = currentPayload.remove(col);
+                  if (col != 'metadata' && val != null) {
+                    final existingMeta = currentPayload['metadata'] is Map
+                        ? Map<String, dynamic>.from(currentPayload['metadata'] as Map)
+                        : <String, dynamic>{};
+                    existingMeta[col] = val;
+                    currentPayload['metadata'] = existingMeta;
+                  }
                   removedAny = true;
                   break;
                 }
@@ -1675,6 +1695,7 @@ class BookingService {
               if (!removedAny) {
                 rethrow;
               }
+              continue;
             }
           } else if (e.message.toLowerCase().contains('unavailable')) {
             throw Exception('Selected dates are unavailable for bookings');
@@ -2497,7 +2518,7 @@ class BookingService {
       updateData['completed_at'] = now;
     }
 
-    await supabase.from('bookings').update(updateData).eq('id', bookingId);
+    await safeUpdateBooking(bookingId, updateData);
 
     try {
       await TripRatingService().syncRatingFlowForBooking(
@@ -2666,12 +2687,18 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, status, renter_id, vehicle_id, driver_id, partner_id, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
+            'id, status, renter_id, vehicle_id, partner_vehicle_id, driver_id, metadata, vehicles:vehicle_id(id, brand, model, owner_id, partner_id)',
           )
           .eq('id', bookingId)
           .maybeSingle();
       if (response != null) {
         booking = Map<String, dynamic>.from(response);
+        final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : null;
+        if (meta != null) {
+          booking['partner_id'] ??= meta['partner_id'];
+          booking['owner_id'] ??= meta['owner_id'];
+          booking['partner_booking_confirmed_by'] ??= meta['partner_booking_confirmed_by'];
+        }
       }
     }
     if (booking == null) throw Exception('Booking not found');
@@ -3104,10 +3131,7 @@ class BookingService {
 
       // Keep every approval entry point behind finalizeBooking so a
       // driver-required reservation cannot bypass assignment/acceptance.
-      await supabase
-          .from('bookings')
-          .update(updatePayload)
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, updatePayload);
       await finalizeBooking(bookingId: bookingId, operatorId: operatorId);
 
       debugPrint('Booking approved');
@@ -4402,16 +4426,13 @@ class BookingService {
       final lateReturnFee = lateReturn['late_return_fee'] as double;
       final recalculatedTotal = lateReturn['total_price'] as double;
 
-      await supabase
-          .from('bookings')
-          .update({
-            'status': 'return_pending_inspection',
-            'returned_at': returnedAt.toIso8601String(),
-            'completion_stage': 'awaiting_after_checklist',
-            ...lateReturn,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'status': 'return_pending_inspection',
+        'returned_at': returnedAt.toIso8601String(),
+        'completion_stage': 'awaiting_after_checklist',
+        ...lateReturn,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
 
       final driverUserId = booking['driver_id']?.toString() ?? currentUserId;
       if (driverUserId.isNotEmpty) {
@@ -6890,13 +6911,10 @@ class BookingService {
     required String userId,
   }) async {
     try {
-      await supabase
-          .from('bookings')
-          .update({
-            'extension_status': 'cancelled',
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await safeUpdateBooking(bookingId, {
+        'extension_status': 'cancelled',
+        'updated_at': DateTime.now().toIso8601String(),
+      });
     } catch (e) {
       debugPrint('Error cancelling trip extension: $e');
       rethrow;
