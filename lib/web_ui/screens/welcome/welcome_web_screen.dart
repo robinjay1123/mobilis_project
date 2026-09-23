@@ -731,7 +731,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
               InkWell(
                 onTap: () => launchUrl(
                   Uri.parse('https://mobilis.autos'),
-                  mode: LaunchMode.externalApplication,
+                  webOnlyWindowName: '_self',
                 ),
                 child: Row(
                   children: [

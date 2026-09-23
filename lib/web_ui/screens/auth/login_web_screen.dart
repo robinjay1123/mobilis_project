@@ -249,7 +249,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
                     GestureDetector(
                       onTap: () => launchUrl(
                         Uri.parse('https://mobilis.autos'),
-                        mode: LaunchMode.externalApplication,
+                        webOnlyWindowName: '_self',
                       ),
                       child: MouseRegion(
                         cursor: SystemMouseCursors.click,
