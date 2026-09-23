@@ -406,6 +406,11 @@ class BookingService {
   Future<List<Map<String, dynamic>>> getPartnerBookings(String userId) async {
     try {
       debugPrint('Fetching bookings for partner/owner: $userId');
+      try {
+        await checkAndExpireDriverAssignments();
+      } catch (e) {
+        debugPrint('Auto-expire driver assignments check error in getPartnerBookings: $e');
+      }
 
       // 1. Get all partner profile IDs for this user
       final partnerIds = <String>{userId};
@@ -1229,6 +1234,34 @@ class BookingService {
       } catch (e) {
         debugPrint('Error hydrating events from booking_events: $e');
       }
+
+      // Hydrate driver job assignments for each booking
+      try {
+        final assignRows = await supabase
+            .from('driver_job_assignments')
+            .select('*')
+            .inFilter('booking_id', targetBookingIds)
+            .order('created_at', ascending: false);
+
+        final assignByBooking = <String, List<Map<String, dynamic>>>{};
+        for (final a in List<Map<String, dynamic>>.from(assignRows)) {
+          final bId = a['booking_id']?.toString();
+          if (bId != null && bId.isNotEmpty) {
+            assignByBooking.putIfAbsent(bId, () => []).add(Map<String, dynamic>.from(a));
+          }
+        }
+
+        for (final booking in bookings) {
+          final bId = booking['id']?.toString();
+          if (bId == null) continue;
+          final aList = assignByBooking[bId];
+          if (aList != null && aList.isNotEmpty) {
+            booking['job_assignments'] = aList;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error hydrating job_assignments from driver_job_assignments: $e');
+      }
     }
 
     return bookings;
@@ -1270,6 +1303,11 @@ class BookingService {
   Future<Map<String, dynamic>?> getBookingById(String bookingId) async {
     try {
       debugPrint('Fetching booking: $bookingId');
+      try {
+        await checkAndExpireDriverAssignments();
+      } catch (e) {
+        debugPrint('Auto-expire driver assignments check error in getBookingById: $e');
+      }
 
       final response = await supabase
           .from('bookings')
@@ -3060,6 +3098,11 @@ class BookingService {
   ) async {
     try {
       await processExpiredPendingBookings();
+      try {
+        await checkAndExpireDriverAssignments();
+      } catch (e) {
+        debugPrint('Auto-expire driver assignments check error in getOperatorBookings: $e');
+      }
       final response = await supabase
           .from('bookings')
           .select('*')
@@ -3365,9 +3408,16 @@ class BookingService {
   /// and automatically declines any that have exceeded the 10-minute response window.
   Future<void> checkAndExpireDriverAssignments() async {
     try {
+      // 0. Try DB server RPC function first
+      try {
+        await supabase.rpc('expire_stale_driver_job_assignments');
+      } catch (rpcErr) {
+        debugPrint('RPC expire_stale_driver_job_assignments note: $rpcErr');
+      }
+
       final response = await supabase
           .from('driver_job_assignments')
-          .select('id, booking_id, driver_id, offered_at, created_at, status')
+          .select('id, booking_id, driver_id, offered_at, created_at, expires_at, status')
           .inFilter('status', ['pending_offer', 'assigned']);
 
       final now = DateTime.now();
@@ -3377,17 +3427,22 @@ class BookingService {
         final bookingId = offer['booking_id']?.toString() ?? '';
         final driverId = offer['driver_id']?.toString() ?? '';
         final offeredAtStr = offer['offered_at']?.toString() ?? offer['created_at']?.toString();
+        final expiresAtStr = offer['expires_at']?.toString();
         final offeredAt = offeredAtStr != null ? DateTime.tryParse(offeredAtStr)?.toLocal() : null;
+        final expiresAt = expiresAtStr != null ? DateTime.tryParse(expiresAtStr)?.toLocal() : null;
 
-        if (offeredAt != null && now.difference(offeredAt).inMinutes >= 10) {
+        final isExpired = (expiresAt != null && !now.isBefore(expiresAt)) ||
+            (offeredAt != null && now.difference(offeredAt).inSeconds >= 600);
+
+        if (isExpired) {
           debugPrint('Driver job offer $offerId for booking $bookingId expired after 10 minutes. Auto-declining.');
           final nowIso = now.toIso8601String();
 
-          // 1. Mark assignment as rejected/expired
+          // 1. Mark assignment as expired
           await supabase
               .from('driver_job_assignments')
               .update({
-                'status': 'rejected',
+                'status': 'expired',
                 'rejection_reason': 'Auto-declined: 10-minute driver acceptance window expired',
                 'replied_at': nowIso,
                 'updated_at': nowIso,
@@ -3403,13 +3458,19 @@ class BookingService {
             });
           }
 
-          // 3. Mark driver available
+          // 3. Mark driver available in both users and drivers tables
           if (driverId.isNotEmpty) {
             try {
               await supabase
                   .from('users')
                   .update({'is_available': true})
                   .eq('id', driverId);
+            } catch (_) {}
+            try {
+              await supabase
+                  .from('drivers')
+                  .update({'is_available': true})
+                  .or('id.eq.$driverId,user_id.eq.$driverId');
             } catch (_) {}
           }
 
@@ -3533,7 +3594,11 @@ class BookingService {
           booking['operator_id']?.toString() ??
           supabase.auth.currentUser?.id;
 
-      final now = DateTime.now().toIso8601String();
+      final offeredAtDt = DateTime.now();
+      final expiresAtDt = offeredAtDt.add(const Duration(minutes: 10));
+      final now = offeredAtDt.toIso8601String();
+      final expiresAt = expiresAtDt.toIso8601String();
+
       await supabase
           .from('driver_job_assignments')
           .update({'status': 'superseded', 'updated_at': now})
@@ -3548,6 +3613,7 @@ class BookingService {
             'trip_fee': effectiveTripFee,
             'status': 'pending_offer',
             'offered_at': now,
+            'expires_at': expiresAt,
             'created_at': now,
             'updated_at': now,
           })

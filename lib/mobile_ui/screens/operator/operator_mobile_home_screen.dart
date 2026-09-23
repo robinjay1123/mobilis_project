@@ -1568,6 +1568,7 @@ class _BookingCard extends StatelessWidget {
 
   bool get _isOfferExpired {
     final status = _latestAssignment?['status']?.toString().toLowerCase();
+    if (status == 'expired') return true;
     final waitingForDriver = status == 'pending_offer' || status == 'assigned';
     final assignedAtRaw = booking['driver_assigned_at'] ??
         _latestAssignment?['offered_at'] ??
@@ -1602,8 +1603,10 @@ class _BookingCard extends StatelessWidget {
           ? 'Awaiting driver ($mm:$ss)'
           : '$_driverName • Awaiting ($mm:$ss)';
     }
-    if (status == 'rejected' || status == 'declined') {
-      return 'Driver declined • Assign another';
+    if (status == 'rejected' || status == 'declined' || status == 'expired') {
+      return status == 'expired'
+          ? 'Driver offer expired (10 mins) • Reassign'
+          : 'Driver declined • Assign another';
     }
     return 'Driver needed';
   }
@@ -2286,7 +2289,8 @@ class _BookingCard extends StatelessWidget {
                           icon: const Icon(Icons.person_add_alt_1, size: 16),
                           label: Text(
                             _driverStatus == 'Driver needed' ||
-                                    _driverStatus.startsWith('Driver declined')
+                                    _driverStatus.startsWith('Driver declined') ||
+                                    _driverStatus.startsWith('Driver offer expired')
                                 ? 'Assign Driver'
                                 : 'Change Assigned Driver',
                           ),
@@ -2313,7 +2317,8 @@ class _BookingCard extends StatelessWidget {
                             icon: const Icon(Icons.person_add_alt_1, size: 16),
                             label: Text(
                               _driverStatus == 'Driver needed' ||
-                                      _driverStatus.startsWith('Driver declined')
+                                      _driverStatus.startsWith('Driver declined') ||
+                                      _driverStatus.startsWith('Driver offer expired')
                                   ? 'Assign Driver'
                                   : 'Change Driver',
                             ),

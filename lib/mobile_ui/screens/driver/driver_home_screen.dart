@@ -3348,6 +3348,9 @@ class _TripCardState extends State<_TripCard> {
     if (s == 'driver_accepted' || a == 'accepted') {
       return 'Driver Accepted';
     }
+    if (a == 'expired') {
+      return 'Offer Expired';
+    }
     if (s == 'pending' ||
         s == 'pending_approval' ||
         s == 'awaiting_driver' ||
@@ -3382,6 +3385,9 @@ class _TripCardState extends State<_TripCard> {
     final a = assignmentStatus?.trim().toLowerCase();
     if (s == 'driver_accepted' || a == 'accepted') {
       return Colors.cyan;
+    }
+    if (a == 'expired') {
+      return Colors.orange.shade700;
     }
     if (s == 'pending' ||
         s == 'pending_approval' ||

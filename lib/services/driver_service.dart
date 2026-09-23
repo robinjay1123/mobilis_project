@@ -655,6 +655,15 @@ class DriverService {
         throw Exception('This job offer has already been answered');
       }
 
+      final offeredAtRaw = assignment['offered_at'] ?? assignment['created_at'];
+      final offeredAt = offeredAtRaw != null
+          ? DateTime.tryParse(offeredAtRaw.toString())?.toLocal()
+          : null;
+      if (offeredAt != null && DateTime.now().difference(offeredAt).inSeconds >= 600) {
+        unawaited(BookingService().expireAssignment(jobAssignmentId));
+        throw Exception('This job offer has expired (10-minute response window exceeded).');
+      }
+
       final booking = assignment['bookings'] as Map<String, dynamic>?;
       final bookingId = assignment['booking_id']?.toString() ?? '';
       if (bookingId.isEmpty || booking == null) {

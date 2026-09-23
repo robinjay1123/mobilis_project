@@ -11707,6 +11707,17 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
       booking['driver_id'] = driverId;
       booking['driver_assigned_at'] = DateTime.now().toIso8601String();
+      final newAssignment = {
+        'driver_id': driverId,
+        'status': 'pending_offer',
+        'offered_at': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toIso8601String(),
+      };
+      final existingAssignments = (booking['job_assignments'] is List)
+          ? List<Map<String, dynamic>>.from(booking['job_assignments'])
+          : <Map<String, dynamic>>[];
+      existingAssignments.insert(0, newAssignment);
+      booking['job_assignments'] = existingAssignments;
 
       if (!mounted) return;
       Navigator.pop(context); // Close loader
@@ -12213,6 +12224,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
   late Map<String, dynamic> _detailedBooking;
   Map<String, dynamic>? _vehicle;
   Map<String, dynamic>? _renter;
+  Timer? _offerCountdownTimer;
 
   @override
   void initState() {
@@ -12232,6 +12244,50 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
     } else {
       _loadFullBookingDetails();
     }
+    _initOfferTimer();
+  }
+
+  void _initOfferTimer() {
+    _offerCountdownTimer?.cancel();
+    _offerCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final rawAssignments = _detailedBooking['job_assignments'];
+      final List<Map<String, dynamic>> assignments = (rawAssignments is List)
+          ? rawAssignments.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+          : [];
+      if (assignments.isNotEmpty) {
+        assignments.sort((a, b) {
+          final aDate = DateTime.tryParse((a['created_at'] ?? a['offered_at'])?.toString() ?? '');
+          final bDate = DateTime.tryParse((b['created_at'] ?? b['offered_at'])?.toString() ?? '');
+          return (bDate ?? DateTime(1970)).compareTo(aDate ?? DateTime(1970));
+        });
+      }
+      final latest = assignments.isNotEmpty ? assignments.first : null;
+      final status = latest?['status']?.toString().toLowerCase().trim();
+      final hasDriver = _detailedBooking['driver_id'] != null && _detailedBooking['driver_id'].toString().isNotEmpty;
+      final bStatus = (_detailedBooking['status'] as String? ?? 'pending').toLowerCase();
+
+      if (status == 'pending_offer' || status == 'assigned' || (hasDriver && bStatus == 'pending')) {
+        final assignedAtRaw = _detailedBooking['driver_assigned_at'] ??
+            latest?['offered_at'] ??
+            latest?['created_at'];
+        final assignedAt = assignedAtRaw != null
+            ? DateTime.tryParse(assignedAtRaw.toString())?.toLocal()
+            : null;
+        if (assignedAt != null) {
+          final elapsed = DateTime.now().difference(assignedAt).inSeconds;
+          if (elapsed >= 600) {
+            _offerCountdownTimer?.cancel();
+            BookingService().checkAndExpireDriverAssignments().then((_) {
+              if (mounted) _loadFullBookingDetails();
+            });
+            setState(() {});
+            return;
+          }
+        }
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -12247,7 +12303,14 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
           (_detailedBooking['users'] is Map
               ? Map<String, dynamic>.from(_detailedBooking['users'])
               : null);
+      _initOfferTimer();
     }
+  }
+
+  @override
+  void dispose() {
+    _offerCountdownTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadFullBookingDetails() async {
@@ -12379,6 +12442,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
     final s = status.trim().toLowerCase();
     final a = assignmentStatus?.trim().toLowerCase();
     if (s == 'driver_accepted' || a == 'accepted') return Colors.cyan;
+    if (a == 'expired') return Colors.orange.shade700;
     if (s == 'pending' || a == 'pending_offer' || a == 'assigned') return Colors.amber.shade700;
     if (s == 'approved' || s == 'confirmed') return AppColors.success;
     if (s == 'active' || s == 'ongoing') return AppColors.primary;
@@ -12390,6 +12454,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
     final s = status.trim().toLowerCase();
     final a = assignmentStatus?.trim().toLowerCase();
     if (s == 'driver_accepted' || a == 'accepted') return 'DRIVER ACCEPTED';
+    if (a == 'expired') return 'DRIVER OFFER EXPIRED';
     if (a == 'pending_offer') return 'OFFER SENT • WAITING DRIVER';
     if (a == 'rejected' || a == 'declined') return 'DRIVER DECLINED';
     if (s == 'pending') return 'PENDING';
@@ -12481,16 +12546,37 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
     final driverPhone = driverUserMap?['phone']?.toString() ?? '';
 
     final hasDriver = driverId != null && driverId.isNotEmpty;
+
+    // Remaining seconds for 10-minute driver job offer
+    final assignedAtRaw = booking['driver_assigned_at'] ??
+        latestAssignment?['offered_at'] ??
+        latestAssignment?['created_at'];
+    final assignedAt = assignedAtRaw != null
+        ? DateTime.tryParse(assignedAtRaw.toString())?.toLocal()
+        : null;
+    final isPendingOffer = assignmentStatus == 'pending_offer' ||
+        assignmentStatus == 'assigned' ||
+        (hasDriver && status == 'pending');
+    final offerElapsedSec = assignedAt != null ? DateTime.now().difference(assignedAt).inSeconds : 0;
+    final offerRemainingSec = (isPendingOffer && assignedAt != null)
+        ? (600 - offerElapsedSec).clamp(0, 600)
+        : (isPendingOffer && assignedAt == null ? 600 : 0);
+    final isOfferExpired = (isPendingOffer && assignedAt != null && offerRemainingSec <= 0) ||
+        assignmentStatus == 'expired';
+
     final isWaitingDriverResponse = withDriver &&
-        (assignmentStatus == 'pending_offer' ||
-            assignmentStatus == 'assigned' ||
-            (hasDriver && status == 'pending'));
+        isPendingOffer &&
+        !isOfferExpired;
+
     final isDriverAccepted = withDriver &&
         (status == 'driver_accepted' ||
             assignmentStatus == 'accepted' ||
             assignmentStatus == 'confirmed');
+
     final isDriverDeclined = withDriver &&
-        (assignmentStatus == 'rejected' || assignmentStatus == 'declined');
+        (assignmentStatus == 'rejected' ||
+            assignmentStatus == 'declined' ||
+            isOfferExpired);
 
     final startLabel = _formatDateTime(booking['start_at'] ?? booking['start_date']);
     final endLabel = _formatDateTime(booking['end_at'] ?? booking['end_date']);
@@ -13053,13 +13139,34 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  'Driver Job Offer Requested',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.amber,
-                                  ),
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Driver Job Offer Requested',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.amber,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: Colors.amber.shade700, width: 0.8),
+                                      ),
+                                      child: Text(
+                                        '${(offerRemainingSec ~/ 60).toString().padLeft(2, '0')}:${(offerRemainingSec % 60).toString().padLeft(2, '0')}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.amber.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 Text(
                                   'Selected: $driverName',
@@ -13187,35 +13294,41 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                 ),
                 const SizedBox(height: 12),
               ] else if (isDriverDeclined) ...[
-                // Driver Declined
+                // Driver Declined or Expired
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.1),
-                    border: Border.all(color: Colors.redAccent, width: 1.5),
+                    color: isOfferExpired ? Colors.orange.withValues(alpha: 0.1) : Colors.red.withValues(alpha: 0.1),
+                    border: Border.all(color: isOfferExpired ? Colors.orange : Colors.redAccent, width: 1.5),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(
+                      Row(
                         children: [
-                          Icon(Icons.cancel_rounded, size: 18, color: Colors.redAccent),
-                          SizedBox(width: 8),
+                          Icon(
+                            isOfferExpired ? Icons.timer_off_rounded : Icons.cancel_rounded,
+                            size: 18,
+                            color: isOfferExpired ? Colors.orange : Colors.redAccent,
+                          ),
+                          const SizedBox(width: 8),
                           Text(
-                            'Driver Declined Job Offer',
+                            isOfferExpired ? 'Driver Job Offer Expired' : 'Driver Declined Job Offer',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
-                              color: Colors.redAccent,
+                              color: isOfferExpired ? Colors.orange : Colors.redAccent,
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'The previously requested driver was unavailable or declined this trip. Please assign another driver.',
+                        isOfferExpired
+                            ? 'The assigned driver did not accept the job offer within the 10-minute response window. You can select another driver now.'
+                            : 'The previously requested driver was unavailable or declined this trip. Please assign another driver.',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: isDark ? Colors.grey.shade300 : Colors.black87,

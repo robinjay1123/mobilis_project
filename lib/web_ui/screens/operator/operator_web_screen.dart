@@ -10006,7 +10006,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? driverName!
         : assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned'
         ? 'Awaiting response'
-        : assignmentStatus == 'rejected'
+        : assignmentStatus == 'rejected' || assignmentStatus == 'declined' || assignmentStatus == 'expired'
         ? 'Reselection needed'
         : 'Unassigned';
     final foreground = isDark ? Colors.white : _operatorInk;
@@ -13573,9 +13573,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? (600 - DateTime.now().difference(assignedAt).inSeconds).clamp(0, 600)
         : 0;
     final isOfferExpired =
-        waitingForDriver && (assignedAt == null || offerRemainingSec <= 0);
+        assignmentStatus == 'expired' ||
+        (waitingForDriver && (assignedAt == null || offerRemainingSec <= 0));
     final effectiveWaitingForDriver = waitingForDriver && !isOfferExpired;
-    final driverDeclined = assignmentStatus == 'rejected' || isOfferExpired;
+    final driverDeclined = assignmentStatus == 'rejected' ||
+        assignmentStatus == 'declined' ||
+        isOfferExpired;
 
     final isPartner = _isPartnerVehicleBooking(booking);
     final depositRefunded = booking['security_deposit_refunded'] == true;
@@ -14331,7 +14334,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         assignmentStatus == 'accepted' ||
         assignmentStatus == 'confirmed' ||
         statusLower == 'driver_accepted';
-    final driverDeclined = assignmentStatus == 'rejected';
+    final driverDeclined = assignmentStatus == 'rejected' ||
+        assignmentStatus == 'declined' ||
+        assignmentStatus == 'expired';
     final completionState = BookingService().getTripCompletionState(booking);
     final completionStage = completionState['completionStage']?.toString();
     final start = DateTime.tryParse(
@@ -17308,13 +17313,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final offerRemainingSec = (waitingForDriver && assignedAt != null)
                     ? (600 - DateTime.now().difference(assignedAt).inSeconds).clamp(0, 600)
                     : 0;
-                final isOfferExpired = waitingForDriver && (assignedAt != null && offerRemainingSec <= 0);
+                final isOfferExpired = assignmentStatus == 'expired' || (waitingForDriver && (assignedAt != null && offerRemainingSec <= 0));
                 final effectiveWaitingForDriver = waitingForDriver && !isOfferExpired;
                 final driverAccepted =
                     assignmentStatus == 'accepted' ||
                     assignmentStatus == 'confirmed' ||
                     booking['status']?.toString().toLowerCase() == 'driver_accepted';
-                final driverDeclined = assignmentStatus == 'rejected' || isOfferExpired;
+                final driverDeclined = assignmentStatus == 'rejected' || assignmentStatus == 'declined' || isOfferExpired;
                 final status = booking['status'] as String? ?? 'pending';
                 final statusLower = status.toLowerCase();
                 final canTrack = _canTrackBooking(booking);
