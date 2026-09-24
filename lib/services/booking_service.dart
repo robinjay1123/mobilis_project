@@ -1483,6 +1483,19 @@ class BookingService {
         } catch (_) {}
       }
 
+      if (partnerId == null && isPartnerVehicle && ownerId != null && ownerId.isNotEmpty) {
+        try {
+          final partnerRow = await supabase
+              .from('partners')
+              .select('id')
+              .or('user_id.eq.$ownerId,id.eq.$ownerId')
+              .maybeSingle();
+          if (partnerRow != null) {
+            partnerId = partnerRow['id']?.toString();
+          }
+        } catch (_) {}
+      }
+
       final (
         restriction,
         overlappingBookings,

@@ -12,15 +12,17 @@
 --   6. Ensures authenticated partners can query public.partners.
 -- ==============================================================================
 
--- 1. Ensure columns exist on public.bookings
+-- 1. Ensure columns exist on public.bookings and public.vehicles
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS partner_id uuid;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS owner_id uuid;
 ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS partner_vehicle_id uuid;
+ALTER TABLE public.vehicles ADD COLUMN IF NOT EXISTS partner_id uuid;
 
 -- 2. Indexes
 CREATE INDEX IF NOT EXISTS idx_bookings_partner_id ON public.bookings(partner_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_owner_id ON public.bookings(owner_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_partner_vehicle_id ON public.bookings(partner_vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_vehicles_partner_id ON public.vehicles(partner_id);
 
 -- 3. Automatic resolution function & trigger for partner booking linkage
 CREATE OR REPLACE FUNCTION public.sync_booking_partner_linkage()
@@ -79,10 +81,17 @@ BEGIN
         NEW.owner_id := v_u_id;
       END IF;
     ELSE
-      -- Check vehicles table for owner_id / partner_id
-      SELECT v.owner_id, v.partner_id
+      -- Check vehicles table for owner_id and resolve partner_id via partner_id column, partners table, or owner_id
+      SELECT 
+        v.owner_id, 
+        COALESCE(
+          v.partner_id,
+          p.id,
+          CASE WHEN v.owner_role = 'partner' THEN v.owner_id ELSE NULL END
+        )
       INTO v_u_id, v_p_id
       FROM public.vehicles v
+      LEFT JOIN public.partners p ON (p.user_id = v.owner_id OR p.id = v.owner_id)
       WHERE v.id = NEW.vehicle_id
       LIMIT 1;
 

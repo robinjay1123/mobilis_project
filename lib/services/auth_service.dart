@@ -69,7 +69,7 @@ class AuthService {
       debugPrint('❌ Error fetching user role: $e');
     }
 
-    // Fallback to locally cached role
+    // Fallback 1: locally cached role
     try {
       final prefs = await SharedPreferences.getInstance();
       final cached = prefs.getString('cached_user_role_${user.id}');
@@ -79,7 +79,37 @@ class AuthService {
       }
     } catch (_) {}
 
-    return null;
+    // Fallback 2: user metadata role from auth (or default to 'renter' for authenticated users)
+    final meta = user.userMetadata ?? {};
+    final metaRole = meta['role']?.toString().toLowerCase().trim();
+    final effectiveRole =
+        (metaRole != null && metaRole.isNotEmpty) ? metaRole : 'renter';
+    debugPrint(
+      '🛡️ [AuthService] Fallback to effective role for ${user.id}: $effectiveRole',
+    );
+
+    // Self-heal: ensure user profile exists in public.users (e.g. first Google OAuth login)
+    unawaited(
+      _createOrUpdateUserProfile(
+        userId: user.id,
+        email: user.email ?? '',
+        fullName:
+            (meta['full_name'] ?? meta['name'] ?? meta['display_name'])
+                ?.toString(),
+        avatarUrl: (meta['avatar_url'] ?? meta['picture'])?.toString(),
+        phone: meta['phone']?.toString(),
+        role: effectiveRole,
+      ).catchError((e) {
+        debugPrint('Self-healing profile creation ignored: $e');
+      }),
+    );
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('cached_user_role_${user.id}', effectiveRole);
+    } catch (_) {}
+
+    return effectiveRole;
   }
 
   // Get application status for partner/driver onboarding
@@ -543,6 +573,8 @@ class AuthService {
             fullName:
                 (meta['full_name'] ?? meta['name'] ?? meta['display_name'])
                     as String?,
+            avatarUrl:
+                (meta['avatar_url'] ?? meta['picture']) as String?,
             phone: meta['phone'] as String?,
             location: meta['location'] as String?,
             role: userRole,
@@ -624,15 +656,21 @@ class AuthService {
         final userId = response.user!.id;
         final role = normalizedMetadata['role'] as String? ?? 'renter';
 
-        // Upsert user profile into public.users
-        await _createOrUpdateUserProfile(
-          userId: userId,
-          email: email,
-          fullName: normalizedMetadata['full_name'] as String?,
-          phone: normalizedMetadata['phone'] as String?,
-          location: normalizedMetadata['location'] as String?,
-          role: role,
-        );
+        // Upsert user profile into public.users (graceful fallback if awaiting email confirmation)
+        try {
+          await _createOrUpdateUserProfile(
+            userId: userId,
+            email: email,
+            fullName: normalizedMetadata['full_name'] as String?,
+            phone: normalizedMetadata['phone'] as String?,
+            location: normalizedMetadata['location'] as String?,
+            role: role,
+          );
+        } catch (e) {
+          debugPrint(
+            'Client profile upsert skipped during signup (DB trigger handles creation): $e',
+          );
+        }
 
         // Pre-cache role for immediate routing
         try {
@@ -699,11 +737,33 @@ class AuthService {
     }
   }
 
+  // Public helper to ensure user profile exists and is updated
+  Future<void> ensureUserProfile({
+    required String userId,
+    required String email,
+    String? fullName,
+    String? avatarUrl,
+    String? phone,
+    String? location,
+    String? role,
+  }) async {
+    await _createOrUpdateUserProfile(
+      userId: userId,
+      email: email,
+      fullName: fullName,
+      avatarUrl: avatarUrl,
+      phone: phone,
+      location: location,
+      role: role,
+    );
+  }
+
   // Create or update user profile in users table
   Future<void> _createOrUpdateUserProfile({
     required String userId,
     required String email,
     String? fullName,
+    String? avatarUrl,
     String? phone,
     String? location,
     String? role,
@@ -721,6 +781,7 @@ class AuthService {
         'email': email,
         'name': safeName,
         'full_name': safeName,
+        if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatar_url': avatarUrl,
         'phone': phone,
         'location': location,
         'id_verified': false,
@@ -735,6 +796,7 @@ class AuthService {
         'email': email,
         'name': safeName,
         'full_name': safeName,
+        if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatar_url': avatarUrl,
         'phone': phone,
         'id_verified': false,
         if (role != null && role.isNotEmpty) 'role': role,
@@ -748,6 +810,7 @@ class AuthService {
         'email': email,
         'name': safeName,
         'full_name': safeName,
+        if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatar_url': avatarUrl,
         'id_verified': false,
         if (role != null && role.isNotEmpty) 'role': role,
       },
