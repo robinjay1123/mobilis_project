@@ -191,7 +191,10 @@ class _BookingStatusDialogState extends State<BookingStatusDialog> {
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 360),
+          constraints: BoxConstraints(
+            maxWidth: 360,
+            maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+          ),
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: bgColor,
@@ -216,13 +219,15 @@ class _BookingStatusDialogState extends State<BookingStatusDialog> {
               ),
             ],
           ),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 400),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: _isProcessing
-                ? _buildLoadingState(context, textColor, secondaryTextColor)
-                : _buildSuccessState(context, textColor, secondaryTextColor),
+          child: SingleChildScrollView(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 400),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: _isProcessing
+                  ? _buildLoadingState(context, textColor, secondaryTextColor)
+                  : _buildSuccessState(context, textColor, secondaryTextColor),
+            ),
           ),
         ),
       ),

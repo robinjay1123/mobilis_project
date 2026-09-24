@@ -70,6 +70,9 @@ class _ReturnInspectionNoticeModalState extends State<ReturnInspectionNoticeModa
         child: Center(
           child: Container(
             width: 360,
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.90,
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 28),
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF1E2535) : Colors.white,
@@ -88,9 +91,10 @@ class _ReturnInspectionNoticeModalState extends State<ReturnInspectionNoticeModa
                 ),
               ],
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                 ScaleTransition(
                   scale: _scale,
                   child: Container(
@@ -198,6 +202,7 @@ class _ReturnInspectionNoticeModalState extends State<ReturnInspectionNoticeModa
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }

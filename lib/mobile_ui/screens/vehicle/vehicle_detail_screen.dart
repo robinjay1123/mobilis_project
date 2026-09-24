@@ -558,6 +558,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     showDialog(
       context: context,
       builder: (modalContext) => AlertDialog(
+        scrollable: true,
         backgroundColor: AppColors.darkCard,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -682,8 +683,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 side: BorderSide(color: AppColors.modalBorderOf(context)),
               ),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: Padding(
+                constraints: BoxConstraints(
+                  maxWidth: 520,
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.90,
+                ),
+                child: SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -2604,246 +2608,23 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final pdfUrl = await TermsService().getRentalTermsPdfUrl();
     if (!mounted) return null;
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    var accepted = false;
-    var hasScrolledToBottom = false;
-    final scrollController = ScrollController();
+    final acceptedTerms = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _TermsAgreementDialog(
+        terms: terms,
+        pdfUrl: pdfUrl,
+        onShowNoPdf: () => _showCheckModal(
+          ctx: context,
+          title: 'No PDF Available',
+          message:
+              'The admin has not uploaded a PDF version of the rental terms yet.',
+          accentColor: Colors.orange,
+          icon: Icons.info_outline_rounded,
+        ),
+      ),
+    ) ?? false;
 
-    void checkScrollEnd(StateSetter setDialogState) {
-      if (scrollController.hasClients) {
-        final pos = scrollController.position;
-        if (pos.pixels >= pos.maxScrollExtent - 50) {
-          if (!hasScrolledToBottom) {
-            setDialogState(() => hasScrolledToBottom = true);
-          }
-        }
-      }
-    }
-
-    final acceptedTerms =
-        await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (dialogContext) => StatefulBuilder(
-            builder: (context, setDialogState) {
-              scrollController.addListener(
-                () => checkScrollEnd(setDialogState),
-              );
-              return AlertDialog(
-                backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-                title: Text(
-                  'Rental Terms & Agreement',
-                  style: TextStyle(
-                    color: isDark
-                        ? AppColors.textPrimary
-                        : AppColors.lightTextPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                content: SizedBox(
-                  width: double.maxFinite,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      DialogStatusIndicator(
-                        isComplete: accepted,
-                        completeLabel: 'Rental terms acknowledged',
-                        incompleteLabel: 'Agreement required',
-                        completeDetail: 'Ready to continue with the booking.',
-                        incompleteDetail:
-                            'Please review and accept the rental terms before continuing.',
-                      ),
-                      const SizedBox(height: 14),
-
-                      // ── Scroll-to-read container ──────────────────────────
-                      Container(
-                        constraints: const BoxConstraints(maxHeight: 320),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? AppColors.darkBgSecondary
-                              : AppColors.lightBg,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isDark
-                                ? AppColors.borderColor
-                                : AppColors.lightBorderColor,
-                          ),
-                        ),
-                        child: SingleChildScrollView(
-                          controller: scrollController,
-                          child: Text(
-                            terms,
-                            style: TextStyle(
-                              height: 1.45,
-                              color: isDark
-                                  ? AppColors.textSecondary
-                                  : AppColors.lightTextSecondary,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // ── Scroll hint / PDF download row ────────────────────
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          // Scroll hint
-                          if (!hasScrolledToBottom)
-                            Expanded(
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.swipe_down_rounded,
-                                    size: 14,
-                                    color: isDark
-                                        ? AppColors.textSecondary
-                                        : AppColors.lightTextSecondary,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      'Scroll to the end to enable acceptance',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isDark
-                                            ? AppColors.textSecondary
-                                            : AppColors.lightTextSecondary,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          else
-                            const Spacer(),
-
-                          // Download PDF button
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppColors.primary,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            icon: const Icon(
-                              Icons.picture_as_pdf_rounded,
-                              size: 16,
-                            ),
-                            label: const Text(
-                              'Download PDF',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                            onPressed: () async {
-                              if (pdfUrl != null && pdfUrl.isNotEmpty) {
-                                final uri = Uri.parse(pdfUrl);
-                                if (await canLaunchUrl(uri)) {
-                                  await launchUrl(
-                                    uri,
-                                    mode: LaunchMode.externalApplication,
-                                  );
-                                }
-                              } else {
-                                if (context.mounted) {
-                                  await _showCheckModal(
-                                    ctx: context,
-                                    title: 'No PDF Available',
-                                    message:
-                                        'The admin has not uploaded a PDF version of the rental terms yet.',
-                                    accentColor: Colors.orange,
-                                    icon: Icons.info_outline_rounded,
-                                  );
-                                }
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 6),
-
-                      // ── Checkbox row (gated on scroll) ────────────────────
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Checkbox(
-                            value: accepted,
-                            activeColor: AppColors.primary,
-                            checkColor: Colors.black,
-                            // disabled until user scrolls to the end
-                            onChanged: hasScrolledToBottom
-                                ? (value) {
-                                    setDialogState(() {
-                                      accepted = value ?? false;
-                                    });
-                                  }
-                                : null,
-                          ),
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: Text(
-                                'I have read and agree to the rental terms, payment rules, and car rental policies.',
-                                style: TextStyle(
-                                  color: hasScrolledToBottom
-                                      ? (isDark
-                                            ? AppColors.textPrimary
-                                            : AppColors.lightTextPrimary)
-                                      : (isDark
-                                            ? AppColors.textSecondary
-                                            : AppColors.lightTextSecondary),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(dialogContext, false),
-                    child: Text(
-                      'Cancel',
-                      style: TextStyle(
-                        color: isDark
-                            ? AppColors.textSecondary
-                            : AppColors.lightTextSecondary,
-                      ),
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: accepted
-                        ? () => Navigator.pop(dialogContext, true)
-                        : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      minimumSize: const Size(0, 44),
-                    ),
-                    child: const Text(
-                      'Agree & Continue',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ) ??
-        false;
-
-    scrollController.dispose();
     return acceptedTerms ? terms : null;
   }
 
@@ -2895,7 +2676,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 540, maxHeight: 720),
+              constraints: BoxConstraints(
+                maxWidth: 540,
+                maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -4573,17 +4357,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.85,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 20,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -4790,8 +4578,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ),
                 ],
               ),
-            );
-          },
+            ),
+          );
+        },
         );
       },
     );
@@ -7566,3 +7355,430 @@ class _CheckAnimationModalState extends State<_CheckAnimationModal>
     );
   }
 }
+
+class _TermsAgreementDialog extends StatefulWidget {
+  final String terms;
+  final String? pdfUrl;
+  final VoidCallback? onShowNoPdf;
+
+  const _TermsAgreementDialog({
+    required this.terms,
+    this.pdfUrl,
+    this.onShowNoPdf,
+  });
+
+  @override
+  State<_TermsAgreementDialog> createState() => _TermsAgreementDialogState();
+}
+
+class _TermsAgreementDialogState extends State<_TermsAgreementDialog> {
+  final ScrollController _scrollController = ScrollController();
+  bool _accepted = false;
+  bool _hasScrolledToBottom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_scrollController.hasClients) {
+        if (_scrollController.position.maxScrollExtent <= 20) {
+          if (!_hasScrolledToBottom) {
+            setState(() => _hasScrolledToBottom = true);
+          }
+        }
+      }
+    });
+  }
+
+  void _onScroll() {
+    if (_scrollController.hasClients) {
+      final pos = _scrollController.position;
+      if (pos.pixels >= pos.maxScrollExtent - 40) {
+        if (!_hasScrolledToBottom) {
+          setState(() => _hasScrolledToBottom = true);
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handlePdfAction() async {
+    final pdfUrl = widget.pdfUrl;
+    if (pdfUrl != null && pdfUrl.isNotEmpty) {
+      final uri = Uri.parse(pdfUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } else {
+      if (widget.onShowNoPdf != null) {
+        widget.onShowNoPdf!();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No PDF version of the rental terms is available yet.',
+            ),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isCompact = screenHeight < 560;
+
+    final termsContentBox = Container(
+      constraints: BoxConstraints(
+        minHeight: isCompact ? 90 : 120,
+        maxHeight: isCompact ? 140 : double.infinity,
+      ),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgSecondary : AppColors.lightBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+        ),
+      ),
+      child: Scrollbar(
+        controller: _scrollController,
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          child: Text(
+            widget.terms,
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.45,
+              color: isDark
+                  ? AppColors.textSecondary
+                  : AppColors.lightTextSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return Dialog(
+      backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: screenWidth < 380 ? 12 : 16,
+        vertical: 18,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+        ),
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 520,
+          maxHeight: screenHeight * 0.88,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.description_outlined,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Rental Terms & Agreement',
+                      style: TextStyle(
+                        color: isDark
+                            ? AppColors.textPrimary
+                            : AppColors.lightTextPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    icon: const Icon(Icons.close_rounded),
+                    color: isDark
+                        ? AppColors.textSecondary
+                        : AppColors.lightTextSecondary,
+                    tooltip: 'Cancel',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              DialogStatusIndicator(
+                isComplete: _accepted,
+                completeLabel: 'Rental terms acknowledged',
+                incompleteLabel: 'Agreement required',
+                completeDetail: 'Ready to continue with the booking.',
+                incompleteDetail:
+                    'Please review and accept the rental terms before continuing.',
+              ),
+              const SizedBox(height: 12),
+
+              // Scrollable Terms Container
+              if (isCompact) termsContentBox else Flexible(child: termsContentBox),
+
+              const SizedBox(height: 8),
+
+              // Scroll hint & PDF download row
+              Row(
+                children: [
+                  if (!_hasScrolledToBottom)
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.swipe_down_rounded,
+                            size: 14,
+                            color: isDark
+                                ? AppColors.textSecondary
+                                : AppColors.lightTextSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'Scroll to the end to enable acceptance',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark
+                                    ? AppColors.textSecondary
+                                    : AppColors.lightTextSecondary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            size: 14,
+                            color: AppColors.success,
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            'Terms reviewed',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: const Icon(Icons.picture_as_pdf_rounded, size: 15),
+                    label: const Text(
+                      'Download PDF',
+                      style: TextStyle(fontSize: 11.5),
+                    ),
+                    onPressed: _handlePdfAction,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 8),
+
+              // Checkbox Acceptance Area - Visually distinct card, completely separated from Cancel button!
+              Container(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? (_hasScrolledToBottom
+                            ? AppColors.primary.withValues(alpha: 0.08)
+                            : AppColors.darkBgSecondary.withValues(alpha: 0.5))
+                      : (_hasScrolledToBottom
+                            ? AppColors.primary.withValues(alpha: 0.08)
+                            : AppColors.lightBgSecondary.withValues(alpha: 0.5)),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _accepted
+                        ? AppColors.primary
+                        : (isDark
+                              ? AppColors.borderColor
+                              : AppColors.lightBorderColor),
+                  ),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: _hasScrolledToBottom
+                        ? () => setState(() => _accepted = !_accepted)
+                        : () {
+                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Please scroll to the bottom of the terms to enable acceptance.',
+                                ),
+                                duration: Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Checkbox(
+                            value: _accepted,
+                            activeColor: AppColors.primary,
+                            checkColor: Colors.black,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                            onChanged: _hasScrolledToBottom
+                                ? (value) {
+                                    setState(() {
+                                      _accepted = value ?? false;
+                                    });
+                                  }
+                                : null,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'I have read and agree to the rental terms, payment rules, and car rental policies.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.3,
+                                fontWeight: _accepted
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                                color: _hasScrolledToBottom
+                                    ? (isDark
+                                          ? AppColors.textPrimary
+                                          : AppColors.lightTextPrimary)
+                                    : (isDark
+                                          ? AppColors.textSecondary
+                                          : AppColors.lightTextSecondary),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              // Action Buttons Row: Cancel and Agree & Continue (Never overlaps with checkbox!)
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                        foregroundColor: isDark
+                            ? AppColors.textSecondary
+                            : AppColors.lightTextSecondary,
+                        side: BorderSide(
+                          color: isDark
+                              ? AppColors.borderColor
+                              : AppColors.lightBorderColor,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      onPressed: _accepted
+                          ? () => Navigator.pop(context, true)
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        disabledBackgroundColor: isDark
+                            ? Colors.white10
+                            : Colors.black12,
+                        disabledForegroundColor: isDark
+                            ? Colors.white30
+                            : Colors.black26,
+                        minimumSize: const Size.fromHeight(44),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Agree & Continue',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

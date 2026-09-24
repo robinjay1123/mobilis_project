@@ -86,6 +86,7 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
         : AppColors.lightTextSecondary;
 
     return AlertDialog(
+      scrollable: true,
       backgroundColor: isDark ? AppColors.darkCard : Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       titlePadding: const EdgeInsets.fromLTRB(22, 22, 14, 8),
