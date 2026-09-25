@@ -13,6 +13,7 @@ import '../../widgets/custom_button.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../vehicle/signature_capture_screen.dart';
 import 'selfie_with_id_camera_screen.dart';
+import '../../../services/id_ocr_service.dart';
 
 class IdentityVerificationFormScreen extends StatefulWidget {
   final VoidCallback? onVerificationComplete;
@@ -73,6 +74,7 @@ class _IdentityVerificationFormScreenState
   bool _showDriverApplicationReview = false;
   bool _isInitialLoading = true;
   bool _isUpdatingVerification = false;
+  bool _isOcrScanning = false;
 
   // ID types dropdown
   final List<String> _idTypes = [
@@ -413,6 +415,235 @@ class _IdentityVerificationFormScreenState
       }
       _errorMessage = null;
     });
+
+    if (photoType == 'id_front' ||
+        (!['id_back', 'face_selfie', 'selfie_with_id', 'nbi_clearance']
+            .contains(photoType))) {
+      await _scanAndPrefillFromId(file);
+    } else if (photoType == 'id_back') {
+      await _scanAndPrefillFromId(file, isBack: true);
+    }
+  }
+
+  Future<void> _scanAndPrefillFromId(File file, {bool isBack = false}) async {
+    if (!mounted) return;
+    setState(() => _isOcrScanning = true);
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                isBack
+                    ? 'Scanning back of ID for additional details...'
+                    : 'Reading ID with AI to auto-fill form...',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+        backgroundColor: const Color(0xFF1E293B),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+    try {
+      final ocr = await IdOcrService().scanIdImage(file);
+      if (!mounted) return;
+
+      if (ocr != null && ocr.hasAnyData) {
+        final List<String> filledFields = [];
+
+        setState(() {
+          if (ocr.fullName != null && ocr.fullName!.trim().isNotEmpty) {
+            _nameController.text = ocr.fullName!.trim();
+            _touchedFields.add(_nameController);
+            filledFields.add('Full Name');
+          }
+
+          if (ocr.idType != null) {
+            for (final type in _idTypes) {
+              if (type.toLowerCase() == ocr.idType!.toLowerCase() ||
+                  (ocr.idType == "Driver's License" && type.contains('Driver')) ||
+                  (ocr.idType == 'National ID' && type.contains('National'))) {
+                _selectedIdType = type;
+                filledFields.add('ID Type');
+                break;
+              }
+            }
+          }
+
+          if (ocr.idNumber != null && ocr.idNumber!.trim().isNotEmpty) {
+            _idNumberController.text = ocr.idNumber!.trim();
+            _touchedFields.add(_idNumberController);
+            filledFields.add('ID Number');
+          }
+
+          if (ocr.expiryDate != null) {
+            _driverLicenseExpiryDate = ocr.expiryDate;
+            filledFields.add('Expiry Date');
+          }
+        });
+
+        if (filledFields.isNotEmpty) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.auto_awesome, color: Colors.amber, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Form Auto-Filled from ID! ✨',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Detected: ${filledFields.join(", ")}. Please review details.',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF0F172A),
+              duration: const Duration(seconds: 4),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } else if (!isBack) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'ID photo uploaded! If details were not auto-filled, you can type them in directly or take a clearer photo.',
+              style: TextStyle(fontSize: 13),
+            ),
+            backgroundColor: AppColors.warning,
+            duration: Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('OCR Auto-fill error: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isOcrScanning = false);
+      }
+    }
+  }
+
+  Future<void> _promptOcrScanForIdFront() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: widget.isDarkMode
+          ? AppColors.darkBgSecondary
+          : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Row(
+                children: [
+                  Icon(Icons.auto_awesome, color: AppColors.primary, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Scan ID Front with AI',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Select how you want to provide your ID photo. Text will be recognized on your device securely.',
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.camera_alt, color: AppColors.primary),
+                ),
+                title: const Text(
+                  'Take Photo with Camera',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text('Capture clear photo of ID front'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.photo_library, color: AppColors.primary),
+                ),
+                title: const Text(
+                  'Choose from Gallery',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text('Select existing ID photo'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source != null) {
+      await _pickVerificationPhoto('id_front', source);
+    }
   }
 
   Future<void> _openDriverSignatureDialog() async {
@@ -1318,6 +1549,12 @@ class _IdentityVerificationFormScreenState
                 _verificationStatus != 'submitted')
               const SizedBox(height: 16),
 
+            _buildOcrAutoFillBanner(
+              isDark: isDark,
+              textColor: textColor,
+              hintTextColor: hintTextColor,
+            ),
+
             // === NAME FIELD ===
             _buildFormField(
               isDark,
@@ -1584,6 +1821,11 @@ class _IdentityVerificationFormScreenState
               title: 'Basic Information',
               icon: Icons.person_outline,
               children: [
+                _buildOcrAutoFillBanner(
+                  isDark: isDark,
+                  textColor: textColor,
+                  hintTextColor: hintTextColor,
+                ),
                 _buildFormField(
                   isDark,
                   inputFillColor,
@@ -3223,6 +3465,145 @@ class _IdentityVerificationFormScreenState
     );
   }
 
+  Widget _buildOcrAutoFillBanner({
+    required bool isDark,
+    required Color textColor,
+    required Color hintTextColor,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF132032) : const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.primary.withOpacity(0.4),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Smart ID Auto-Fill',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'AI READY',
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Scan or upload a photo of your ID Front — we will automatically read and fill out your Name, ID Number, ID Type, and details!',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: hintTextColor,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _isOcrScanning
+                  ? null
+                  : () => _promptOcrScanForIdFront(),
+              icon: _isOcrScanning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          AppColors.primary,
+                        ),
+                      ),
+                    )
+                  : const Icon(Icons.document_scanner_outlined, size: 18),
+              label: Text(
+                _isOcrScanning
+                    ? 'Scanning ID Details...'
+                    : (_idFrontFile != null
+                        ? 'Re-Scan ID Front to Re-Fill'
+                        : '📷 Scan ID Front to Auto-Fill Form'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: BorderSide(
+                  color: AppColors.primary.withOpacity(0.8),
+                  width: 1.2,
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFormField(
     bool isDark,
     Color cardColor,
@@ -3575,13 +3956,55 @@ class _IdentityVerificationFormScreenState
           Row(
             children: [
               Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: textColor,
+                        ),
+                      ),
+                    ),
+                    if (photoType == 'id_front') ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: AppColors.primary.withOpacity(0.4),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.auto_awesome,
+                              size: 11,
+                              color: AppColors.primary,
+                            ),
+                            SizedBox(width: 3),
+                            Text(
+                              'Auto-Fills Form',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               if (hasNewFile)
@@ -3659,9 +4082,45 @@ class _IdentityVerificationFormScreenState
           Text(
             hasExistingUrl && !hasNewFile
                 ? 'Previously uploaded document is kept. Tap below if you wish to change or re-upload.'
-                : description,
+                : (photoType == 'id_front'
+                    ? 'Capture or upload the front of your ID. Details will be automatically extracted and filled in above.'
+                    : description),
             style: TextStyle(color: hintTextColor, fontSize: 13),
           ),
+          if (_isOcrScanning && photoType == 'id_front') ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.primary.withOpacity(0.35)),
+              ),
+              child: const Row(
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                    ),
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Scanning ID with AI to extract your details...',
+                      style: TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
 
           // Image preview or placeholder
