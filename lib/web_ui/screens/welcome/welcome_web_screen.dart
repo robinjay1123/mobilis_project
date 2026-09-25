@@ -810,7 +810,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                     _buildHeaderNavLink('Vehicles', () => _scrollToSection(_vehiclesKey)),
                     _buildHeaderNavLink('3-in-1 Platform', () => _scrollToSection(_modesKey)),
                     _buildHeaderNavLink('Pangasinan Hub', () => _scrollToSection(_hubKey)),
-                    _buildHeaderNavLink('Rate Estimator', () => _scrollToSection(_estimatorKey)),
+                    _buildHeaderNavLink('Cost Estimator', () => _scrollToSection(_estimatorKey)),
                     _buildHeaderNavLink('FAQ', () => _scrollToSection(_faqKey)),
                     _buildHeaderNavLink('Contact', () => _scrollToSection(_contactKey)),
                   ],
@@ -938,7 +938,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   Navigator.of(context).pop();
                   _scrollToSection(_hubKey);
                 }),
-                _buildMobileNavItem('💰  Rate Estimator', () {
+                _buildMobileNavItem('💰  Rental Cost Estimator', () {
                   Navigator.of(context).pop();
                   _scrollToSection(_estimatorKey);
                 }),
@@ -1962,7 +1962,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
   }
 
   // ==========================================
-  // 8. INTERACTIVE RENTAL RATE ESTIMATOR
+  // 8. INTERACTIVE RENTAL COST ESTIMATOR
   // ==========================================
   Widget _buildRateEstimatorSection(bool isDesktop, bool isTablet, double width) {
     final isMobile = width < 768;
@@ -1984,7 +1984,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           child: Column(
             children: [
               const Text(
-                'TRANSPARENT PRICING ESTIMATOR',
+                'TRANSPARENT RENTAL COST ESTIMATOR',
                 style: TextStyle(
                   color: AppColors.primary,
                   fontSize: 12,
@@ -2004,7 +2004,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
               ),
               const SizedBox(height: 12),
               const Text(
-                'Calculate transparent estimated rental fees according to PSDC Pangasinan pricing rules.',
+                'Calculate transparent estimated rental costs according to PSDC Pangasinan pricing rules.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
               ),
@@ -2157,7 +2157,13 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Total Estimated Rate', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                                const Expanded(
+                                  child: Text(
+                                    'Total Estimated Rental Cost',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
                                 Text(
                                   '₱${_calculatedEstimate.toStringAsFixed(2)}',
                                   style: const TextStyle(
