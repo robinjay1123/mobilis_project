@@ -6,6 +6,7 @@ import '../utils/input_validation.dart';
 import 'preferences_service.dart';
 import 'user_restriction_service.dart';
 import 'verification_service.dart';
+import 'database_health_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -1082,6 +1083,11 @@ class AuthService {
 
   // Get error message from exception
   String getErrorMessage(dynamic error) {
+    if (DatabaseHealthService.isDatabaseUnhealthyError(error)) {
+      DatabaseHealthService.showUnhealthyModal();
+      return 'The database is currently in an unhealthy state. Please make your actions again in a few minutes.';
+    }
+
     String errorMessage = 'An error occurred';
 
     if (error is AuthException) {

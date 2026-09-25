@@ -38,9 +38,11 @@ import 'web_ui/screens/operator/operator_web_screen.dart';
 import 'mobile_ui/screens/operator/operator_mobile_home_screen.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
+import 'services/database_health_service.dart';
 import 'services/notification_permission_service.dart';
 import 'services/push_notification_service.dart';
 import 'services/theme_service.dart';
+import 'utils/button_guard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -124,6 +126,8 @@ class _MyAppState extends State<MyApp> {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
+        builder: (context, child) =>
+            GlobalTapGuard(child: child ?? const SizedBox.shrink()),
         home: NoInternetScreen(
           onRetry: () async {
             final connectivityService = ConnectivityService();
@@ -137,11 +141,14 @@ class _MyAppState extends State<MyApp> {
     }
 
     return MaterialApp(
+      navigatorKey: DatabaseHealthService.navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'Mobilis',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      builder: (context, child) =>
+          GlobalTapGuard(child: child ?? const SizedBox.shrink()),
       home: DoubleBackExitWrapper(
         child: AuthWrapper(
           onThemeToggle: _toggleTheme,

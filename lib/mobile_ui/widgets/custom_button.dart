@@ -1,13 +1,22 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../services/database_health_service.dart';
 import '../theme/app_colors.dart';
 
-class CustomButton extends StatelessWidget {
+/// Reusable application button equipped with anti-spam button guards,
+/// debounce protection, and automatic database health error handling.
+class CustomButton extends StatefulWidget {
   final String label;
-  final VoidCallback? onPressed;
+  final FutureOr<void> Function()? onPressed;
   final bool isLoading;
   final Color? backgroundColor;
   final Color? textColor;
   final double borderRadius;
+  final Duration cooldown;
+  final Widget? icon;
+  final double? height;
+  final double? width;
+  final EdgeInsetsGeometry? padding;
 
   const CustomButton({
     super.key,
@@ -17,32 +26,80 @@ class CustomButton extends StatelessWidget {
     this.backgroundColor,
     this.textColor,
     this.borderRadius = 12,
+    this.cooldown = const Duration(milliseconds: 1000),
+    this.icon,
+    this.height,
+    this.width,
+    this.padding,
   });
 
   @override
+  State<CustomButton> createState() => _CustomButtonState();
+}
+
+class _CustomButtonState extends State<CustomButton> {
+  bool _isLocallyExecuting = false;
+  DateTime? _lastPressedAt;
+
+  Future<void> _handlePress() async {
+    final now = DateTime.now();
+    // Guard against spam or concurrent taps
+    if (widget.isLoading || _isLocallyExecuting || widget.onPressed == null) {
+      return;
+    }
+
+    if (_lastPressedAt != null &&
+        now.difference(_lastPressedAt!) < widget.cooldown) {
+      return;
+    }
+    _lastPressedAt = now;
+
+    try {
+      final result = widget.onPressed!();
+      if (result is Future) {
+        if (mounted) setState(() => _isLocallyExecuting = true);
+        await result;
+      }
+    } catch (e) {
+      if (mounted) {
+        DatabaseHealthService.handlePossibleDatabaseError(e, context);
+      }
+      rethrow;
+    } finally {
+      if (mounted) {
+        setState(() => _isLocallyExecuting = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isDisabled = onPressed == null;
+    final busy = widget.isLoading || _isLocallyExecuting;
+    final isDisabled = widget.onPressed == null;
+
+    final baseBg = widget.backgroundColor ?? AppColors.primary;
+    final effectiveBg =
+        isDisabled ? baseBg.withValues(alpha: 0.5) : baseBg;
+    final effectiveFg = widget.textColor ?? Colors.black;
 
     return SizedBox(
-      width: double.infinity,
-      height: 48,
+      width: widget.width ?? double.infinity,
+      height: widget.height ?? 48,
       child: ElevatedButton(
-        onPressed: isLoading || isDisabled ? null : onPressed,
+        onPressed: busy || isDisabled ? null : _handlePress,
         style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          backgroundColor: isDisabled
-              ? (backgroundColor ?? AppColors.primary).withOpacity(0.5)
-              : (backgroundColor ?? AppColors.primary),
-          foregroundColor: textColor ?? Colors.black,
+          padding: widget.padding ??
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          backgroundColor: effectiveBg,
+          foregroundColor: effectiveFg,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(borderRadius),
+            borderRadius: BorderRadius.circular(widget.borderRadius),
           ),
           elevation: 0,
-          disabledBackgroundColor: (backgroundColor ?? AppColors.primary)
-              .withOpacity(0.5),
-          disabledForegroundColor: (textColor ?? Colors.black).withOpacity(0.5),
+          disabledBackgroundColor: baseBg.withValues(alpha: 0.5),
+          disabledForegroundColor: effectiveFg.withValues(alpha: 0.5),
         ),
-        child: isLoading
+        child: busy
             ? const SizedBox(
                 height: 24,
                 width: 24,
@@ -51,17 +108,29 @@ class CustomButton extends StatelessWidget {
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
                 ),
               )
-            : FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (widget.icon != null) ...[
+                    widget.icon!,
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        widget.label,
+                        maxLines: 1,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
       ),
     );

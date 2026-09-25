@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
+import '../../../utils/button_guard.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'forgot_password_web_screen.dart';
@@ -600,7 +601,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
           width: double.infinity,
           height: 52,
           child: ElevatedButton(
-            onPressed: isLoading ? null : _handleLogin,
+            onPressed: isLoading ? null : ButtonGuard.wrap(_handleLogin),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.black,
@@ -664,7 +665,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
           width: double.infinity,
           height: 52,
           child: OutlinedButton(
-            onPressed: _handleGoogleLogin,
+            onPressed: isLoading ? null : ButtonGuard.wrap(_handleGoogleLogin),
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: AppColors.borderColor),
               foregroundColor: Colors.white,
