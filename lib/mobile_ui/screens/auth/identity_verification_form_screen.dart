@@ -12,6 +12,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../vehicle/signature_capture_screen.dart';
+import 'selfie_with_id_camera_screen.dart';
 
 class IdentityVerificationFormScreen extends StatefulWidget {
   final VoidCallback? onVerificationComplete;
@@ -386,7 +387,12 @@ class _IdentityVerificationFormScreenState
     String photoType,
     ImageSource source,
   ) async {
-    final file = await VerificationService.pickImage(source: source);
+    final File? file;
+    if (photoType == 'selfie_with_id' && source == ImageSource.camera) {
+      file = await SelfieWithIdCameraScreen.open(context);
+    } else {
+      file = await VerificationService.pickImage(source: source);
+    }
     if (file == null || !mounted) return;
     setState(() {
       switch (photoType) {
