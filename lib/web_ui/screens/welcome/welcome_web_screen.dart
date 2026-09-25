@@ -1403,8 +1403,9 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: isMobile ? MainAxisAlignment.start : MainAxisAlignment.center,
                   children: [
                     _buildCategoryFilterTab('all', 'All Vehicles', Icons.directions_car_filled_rounded),
                     _buildCategoryFilterTab('sedan', 'Sedans', Icons.directions_car_rounded),
@@ -1422,36 +1423,53 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
                   padding: EdgeInsets.all(40),
                   child: CircularProgressIndicator(color: AppColors.primary),
                 )
+              else if (vehicles.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    children: [
+                      Icon(Icons.directions_car_rounded, size: 48, color: Colors.white.withValues(alpha: 0.3)),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'No vehicles available in this category.',
+                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+                      ),
+                    ],
+                  ),
+                )
               else
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    int crossAxisCount = 3;
-                    double childAspectRatio = 1.18;
-                    if (constraints.maxWidth < 680) {
+                    final availableWidth = constraints.maxWidth;
+                    final int crossAxisCount;
+                    if (availableWidth < 680) {
                       crossAxisCount = 1;
-                      childAspectRatio = 1.12;
-                    } else if (constraints.maxWidth < 1050) {
+                    } else if (availableWidth < 1050) {
                       crossAxisCount = 2;
-                      childAspectRatio = 1.16;
+                    } else {
+                      crossAxisCount = 3;
                     }
 
-                    return GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: vehicles.length,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        crossAxisSpacing: 18,
-                        mainAxisSpacing: 18,
-                        childAspectRatio: childAspectRatio,
+                    const double spacing = 18;
+                    final double cardWidth = crossAxisCount == 1
+                        ? availableWidth
+                        : (availableWidth - (spacing * (crossAxisCount - 1))) / crossAxisCount;
+
+                    return Center(
+                      child: Wrap(
+                        spacing: spacing,
+                        runSpacing: spacing,
+                        alignment: WrapAlignment.start,
+                        children: vehicles.map((v) {
+                          return SizedBox(
+                            width: cardWidth,
+                            child: _HoverVehicleCard(
+                              vehicle: v,
+                              onBook: () => _showDownloadApkDialog(selectedVehicle: v),
+                            ),
+                          );
+                        }).toList(),
                       ),
-                      itemBuilder: (context, index) {
-                        final v = vehicles[index];
-                        return _HoverVehicleCard(
-                          vehicle: v,
-                          onBook: () => _showDownloadApkDialog(selectedVehicle: v),
-                        );
-                      },
                     );
                   },
                 ),
@@ -1737,15 +1755,31 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
           ),
           const SizedBox(height: 20),
           Wrap(
-            spacing: 16,
+            spacing: 20,
             runSpacing: 10,
-            children: features.map((f) => Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 16),
-                const SizedBox(width: 8),
-                Text(f, style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13, fontWeight: FontWeight.w600)),
-              ],
+            children: features.map((f) => SizedBox(
+              width: isMobile ? double.infinity : 320,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      f,
+                      style: const TextStyle(
+                        color: Color(0xFFCBD5E1),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             )).toList(),
           ),
           const SizedBox(height: 24),
@@ -2856,10 +2890,13 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> with SingleTickerP
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        transform: Matrix4.translationValues(0, _isHovered ? -6 : 0, 0),
+      child: InkWell(
+        onTap: widget.onBook,
+        borderRadius: BorderRadius.circular(20),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          transform: Matrix4.translationValues(0, _isHovered ? -6 : 0, 0),
         decoration: BoxDecoration(
           color: _isHovered ? const Color(0xFF0D2048) : const Color(0xFF091636),
           borderRadius: BorderRadius.circular(20),
@@ -3063,27 +3100,34 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> with SingleTickerP
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '₱${priceDay.toStringAsFixed(0)} / day',
-                            style: const TextStyle(
-                              color: AppColors.primary,
-                              fontSize: 15.5,
-                              fontWeight: FontWeight.w900,
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '₱${priceDay.toStringAsFixed(0)} / day',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
-                          ),
-                          Text(
-                            '₱${priceHour.toStringAsFixed(0)}/hr (12h min)',
-                            style: const TextStyle(
-                              color: Color(0xFF94A3B8),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
+                            Text(
+                              '₱${priceHour.toStringAsFixed(0)}/hr (12h min)',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF94A3B8),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed: widget.onBook,
                         style: ElevatedButton.styleFrom(
@@ -3111,6 +3155,7 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> with SingleTickerP
               ),
             ),
           ],
+          ),
         ),
       ),
     );
