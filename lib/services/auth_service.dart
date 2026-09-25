@@ -611,12 +611,22 @@ class AuthService {
     }
   }
 
+  final Set<String> _pendingSignups = <String>{};
+
   // Sign up with email and password
   Future<AuthResponse> signup({
     required String email,
     required String password,
     required Map<String, dynamic> userMetadata,
   }) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    if (_pendingSignups.contains(normalizedEmail)) {
+      throw const AuthException(
+        'Account creation already in progress. Please wait a moment.',
+      );
+    }
+    _pendingSignups.add(normalizedEmail);
+
     try {
       debugPrint('Attempting signup for: $email');
 
@@ -638,7 +648,9 @@ class AuthService {
         email: email,
         password: password,
         data: normalizedMetadata,
-        emailRedirectTo: 'io.supabase.flutter://login-callback/',
+        emailRedirectTo: kIsWeb
+            ? Uri.base.origin
+            : 'io.supabase.flutter://login-callback/',
       );
 
       // In Supabase, if email is already registered with confirmation enabled,
@@ -708,6 +720,8 @@ class AuthService {
     } catch (e) {
       debugPrint('Unexpected error during signup: $e');
       rethrow;
+    } finally {
+      _pendingSignups.remove(normalizedEmail);
     }
   }
 

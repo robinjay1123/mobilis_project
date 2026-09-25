@@ -33,6 +33,8 @@ class _SignupScreenState extends State<SignupScreen> {
   bool obscurePassword = true;
   bool obscureConfirmPassword = true;
   bool isLoading = false;
+  bool _isSubmitting = false;
+  DateTime? _lastSubmitTime;
   String? selectedRole; // 'renter' or 'partner'
   bool _didApplyInitialRouteArgs = false;
   bool _isPartnerRegistration = false;
@@ -80,6 +82,15 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   void _handleSignup() async {
+    final now = DateTime.now();
+    // Anti-spam guard: prevent rapid duplicate submissions
+    if (isLoading || _isSubmitting) return;
+    if (_lastSubmitTime != null &&
+        now.difference(_lastSubmitTime!) < const Duration(milliseconds: 1500)) {
+      return;
+    }
+    _lastSubmitTime = now;
+
     // Check internet connection first
     final connectivityService = ConnectivityService();
     if (!connectivityService.isOnline) {
@@ -107,15 +118,25 @@ class _SignupScreenState extends State<SignupScreen> {
         _phoneError != null ||
         _locationError != null ||
         _addressError != null) {
+      _showErrorSnackBar(
+        _nameError ??
+            _emailError ??
+            _phoneError ??
+            _locationError ??
+            _addressError ??
+            'Please fill in all required fields correctly',
+      );
       return;
     }
 
     if (!_passwordMeetsRequirements(passwordController.text)) {
+      _showErrorSnackBar('Password does not fulfill all requirements');
       setState(() {});
       return;
     }
 
     if (passwordController.text != confirmPasswordController.text) {
+      _showErrorSnackBar('Passwords do not match');
       setState(() {});
       return;
     }
@@ -127,6 +148,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
     setState(() {
       isLoading = true;
+      _isSubmitting = true;
     });
 
     try {
@@ -156,6 +178,7 @@ class _SignupScreenState extends State<SignupScreen> {
       if (mounted) {
         // Check if account was created successfully
         if (response.user != null) {
+          final signupEmail = emailController.text.trim();
           // Clear controllers and saved form data on successful signup
           fullNameController.clear();
           emailController.clear();
@@ -171,8 +194,15 @@ class _SignupScreenState extends State<SignupScreen> {
             return false;
           });
 
-          // Navigate immediately to verification options
-          Navigator.of(context).pushReplacementNamed('/verification-options');
+          // Navigate based on whether an active session was created
+          if (response.session != null) {
+            Navigator.of(context).pushReplacementNamed('/verification-options');
+          } else {
+            Navigator.of(context).pushReplacementNamed(
+              '/email-confirmation',
+              arguments: {'email': signupEmail},
+            );
+          }
         } else {
           _showErrorSnackBar('Account creation failed. Please try again.');
         }
@@ -186,6 +216,7 @@ class _SignupScreenState extends State<SignupScreen> {
       if (mounted) {
         setState(() {
           isLoading = false;
+          _isSubmitting = false;
         });
       }
     }
@@ -335,7 +366,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.2),
+                  color: AppColors.primary.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Row(
@@ -365,7 +396,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.12),
+                    color: AppColors.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: AppColors.primary, width: 1.5),
                   ),
@@ -435,7 +466,7 @@ class _SignupScreenState extends State<SignupScreen> {
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: selectedRole == 'renter'
-                                  ? AppColors.primary.withOpacity(0.15)
+                                  ? AppColors.primary.withValues(alpha: 0.15)
                                   : AppColors.darkBgSecondary,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
@@ -452,7 +483,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                   height: 48,
                                   decoration: BoxDecoration(
                                     color: selectedRole == 'renter'
-                                        ? AppColors.primary.withOpacity(0.2)
+                                        ? AppColors.primary.withValues(alpha: 0.2)
                                         : AppColors.darkBgTertiary,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -527,7 +558,7 @@ class _SignupScreenState extends State<SignupScreen> {
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: selectedRole == 'partner'
-                                  ? AppColors.primary.withOpacity(0.15)
+                                  ? AppColors.primary.withValues(alpha: 0.15)
                                   : AppColors.darkBgSecondary,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
@@ -544,7 +575,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                   height: 48,
                                   decoration: BoxDecoration(
                                     color: selectedRole == 'partner'
-                                        ? AppColors.primary.withOpacity(0.2)
+                                        ? AppColors.primary.withValues(alpha: 0.2)
                                         : AppColors.darkBgTertiary,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -619,7 +650,7 @@ class _SignupScreenState extends State<SignupScreen> {
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: selectedRole == 'driver'
-                                  ? AppColors.primary.withOpacity(0.15)
+                                  ? AppColors.primary.withValues(alpha: 0.15)
                                   : AppColors.darkBgSecondary,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
@@ -636,7 +667,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                   height: 48,
                                   decoration: BoxDecoration(
                                     color: selectedRole == 'driver'
-                                        ? AppColors.primary.withOpacity(0.2)
+                                        ? AppColors.primary.withValues(alpha: 0.2)
                                         : AppColors.darkBgTertiary,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -998,9 +1029,11 @@ class _SignupScreenState extends State<SignupScreen> {
 
               // Next button
               CustomButton(
-                label: 'Next',
-                onPressed: _handleSignup,
-                isLoading: isLoading,
+                label: (isLoading || _isSubmitting)
+                    ? 'Creating Account...'
+                    : 'Next',
+                onPressed: (isLoading || _isSubmitting) ? null : _handleSignup,
+                isLoading: isLoading || _isSubmitting,
               ),
               const SizedBox(height: 16),
 
