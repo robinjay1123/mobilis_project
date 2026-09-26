@@ -1627,10 +1627,7 @@ class TrackingService {
                 partner_id,
                 pickup_location,
                 dropoff_location,
-                pickup_latitude,
-                pickup_longitude,
-                dropoff_latitude,
-                dropoff_longitude,
+                metadata,
                 start_at,
                 end_at,
                 vehicles:vehicle_id (
@@ -1664,10 +1661,7 @@ class TrackingService {
                 partner_id,
                 pickup_location,
                 dropoff_location,
-                pickup_latitude,
-                pickup_longitude,
-                dropoff_latitude,
-                dropoff_longitude,
+                metadata,
                 start_at,
                 end_at,
                 vehicles:vehicle_id (
@@ -1698,10 +1692,7 @@ class TrackingService {
                   partner_id,
                   pickup_location,
                   dropoff_location,
-                  pickup_latitude,
-                  pickup_longitude,
-                  dropoff_latitude,
-                  dropoff_longitude,
+                  metadata,
                   start_at,
                   end_at,
                   vehicles:vehicle_id (
@@ -1736,6 +1727,13 @@ class TrackingService {
         for (final loc in response) {
           final vid = loc['vehicle_id']?.toString().trim() ?? '';
           final booking = loc['bookings'] as Map<String, dynamic>?;
+          if (booking != null && booking['metadata'] is Map) {
+            final meta = Map<String, dynamic>.from(booking['metadata'] as Map);
+            booking['pickup_latitude'] ??= meta['pickup_latitude'];
+            booking['pickup_longitude'] ??= meta['pickup_longitude'];
+            booking['dropoff_latitude'] ??= meta['dropoff_latitude'];
+            booking['dropoff_longitude'] ??= meta['dropoff_longitude'];
+          }
           final bVid = (booking?['vehicle_id'] ?? booking?['vehicles']?['id'])?.toString().trim() ?? '';
           final bPlate = (booking?['vehicles']?['plate_number'] ?? '')
               .toString()

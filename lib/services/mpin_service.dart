@@ -398,6 +398,15 @@ class MpinService {
         mpinsMap = Map<String, dynamic>.from(currentRes['value'] as Map);
       }
 
+      // If already correctly synced in registry, skip upsert to prevent redundant DB writes and RLS errors
+      final existing = mpinsMap[user.id];
+      if (existing is Map &&
+          existing['salt']?.toString() == salt &&
+          existing['hash']?.toString() == hash &&
+          existing['enabled'] == true) {
+        return;
+      }
+
       mpinsMap[user.id] = {
         'operator_id': user.id,
         'operator_name': name,
@@ -414,7 +423,7 @@ class MpinService {
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'key');
     } catch (e) {
-      debugPrint('Auto sync operator MPIN registry note: $e');
+      debugPrint('Auto sync operator MPIN registry note (may require staff RLS policy): $e');
     }
   }
 

@@ -3456,7 +3456,6 @@ class BookingService {
               .from('driver_job_assignments')
               .update({
                 'status': 'expired',
-                'rejection_reason': 'Auto-declined: 10-minute driver acceptance window expired',
                 'replied_at': nowIso,
                 'updated_at': nowIso,
               })
@@ -3541,7 +3540,6 @@ class BookingService {
           .from('driver_job_assignments')
           .update({
             'status': 'expired',
-            'rejection_reason': 'Auto-declined: 10-minute driver acceptance window expired',
             'replied_at': nowIso,
             'updated_at': nowIso,
           })

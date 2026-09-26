@@ -870,7 +870,6 @@ class DriverService {
             .from('driver_job_assignments')
             .update({
               'status': 'rejected',
-              'rejection_reason': reason ?? 'Driver declined offer',
               'replied_at': now,
               'updated_at': now,
             })
