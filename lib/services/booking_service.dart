@@ -1367,6 +1367,7 @@ class BookingService {
     String? coTravelerName,
     String? coTravelerPhone,
     String? coTravelerLicense,
+    String? coTravelerIdType,
     String? coTravelerSignatureText,
     String? coTravelerSignatureUrl,
     String? coTravelerValidIdUrl,
@@ -1621,6 +1622,8 @@ class BookingService {
           'co_traveler_name': coTravelerName.trim(),
         if (coTravelerPhone != null && coTravelerPhone.trim().isNotEmpty)
           'co_traveler_phone': coTravelerPhone.trim(),
+        if (coTravelerIdType != null && coTravelerIdType.trim().isNotEmpty)
+          'co_traveler_id_type': coTravelerIdType.trim(),
         if (coTravelerLicense != null && coTravelerLicense.trim().isNotEmpty)
           'co_traveler_license': coTravelerLicense.trim(),
         if (coTravelerSignatureText != null && coTravelerSignatureText.trim().isNotEmpty)
