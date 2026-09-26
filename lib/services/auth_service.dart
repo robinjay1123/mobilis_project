@@ -1129,6 +1129,10 @@ class AuthService {
       return 'Network connection error. Please check your internet connection.';
     } else if (errorMessage.contains('timeout')) {
       return 'Request timed out. Please try again.';
+    } else if (errorMessage.toLowerCase().contains('error sending recovery email') ||
+        errorMessage.contains('500') ||
+        errorMessage.toLowerCase().contains('internal server error')) {
+      return 'Failed to send recovery email. Please check your email configuration in Supabase or contact support.';
     }
 
     return errorMessage;

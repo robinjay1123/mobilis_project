@@ -73,21 +73,21 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
       );
 
       debugPrint('✅ [ForgotPasswordWebScreen] Reset request completed');
+      if (mounted) {
+        setState(() {
+          emailSent = true;
+        });
+      }
     } catch (e) {
       debugPrint('❌ [ForgotPasswordWebScreen] Error during reset request: $e');
-      if (mounted && e.toString().contains('rate limit')) {
+      if (mounted) {
         final authService = AuthService();
         _showErrorSnackBar(authService.getErrorMessage(e));
-        setState(() {
-          isLoading = false;
-        });
-        return;
       }
     } finally {
       if (mounted) {
         setState(() {
           isLoading = false;
-          emailSent = true;
         });
       }
     }
