@@ -12,13 +12,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/leaflet_map.dart';
 import '../../widgets/mpin_verification_dialog.dart';
 import '../../widgets/booking_status_dialog.dart';
 import '../../widgets/dialog_status_indicator.dart';
-import '../../widgets/optimized_network_image.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
@@ -234,22 +234,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           _isLoading = false;
         });
       }
-    }
-  }
-
-  Future<void> _loadVehicleRating() async {
-    try {
-      final ratingSummary = await TripRatingService().getVehicleRatingSummary(
-        widget.vehicleId,
-      );
-      if (_vehicle != null && mounted) {
-        setState(() {
-          _vehicle!['rating'] = ratingSummary['average'];
-          _vehicle!['rating_count'] = ratingSummary['count'];
-        });
-      }
-    } catch (e) {
-      debugPrint('Could not load vehicle rating: $e');
     }
   }
 
