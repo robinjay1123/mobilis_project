@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../services/address_search_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
@@ -263,6 +264,102 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
+  Widget _buildRoleOptionCard({
+    required String role,
+    required String title,
+    required String subtitle,
+    required Widget Function(bool isSelected) iconBuilder,
+  }) {
+    final isSelected = selectedRole == role;
+    return SizedBox(
+      width: 140,
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            selectedRole = role;
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.primary.withValues(alpha: 0.15)
+                : AppColors.darkBgSecondary,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? AppColors.primary : AppColors.borderColor,
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppColors.primary.withValues(alpha: 0.2)
+                      : AppColors.darkBgTertiary,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: iconBuilder(isSelected),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isSelected
+                      ? AppColors.primary
+                      : AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              // Radio indicator
+              Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textTertiary,
+                    width: 2,
+                  ),
+                ),
+                child: isSelected
+                    ? Center(
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   String? get _phoneError {
     if (!_phoneTouched) return null;
     return validatePhilippineMobile(phoneController.text);
@@ -510,279 +607,42 @@ class _SignupScreenState extends State<SignupScreen> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      // Renter option
-                      SizedBox(
-                        width: 140,
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              selectedRole = 'renter';
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: selectedRole == 'renter'
-                                  ? AppColors.primary.withValues(alpha: 0.15)
-                                  : AppColors.darkBgSecondary,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: selectedRole == 'renter'
-                                    ? AppColors.primary
-                                    : AppColors.borderColor,
-                                width: selectedRole == 'renter' ? 2 : 1,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    color: selectedRole == 'renter'
-                                        ? AppColors.primary.withValues(alpha: 0.2)
-                                        : AppColors.darkBgTertiary,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Image.asset(
-                                    'assets/icon/logo1.png',
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Rent a Car',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: selectedRole == 'renter'
-                                        ? AppColors.primary
-                                        : AppColors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Find & book',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 8),
-                                // Radio indicator
-                                Container(
-                                  width: 20,
-                                  height: 20,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: selectedRole == 'renter'
-                                          ? AppColors.primary
-                                          : AppColors.textTertiary,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: selectedRole == 'renter'
-                                      ? Center(
-                                          child: Container(
-                                            width: 10,
-                                            height: 10,
-                                            decoration: const BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: AppColors.primary,
-                                            ),
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                              ],
-                            ),
-                          ),
+                      _buildRoleOptionCard(
+                        role: 'renter',
+                        title: 'Rent a Car',
+                        subtitle: 'Find & book',
+                        iconBuilder: (isSelected) => Icon(
+                          Icons.directions_car_filled_rounded,
+                          size: 26,
+                          color: isSelected
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
                         ),
                       ),
                       const SizedBox(width: 12),
-                      // Partner option
-                      SizedBox(
-                        width: 140,
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              selectedRole = 'partner';
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: selectedRole == 'partner'
-                                  ? AppColors.primary.withValues(alpha: 0.15)
-                                  : AppColors.darkBgSecondary,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: selectedRole == 'partner'
-                                    ? AppColors.primary
-                                    : AppColors.borderColor,
-                                width: selectedRole == 'partner' ? 2 : 1,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    color: selectedRole == 'partner'
-                                        ? AppColors.primary.withValues(alpha: 0.2)
-                                        : AppColors.darkBgTertiary,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Image.asset(
-                                    'assets/icon/logo1.png',
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'List My Car',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: selectedRole == 'partner'
-                                        ? AppColors.primary
-                                        : AppColors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Earn money',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 8),
-                                // Radio indicator
-                                Container(
-                                  width: 20,
-                                  height: 20,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: selectedRole == 'partner'
-                                          ? AppColors.primary
-                                          : AppColors.textTertiary,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: selectedRole == 'partner'
-                                      ? Center(
-                                          child: Container(
-                                            width: 10,
-                                            height: 10,
-                                            decoration: const BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: AppColors.primary,
-                                            ),
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                              ],
-                            ),
-                          ),
+                      _buildRoleOptionCard(
+                        role: 'partner',
+                        title: 'List My Car',
+                        subtitle: 'Earn money',
+                        iconBuilder: (isSelected) => Icon(
+                          Icons.key_rounded,
+                          size: 26,
+                          color: isSelected
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
                         ),
                       ),
                       const SizedBox(width: 12),
-                      // Driver option
-                      SizedBox(
-                        width: 140,
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              selectedRole = 'driver';
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: selectedRole == 'driver'
-                                  ? AppColors.primary.withValues(alpha: 0.15)
-                                  : AppColors.darkBgSecondary,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: selectedRole == 'driver'
-                                    ? AppColors.primary
-                                    : AppColors.borderColor,
-                                width: selectedRole == 'driver' ? 2 : 1,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    color: selectedRole == 'driver'
-                                        ? AppColors.primary.withValues(alpha: 0.2)
-                                        : AppColors.darkBgTertiary,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Image.asset(
-                                    'assets/icon/logo1.png',
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Be a Driver',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: selectedRole == 'driver'
-                                        ? AppColors.primary
-                                        : AppColors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Drive & earn',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 8),
-                                // Radio indicator
-                                Container(
-                                  width: 20,
-                                  height: 20,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: selectedRole == 'driver'
-                                          ? AppColors.primary
-                                          : AppColors.textTertiary,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: selectedRole == 'driver'
-                                      ? Center(
-                                          child: Container(
-                                            width: 10,
-                                            height: 10,
-                                            decoration: const BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              color: AppColors.primary,
-                                            ),
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                              ],
-                            ),
-                          ),
+                      _buildRoleOptionCard(
+                        role: 'driver',
+                        title: 'Be a Driver',
+                        subtitle: 'Drive & earn',
+                        iconBuilder: (isSelected) => FaIcon(
+                          FontAwesomeIcons.userTie,
+                          size: 24,
+                          color: isSelected
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ],
