@@ -37785,8 +37785,8 @@ class _OperatorAssignDriverDialogState
     // Initial load
     _fetchDrivers(initial: true);
 
-    // Periodic live tracker refresh every 8 seconds
-    _trackerTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+    // Periodic live tracker refresh every 15 seconds
+    _trackerTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       _refreshTrackerAndDrivers();
     });
   }
@@ -38498,8 +38498,8 @@ class _OperatorEnlargedDriverMapDialogState
     _drivers = List.from(widget.initialDrivers);
     _lastTrackerUpdate = DateTime.now();
 
-    // Constant live tracker refresh every 8 seconds while enlarged map is open
-    _trackerTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+    // Constant live tracker refresh every 15 seconds while enlarged map is open
+    _trackerTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       _pollLiveTracker();
     });
   }

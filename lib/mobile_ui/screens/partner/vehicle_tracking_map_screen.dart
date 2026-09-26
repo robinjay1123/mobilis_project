@@ -41,8 +41,8 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
   void initState() {
     super.initState();
     _fetchPosition(showLoader: true);
-    // Responsive polling every 5 seconds while screen is open
-    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    // Responsive polling every 15 seconds while screen is open
+    _pollingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) {
         _fetchPosition(showLoader: false);
       }

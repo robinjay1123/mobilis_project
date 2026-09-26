@@ -13847,8 +13847,8 @@ class _PartnerAssignDriverModalState extends State<_PartnerAssignDriverModal> {
     super.initState();
     _fetchDrivers(initial: true);
 
-    // Continuous 8-second live GPS tracker auto-refresh
-    _trackerTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+    // Continuous 15-second live GPS tracker auto-refresh
+    _trackerTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       _pollLiveTracker();
     });
   }
@@ -14468,8 +14468,8 @@ class _PartnerEnlargedDriverMapDialogState
     _drivers = List.from(widget.initialDrivers);
     _lastTrackerUpdate = DateTime.now();
 
-    // Constant live tracker polling every 8 seconds
-    _trackerTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+    // Constant live tracker polling every 15 seconds
+    _trackerTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       _pollLiveTracker();
     });
   }

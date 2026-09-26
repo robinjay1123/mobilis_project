@@ -598,7 +598,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       },
     );
     _actionLogsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 4),
+      const Duration(seconds: 60),
       (_) {
         if (mounted && (_selectedIndex == 12 || _selectedIndex == 0)) {
           _loadActionLogs(showLoading: false);
