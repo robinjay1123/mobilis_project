@@ -886,7 +886,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   Future<void> _selectDates() async {
     if (_isOpeningCalendar) return;
-    _isOpeningCalendar = true;
+    setState(() => _isOpeningCalendar = true);
 
     try {
       if (!await _ensureVehicleBookable()) return;
@@ -946,7 +946,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         await _loadStartTimeSlots();
       }
     } finally {
-      _isOpeningCalendar = false;
+      if (mounted) {
+        setState(() => _isOpeningCalendar = false);
+      } else {
+        _isOpeningCalendar = false;
+      }
     }
   }
 
@@ -4144,68 +4148,115 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  GestureDetector(
-                    onTap: _selectDates,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkBgSecondary,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.borderColor),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(
-                              Icons.calendar_month,
-                              color: AppColors.primary,
-                              size: 24,
-                            ),
+                  Material(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: _isOpeningCalendar ? null : _selectDates,
+                      borderRadius: BorderRadius.circular(12),
+                      splashColor: AppColors.primary.withAlpha(50),
+                      highlightColor: AppColors.primary.withAlpha(25),
+                      child: Ink(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBgSecondary,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _isOpeningCalendar
+                                ? AppColors.primary
+                                : AppColors.borderColor,
+                            width: _isOpeningCalendar ? 1.5 : 1.0,
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _selectedStartDate != null
-                                      ? '${_formatDate(_selectedStartDate!)} - ${_formatDate(_selectedEndDate!)}'
-                                      : 'Choose rental period',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    color: _selectedStartDate != null
-                                        ? AppColors.textPrimary
-                                        : AppColors.textSecondary,
-                                  ),
-                                ),
-                                if (_selectedStartDate != null)
-                                  Text(
-                                    _bookingMode == BookingMode.hourly
-                                        ? ((_rentalDuration.inMinutes / 60.0).ceil() > 0 &&
-                                                (_rentalDuration.inMinutes / 60.0).ceil() <
-                                                    PricingPolicy.minHourlyBookingHours
-                                            ? '${(_rentalDuration.inMinutes / 60.0).ceil()} hrs (Billed as ${PricingPolicy.minHourlyBookingHours} hrs min.)'
-                                            : '$_billableHours hour${_billableHours == 1 ? '' : 's'}')
-                                        : '$_billableHours hour${_billableHours == 1 ? '' : 's'}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withAlpha(35),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: _isOpeningCalendar
+                                  ? const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                          AppColors.primary,
+                                        ),
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.calendar_month,
                                       color: AppColors.primary,
+                                      size: 24,
+                                    ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _isOpeningCalendar
+                                        ? 'Opening calendar...'
+                                        : (_selectedStartDate != null
+                                            ? '${_formatDate(_selectedStartDate!)} - ${_formatDate(_selectedEndDate!)}'
+                                            : 'Choose rental period'),
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: _isOpeningCalendar
+                                          ? AppColors.primary
+                                          : (_selectedStartDate != null
+                                              ? AppColors.textPrimary
+                                              : AppColors.textSecondary),
                                     ),
                                   ),
-                              ],
+                                  if (_isOpeningCalendar)
+                                    const Text(
+                                      'Fetching availability...',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    )
+                                  else if (_selectedStartDate != null)
+                                    Text(
+                                      _bookingMode == BookingMode.hourly
+                                          ? ((_rentalDuration.inMinutes / 60.0).ceil() > 0 &&
+                                                  (_rentalDuration.inMinutes / 60.0).ceil() <
+                                                      PricingPolicy.minHourlyBookingHours
+                                              ? '${(_rentalDuration.inMinutes / 60.0).ceil()} hrs (Billed as ${PricingPolicy.minHourlyBookingHours} hrs min.)'
+                                              : '$_billableHours hour${_billableHours == 1 ? '' : 's'}')
+                                          : '$_billableHours hour${_billableHours == 1 ? '' : 's'}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right,
-                            color: AppColors.textTertiary,
-                          ),
-                        ],
+                            if (_isOpeningCalendar)
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    AppColors.primary,
+                                  ),
+                                ),
+                              )
+                            else
+                              const Icon(
+                                Icons.chevron_right,
+                                color: AppColors.textTertiary,
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
