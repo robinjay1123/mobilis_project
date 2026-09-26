@@ -321,8 +321,18 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
 
         setState(() {
           if (ocr.fullName != null && ocr.fullName!.trim().isNotEmpty) {
-            fullNameController.text = ocr.fullName!.trim();
-            filledFields.add('Full Name');
+            final currentName = fullNameController.text.trim();
+            final isPlaceholder = currentName.isEmpty ||
+                currentName.contains('@') ||
+                currentName.toLowerCase().startsWith('user_');
+            if (isPlaceholder) {
+              fullNameController.text = ocr.fullName!.trim();
+              filledFields.add('Full Name');
+            } else {
+              debugPrint(
+                'Preserving existing profile name: $currentName (OCR suggested: ${ocr.fullName})',
+              );
+            }
           }
 
           if (ocr.idType != null) {

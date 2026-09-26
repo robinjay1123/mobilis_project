@@ -468,9 +468,19 @@ class _IdentityVerificationFormScreenState
 
         setState(() {
           if (ocr.fullName != null && ocr.fullName!.trim().isNotEmpty) {
-            _nameController.text = ocr.fullName!.trim();
-            _touchedFields.add(_nameController);
-            filledFields.add('Full Name');
+            final currentName = _nameController.text.trim();
+            final isPlaceholder = currentName.isEmpty ||
+                currentName.contains('@') ||
+                currentName.toLowerCase().startsWith('user_');
+            if (isPlaceholder) {
+              _nameController.text = ocr.fullName!.trim();
+              _touchedFields.add(_nameController);
+              filledFields.add('Full Name');
+            } else {
+              debugPrint(
+                'Preserving existing profile name: $currentName (OCR suggested: ${ocr.fullName})',
+              );
+            }
           }
 
           if (ocr.idType != null) {

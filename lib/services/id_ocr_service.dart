@@ -124,9 +124,7 @@ class IdOcrService {
       detectedIdNumber = _extractPassportNumber(lines, upperFullText);
     }
 
-    if (detectedIdNumber == null) {
-      detectedIdNumber = _extractGenericIdNumber(lines, upperFullText);
-    }
+    detectedIdNumber ??= _extractGenericIdNumber(lines, upperFullText);
 
     // 3. Extract Expiry Date
     final detectedExpiryDate = _extractExpiryDate(lines, upperFullText);
@@ -402,7 +400,6 @@ class IdOcrService {
     // "3. Middle Name"
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i].trim();
-      final upper = line.toUpperCase();
 
       // Check for LTO "1. Last Name" or "1. Last Name, First Name"
       if (RegExp(r'^\s*1\.\s*[A-Z]').hasMatch(line)) {
@@ -410,10 +407,14 @@ class IdOcrService {
             line.replaceFirst(RegExp(r'^\s*1\.\s*'), '').trim();
         if (textAfter1.contains(',')) {
           final parts = textAfter1.split(',');
-          if (parts.length >= 2) {
+          if (parts.length >= 2 &&
+              _isLikelyPersonName(parts[0].trim()) &&
+              _isLikelyPersonName(parts[1].trim())) {
             return _formatCleanName('${parts[1].trim()} ${parts[0].trim()}');
           }
-          return _formatCleanName(textAfter1);
+          if (_isLikelyPersonName(textAfter1)) {
+            return _formatCleanName(textAfter1);
+          }
         }
 
         // Multi-line numbered LTO format (1. Surname, 2. Given Name, 3. Middle Name)
@@ -429,52 +430,45 @@ class IdOcrService {
                 nextLine.replaceFirst(RegExp(r'^\s*3\.\s*'), '').trim();
           }
         }
-        if (firstName.isNotEmpty) {
-          final combined = middleName.isNotEmpty
+        if (firstName.isNotEmpty && _isLikelyPersonName(firstName)) {
+          final combined = middleName.isNotEmpty && _isLikelyPersonName(middleName)
               ? '$firstName $middleName $textAfter1'
               : '$firstName $textAfter1';
           return _formatCleanName(combined);
         }
 
-        return _formatCleanName(textAfter1);
-      }
-
-      // Check for "NAME: " prefix
-      if (upper.startsWith('NAME:') || upper.startsWith('NAME :')) {
-        final cleaned = line.substring(line.indexOf(':') + 1).trim();
-        if (cleaned.length >= 3) {
-          return _formatCleanName(cleaned);
-        }
-        if (i + 1 < lines.length && _isLikelyPersonName(lines[i + 1])) {
-          return _formatCleanName(lines[i + 1]);
-        }
-      }
-
-      // Check for comma-separated surname pattern: "SANTOS, JUAN DELA CRUZ"
-      if (line.contains(',') && !line.contains('@') && !line.contains('http')) {
-        final parts = line.split(',');
-        if (parts.length == 2 &&
-            _isLikelyPersonName(parts[0].trim()) &&
-            _isLikelyPersonName(parts[1].trim())) {
-          // Flip "LastName, FirstName MiddleName" -> "FirstName MiddleName LastName"
-          final last = parts[0].trim();
-          final first = parts[1].trim();
-          return _formatCleanName('$first $last');
+        if (_isLikelyPersonName(textAfter1)) {
+          return _formatCleanName(textAfter1);
         }
       }
     }
 
-    // 2. National ID / PhilSys Given name + Surname detection
+    // 2. National ID / PhilSys Given name + Surname detection (Run before generic comma check!)
     for (int i = 0; i < lines.length; i++) {
-      final line = lines[i].toUpperCase();
-      if (line.contains('APELYIDO') || line.contains('LAST NAME')) {
-        if (i + 1 < lines.length && _isLikelyPersonName(lines[i + 1])) {
-          final lastName = lines[i + 1].trim();
-          // Look for Given Names next
+      final lineUpper = lines[i].toUpperCase();
+      if (lineUpper.contains('APELYIDO') || lineUpper.contains('LAST NAME')) {
+        String? lastName;
+        if (lines[i].contains(':')) {
+          final after = lines[i].substring(lines[i].indexOf(':') + 1).trim();
+          if (_isLikelyPersonName(after)) lastName = after;
+        }
+        if (lastName == null && i + 1 < lines.length && _isLikelyPersonName(lines[i + 1])) {
+          lastName = lines[i + 1].trim();
+        }
+
+        if (lastName != null && lastName.isNotEmpty) {
+          // Look for Given Names in next lines
           String givenName = '';
-          for (int j = i + 2; j < lines.length && j < i + 6; j++) {
-            if (lines[j].toUpperCase().contains('MGA PANGALAN') ||
-                lines[j].toUpperCase().contains('GIVEN')) {
+          for (int j = i + 1; j < lines.length && j < i + 6; j++) {
+            final nextUpper = lines[j].toUpperCase();
+            if (nextUpper.contains('MGA PANGALAN') || nextUpper.contains('GIVEN')) {
+              if (lines[j].contains(':')) {
+                final after = lines[j].substring(lines[j].indexOf(':') + 1).trim();
+                if (_isLikelyPersonName(after)) {
+                  givenName = after;
+                  break;
+                }
+              }
               if (j + 1 < lines.length && _isLikelyPersonName(lines[j + 1])) {
                 givenName = lines[j + 1].trim();
                 break;
@@ -488,42 +482,208 @@ class IdOcrService {
       }
     }
 
+    // 3. Check for "NAME: " or "PANGALAN: " prefix
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      final upper = line.toUpperCase();
+      if (upper.startsWith('NAME:') ||
+          upper.startsWith('NAME :') ||
+          upper.startsWith('FULL NAME:') ||
+          upper.startsWith('PANGALAN:') ||
+          upper.startsWith('PANGALAN :')) {
+        final cleaned = line.substring(line.indexOf(':') + 1).trim();
+        if (_isLikelyPersonName(cleaned)) {
+          return _formatCleanName(cleaned);
+        }
+        if (i + 1 < lines.length && _isLikelyPersonName(lines[i + 1])) {
+          return _formatCleanName(lines[i + 1]);
+        }
+      }
+    }
+
+    // 4. Generic comma-separated surname pattern: "SANTOS, JUAN DELA CRUZ"
+    // (Ensure line does NOT contain slashes, colons, or ID form labels!)
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.contains(',') &&
+          !line.contains('/') &&
+          !line.contains(':') &&
+          !line.contains('@') &&
+          !line.contains('http')) {
+        final parts = line.split(',');
+        if (parts.length == 2) {
+          final last = parts[0].trim();
+          final first = parts[1].trim();
+          if (_isLikelyPersonName(last) && _isLikelyPersonName(first)) {
+            // Flip "LastName, FirstName MiddleName" -> "FirstName MiddleName LastName"
+            return _formatCleanName('$first $last');
+          }
+        }
+      }
+    }
+
     return null;
   }
 
   bool _isLikelyPersonName(String text) {
-    if (text.length < 2 || text.length > 50) return false;
-    // Names should not contain numbers or suspicious keywords
-    if (RegExp(r'\d').hasMatch(text)) return false;
-    final upper = text.toUpperCase();
-    final excludedWords = [
-      'REPUBLIC',
-      'PHILIPPINES',
-      'PILIPINAS',
-      'LICENSE',
-      'DRIVER',
-      'OFFICE',
-      'EXPIRE',
-      'EXPIRATION',
-      'SIGNATURE',
-      'SEX',
-      'BLOOD',
-      'HEIGHT',
-      'WEIGHT',
-      'NATIONALITY',
+    final clean = text.trim();
+    if (clean.length < 2 || clean.length > 50) return false;
+    // Names must not contain digits or punctuation symbols
+    if (RegExp(r'[\d/@#$%^&*+=<>_~|\[\]{}\\]').hasMatch(clean)) return false;
+
+    final upper = clean.toUpperCase();
+
+    // Comprehensive list of Philippine ID field labels, status terms, and non-name words
+    const excludedPhrases = [
+      // Civil / Marital status (Crucial fix: prevents "Status Kalagayang Sibil"!)
+      'STATUS',
+      'KALAGAYAN',
+      'KALAGAYANG',
+      'SIBIL',
       'CIVIL',
-      'DATE',
-      'BIRTH',
+      'MARITAL',
+      'SINGLE',
+      'MARRIED',
+      'WIDOWED',
+      'SEPARATED',
+      'DIVORCED',
+      'WALANG ASAWA',
+      'MAY ASAWA',
+
+      // Gender / Sex
+      'KASARIAN',
+      'SEX',
+      'GENDER',
+      'MALE',
+      'FEMALE',
+      'LALAKI',
+      'BABAE',
+
+      // Birth & Origin
+      'KAPANGANAKAN',
+      'PETSA',
+      'ARAW',
+      'DATE OF BIRTH',
+      'BIRTH DATE',
+      'BIRTHDATE',
+      'DOB',
+      'LUGAR',
+      'POOK',
+      'PLACE OF BIRTH',
+      'BIRTHPLACE',
+
+      // Address & Location
+      'TIRAHAN',
       'ADDRESS',
-      'AGENCY',
-      'LAND',
-      'TRANSPORTATION',
+      'RESIDENCE',
+      'LALAWIGAN',
+      'LUNGSOD',
+      'BAYAN',
+      'BARANGAY',
+      'BRGY',
+      'STREET',
+      'CITY',
+      'PROVINCE',
+      'REGION',
+      'POSTAL CODE',
+      'ZIP',
+
+      // Physical attributes
+      'DUGO',
+      'BLOOD',
+      'BLOOD TYPE',
+      'TIMBANG',
+      'WEIGHT',
+      'TAAS',
+      'HEIGHT',
+
+      // Government & Republic headers
+      'PAMBANSANG',
+      'PAGKAKAKILANLAN',
+      'PAMAHALAAN',
+      'REPUBLIKA',
+      'REPUBLIC',
+      'PILIPINAS',
+      'PHILIPPINES',
+      'KOMISYON',
+      'ELEKSIYON',
+      'ELECTIONS',
+      'COMELEC',
+      'VOTER',
+      'PRECINCT',
+      'KAGAWARAN',
+      'DEPARTMENT',
+      'BUREAU',
+      'INTERNAL REVENUE',
+      'TIN',
+      'SSS',
+      'GSIS',
+      'PAG-IBIG',
+      'PHILHEALTH',
+      'SOCIAL SECURITY',
+      'PHILSYS',
+      'PHILID',
+      'POSTAL',
+      'PASSPORT',
+      'PASAPORTE',
+
+      // Driver & Transport
+      'DRIVER',
+      'LICENSE',
+      'LICENCE',
+      'LAND TRANSPORTATION',
+      'LTO',
+      'RESTRICTIONS',
+      'CONDITIONS',
+      'AGENCY CODE',
+      'DL NO',
+
+      // Card metadata & dates
+      'VALID',
+      'UNTIL',
+      'EXPIRY',
+      'EXPIRATION',
+      'EXPIRE',
+      'ISSUED',
+      'DATE OF ISSUE',
+      'ISSUE DATE',
+      'SIGNATURE',
+      'PIRMA',
+      'LAGDA',
+      'CARD',
+      'NUMBER',
+      'CRN',
+      'SERIAL',
+      'ORGAN DONOR',
+      'DONOR',
+      'EMERGENCY',
+      'CONTACT',
+      'CITIZENSHIP',
+      'NATIONALITY',
+      'FILIPINO',
+      'PILIPINO',
+
+      // Field label words that shouldn't be names by themselves
+      'APELYIDO',
+      'MGA PANGALAN',
+      'GITNANG APELYIDO',
+      'SURNAME',
+      'GIVEN NAME',
+      'MIDDLE NAME',
+      'LAST NAME',
+      'FIRST NAME',
+      'FAMILY NAME',
+      'FULL NAME',
     ];
-    for (final word in excludedWords) {
-      if (upper.contains(word)) return false;
+
+    for (final phrase in excludedPhrases) {
+      if (upper == phrase || upper.contains(phrase)) {
+        return false;
+      }
     }
+
     // Must contain letters
-    return RegExp(r'[a-zA-Z]').hasMatch(text);
+    return RegExp(r'[a-zA-Z]').hasMatch(clean);
   }
 
   String _formatCleanName(String raw) {

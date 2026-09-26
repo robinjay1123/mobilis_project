@@ -4,13 +4,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/auth_service.dart';
 import '../../../services/loyalty_reward_service.dart';
-import '../../../services/terms_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/role_ui.dart';
+import '../../widgets/skeleton_loading.dart';
 import 'emergency_contact_screen.dart';
 import 'legal_terms_privacy_screen.dart';
 import 'ratings_reviews_screen.dart';
@@ -35,6 +35,7 @@ class UnifiedProfileScreen extends StatefulWidget {
   final VoidCallback? onOpenVerification;
   final VoidCallback? onOpenFavorites;
   final VoidCallback? onProfileUpdated;
+  final Map<String, dynamic>? initialProfile;
 
   const UnifiedProfileScreen({
     super.key,
@@ -47,6 +48,7 @@ class UnifiedProfileScreen extends StatefulWidget {
     this.onOpenVerification,
     this.onOpenFavorites,
     this.onProfileUpdated,
+    this.initialProfile,
   });
 
   @override
@@ -75,6 +77,30 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       duration: const Duration(milliseconds: 420),
       reverseDuration: const Duration(milliseconds: 340),
     );
+
+    // Warm instantaneous initialization so the profile displays immediately (0ms)
+    if (widget.initialProfile != null && widget.initialProfile!.isNotEmpty) {
+      _profile = Map<String, dynamic>.from(widget.initialProfile!);
+      _isLoading = false;
+    } else {
+      final user = AuthService().currentUser;
+      if (user != null) {
+        final meta = user.userMetadata ?? {};
+        _profile = {
+          'id': user.id,
+          'email': user.email,
+          'full_name': meta['full_name'] ?? meta['name'] ?? meta['display_name'],
+          'phone': meta['phone'] ?? meta['phone_number'],
+          'location': meta['location'] ?? meta['address'],
+          'avatar_url': meta['avatar_url'] ??
+              meta['profile_picture_url'] ??
+              meta['picture'],
+          'role': widget.role,
+        };
+        _isLoading = false;
+      }
+    }
+
     _loadProfile();
     _setupLoyaltyListener();
   }
@@ -88,47 +114,119 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   }
 
   Future<void> _loadProfile() async {
-    setState(() => _isLoading = true);
-    final profile = await AuthService().getCurrentUserProfile();
-    Map<String, dynamic>? verification;
-    LoyaltyRewardState? loyaltyReward;
-    int? totalTripsCount;
-    double? userRatingAverage;
     final userId = AuthService().currentUser?.id;
-    if (userId != null) {
-      verification = await VerificationService.getUserVerification(userId);
+    if (userId == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      // Execute profile & related queries concurrently with safety timeouts
+      final profileFuture = _safeLoadUserProfile();
+      final verificationFuture = _safeLoadVerification(userId);
+
+      Future<LoyaltyRewardState?> loyaltyFuture = Future.value(null);
+      Future<int?> tripsFuture = Future.value(null);
+      Future<double?> ratingFuture = Future.value(null);
+
       if (_isRenter) {
-        loyaltyReward = await LoyaltyRewardService().load(userId);
-        try {
-          final bookingsResp = await Supabase.instance.client
-              .from('bookings')
-              .select('id,status')
-              .eq('renter_id', userId);
-          final list = List<Map<String, dynamic>>.from(bookingsResp);
-          totalTripsCount = list.where((b) {
-            final s = b['status']?.toString().toLowerCase().trim() ?? '';
-            return s == 'completed' || s == 'returned' || s == 'settled';
-          }).length;
-        } catch (e) {
-          debugPrint('Error counting renter trips: $e');
+        loyaltyFuture = _safeLoadLoyalty(userId);
+        tripsFuture = _safeCountTrips(userId);
+        ratingFuture = _safeLoadRating(userId);
+      }
+
+      final results = await Future.wait([
+        profileFuture,
+        verificationFuture,
+        loyaltyFuture,
+        tripsFuture,
+        ratingFuture,
+      ]);
+
+      if (!mounted) return;
+      setState(() {
+        if (results[0] != null) {
+          _profile = results[0] as Map<String, dynamic>?;
         }
-        try {
-          final ratingSummary = await TripRatingService().getRatingSummary(userId);
-          userRatingAverage = (ratingSummary['average'] as num?)?.toDouble() ?? 0.0;
-        } catch (e) {
-          debugPrint('Error loading renter rating: $e');
+        if (results[1] != null) {
+          _verification = results[1] as Map<String, dynamic>?;
         }
+        if (results[2] != null) {
+          _loyaltyReward = results[2] as LoyaltyRewardState?;
+        }
+        if (results[3] != null) {
+          _totalTripsCount = results[3] as int?;
+        }
+        if (results[4] != null) {
+          _userRatingAverage = results[4] as double?;
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading profile: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
-    if (!mounted) return;
-    setState(() {
-      _profile = profile;
-      _verification = verification;
-      _loyaltyReward = loyaltyReward;
-      _totalTripsCount = totalTripsCount;
-      _userRatingAverage = userRatingAverage;
-      _isLoading = false;
-    });
+  }
+
+  Future<Map<String, dynamic>?> _safeLoadUserProfile() async {
+    try {
+      return await AuthService()
+          .getCurrentUserProfile()
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _safeLoadVerification(String userId) async {
+    try {
+      return await VerificationService.getUserVerification(userId)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<LoyaltyRewardState?> _safeLoadLoyalty(String userId) async {
+    try {
+      return await LoyaltyRewardService()
+          .load(userId)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<int?> _safeCountTrips(String userId) async {
+    try {
+      final bookingsResp = await Supabase.instance.client
+          .from('bookings')
+          .select('id,status')
+          .eq('renter_id', userId)
+          .timeout(const Duration(seconds: 5));
+      final list = List<Map<String, dynamic>>.from(bookingsResp);
+      return list.where((b) {
+        final s = b['status']?.toString().toLowerCase().trim() ?? '';
+        return s == 'completed' || s == 'returned' || s == 'settled';
+      }).length;
+    } catch (e) {
+      debugPrint('Error counting renter trips: $e');
+      return null;
+    }
+  }
+
+  Future<double?> _safeLoadRating(String userId) async {
+    try {
+      final ratingSummary = await TripRatingService()
+          .getRatingSummary(userId)
+          .timeout(const Duration(seconds: 5));
+      return (ratingSummary['average'] as num?)?.toDouble() ?? 0.0;
+    } catch (e) {
+      debugPrint('Error loading renter rating: $e');
+      return null;
+    }
   }
 
   bool get _isRenter => widget.role.trim().toLowerCase() == 'renter';
@@ -459,11 +557,13 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (_profile == null && _isLoading) {
       return Column(
         children: [
           _profileHeaderBar(),
-          const Expanded(child: Center(child: CircularProgressIndicator())),
+          Expanded(
+            child: MobilisSkeletonProfile(isDark: widget.isDarkMode),
+          ),
         ],
       );
     }
@@ -1975,6 +2075,7 @@ class UnifiedEditProfileScreen extends StatefulWidget {
 
 class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final TextEditingController _locationController;
   late final String _displayName;
@@ -1984,9 +2085,14 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _displayName = _text(
-      widget.initialProfile['full_name'] ?? widget.initialProfile['name'],
+    final initialName = _text(
+      widget.initialProfile['full_name'] ??
+          widget.initialProfile['name'] ??
+          AuthService().currentUser?.userMetadata?['full_name'] ??
+          AuthService().currentUser?.userMetadata?['name'],
     );
+    _nameController = TextEditingController(text: initialName);
+    _displayName = initialName;
     _phoneController = TextEditingController(
       text: _text(
         widget.initialProfile['phone'] ?? widget.initialProfile['phone_number'],
@@ -2008,6 +2114,7 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
 
   @override
   void dispose() {
+    _nameController.dispose();
     _phoneController.dispose();
     _locationController.dispose();
     super.dispose();
@@ -2021,20 +2128,48 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
     setState(() => _isSaving = true);
     try {
       final supabase = Supabase.instance.client;
-      final payload = {
-        'phone': normalizePhilippineMobile(_phoneController.text),
-        'location': _locationController.text.trim(),
+      final newName = toTitleCaseName(_nameController.text.trim());
+      final phoneNormalized = normalizePhilippineMobile(_phoneController.text);
+      final locationClean = _locationController.text.trim();
+
+      final payload = <String, dynamic>{
+        'full_name': newName,
+        'name': newName,
+        'phone': phoneNormalized,
+        'location': locationClean,
       };
+
       try {
         await supabase.from('users').update(payload).eq('id', user.id);
       } catch (error) {
         final message = error.toString().toLowerCase();
         if (message.contains('location')) {
-          final fallback = Map<String, dynamic>.from(payload)
-            ..remove('location');
-          await supabase.from('users').update(fallback).eq('id', user.id);
+          final fallback = <String, dynamic>{
+            'full_name': newName,
+            'name': newName,
+            'phone': phoneNormalized,
+          };
+          try {
+            await supabase.from('users').update(fallback).eq('id', user.id);
+          } catch (_) {
+            await supabase
+                .from('users')
+                .update({'phone': phoneNormalized})
+                .eq('id', user.id);
+          }
         } else {
-          rethrow;
+          final fallback = <String, dynamic>{
+            'full_name': newName,
+            'phone': phoneNormalized,
+          };
+          try {
+            await supabase.from('users').update(fallback).eq('id', user.id);
+          } catch (_) {
+            await supabase
+                .from('users')
+                .update({'phone': phoneNormalized})
+                .eq('id', user.id);
+          }
         }
       }
 
@@ -2042,8 +2177,10 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
         UserAttributes(
           data: {
             ...?user.userMetadata,
-            'phone': normalizePhilippineMobile(_phoneController.text),
-            'location': _locationController.text.trim(),
+            'full_name': newName,
+            'name': newName,
+            'phone': phoneNormalized,
+            'location': locationClean,
           },
         ),
       );
@@ -2108,6 +2245,12 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
           children: [
             _profilePictureCard(),
             const SizedBox(height: 18),
+            _field(
+              label: 'Full Name',
+              controller: _nameController,
+              icon: Icons.person_outline,
+              validator: (value) => validatePersonName(value),
+            ),
             _field(
               label: 'Mobile Phone',
               controller: _phoneController,

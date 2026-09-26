@@ -6038,6 +6038,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       onOpenVerification: () =>
           setState(() => selectedProfilePage = 'verification'),
       onOpenFavorites: () => setState(() => selectedProfilePage = 'favorites'),
+      initialProfile: {
+        'full_name': userName,
+        'location': userLocation,
+        'avatar_url': userAvatarUrl,
+        'id_verified': userVerified,
+      },
       stats: [
         ProfileStatItem(
           label: 'Trips',
