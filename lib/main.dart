@@ -734,21 +734,27 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
       // If user is already logged in, check role and go to appropriate dashboard
       if (authService.isAuthenticated) {
-        final role = await authService.getUserRole().timeout(
-          const Duration(seconds: 4),
-          onTimeout: () => null,
-        );
+        // Fire both in parallel — isApplicationApproved is only used for partner/driver
+        // but starting it early costs nothing and saves up to 4s on the splash screen.
+        final startupResults = await Future.wait([
+          authService.getUserRole().timeout(
+            const Duration(seconds: 4),
+            onTimeout: () => null,
+          ),
+          authService.isApplicationApproved().timeout(
+            const Duration(seconds: 4),
+            onTimeout: () => true,
+          ),
+        ]);
+        final role = startupResults[0] as String?;
         debugPrint('🔐 Initial screen - User authenticated with role: $role');
         if (role == null || role.isEmpty) {
           return kIsWeb
               ? const ResponsiveWelcomeScreen()
               : const ResponsiveLoginScreen();
         }
-        final applicationApproved = role == 'partner' || role == 'driver'
-            ? await authService.isApplicationApproved().timeout(
-                const Duration(seconds: 4),
-                onTimeout: () => true,
-              )
+        final applicationApproved = (role == 'partner' || role == 'driver')
+            ? (startupResults[1] as bool? ?? true)
             : true;
 
         if (role == 'admin') {

@@ -262,17 +262,16 @@ class TripRatingService {
       }..removeWhere((id) => id.isEmpty);
 
       final List<Map<String, dynamic>> allVehicleImages = [];
-      for (final vId in candidateVehicleIds) {
+      if (candidateVehicleIds.isNotEmpty) {
         try {
+          // Single batched query instead of one query per vehicle ID (N+1 fix)
           final imgRows = await supabase
               .from('vehicle_images')
-              .select('id, image_url, display_order')
-              .eq('vehicle_id', vId)
+              .select('id, image_url, display_order, vehicle_id')
+              .inFilter('vehicle_id', candidateVehicleIds.toList())
               .order('display_order', ascending: true);
-          if (imgRows.isNotEmpty) {
-            for (final r in imgRows) {
-              allVehicleImages.add(Map<String, dynamic>.from(r));
-            }
+          for (final r in imgRows) {
+            allVehicleImages.add(Map<String, dynamic>.from(r));
           }
         } catch (_) {}
       }

@@ -1405,15 +1405,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadVehicles(),
         _loadRecentBookings(),
         _loadOperatorRevenueBookings(),
+        _loadOperatorSettlements(), // moved into parallel block — no need to sequence after
       ];
       if (_selectedIndex == 6) {
         tasks.add(_loadTrackingLocationsFast());
       }
       await Future.wait(tasks);
-      await _loadOperatorSettlements();
       if (!_hasRepairedSettlements) {
         _hasRepairedSettlements = true;
-        _repairOperatorRevenueSettlements();
+        // Fire-and-forget: repair runs in background, never blocks the dashboard render
+        unawaited(_repairOperatorRevenueSettlements());
       }
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
@@ -2343,27 +2344,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _loadStats() async {
     try {
+      // Use server-side COUNT to avoid downloading thousands of IDs just to .length them.
       final results = await Future.wait([
-        _supabase.from('users').select('id').eq('role', 'renter'),
-        _supabase.from('users').select('id').eq('role', 'partner'),
-        _supabase.from('vehicles').select('id').eq('status', 'active'),
-        _supabase
-            .from('vehicle_applications')
-            .select('id')
-            .eq('status', 'pending'),
-        _supabase
-            .from('bookings')
-            .select('id')
-            .inFilter('status', ['active', 'approved', 'confirmed']),
-        _supabase.from('bookings').select('id'),
+        _supabase.from('users').count().eq('role', 'renter'),
+        _supabase.from('users').count().eq('role', 'partner'),
+        _supabase.from('vehicles').count().eq('status', 'active'),
+        _supabase.from('vehicle_applications').count().eq('status', 'pending'),
+        _supabase.from('bookings').count().inFilter('status', ['active', 'approved', 'confirmed']),
+        _supabase.from('bookings').count(),
       ]);
 
-      _totalUsers = (results[0] as List).length;
-      _totalPartners = (results[1] as List).length;
-      _totalVehicles = (results[2] as List).length;
-      _pendingVerifications = (results[3] as List).length;
-      _activeBookings = (results[4] as List).length;
-      _totalBookings = (results[5] as List).length;
+      _totalUsers = results[0] as int;
+      _totalPartners = results[1] as int;
+      _totalVehicles = results[2] as int;
+      _pendingVerifications = results[3] as int;
+      _activeBookings = results[4] as int;
+      _totalBookings = results[5] as int;
     } catch (e) {
       debugPrint('Error loading stats: $e');
     }

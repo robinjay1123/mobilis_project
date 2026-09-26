@@ -432,88 +432,66 @@ class BookingService {
       final allVehicleIds = <String>{};
       final vehiclePlates = <String>{};
 
-      // 2. Get partner_vehicles IDs and plate numbers
-      try {
-        final pVehicles = await supabase
-            .from('partner_vehicles')
-            .select('id, plate_number, vehicle_id')
-            .inFilter('partner_id', partnerIds.toList());
-        for (final pv in List<Map<String, dynamic>>.from(pVehicles)) {
-          final id = pv['id']?.toString().trim();
-          final vid = pv['vehicle_id']?.toString().trim();
-          final plate = pv['plate_number']?.toString().trim().toUpperCase();
-          if (id != null && id.isNotEmpty) allVehicleIds.add(id);
-          if (vid != null && vid.isNotEmpty) allVehicleIds.add(vid);
-          if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
-        }
-      } catch (e) {
-        debugPrint('Error fetching partner_vehicles for partner: $e');
-      }
+      // Steps 2–5: all independent once partnerIds is known — run in parallel.
+      await Future.wait([
+        // 2a. partner_vehicles by partner_id
+        supabase.from('partner_vehicles').select('id, plate_number, vehicle_id').inFilter('partner_id', partnerIds.toList()).then((rows) {
+          for (final pv in List<Map<String, dynamic>>.from(rows)) {
+            final id = pv['id']?.toString().trim();
+            final vid = pv['vehicle_id']?.toString().trim();
+            final plate = pv['plate_number']?.toString().trim().toUpperCase();
+            if (id != null && id.isNotEmpty) allVehicleIds.add(id);
+            if (vid != null && vid.isNotEmpty) allVehicleIds.add(vid);
+            if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
+          }
+        }).catchError((e) { debugPrint('Error fetching partner_vehicles for partner: $e'); }),
 
-      // Also check partner_vehicles where user_id is the user
-      try {
-        final pVehiclesByUser = await supabase
-            .from('partner_vehicles')
-            .select('id, plate_number, vehicle_id')
-            .eq('user_id', userId);
-        for (final pv in List<Map<String, dynamic>>.from(pVehiclesByUser)) {
-          final id = pv['id']?.toString().trim();
-          final vid = pv['vehicle_id']?.toString().trim();
-          final plate = pv['plate_number']?.toString().trim().toUpperCase();
-          if (id != null && id.isNotEmpty) allVehicleIds.add(id);
-          if (vid != null && vid.isNotEmpty) allVehicleIds.add(vid);
-          if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
-        }
-      } catch (_) {}
+        // 2b. partner_vehicles by user_id
+        supabase.from('partner_vehicles').select('id, plate_number, vehicle_id').eq('user_id', userId).then((rows) {
+          for (final pv in List<Map<String, dynamic>>.from(rows)) {
+            final id = pv['id']?.toString().trim();
+            final vid = pv['vehicle_id']?.toString().trim();
+            final plate = pv['plate_number']?.toString().trim().toUpperCase();
+            if (id != null && id.isNotEmpty) allVehicleIds.add(id);
+            if (vid != null && vid.isNotEmpty) allVehicleIds.add(vid);
+            if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
+          }
+        }).catchError((_) {}),
 
-      // 3. Get partner_vehicle_applications IDs, created_vehicle_ids, and plates
-      try {
-        final pApps = await supabase
-            .from('partner_vehicle_applications')
-            .select('id, partner_vehicle_id, created_vehicle_id, plate_number')
-            .inFilter('partner_id', partnerIds.toList());
-        for (final app in List<Map<String, dynamic>>.from(pApps)) {
-          final appId = app['id']?.toString().trim();
-          final pvId = app['partner_vehicle_id']?.toString().trim();
-          final cvId = app['created_vehicle_id']?.toString().trim();
-          final plate = app['plate_number']?.toString().trim().toUpperCase();
-          if (appId != null && appId.isNotEmpty) allVehicleIds.add(appId);
-          if (pvId != null && pvId.isNotEmpty) allVehicleIds.add(pvId);
-          if (cvId != null && cvId.isNotEmpty) allVehicleIds.add(cvId);
-          if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
-        }
-      } catch (e) {
-        debugPrint('Error fetching partner_vehicle_applications: $e');
-      }
+        // 3. partner_vehicle_applications
+        supabase.from('partner_vehicle_applications').select('id, partner_vehicle_id, created_vehicle_id, plate_number').inFilter('partner_id', partnerIds.toList()).then((rows) {
+          for (final app in List<Map<String, dynamic>>.from(rows)) {
+            final appId = app['id']?.toString().trim();
+            final pvId = app['partner_vehicle_id']?.toString().trim();
+            final cvId = app['created_vehicle_id']?.toString().trim();
+            final plate = app['plate_number']?.toString().trim().toUpperCase();
+            if (appId != null && appId.isNotEmpty) allVehicleIds.add(appId);
+            if (pvId != null && pvId.isNotEmpty) allVehicleIds.add(pvId);
+            if (cvId != null && cvId.isNotEmpty) allVehicleIds.add(cvId);
+            if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
+          }
+        }).catchError((e) { debugPrint('Error fetching partner_vehicle_applications: $e'); }),
 
-      // 4. Get standard vehicles owned by this partner/user
-      try {
-        final vehicles = await supabase
-            .from('vehicles')
-            .select('id, plate_number')
-            .inFilter('owner_id', partnerIds.toList());
-        for (final v in List<Map<String, dynamic>>.from(vehicles)) {
-          final id = v['id']?.toString().trim();
-          final plate = v['plate_number']?.toString().trim().toUpperCase();
-          if (id != null && id.isNotEmpty) allVehicleIds.add(id);
-          if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
-        }
-      } catch (e) {
-        debugPrint('Error fetching standard vehicles by owner_id: $e');
-      }
+        // 4. vehicles by owner_id
+        supabase.from('vehicles').select('id, plate_number').inFilter('owner_id', partnerIds.toList()).then((rows) {
+          for (final v in List<Map<String, dynamic>>.from(rows)) {
+            final id = v['id']?.toString().trim();
+            final plate = v['plate_number']?.toString().trim().toUpperCase();
+            if (id != null && id.isNotEmpty) allVehicleIds.add(id);
+            if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
+          }
+        }).catchError((e) { debugPrint('Error fetching standard vehicles by owner_id: $e'); }),
 
-      try {
-        final vehiclesByOp = await supabase
-            .from('vehicles')
-            .select('id, plate_number')
-            .eq('operator_id', userId);
-        for (final v in List<Map<String, dynamic>>.from(vehiclesByOp)) {
-          final id = v['id']?.toString().trim();
-          final plate = v['plate_number']?.toString().trim().toUpperCase();
-          if (id != null && id.isNotEmpty) allVehicleIds.add(id);
-          if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
-        }
-      } catch (_) {}
+        // 5. vehicles by operator_id
+        supabase.from('vehicles').select('id, plate_number').eq('operator_id', userId).then((rows) {
+          for (final v in List<Map<String, dynamic>>.from(rows)) {
+            final id = v['id']?.toString().trim();
+            final plate = v['plate_number']?.toString().trim().toUpperCase();
+            if (id != null && id.isNotEmpty) allVehicleIds.add(id);
+            if (plate != null && plate.isNotEmpty) vehiclePlates.add(plate);
+          }
+        }).catchError((_) {}),
+      ]);
 
       // If plate numbers found, also match any vehicles sharing those plate numbers
       if (vehiclePlates.isNotEmpty) {
@@ -597,41 +575,27 @@ class BookingService {
         // JSONB column (not as top-level columns) when a booking is created
         // by the current app version. Query via the JSONB path so those
         // bookings are still found even when the columns don't exist.
-        for (final pid in pList) {
-          try {
-            final res = await supabase
-                .from('bookings')
-                .select('*')
-                .filter('metadata->>partner_id', 'eq', pid)
-                .order('created_at', ascending: false)
-                .limit(300);
-            addRows(res);
-          } catch (_) {}
-
-          try {
-            final res = await supabase
-                .from('bookings')
-                .select('*')
-                .filter('metadata->>owner_id', 'eq', pid)
-                .order('created_at', ascending: false)
-                .limit(300);
-            addRows(res);
-          } catch (_) {}
+        // Parallelized: all per-partner queries fire simultaneously.
+        if (pList.isNotEmpty) {
+          final metaFutures = <Future<void>>[];
+          for (final pid in pList) {
+            metaFutures.add(
+              supabase.from('bookings').select('*').filter('metadata->>partner_id', 'eq', pid).order('created_at', ascending: false).limit(300).then(addRows).catchError((_) {}),
+            );
+            metaFutures.add(
+              supabase.from('bookings').select('*').filter('metadata->>owner_id', 'eq', pid).order('created_at', ascending: false).limit(300).then(addRows).catchError((_) {}),
+            );
+          }
+          await Future.wait(metaFutures);
         }
       }
 
       if (vehiclePlates.isNotEmpty) {
-        for (final plate in vehiclePlates) {
-          try {
-            final res = await supabase
-                .from('bookings')
-                .select('*')
-                .filter('metadata->>plate_number', 'eq', plate)
-                .order('created_at', ascending: false)
-                .limit(100);
-            addRows(res);
-          } catch (_) {}
-        }
+        // Parallelize per-plate metadata lookups
+        final plateFutures = vehiclePlates.map((plate) =>
+          supabase.from('bookings').select('*').filter('metadata->>plate_number', 'eq', plate).order('created_at', ascending: false).limit(100).then(addRows).catchError((_) {}),
+        );
+        await Future.wait(plateFutures);
       }
 
       // Sort all fetched bookings by created_at descending
@@ -1054,14 +1018,20 @@ class BookingService {
         .toList();
 
     if (targetBookingIds.isNotEmpty) {
-      try {
-        final payoutsResp = await supabase
-            .from('booking_payouts')
-            .select('*')
-            .inFilter('booking_id', targetBookingIds)
-            .eq('status', 'released');
+      // Fire all 5 satellite queries in parallel — they are all independent inFilter queries
+      // on the same booking IDs, so running them concurrently cuts wait time by ~70%.
+      final satelliteResults = await Future.wait([
+        supabase.from('booking_payouts').select('*').inFilter('booking_id', targetBookingIds).eq('status', 'released').catchError((_) => <dynamic>[]),
+        supabase.from('booking_refunds').select('*').inFilter('booking_id', targetBookingIds).catchError((_) => <dynamic>[]),
+        supabase.from('booking_renter_documents').select('booking_id, renter_signature_url, renter_signature_text, renter_valid_id_url, renter_selfie_url').inFilter('booking_id', targetBookingIds).catchError((_) => <dynamic>[]),
+        supabase.from('booking_financials').select('*').inFilter('booking_id', targetBookingIds).catchError((_) => <dynamic>[]),
+        supabase.from('booking_events').select('booking_id, event_type, notes, created_at').inFilter('booking_id', targetBookingIds).order('created_at', ascending: true).catchError((_) => <dynamic>[]),
+        supabase.from('driver_job_assignments').select('*').inFilter('booking_id', targetBookingIds).order('created_at', ascending: false).catchError((_) => <dynamic>[]),
+      ]);
 
-        final payoutsList = List<Map<String, dynamic>>.from(payoutsResp);
+      // --- Payouts ---
+      try {
+        final payoutsList = List<Map<String, dynamic>>.from(satelliteResults[0] as List);
         final payoutByBookingAndRole = <String, Map<String, dynamic>>{};
         for (final p in payoutsList) {
           final bId = p['booking_id']?.toString();
@@ -1106,57 +1076,46 @@ class BookingService {
             booking['partner_payout_disbursed_at'] = partnerPayout['released_at']?.toString() ?? partnerPayout['created_at']?.toString();
           }
         }
-
-        // Also hydrate refunds from booking_refunds
-        try {
-          final refundsResp = await supabase
-              .from('booking_refunds')
-              .select('*')
-              .inFilter('booking_id', targetBookingIds);
-          final refundByBooking = <String, Map<String, dynamic>>{};
-          for (final r in List<Map<String, dynamic>>.from(refundsResp)) {
-            final bId = r['booking_id']?.toString();
-            if (bId != null) refundByBooking[bId] = r;
-          }
-
-          for (final booking in bookings) {
-            final bId = booking['id']?.toString();
-            if (bId == null) continue;
-            final r = refundByBooking[bId];
-            if (r != null) {
-              booking['refund_status'] ??= r['status'] ?? 'refunded';
-              booking['refund_amount'] ??= (r['amount'] as num?)?.toDouble();
-              booking['refund_reference'] ??= r['payment_reference'] ?? r['refund_reference'];
-              booking['refund_reason'] ??= r['reason'];
-            }
-
-            // Hydrate sparse fields from metadata jsonb if table column was normalized
-            final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata']) : <String, dynamic>{};
-            if (meta.isNotEmpty) {
-              meta.forEach((key, value) {
-                booking[key] ??= value;
-              });
-            }
-          }
-        } catch (e) {
-          debugPrint('Error hydrating refunds from booking_refunds: $e');
-        }
       } catch (e) {
         debugPrint('Error hydrating payouts from booking_payouts: $e');
       }
 
-      // Hydrate digital renter documents from booking_renter_documents
+      // --- Refunds ---
       try {
-        final docRows = await supabase
-            .from('booking_renter_documents')
-            .select('booking_id, renter_signature_url, renter_signature_text, renter_valid_id_url, renter_selfie_url')
-            .inFilter('booking_id', targetBookingIds);
+        final refundByBooking = <String, Map<String, dynamic>>{};
+        for (final r in List<Map<String, dynamic>>.from(satelliteResults[1] as List)) {
+          final bId = r['booking_id']?.toString();
+          if (bId != null) refundByBooking[bId] = r;
+        }
+        for (final booking in bookings) {
+          final bId = booking['id']?.toString();
+          if (bId == null) continue;
+          final r = refundByBooking[bId];
+          if (r != null) {
+            booking['refund_status'] ??= r['status'] ?? 'refunded';
+            booking['refund_amount'] ??= (r['amount'] as num?)?.toDouble();
+            booking['refund_reference'] ??= r['payment_reference'] ?? r['refund_reference'];
+            booking['refund_reason'] ??= r['reason'];
+          }
+          // Hydrate sparse fields from metadata jsonb if table column was normalized
+          final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata']) : <String, dynamic>{};
+          if (meta.isNotEmpty) {
+            meta.forEach((key, value) {
+              booking[key] ??= value;
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint('Error hydrating refunds from booking_refunds: $e');
+      }
+
+      // --- Renter Documents ---
+      try {
         final docsByBooking = <String, Map<String, dynamic>>{};
-        for (final d in List<Map<String, dynamic>>.from(docRows)) {
+        for (final d in List<Map<String, dynamic>>.from(satelliteResults[2] as List)) {
           final bId = d['booking_id']?.toString();
           if (bId != null) docsByBooking[bId] = d;
         }
-
         for (final booking in bookings) {
           final bId = booking['id']?.toString();
           if (bId == null) continue;
@@ -1172,18 +1131,13 @@ class BookingService {
         debugPrint('Error hydrating documents from booking_renter_documents: $e');
       }
 
-      // Hydrate financial breakdown from booking_financials
+      // --- Financials ---
       try {
-        final finRows = await supabase
-            .from('booking_financials')
-            .select('*')
-            .inFilter('booking_id', targetBookingIds);
         final finByBooking = <String, Map<String, dynamic>>{};
-        for (final f in List<Map<String, dynamic>>.from(finRows)) {
+        for (final f in List<Map<String, dynamic>>.from(satelliteResults[3] as List)) {
           final bId = f['booking_id']?.toString();
           if (bId != null) finByBooking[bId] = f;
         }
-
         for (final booking in bookings) {
           final bId = booking['id']?.toString();
           if (bId == null) continue;
@@ -1202,15 +1156,9 @@ class BookingService {
         debugPrint('Error hydrating financials from booking_financials: $e');
       }
 
-      // Hydrate latest lifecycle events from booking_events
+      // --- Booking Events ---
       try {
-        final eventRows = await supabase
-            .from('booking_events')
-            .select('booking_id, event_type, notes, created_at')
-            .inFilter('booking_id', targetBookingIds)
-            .order('created_at', ascending: true);
-
-        for (final ev in List<Map<String, dynamic>>.from(eventRows)) {
+        for (final ev in List<Map<String, dynamic>>.from(satelliteResults[4] as List)) {
           final bId = ev['booking_id']?.toString();
           final type = ev['event_type']?.toString();
           final at = ev['created_at']?.toString();
@@ -1235,22 +1183,15 @@ class BookingService {
         debugPrint('Error hydrating events from booking_events: $e');
       }
 
-      // Hydrate driver job assignments for each booking
+      // --- Driver Job Assignments ---
       try {
-        final assignRows = await supabase
-            .from('driver_job_assignments')
-            .select('*')
-            .inFilter('booking_id', targetBookingIds)
-            .order('created_at', ascending: false);
-
         final assignByBooking = <String, List<Map<String, dynamic>>>{};
-        for (final a in List<Map<String, dynamic>>.from(assignRows)) {
+        for (final a in List<Map<String, dynamic>>.from(satelliteResults[5] as List)) {
           final bId = a['booking_id']?.toString();
           if (bId != null && bId.isNotEmpty) {
             assignByBooking.putIfAbsent(bId, () => []).add(Map<String, dynamic>.from(a));
           }
         }
-
         for (final booking in bookings) {
           final bId = booking['id']?.toString();
           if (bId == null) continue;

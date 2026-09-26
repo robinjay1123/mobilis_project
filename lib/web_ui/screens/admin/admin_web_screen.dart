@@ -2451,7 +2451,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               users:users!drivers_user_id_fkey (id, full_name, email, phone)
             )
           ''')
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .limit(300); // Limit prevents full-table scan as historical bookings grow
 
       var rawBookings = List<Map<String, dynamic>>.from(response);
       try {
