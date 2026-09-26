@@ -96,7 +96,7 @@ class DriverService {
             if (nbiFileUrl != null && nbiFileUrl.isNotEmpty)
               'nbi_file_url': nbiFileUrl,
             'verification_status': 'pending',
-            'is_available': false,
+            // is_available lives on the users table, not drivers
             'driver_tier': 'standard',
             'rating': 0.0,
             'total_trips': 0,
@@ -271,14 +271,7 @@ class DriverService {
           .update({'is_available': available})
           .eq('id', userId);
 
-      try {
-        await supabase
-            .from('drivers')
-            .update({'is_available': available})
-            .eq('user_id', userId);
-      } catch (err) {
-        debugPrint('Drivers table availability update note: $err');
-      }
+      // is_available is only on the users table — no matching column on drivers
 
       debugPrint('Availability updated successfully');
       unawaited(
@@ -888,17 +881,13 @@ class DriverService {
         else
           Future<dynamic>.value(null),
 
-        // 3. Mark driver available in both users and drivers tables
+        // 3. Mark driver available in users table (is_available is not a drivers table column)
         supabase
             .from('users')
             .update({'is_available': true})
             .eq('id', currentUserId)
             .catchError((_) => null),
-        supabase
-            .from('drivers')
-            .update({'is_available': true})
-            .eq('user_id', currentUserId)
-            .catchError((_) => null),
+        Future<dynamic>.value(null), // placeholder — was drivers.update(is_available) which doesn't exist
 
         // 4. Fetch driver name (needed for notifications)
         supabase

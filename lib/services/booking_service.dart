@@ -1419,62 +1419,67 @@ class BookingService {
         throw Exception('Please select a trip destination before booking');
       }
 
-      // Fetch vehicle record (checking both standard vehicles and partner_vehicles tables)
+      // Fetch vehicle + partner vehicle + restriction + overlapping bookings all in parallel
       Map<String, dynamic>? vehicleState;
       String? plateNumber;
       String? partnerId;
       String? ownerId;
       bool isPartnerVehicle = false;
 
-      try {
-        vehicleState = await supabase
+      final (
+        vehicleRow,
+        partnerVehicleRow,
+        restriction,
+        overlappingBookings,
+      ) = await (
+        supabase
             .from('vehicles')
             .select('*')
             .eq('id', vehicleId)
-            .maybeSingle();
-        if (vehicleState != null) {
-          plateNumber = vehicleState['plate_number']?.toString();
-          ownerId = vehicleState['owner_id']?.toString();
-          final rawPartnerId = vehicleState['partner_id']?.toString();
-          if (rawPartnerId != null && rawPartnerId.isNotEmpty) {
-            partnerId = rawPartnerId;
-          }
-          if (vehicleState['owner_role']?.toString().toLowerCase() == 'partner') {
-            isPartnerVehicle = true;
-          }
+            .maybeSingle()
+            .catchError((_) => null),
+        supabase
+            .from('partner_vehicles')
+            .select('*')
+            .eq('id', vehicleId)
+            .maybeSingle()
+            .catchError((_) => null),
+        UserRestrictionService().getUserRestriction(renterId),
+        supabase
+            .from('bookings')
+            .select('id,start_at,end_at,start_date,end_date,status')
+            .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId'),
+      ).wait;
+
+      // Resolve vehicle state from parallel results
+      if (vehicleRow != null) {
+        vehicleState = Map<String, dynamic>.from(vehicleRow as Map);
+        plateNumber = vehicleState['plate_number']?.toString();
+        ownerId = vehicleState['owner_id']?.toString();
+        final rawPartnerId = vehicleState['partner_id']?.toString();
+        if (rawPartnerId != null && rawPartnerId.isNotEmpty) {
+          partnerId = rawPartnerId;
         }
-      } catch (e) {
-        debugPrint('Could not query vehicles table: $e');
+        if (vehicleState['owner_role']?.toString().toLowerCase() == 'partner') {
+          isPartnerVehicle = true;
+        }
+      } else if (partnerVehicleRow != null) {
+        vehicleState = Map<String, dynamic>.from(partnerVehicleRow as Map);
+        vehicleState['owner_role'] = 'partner';
+        isPartnerVehicle = true;
+        partnerId = vehicleState['partner_id']?.toString() ?? partnerId;
+        ownerId ??= partnerId;
+        plateNumber ??= vehicleState['plate_number']?.toString();
       }
 
-      // Check partner_vehicles table if not found in vehicles table or to enrich partner vehicle state
-      if (vehicleState == null) {
-        try {
-          final partnerState = await supabase
-              .from('partner_vehicles')
-              .select('*')
-              .eq('id', vehicleId)
-              .maybeSingle();
-
-          if (partnerState != null) {
-            vehicleState = Map<String, dynamic>.from(partnerState);
-            vehicleState['owner_role'] = 'partner';
-            isPartnerVehicle = true;
-            partnerId = partnerState['partner_id']?.toString() ?? partnerId;
-            ownerId ??= partnerId;
-            plateNumber ??= partnerState['plate_number']?.toString();
-          }
-        } catch (e) {
-          debugPrint('Could not query partner_vehicles table: $e');
-        }
-      }
-
-      if (isPartnerVehicle || (plateNumber != null && plateNumber.isNotEmpty)) {
+      // If still flagged as partner or has plate, do a quick partner_vehicles cross-check
+      // (only needed when the primary lookup already returned something to enrich)
+      if (!isPartnerVehicle && plateNumber != null && plateNumber.isNotEmpty) {
         try {
           final pvByPlate = await supabase
               .from('partner_vehicles')
               .select('id,partner_id,vehicle_id')
-              .or('id.eq.$vehicleId${plateNumber != null && plateNumber.isNotEmpty ? ',plate_number.eq.$plateNumber' : ''}')
+              .or('id.eq.$vehicleId,plate_number.eq.$plateNumber')
               .maybeSingle();
           if (pvByPlate != null) {
             isPartnerVehicle = true;
@@ -1497,16 +1502,6 @@ class BookingService {
         } catch (_) {}
       }
 
-      final (
-        restriction,
-        overlappingBookings,
-      ) = await (
-        UserRestrictionService().getUserRestriction(renterId),
-        supabase
-            .from('bookings')
-            .select('id,start_at,end_at,start_date,end_date,status')
-            .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId'),
-      ).wait;
 
       if (restriction.isBlocked || restriction.isAccountRestricted) {
         throw Exception(
@@ -1859,11 +1854,12 @@ class BookingService {
         }
       }
 
-      // Persist line-item financials in dedicated booking_financials table
+      // Persist line-item financials in dedicated booking_financials table (fire-and-forget)
       if (bookingId != null && bookingId.isNotEmpty) {
-        try {
-          await supabase.from('booking_financials').upsert({
+        unawaited(
+          supabase.from('booking_financials').upsert({
             'booking_id': bookingId,
+            'renter_id': renterId, // required by RLS INSERT policy (auth.uid() = renter_id)
             'rental_subtotal': rentalSubtotal ?? totalPrice,
             'delivery_fee': deliveryFee ?? 0.0,
             'driver_fee': effectiveDriverFee ?? 0.0,
@@ -1871,10 +1867,10 @@ class BookingService {
             'reservation_payment_type': cleanPaymentType,
             'reservation_payment_status': reservationPaymentReference != null ? 'pending_review' : 'unpaid',
             'updated_at': DateTime.now().toIso8601String(),
-          }, onConflict: 'booking_id');
-        } catch (fErr) {
-          debugPrint('Non-blocking: could not insert booking_financials: $fErr');
-        }
+          }, onConflict: 'booking_id').catchError((fErr) {
+            debugPrint('Non-blocking: could not insert booking_financials: $fErr');
+          }),
+        );
 
         if (reservationPaymentReference != null && reservationPaymentReference.trim().isNotEmpty) {
           try {
