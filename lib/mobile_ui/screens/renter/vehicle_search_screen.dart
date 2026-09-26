@@ -47,6 +47,8 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   bool _isSearching = false;
   String? _errorMessage;
   bool _showFilters = false;
+  bool _isSelectingDate = false;
+  String? _navigatingVehicleId;
 
   final List<String> _colors = [
     'Black',
@@ -303,10 +305,13 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   }
 
   Future<void> _selectDate(bool isFrom) async {
-    final initial = isFrom
-        ? (_availableFrom ?? DateTime.now())
-        : (_availableTo ?? _availableFrom ?? DateTime.now());
-    final selectedDate = await showDatePicker(
+    if (_isSelectingDate || !mounted) return;
+    _isSelectingDate = true;
+    try {
+      final initial = isFrom
+          ? (_availableFrom ?? DateTime.now())
+          : (_availableTo ?? _availableFrom ?? DateTime.now());
+      final selectedDate = await showDatePicker(
       context: context,
       initialDate: initial,
       firstDate: DateTime.now(),
@@ -374,20 +379,23 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
       },
     );
 
-    if (selectedDate != null && mounted) {
-      setState(() {
-        if (isFrom) {
-          _availableFrom = selectedDate;
-          if (_availableTo == null || _availableTo!.isBefore(selectedDate)) {
-            _availableTo = selectedDate;
-          }
-        } else {
-          _availableTo = selectedDate;
-          if (_availableFrom == null || _availableFrom!.isAfter(selectedDate)) {
+      if (selectedDate != null && mounted) {
+        setState(() {
+          if (isFrom) {
             _availableFrom = selectedDate;
+            if (_availableTo == null || _availableTo!.isBefore(selectedDate)) {
+              _availableTo = selectedDate;
+            }
+          } else {
+            _availableTo = selectedDate;
+            if (_availableFrom == null || _availableFrom!.isAfter(selectedDate)) {
+              _availableFrom = selectedDate;
+            }
           }
-        }
-      });
+        });
+      }
+    } finally {
+      _isSelectingDate = false;
     }
   }
 
@@ -470,16 +478,24 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     final isFavorite = _favoriteVehicleIds.contains(vehicleId);
 
     return GestureDetector(
-      onTap: () {
-        Navigator.of(context).pushNamed(
-          '/vehicle-detail',
-          arguments: {
-            'vehicleId': vehicle['id']?.toString() ?? '',
-            'vehicleData': vehicle,
-            'initialStartDate': _availableFrom,
-            'initialEndDate': _availableTo,
-          },
-        );
+      onTap: () async {
+        if (_navigatingVehicleId != null || !mounted || vehicleId.isEmpty) return;
+        setState(() => _navigatingVehicleId = vehicleId);
+        try {
+          await Navigator.of(context).pushNamed(
+            '/vehicle-detail',
+            arguments: {
+              'vehicleId': vehicleId,
+              'vehicleData': vehicle,
+              'initialStartDate': _availableFrom,
+              'initialEndDate': _availableTo,
+            },
+          );
+        } finally {
+          if (mounted) {
+            setState(() => _navigatingVehicleId = null);
+          }
+        }
       },
       child: Card(
         elevation: 2,

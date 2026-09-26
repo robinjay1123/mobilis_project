@@ -100,6 +100,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<String> _nearbyLocationTokens = [];
   String _committedVehicleSearch = '';
   bool _isSearchingVehicles = false;
+  bool _isOpeningBookNowCalendar = false;
+  String? _navigatingVehicleId;
 
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _vehicles = [];
@@ -1290,50 +1292,58 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _selectBookNowDates() async {
-    if (!await _checkRentalVerification()) return;
-    if (!mounted) return;
+    if (_isOpeningBookNowCalendar || !mounted) return;
+    setState(() => _isOpeningBookNowCalendar = true);
 
-    final now = DateTime.now();
-    final firstDate = DateTime(now.year, now.month, now.day);
-    final visibleVehicleIds =
-        (_filteredVehicles.isNotEmpty ? _filteredVehicles : _vehicles)
-            .map((vehicle) => vehicle['id']?.toString() ?? '')
-            .where((id) => id.isNotEmpty)
-            .toList();
-    final unavailableDays = await VehicleService()
-        .getFullyUnavailableDatesForVehicles(visibleVehicleIds);
-    if (!mounted) return;
+    try {
+      if (!await _checkRentalVerification()) return;
+      if (!mounted) return;
 
-    final picked = await _showBookNowCalendarDialog(
-      firstDate: firstDate,
-      lastDate: firstDate.add(const Duration(days: 365)),
-      initialStart:
-          _bookingFilterFrom ?? firstDate.add(const Duration(days: 1)),
-      initialEnd:
-          _bookingFilterTo ??
-          _bookingFilterFrom ??
-          firstDate.add(const Duration(days: 1)),
-      unavailableDays: unavailableDays,
-    );
-    if (picked == null) return;
-    if (!mounted) return;
+      final now = DateTime.now();
+      final firstDate = DateTime(now.year, now.month, now.day);
+      final visibleVehicleIds =
+          (_filteredVehicles.isNotEmpty ? _filteredVehicles : _vehicles)
+              .map((vehicle) => vehicle['id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty)
+              .toList();
+      final unavailableDays = await VehicleService()
+          .getFullyUnavailableDatesForVehicles(visibleVehicleIds);
+      if (!mounted) return;
 
-    setState(() {
-      _bookingFilterFrom = picked.start;
-      _bookingFilterTo = picked.end;
-    });
-    await _loadVehicles();
+      final picked = await _showBookNowCalendarDialog(
+        firstDate: firstDate,
+        lastDate: firstDate.add(const Duration(days: 365)),
+        initialStart:
+            _bookingFilterFrom ?? firstDate.add(const Duration(days: 1)),
+        initialEnd:
+            _bookingFilterTo ??
+            _bookingFilterFrom ??
+            firstDate.add(const Duration(days: 1)),
+        unavailableDays: unavailableDays,
+      );
+      if (picked == null || !mounted) return;
 
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => VehicleSearchScreen(
-          initialCategory: selectedCategory.isEmpty ? null : selectedCategory,
-          initialAvailableFrom: picked.start,
-          initialAvailableTo: picked.end,
+      setState(() {
+        _bookingFilterFrom = picked.start;
+        _bookingFilterTo = picked.end;
+      });
+      unawaited(_loadVehicles());
+
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => VehicleSearchScreen(
+            initialCategory: selectedCategory.isEmpty ? null : selectedCategory,
+            initialAvailableFrom: picked.start,
+            initialAvailableTo: picked.end,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isOpeningBookNowCalendar = false);
+      }
+    }
   }
 
   Future<DateTimeRange?> _showBookNowCalendarDialog({
@@ -1353,6 +1363,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return showDialog<DateTimeRange>(
       context: context,
       builder: (dialogContext) {
+        bool isApplying = false;
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final hasInvalidRange =
@@ -1774,7 +1785,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => Navigator.pop(dialogContext),
+                              onPressed: () {
+                                if (isApplying) return;
+                                isApplying = true;
+                                Navigator.pop(dialogContext);
+                              },
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppColors.textSecondary,
                                 side: const BorderSide(
@@ -1792,13 +1807,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       rangeEnd == null ||
                                       hasInvalidRange
                                   ? null
-                                  : () => Navigator.pop(
-                                      dialogContext,
-                                      DateTimeRange(
-                                        start: rangeStart!,
-                                        end: rangeEnd!,
-                                      ),
-                                    ),
+                                  : () {
+                                      if (isApplying) return;
+                                      isApplying = true;
+                                      Navigator.pop(
+                                        dialogContext,
+                                        DateTimeRange(
+                                          start: rangeStart!,
+                                          end: rangeEnd!,
+                                        ),
+                                      );
+                                    },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.primary,
                                 foregroundColor: Colors.black,
@@ -2364,6 +2383,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (e) {
       debugPrint('Error checking verification: $e');
       return true;
+    }
+  }
+
+  Future<void> _openVehicleDetail({
+    required String vehicleId,
+    required Map<String, dynamic> vehicleData,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    if (_navigatingVehicleId != null || !mounted || vehicleId.isEmpty) return;
+    setState(() => _navigatingVehicleId = vehicleId);
+    try {
+      await Navigator.of(context).pushNamed(
+        '/vehicle-detail',
+        arguments: {
+          'vehicleId': vehicleId,
+          'vehicleData': vehicleData,
+          'initialStartDate': startDate,
+          'initialEndDate': endDate,
+        },
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _navigatingVehicleId = null);
+      }
     }
   }
 
@@ -4130,9 +4174,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _selectBookNowDates,
-                        icon: const Icon(Icons.calendar_month),
-                        label: const Text('Book Now!'),
+                        onPressed: _isOpeningBookNowCalendar ? null : _selectBookNowDates,
+                        icon: _isOpeningBookNowCalendar
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : const Icon(Icons.calendar_month),
+                        label: Text(_isOpeningBookNowCalendar ? 'Checking dates...' : 'Book Now!'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.black,
@@ -4147,7 +4200,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Row(
                       children: [
                         OutlinedButton.icon(
-                          onPressed: _isLoadingVehicles
+                          onPressed: (_isLoadingVehicles || _isOpeningBookNowCalendar)
                               ? null
                               : _resetBookNowDateFilter,
                           icon: const Icon(Icons.refresh_rounded, size: 18),
@@ -4167,13 +4220,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: _selectBookNowDates,
-                            icon: const Icon(Icons.calendar_month, size: 19),
+                            onPressed: _isOpeningBookNowCalendar ? null : _selectBookNowDates,
+                            icon: _isOpeningBookNowCalendar
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.black,
+                                    ),
+                                  )
+                                : const Icon(Icons.calendar_month, size: 19),
                             label: Text(
-                              _formatDateRange(
-                                _bookingFilterFrom,
-                                _bookingFilterTo,
-                              ),
+                              _isOpeningBookNowCalendar
+                                  ? 'Checking...'
+                                  : _formatDateRange(
+                                      _bookingFilterFrom,
+                                      _bookingFilterTo,
+                                    ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -4657,14 +4721,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         padding: const EdgeInsets.only(bottom: 16),
                         child: GestureDetector(
                           onTap: () {
-                            Navigator.of(context).pushNamed(
-                              '/vehicle-detail',
-                              arguments: {
-                                'vehicleId': car['id']?.toString() ?? '',
-                                'vehicleData': car,
-                                'initialStartDate': _bookingFilterFrom,
-                                'initialEndDate': _bookingFilterTo,
-                              },
+                            _openVehicleDetail(
+                              vehicleId: car['id']?.toString() ?? '',
+                              vehicleData: car,
+                              startDate: _bookingFilterFrom,
+                              endDate: _bookingFilterTo,
                             );
                           },
                           child: ClipRRect(
@@ -5044,55 +5105,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                   ),
                                               ],
                                             ),
-                                            SizedBox(
-                                              height: 44,
-                                              child: ElevatedButton(
-                                                onPressed: () async {
-                                                  if (await _checkRentalVerification() &&
-                                                      await _canOpenVehicleBooking(
-                                                        car,
-                                                      )) {
-                                                    Navigator.of(
-                                                      context,
-                                                    ).pushNamed(
-                                                      '/vehicle-detail',
-                                                      arguments: {
-                                                        'vehicleId':
-                                                            car['id']
-                                                                ?.toString() ??
-                                                            '',
-                                                        'vehicleData': car,
-                                                        'initialStartDate':
-                                                            _bookingFilterFrom,
-                                                        'initialEndDate':
-                                                            _bookingFilterTo,
-                                                      },
-                                                    );
-                                                  }
-                                                },
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor:
-                                                      AppColors.primary,
-                                                  foregroundColor: Colors.black,
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
+                                            Builder(
+                                              builder: (context) {
+                                                final carId = car['id']?.toString() ?? '';
+                                                final isNavigatingThis = _navigatingVehicleId == carId;
+
+                                                return SizedBox(
+                                                  height: 44,
+                                                  child: ElevatedButton(
+                                                    onPressed: _navigatingVehicleId != null
+                                                        ? null
+                                                        : () async {
+                                                            setState(() => _navigatingVehicleId = carId);
+                                                            try {
+                                                              if (await _checkRentalVerification() &&
+                                                                  await _canOpenVehicleBooking(car)) {
+                                                                if (!mounted) return;
+                                                                await Navigator.of(context).pushNamed(
+                                                                  '/vehicle-detail',
+                                                                  arguments: {
+                                                                    'vehicleId': carId,
+                                                                    'vehicleData': car,
+                                                                    'initialStartDate': _bookingFilterFrom,
+                                                                    'initialEndDate': _bookingFilterTo,
+                                                                  },
+                                                                );
+                                                              }
+                                                            } finally {
+                                                              if (mounted) {
+                                                                setState(() => _navigatingVehicleId = null);
+                                                              }
+                                                            }
+                                                          },
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: AppColors.primary,
+                                                      foregroundColor: Colors.black,
+                                                      padding: const EdgeInsets.symmetric(
                                                         horizontal: 24,
                                                       ),
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          8,
-                                                        ),
+                                                      shape: RoundedRectangleBorder(
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                    ),
+                                                    child: isNavigatingThis
+                                                        ? const SizedBox(
+                                                            width: 18,
+                                                            height: 18,
+                                                            child: CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                              color: Colors.black,
+                                                            ),
+                                                          )
+                                                        : const Text(
+                                                            'Book Now',
+                                                            style: TextStyle(
+                                                              fontSize: 13,
+                                                              fontWeight: FontWeight.w600,
+                                                            ),
+                                                          ),
                                                   ),
-                                                ),
-                                                child: const Text(
-                                                  'Book Now',
-                                                  style: TextStyle(
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ),
+                                                );
+                                              },
                                             ),
                                           ],
                                         ),
@@ -5232,14 +5305,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 return GestureDetector(
                   onTap: vehicleId.isEmpty
                       ? null
-                      : () => Navigator.of(context).pushNamed(
-                          '/vehicle-detail',
-                          arguments: {
-                            'vehicleId': vehicleId,
-                            'vehicleData': vehicle,
-                            'initialStartDate': _bookingFilterFrom,
-                            'initialEndDate': _bookingFilterTo,
-                          },
+                      : () => _openVehicleDetail(
+                          vehicleId: vehicleId,
+                          vehicleData: vehicle,
+                          startDate: _bookingFilterFrom,
+                          endDate: _bookingFilterTo,
                         ),
                   child: Container(
                     width: 232,
@@ -6261,12 +6331,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return InkWell(
       onTap: () {
-        Navigator.of(context).pushNamed(
-          '/vehicle-detail',
-          arguments: {
-            'vehicleId': vehicle['id']?.toString() ?? '',
-            'vehicleData': vehicle,
-          },
+        _openVehicleDetail(
+          vehicleId: vehicle['id']?.toString() ?? '',
+          vehicleData: vehicle,
         );
       },
       borderRadius: BorderRadius.circular(14),

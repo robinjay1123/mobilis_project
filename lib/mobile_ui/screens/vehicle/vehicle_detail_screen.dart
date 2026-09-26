@@ -88,6 +88,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   double? _deliveryDistanceKm;
   bool _isCalculatingDeliveryFee = false;
 
+  // Modal and action guards to prevent duplicate/overlapping modals on spam taps
+  bool _isOpeningCalendar = false;
+  bool _isShowingDateLimitModal = false;
+  bool _isShowingHourlyNotice = false;
+  bool _isShowingDateAvailability = false;
+  bool _isShowingVoucherSheet = false;
+  bool _isPickingEvidencePhoto = false;
+  bool _isShowingErrorDialog = false;
+  bool _isShowingVerificationDialog = false;
+  bool _isShowingBookedDetails = false;
+  bool _isOpeningLocationPicker = false;
+  bool _isOpeningEmergencyContact = false;
+  bool _isOpeningRatings = false;
+  bool _isOpeningSignatureOptions = false;
+  bool _isOpeningSignatureCapture = false;
+
   // Location selection state
   String? _pickupProvince;
   String? _pickupCity;
@@ -129,6 +145,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   @override
   void initState() {
     super.initState();
+    // Fast render: if vehicle data was passed from previous screen, show it immediately!
+    if (widget.vehicleData != null) {
+      _vehicle = Map<String, dynamic>.from(widget.vehicleData!);
+      _isLoading = false;
+    }
     _selectedStartDate = widget.initialStartDate == null
         ? null
         : DateTime(
@@ -157,31 +178,44 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Future<void> _loadVehicle() async {
-    setState(() {
-      _isLoading = true;
-    });
+    // Only show full loading spinner if we don't have visual vehicle data yet
+    if (_vehicle == null) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     try {
       final vehicleService = VehicleService();
 
-      // Always prefer the latest database state. Passed data is only a visual
-      // fallback so an approval/listing change cannot be bypassed by stale UI.
-      _vehicle =
-          await vehicleService.getVehicleById(widget.vehicleId) ??
-          widget.vehicleData;
-      _isVehicleBookable = await vehicleService.isVehicleBookable(
-        widget.vehicleId,
-      );
+      // Parallelize all independent background queries with Future.wait instead of 9 sequential round-trips
+      final results = await Future.wait([
+        vehicleService.getVehicleById(widget.vehicleId).catchError((_) => null),
+        vehicleService.isVehicleBookable(widget.vehicleId).catchError((_) => true),
+        vehicleService.getUnavailableDates(widget.vehicleId).catchError((_) => <DateTime>[]),
+        _fetchRenterVehicleBookingsFast(),
+        _loadFavoriteState().catchError((_) {}),
+        _loadEmergencyContact().catchError((_) {}),
+        _loadLoyaltyVouchers().catchError((_) {}),
+        TripRatingService().getVehicleRatingSummary(widget.vehicleId).catchError((_) => <String, dynamic>{}),
+      ]);
 
-      // Get unavailable dates
-      _unavailableDates = await vehicleService.getUnavailableDates(
-        widget.vehicleId,
-      );
-      await _loadMyBookings();
-      await _loadFavoriteState();
-      await _loadEmergencyContact();
-      await _loadLoyaltyVouchers();
-      await _loadVehicleRating();
+      if (!mounted) return;
+
+      final freshVehicle = results[0] as Map<String, dynamic>?;
+      if (freshVehicle != null) {
+        _vehicle = freshVehicle;
+      }
+      _isVehicleBookable = results[1] as bool? ?? true;
+      _unavailableDates = results[2] as List<DateTime>? ?? [];
+      _myBookings = results[3] as List<Map<String, dynamic>>? ?? [];
+
+      final ratingSummary = results[7] as Map<String, dynamic>?;
+      if (ratingSummary != null && ratingSummary.isNotEmpty && _vehicle != null) {
+        _vehicle!['rating'] = ratingSummary['average'];
+        _vehicle!['rating_count'] = ratingSummary['count'];
+      }
+
       if (_selectedStartDate != null) {
         await _loadStartTimeSlots();
       }
@@ -220,6 +254,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   void _openVehicleRatings() {
+    if (_isOpeningRatings || !mounted) return;
+    _isOpeningRatings = true;
     final brand = _vehicle?['brand']?.toString().trim() ?? '';
     final model = _vehicle?['model']?.toString().trim() ?? '';
     final year = _vehicle?['year']?.toString().trim() ?? '';
@@ -244,18 +280,32 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           title: headerTitle,
         ),
       ),
-    );
+    ).then((_) {
+      _isOpeningRatings = false;
+    });
+  }
+
+  /// Fast query for the current vehicle's bookings only — avoids pulling 100 historical bookings
+  /// and running heavy satellite hydration on every vehicle detail view.
+  Future<List<Map<String, dynamic>>> _fetchRenterVehicleBookingsFast() async {
+    final user = AuthService().currentUser;
+    if (user == null) return [];
+    try {
+      final rows = await Supabase.instance.client
+          .from('bookings')
+          .select('id,vehicle_id,start_at,end_at,start_date,end_date,status')
+          .eq('renter_id', user.id)
+          .eq('vehicle_id', widget.vehicleId)
+          .inFilter('status', ['pending', 'approved', 'confirmed', 'active']);
+      return List<Map<String, dynamic>>.from(rows);
+    } catch (e) {
+      debugPrint('Could not load fast renter vehicle bookings: $e');
+      return [];
+    }
   }
 
   Future<void> _loadMyBookings() async {
-    final user = AuthService().currentUser;
-    if (user == null) return;
-    try {
-      _myBookings = await BookingService().getRenterBookings(user.id);
-    } catch (e) {
-      debugPrint('Could not load renter bookings for calendar: $e');
-      _myBookings = [];
-    }
+    _myBookings = await _fetchRenterVehicleBookingsFast();
   }
 
   Future<void> _loadEmergencyContact() async {
@@ -282,16 +332,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Future<void> _openEmergencyContactScreen() async {
-    final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => EmergencyContactScreen(
-          isDarkMode: Theme.of(context).brightness == Brightness.dark,
+    if (_isOpeningEmergencyContact || !mounted) return;
+    _isOpeningEmergencyContact = true;
+    try {
+      final saved = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => EmergencyContactScreen(
+            isDarkMode: Theme.of(context).brightness == Brightness.dark,
+          ),
         ),
-      ),
-    );
+      );
 
-    if (saved == true) {
-      await _loadEmergencyContact();
+      if (saved == true) {
+        await _loadEmergencyContact();
+      }
+    } finally {
+      _isOpeningEmergencyContact = false;
     }
   }
 
@@ -299,95 +355,101 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     required bool isSelfie,
     bool isCoTraveler = false,
   }) async {
-    final title = isCoTraveler
-        ? (isSelfie ? 'Co-Traveler Selfie' : 'Co-Traveler Valid ID')
-        : (isSelfie ? 'Renter Selfie' : 'Renter Valid ID');
+    if (_isPickingEvidencePhoto || !mounted) return;
+    _isPickingEvidencePhoto = true;
+    try {
+      final title = isCoTraveler
+          ? (isSelfie ? 'Co-Traveler Selfie' : 'Co-Traveler Valid ID')
+          : (isSelfie ? 'Renter Selfie' : 'Renter Valid ID');
 
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: AppColors.darkBgSecondary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        backgroundColor: AppColors.darkBgSecondary,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Select $title Source',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                const SizedBox(height: 16),
+                Text(
+                  'Select $title Source',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
-                title: const Text(
-                  'Take Photo (Camera)',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+                  title: const Text(
+                    'Take Photo (Camera)',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    isSelfie
+                        ? 'Capture a live selfie photo'
+                        : 'Take a clear photo of physical ID',
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  onTap: () => Navigator.pop(ctx, ImageSource.camera),
                 ),
-                subtitle: Text(
-                  isSelfie
-                      ? 'Capture a live selfie photo'
-                      : 'Take a clear photo of physical ID',
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ListTile(
+                  leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
+                  title: const Text(
+                    'Choose from Gallery (Upload)',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  subtitle: const Text(
+                    'Upload an existing photo from device',
+                    style: TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  onTap: () => Navigator.pop(ctx, ImageSource.gallery),
                 ),
-                onTap: () => Navigator.pop(ctx, ImageSource.camera),
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded, color: AppColors.textSecondary),
-                title: const Text(
-                  'Choose from Gallery (Upload)',
-                  style: TextStyle(color: Colors.white),
-                ),
-                subtitle: const Text(
-                  'Upload an existing photo from device',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    if (source == null) return;
+      if (source == null) return;
 
-    final picker = ImagePicker();
-    final file = await picker.pickImage(
-      source: source,
-      imageQuality: 85,
-    );
-    if (file == null) return;
+      final picker = ImagePicker();
+      final file = await picker.pickImage(
+        source: source,
+        imageQuality: 85,
+      );
+      if (file == null) return;
 
-    setState(() {
-      if (isCoTraveler && isSelfie) {
-        _coTravelerSelfiePhoto = file;
-      } else if (isCoTraveler) {
-        _coTravelerValidIdPhoto = file;
-      } else if (isSelfie) {
-        _selfiePhoto = file;
-      } else {
-        _validIdPhoto = file;
+      setState(() {
+        if (isCoTraveler && isSelfie) {
+          _coTravelerSelfiePhoto = file;
+        } else if (isCoTraveler) {
+          _coTravelerValidIdPhoto = file;
+        } else if (isSelfie) {
+          _selfiePhoto = file;
+        } else {
+          _validIdPhoto = file;
+        }
+      });
+
+      if (isCoTraveler && !isSelfie && !kIsWeb) {
+        await _scanCoTravelerId(File(file.path));
       }
-    });
-
-    if (isCoTraveler && !isSelfie && !kIsWeb) {
-      await _scanCoTravelerId(File(file.path));
+    } finally {
+      _isPickingEvidencePhoto = false;
     }
   }
 
@@ -477,217 +539,147 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Future<void> _openCoTravelerSignatureOptions() async {
-    final hasSignature = _coTravelerSignatureBytes != null &&
-        _coTravelerSignatureBytes!.isNotEmpty;
+    if (_isOpeningSignatureOptions || !mounted) return;
+    _isOpeningSignatureOptions = true;
+    try {
+      final hasSignature = _coTravelerSignatureBytes != null &&
+          _coTravelerSignatureBytes!.isNotEmpty;
 
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.darkBgSecondary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        backgroundColor: AppColors.darkBgSecondary,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(10),
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                      child: const Icon(
-                        Icons.draw_outlined,
-                        color: AppColors.primary,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Co-Traveler Signature',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 17,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            hasSignature
-                                ? 'Signature attached. Choose an option to update or remove.'
-                                : 'A signature is required for safety verification.',
-                            style: const TextStyle(
-                              color: Colors.white60,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.25),
                     ),
                   ),
-                  child: const Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 18),
+                  Row(
                     children: [
-                      Icon(
-                        Icons.info_outline_rounded,
-                        color: AppColors.primary,
-                        size: 18,
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.draw_outlined,
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
                       ),
-                      SizedBox(width: 10),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: Text(
-                          'Note: If your co-traveler is not available at the moment of assessing the booking, they can write their signature on a clean surface (preferably plain white paper), and you can upload a photo of it. Ensure it is clearly visible, well-lit, and legible.',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            height: 1.4,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Co-Traveler Signature',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 17,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              hasSignature
+                                  ? 'Signature attached. Choose an option to update or remove.'
+                                  : 'A signature is required for safety verification.',
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  tileColor: AppColors.darkBgTertiary,
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
+                      color: AppColors.primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.25),
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.gesture_rounded,
-                      color: AppColors.primary,
-                      size: 20,
-                    ),
-                  ),
-                  title: const Text(
-                    'Draw Signature on Screen',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                  subtitle: const Text(
-                    'Co-traveler signs directly on this device',
-                    style: TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                  onTap: () => Navigator.pop(ctx, 'draw'),
-                ),
-                const SizedBox(height: 8),
-                ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  tileColor: AppColors.darkBgTertiary,
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.camera_alt_outlined,
-                      color: AppColors.primary,
-                      size: 20,
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          color: AppColors.primary,
+                          size: 18,
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Note: If your co-traveler is not available at the moment of assessing the booking, they can write their signature on a clean surface (preferably plain white paper), and you can upload a photo of it. Ensure it is clearly visible, well-lit, and legible.',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  title: const Text(
-                    'Take Photo of Paper Signature (Camera)',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
+                  const SizedBox(height: 16),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
                     ),
-                  ),
-                  subtitle: const Text(
-                    'Photograph signature written on clean white paper',
-                    style: TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                  onTap: () => Navigator.pop(ctx, 'camera'),
-                ),
-                const SizedBox(height: 8),
-                ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  tileColor: AppColors.darkBgTertiary,
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.textSecondary.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
-                      Icons.photo_library_outlined,
-                      color: AppColors.textSecondary,
-                      size: 20,
+                    tileColor: AppColors.darkBgTertiary,
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.gesture_rounded,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
                     ),
-                  ),
-                  title: const Text(
-                    'Upload Signature Photo (Gallery)',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
+                    title: const Text(
+                      'Draw Signature on Screen',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
+                    subtitle: const Text(
+                      'Co-traveler signs directly on this device',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    onTap: () => Navigator.pop(ctx, 'draw'),
                   ),
-                  subtitle: const Text(
-                    'Choose signature image sent by co-traveler',
-                    style: TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                  onTap: () => Navigator.pop(ctx, 'gallery'),
-                ),
-                if (hasSignature) ...[
                   const SizedBox(height: 8),
                   ListTile(
                     contentPadding: const EdgeInsets.symmetric(
@@ -697,92 +689,174 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    tileColor: AppColors.error.withValues(alpha: 0.08),
+                    tileColor: AppColors.darkBgTertiary,
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: AppColors.error.withValues(alpha: 0.15),
+                        color: AppColors.primary.withValues(alpha: 0.15),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: AppColors.error,
+                        Icons.camera_alt_outlined,
+                        color: AppColors.primary,
                         size: 20,
                       ),
                     ),
                     title: const Text(
-                      'Remove Current Signature',
+                      'Take Photo of Paper Signature (Camera)',
                       style: TextStyle(
-                        color: AppColors.error,
+                        color: Colors.white,
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
                       ),
                     ),
-                    onTap: () => Navigator.pop(ctx, 'clear'),
+                    subtitle: const Text(
+                      'Photograph signature written on clean white paper',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    onTap: () => Navigator.pop(ctx, 'camera'),
                   ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    tileColor: AppColors.darkBgTertiary,
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.textSecondary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.photo_library_outlined,
+                        color: AppColors.textSecondary,
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Upload Signature Photo (Gallery)',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Choose signature image sent by co-traveler',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    onTap: () => Navigator.pop(ctx, 'gallery'),
+                  ),
+                  if (hasSignature) ...[
+                    const SizedBox(height: 8),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      tileColor: AppColors.error.withValues(alpha: 0.08),
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: AppColors.error,
+                          size: 20,
+                        ),
+                      ),
+                      title: const Text(
+                        'Remove Current Signature',
+                        style: TextStyle(
+                          color: AppColors.error,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      onTap: () => Navigator.pop(ctx, 'clear'),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-
-    if (action == null || !mounted) return;
-
-    if (action == 'draw') {
-      await _openSignatureCapture(coTraveler: true);
-    } else if (action == 'camera' || action == 'gallery') {
-      final picker = ImagePicker();
-      final photo = await picker.pickImage(
-        source: action == 'camera' ? ImageSource.camera : ImageSource.gallery,
-        imageQuality: 90,
       );
-      if (photo != null && mounted) {
-        final bytes = await photo.readAsBytes();
-        setState(() {
-          _coTravelerSignatureBytes = bytes;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle_outline, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Co-traveler signature photo uploaded successfully!'),
-              ],
-            ),
-            backgroundColor: AppColors.success,
-          ),
+
+      if (action == null || !mounted) return;
+
+      if (action == 'draw') {
+        await _openSignatureCapture(coTraveler: true);
+      } else if (action == 'camera' || action == 'gallery') {
+        final picker = ImagePicker();
+        final photo = await picker.pickImage(
+          source: action == 'camera' ? ImageSource.camera : ImageSource.gallery,
+          imageQuality: 90,
         );
+        if (photo != null && mounted) {
+          final bytes = await photo.readAsBytes();
+          setState(() {
+            _coTravelerSignatureBytes = bytes;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle_outline, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Co-traveler signature photo uploaded successfully!'),
+                ],
+              ),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      } else if (action == 'clear') {
+        setState(() {
+          _coTravelerSignatureBytes = null;
+        });
       }
-    } else if (action == 'clear') {
-      setState(() {
-        _coTravelerSignatureBytes = null;
-      });
+    } finally {
+      _isOpeningSignatureOptions = false;
     }
   }
 
   Future<void> _openSignatureCapture({required bool coTraveler}) async {
-    final currentBytes = coTraveler
-        ? _coTravelerSignatureBytes
-        : _signatureBytes;
-    final result = await Navigator.of(context).push<Uint8List>(
-      MaterialPageRoute(
-        builder: (_) => SignatureCaptureScreen(
-          title: coTraveler ? 'Co-traveler Signature' : 'Renter Signature',
-          initialSignature: currentBytes,
+    if (_isOpeningSignatureCapture || !mounted) return;
+    _isOpeningSignatureCapture = true;
+    try {
+      final currentBytes = coTraveler
+          ? _coTravelerSignatureBytes
+          : _signatureBytes;
+      final result = await Navigator.of(context).push<Uint8List>(
+        MaterialPageRoute(
+          builder: (_) => SignatureCaptureScreen(
+            title: coTraveler ? 'Co-traveler Signature' : 'Renter Signature',
+            initialSignature: currentBytes,
+          ),
         ),
-      ),
-    );
-    if (result == null || !mounted) return;
-    setState(() {
-      if (coTraveler) {
-        _coTravelerSignatureBytes = result;
-      } else {
-        _signatureBytes = result;
-      }
-    });
+      );
+      if (result == null || !mounted) return;
+      setState(() {
+        if (coTraveler) {
+          _coTravelerSignatureBytes = result;
+        } else {
+          _signatureBytes = result;
+        }
+      });
+    } finally {
+      _isOpeningSignatureCapture = false;
+    }
   }
 
   bool _isValidPhilippinePhone(String value) {
@@ -827,65 +901,74 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Future<void> _selectDates() async {
-    if (!await _ensureVehicleBookable()) return;
+    if (_isOpeningCalendar) return;
+    _isOpeningCalendar = true;
 
     try {
-      final latestUnavailable = await VehicleService().getUnavailableDates(
-        widget.vehicleId,
+      if (!await _ensureVehicleBookable()) return;
+
+      try {
+        final latestUnavailable = await VehicleService().getUnavailableDates(
+          widget.vehicleId,
+        );
+        if (mounted) {
+          setState(() {
+            _unavailableDates = latestUnavailable;
+          });
+        }
+        await _loadMyBookings();
+      } catch (e) {
+        debugPrint('Error refreshing availability for date picker: $e');
+      }
+
+      final isHourly = _bookingMode == BookingMode.hourly;
+      final now = DateTime.now();
+      final firstDate = DateTime(now.year, now.month, now.day);
+      final initialDate = _clampToBookableDate(
+        _selectedStartDate ?? firstDate.add(const Duration(days: 1)),
       );
+      var initialEnd = _clampToBookableDate(_selectedEndDate ?? initialDate);
+      if (initialEnd.isBefore(initialDate)) initialEnd = initialDate;
+
+      // Hourly bookings span at most 2 calendar days (e.g. 10pm day 1 → 2am day 2).
+      // Clamp the end date to start+1 when in hourly mode.
+      if (isHourly &&
+          initialEnd.isAfter(initialDate.add(const Duration(days: 1)))) {
+        initialEnd = initialDate.add(const Duration(days: 1));
+      }
+
+      final DateTime hourlyLastDate = firstDate.add(const Duration(days: 365));
+      final DateTimeRange? picked = await _showBookingCalendarDialog(
+        firstDate: firstDate,
+        lastDate: hourlyLastDate,
+        initialStart: _selectedStartDate ?? initialDate,
+        initialEnd: _selectedEndDate ?? initialEnd,
+        isHourly: isHourly,
+      );
+
+      if (picked == null) {
+        return;
+      }
+
       if (mounted) {
         setState(() {
-          _unavailableDates = latestUnavailable;
+          _selectedStartDate = picked.start;
+          _selectedEndDate = picked.end;
+          _startTime = null;
+          _returnTime = null;
+          _availableStartSlots = [];
+          _availableReturnSlots = [];
         });
+        await _loadStartTimeSlots();
       }
-      await _loadMyBookings();
-    } catch (e) {
-      debugPrint('Error refreshing availability for date picker: $e');
-    }
-
-    final isHourly = _bookingMode == BookingMode.hourly;
-    final now = DateTime.now();
-    final firstDate = DateTime(now.year, now.month, now.day);
-    final initialDate = _clampToBookableDate(
-      _selectedStartDate ?? firstDate.add(const Duration(days: 1)),
-    );
-    var initialEnd = _clampToBookableDate(_selectedEndDate ?? initialDate);
-    if (initialEnd.isBefore(initialDate)) initialEnd = initialDate;
-
-    // Hourly bookings span at most 2 calendar days (e.g. 10pm day 1 → 2am day 2).
-    // Clamp the end date to start+1 when in hourly mode.
-    if (isHourly &&
-        initialEnd.isAfter(initialDate.add(const Duration(days: 1)))) {
-      initialEnd = initialDate.add(const Duration(days: 1));
-    }
-
-    final DateTime hourlyLastDate = firstDate.add(const Duration(days: 365));
-    final DateTimeRange? picked = await _showBookingCalendarDialog(
-      firstDate: firstDate,
-      lastDate: hourlyLastDate,
-      initialStart: _selectedStartDate ?? initialDate,
-      initialEnd: _selectedEndDate ?? initialEnd,
-      isHourly: isHourly,
-    );
-
-    if (picked == null) {
-      return;
-    }
-
-    if (mounted) {
-      setState(() {
-        _selectedStartDate = picked.start;
-        _selectedEndDate = picked.end;
-        _startTime = null;
-        _returnTime = null;
-        _availableStartSlots = [];
-        _availableReturnSlots = [];
-      });
-      await _loadStartTimeSlots();
+    } finally {
+      _isOpeningCalendar = false;
     }
   }
 
   void _showDateLimitModal(BuildContext dialogContext, String message) {
+    if (_isShowingDateLimitModal || !dialogContext.mounted) return;
+    _isShowingDateLimitModal = true;
     showDialog(
       context: dialogContext,
       builder: (modalContext) => AlertDialog(
@@ -914,7 +997,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ),
         actions: [
           ElevatedButton(
-            onPressed: () => Navigator.pop(modalContext),
+            onPressed: () => Navigator.of(modalContext).pop(),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.black,
@@ -929,10 +1012,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ),
         ],
       ),
-    );
+    ).then((_) {
+      _isShowingDateLimitModal = false;
+    });
   }
 
   void _showHourlyMinimumNotice(int selectedHours) {
+    if (_isShowingHourlyNotice || !mounted) return;
+    _isShowingHourlyNotice = true;
     final pricePerDay =
         (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
     final pricePerHour =
@@ -1003,7 +1090,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ),
         actions: [
           ElevatedButton(
-            onPressed: () => Navigator.pop(modalContext),
+            onPressed: () => Navigator.of(modalContext).pop(),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.black,
@@ -1018,7 +1105,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ),
         ],
       ),
-    );
+    ).then((_) {
+      _isShowingHourlyNotice = false;
+    });
   }
 
   Future<DateTimeRange?> _showBookingCalendarDialog({
@@ -1028,17 +1117,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     required DateTime initialEnd,
     bool isHourly = false,
   }) async {
-    // Fetch fresh unavailable dates to ensure live accuracy
-    try {
-      final freshUnavailable =
-          await VehicleService().getUnavailableDates(widget.vehicleId);
-      if (mounted && freshUnavailable.isNotEmpty) {
-        setState(() {
-          _unavailableDates = freshUnavailable;
-        });
-      }
-    } catch (_) {}
-
     if (!mounted) return null;
 
     var focusedDay = initialStart;
@@ -1051,6 +1129,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     return showDialog<DateTimeRange>(
       context: context,
       builder: (dialogContext) {
+        bool isApplying = false;
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final hasInvalidRange =
@@ -1633,7 +1712,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => Navigator.pop(dialogContext),
+                              onPressed: () {
+                                if (isApplying) return;
+                                isApplying = true;
+                                Navigator.pop(dialogContext);
+                              },
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppColors.textSecondary,
                                 side: const BorderSide(
@@ -1651,13 +1734,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                       rangeEnd == null ||
                                       hasInvalidRange
                                   ? null
-                                  : () => Navigator.pop(
-                                      dialogContext,
-                                      DateTimeRange(
-                                        start: rangeStart!,
-                                        end: rangeEnd!,
-                                      ),
-                                    ),
+                                  : () {
+                                      if (isApplying) return;
+                                      isApplying = true;
+                                      Navigator.pop(
+                                        dialogContext,
+                                        DateTimeRange(
+                                          start: rangeStart!,
+                                          end: rangeEnd!,
+                                        ),
+                                      );
+                                    },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.primary,
                                 foregroundColor: Colors.black,
@@ -1831,8 +1918,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     DateTime date,
     Map<DateTime, List<Map<String, dynamic>>> detailsByDay,
   ) {
+    if (_isShowingBookedDetails || !mounted) return;
     final bookings = detailsByDay[_dateOnly(date)] ?? [];
     if (bookings.isEmpty) return;
+    _isShowingBookedDetails = true;
 
     showModalBottomSheet<void>(
       context: context,
@@ -1907,7 +1996,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ),
         );
       },
-    );
+    ).then((_) {
+      _isShowingBookedDetails = false;
+    });
   }
 
   Widget _buildCalendarDayCell({
@@ -2238,70 +2329,76 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     DateTime date, {
     required bool fullyUnavailable,
   }) async {
-    List<DateTime> available = const [];
-    Object? loadError;
-    if (!fullyUnavailable) {
-      try {
-        available = await VehicleService().getAvailableTimeSlots(
-          vehicleId: widget.vehicleId,
-          date: date,
-        );
-      } catch (error) {
-        loadError = error;
+    if (_isShowingDateAvailability || !mounted) return;
+    _isShowingDateAvailability = true;
+    try {
+      List<DateTime> available = const [];
+      Object? loadError;
+      if (!fullyUnavailable) {
+        try {
+          available = await VehicleService().getAvailableTimeSlots(
+            vehicleId: widget.vehicleId,
+            date: date,
+          );
+        } catch (error) {
+          loadError = error;
+        }
       }
-    }
-    if (!mounted) return;
+      if (!mounted) return;
 
-    final availableHours = available.map((slot) => slot.hour).toSet();
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.darkBgSecondary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Availability for ${_formatDate(date)}',
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                loadError != null
-                    ? 'Availability could not be loaded.'
-                    : 'Unavailable hours remain visible but cannot be selected.',
-                style: TextStyle(
-                  color: loadError != null
-                      ? AppColors.error
-                      : AppColors.textSecondary,
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: _buildReadOnlySlotGrid(
-                    date: date,
-                    availableHours: fullyUnavailable
-                        ? const <int>{}
-                        : availableHours,
+      final availableHours = available.map((slot) => slot.hour).toSet();
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: AppColors.darkBgSecondary,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Availability for ${_formatDate(date)}',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                Text(
+                  loadError != null
+                      ? 'Availability could not be loaded.'
+                      : 'Unavailable hours remain visible but cannot be selected.',
+                  style: TextStyle(
+                    color: loadError != null
+                        ? AppColors.error
+                        : AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: _buildReadOnlySlotGrid(
+                      date: date,
+                      availableHours: fullyUnavailable
+                          ? const <int>{}
+                          : availableHours,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _isShowingDateAvailability = false;
+    }
   }
 
   Future<void> _refreshDeliveryEstimate() async {
@@ -2353,18 +2450,25 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Future<void> _handleBooking() async {
-    if (!await _ensureVehicleBookable(refreshVehicle: true)) return;
+    if (_isBooking) return;
+    setState(() => _isBooking = true);
 
-    final authService = AuthService();
-    final user = authService.currentUser;
-
-    if (user == null) {
-      _showErrorDialog('Error', 'Please log in first');
-      return;
-    }
-
-    // Get user role from database
     try {
+      if (!await _ensureVehicleBookable(refreshVehicle: true)) {
+        if (mounted) setState(() => _isBooking = false);
+        return;
+      }
+
+      final authService = AuthService();
+      final user = authService.currentUser;
+
+      if (user == null) {
+        if (mounted) setState(() => _isBooking = false);
+        _showErrorDialog('Error', 'Please log in first');
+        return;
+      }
+
+      // Get user role from database
       final verificationState =
           await VerificationService.getUserVerificationState(user.id);
       final userRole = verificationState['role']?.toString() ?? 'renter';
@@ -2382,7 +2486,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
       // For renters, require verification
       if (!isVerified) {
-        if (mounted) {
+        if (mounted) setState(() => _isBooking = false);
+        if (mounted && !_isShowingVerificationDialog) {
+          _isShowingVerificationDialog = true;
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
@@ -2422,7 +2528,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 ),
               ],
             ),
-          );
+          ).then((_) {
+            _isShowingVerificationDialog = false;
+          });
         }
         return;
       }
@@ -2430,6 +2538,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       // Renter is verified, proceed with booking
       await _proceedWithBooking(requireTermsAgreement: true);
     } catch (e) {
+      if (mounted) setState(() => _isBooking = false);
       debugPrint('Error checking verification: $e');
       _showErrorDialog(
         'Error',
@@ -3532,7 +3641,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   void _showErrorDialog(String title, String message) {
-    if (!mounted) return;
+    if (_isShowingErrorDialog || !mounted) return;
+    _isShowingErrorDialog = true;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -3556,7 +3666,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ),
         ],
       ),
-    );
+    ).then((_) {
+      _isShowingErrorDialog = false;
+    });
   }
 
   @override
@@ -4776,6 +4888,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   void _showVoucherPickerModalSheet() {
+    if (_isShowingVoucherSheet || !mounted) return;
+    _isShowingVoucherSheet = true;
     final customCodeController = TextEditingController();
     String? promoError;
 
@@ -5018,7 +5132,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         },
         );
       },
-    );
+    ).then((_) {
+      _isShowingVoucherSheet = false;
+    });
   }
 
   List<LoyaltyVoucher> _getAvailableVouchersList() {
@@ -6348,62 +6464,68 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Future<void> _openLocationPicker({required bool isPickup}) async {
-    final initialAddress = isPickup
-        ? _getPickupLocation()
-        : _getDropoffLocation();
-    final initialPin = isPickup ? _pickupMapPin : _dropoffMapPin;
-    final selectedPin = await showModalBottomSheet<_BookingLocationPin>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.darkBgSecondary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => _LocationPinPickerSheet(
-        title: isPickup ? 'Pin delivery pickup' : 'Pin trip destination',
-        initialAddress: initialAddress,
-        initialPin: initialPin,
-        resolveFromAddress: (address) => _resolveLocationPin(
-          address: address,
-          fallbackLabel: isPickup ? 'Pickup location' : 'Trip destination',
-        ),
-        resolveAddress: _resolveCompleteAddress,
-      ),
-    );
-
-    if (selectedPin == null || !mounted) return;
-    _ResolvedPickupLocation? resolvedLocation;
+    if (_isOpeningLocationPicker || !mounted) return;
+    _isOpeningLocationPicker = true;
     try {
-      final placemarks = await placemarkFromCoordinates(
-        selectedPin.latitude,
-        selectedPin.longitude,
+      final initialAddress = isPickup
+          ? _getPickupLocation()
+          : _getDropoffLocation();
+      final initialPin = isPickup ? _pickupMapPin : _dropoffMapPin;
+      final selectedPin = await showModalBottomSheet<_BookingLocationPin>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: AppColors.darkBgSecondary,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (context) => _LocationPinPickerSheet(
+          title: isPickup ? 'Pin delivery pickup' : 'Pin trip destination',
+          initialAddress: initialAddress,
+          initialPin: initialPin,
+          resolveFromAddress: (address) => _resolveLocationPin(
+            address: address,
+            fallbackLabel: isPickup ? 'Pickup location' : 'Trip destination',
+          ),
+          resolveAddress: _resolveCompleteAddress,
+        ),
       );
-      if (placemarks.isNotEmpty) {
-        resolvedLocation = _matchPlacemarkToServiceArea(placemarks.first);
+
+      if (selectedPin == null || !mounted) return;
+      _ResolvedPickupLocation? resolvedLocation;
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          selectedPin.latitude,
+          selectedPin.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          resolvedLocation = _matchPlacemarkToServiceArea(placemarks.first);
+        }
+      } catch (_) {
+        resolvedLocation = null;
       }
-    } catch (_) {
-      resolvedLocation = null;
+      if (!mounted) return;
+      setState(() {
+        if (isPickup) {
+          _pickupMapPin = selectedPin;
+          _pickupFreetext = selectedPin.address;
+          _pickupFreetextController.text = selectedPin.address;
+          _pickupProvince = resolvedLocation?.province;
+          _pickupCity = resolvedLocation?.city;
+          _pickupBarangay = resolvedLocation?.barangay;
+        } else {
+          _dropoffMapPin = selectedPin;
+          _dropoffFreetext = selectedPin.address;
+          _dropoffFreetextController.text = selectedPin.address;
+          _dropoffProvince = resolvedLocation?.province;
+          _dropoffCity = resolvedLocation?.city;
+          _dropoffBarangay = resolvedLocation?.barangay;
+        }
+        _deliveryDistanceKm = null;
+      });
+      await _refreshDeliveryEstimate();
+    } finally {
+      _isOpeningLocationPicker = false;
     }
-    if (!mounted) return;
-    setState(() {
-      if (isPickup) {
-        _pickupMapPin = selectedPin;
-        _pickupFreetext = selectedPin.address;
-        _pickupFreetextController.text = selectedPin.address;
-        _pickupProvince = resolvedLocation?.province;
-        _pickupCity = resolvedLocation?.city;
-        _pickupBarangay = resolvedLocation?.barangay;
-      } else {
-        _dropoffMapPin = selectedPin;
-        _dropoffFreetext = selectedPin.address;
-        _dropoffFreetextController.text = selectedPin.address;
-        _dropoffProvince = resolvedLocation?.province;
-        _dropoffCity = resolvedLocation?.city;
-        _dropoffBarangay = resolvedLocation?.barangay;
-      }
-      _deliveryDistanceKm = null;
-    });
-    await _refreshDeliveryEstimate();
   }
 
   Widget _buildLocationMapCard({
