@@ -38,6 +38,9 @@ class TrackingService {
   DateTime? _cachedAccessAt;
   DateTime? _lastFullTrackerPollAt;
   Future<void>? _inFlightFullTrackerPoll;
+  List<Map<String, dynamic>>? _cachedActiveTrackingLocations;
+  DateTime? _lastActiveTrackingLocationsFetch;
+  Future<List<Map<String, dynamic>>>? _inFlightActiveTrackingLocations;
 
   static const double overspeedThresholdKph = 100;
   static const double geofenceRadiusMeters = 75000;
@@ -700,7 +703,41 @@ class TrackingService {
       ? value.toDouble()
       : double.tryParse(value?.toString() ?? '');
 
-  Future<List<Map<String, dynamic>>> getActiveTrackingLocations() async {
+  Future<List<Map<String, dynamic>>> getActiveTrackingLocations({
+    bool force = false,
+  }) async {
+    if (!force &&
+        _cachedActiveTrackingLocations != null &&
+        _lastActiveTrackingLocationsFetch != null &&
+        DateTime.now().difference(_lastActiveTrackingLocationsFetch!) <
+            const Duration(seconds: 15)) {
+      return _cachedActiveTrackingLocations!;
+    }
+
+    if (_inFlightActiveTrackingLocations != null) {
+      return _inFlightActiveTrackingLocations!;
+    }
+
+    final completer = Completer<List<Map<String, dynamic>>>();
+    _inFlightActiveTrackingLocations = completer.future;
+
+    try {
+      final results = await _executeGetActiveTrackingLocations();
+      _cachedActiveTrackingLocations = results;
+      _lastActiveTrackingLocationsFetch = DateTime.now();
+      if (!completer.isCompleted) completer.complete(results);
+      return results;
+    } catch (e) {
+      debugPrint('Error in getActiveTrackingLocations: $e');
+      final fallback = _cachedActiveTrackingLocations ?? [];
+      if (!completer.isCompleted) completer.complete(fallback);
+      return fallback;
+    } finally {
+      _inFlightActiveTrackingLocations = null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _executeGetActiveTrackingLocations() async {
     try {
       final access = await _currentTrackingAccess();
       if (access == null || {'renter', 'driver'}.contains(access.role)) {
@@ -2297,7 +2334,7 @@ class TrackingService {
     }
     if (_lastFullTrackerPollAt != null &&
         DateTime.now().difference(_lastFullTrackerPollAt!) <
-            const Duration(seconds: 10)) {
+            const Duration(seconds: 30)) {
       return;
     }
 
@@ -2346,6 +2383,17 @@ class TrackingService {
           final tracker = VehicleTracker.fromJson(tMap);
           if (tracker.deviceIdentifier.trim().isEmpty) continue;
 
+          // Cross-client deduplication: Skip if another admin/operator already synced this tracker within 30s
+          final lastSyncStr = tMap['last_sync_at']?.toString() ??
+              tMap['last_location_at']?.toString();
+          if (lastSyncStr != null && lastSyncStr.isNotEmpty) {
+            final lastSync = DateTime.tryParse(lastSyncStr);
+            if (lastSync != null &&
+                DateTime.now().toUtc().difference(lastSync).inSeconds < 30) {
+              continue;
+            }
+          }
+
           final position = await gpsService
               .fetchLatestLocation(tracker: tracker)
               .timeout(const Duration(seconds: 5), onTimeout: () => null);
@@ -2390,6 +2438,16 @@ class TrackingService {
                 },
                 onConflict: 'booking_id,tracked_user_id',
               );
+
+              // Keep vehicle_trackers synced with last_sync_at so other clients skip redundant polling
+              try {
+                unawaited(supabase.from('vehicle_trackers').update({
+                  'last_sync_at': now.toUtc().toIso8601String(),
+                  'last_location_at': position.gpsTime?.toUtc().toIso8601String() ??
+                      now.toUtc().toIso8601String(),
+                  'connection_status': 'connected',
+                }).eq('id', tracker.id));
+              } catch (_) {}
             }
 
             // Append GPS movement trail log (throttled to every 15s to conserve disk I/O)
@@ -2448,19 +2506,30 @@ class TrackingService {
                 'updated_at': DateTime.now().toUtc().toIso8601String(),
               }).eq('id', tracker.id);
 
-              if (tracker.vehicleId != null && tracker.vehicleId!.isNotEmpty) {
-                await supabase.from('vehicles').update({
-                  'latitude': position.latitude,
-                  'longitude': position.longitude,
-                }).eq('id', tracker.vehicleId!);
-              }
-              if (tracker.partnerVehicleId != null &&
-                  tracker.partnerVehicleId!.isNotEmpty) {
-                await supabase.from('partner_vehicles').update({
-                  'latitude': position.latitude,
-                  'longitude': position.longitude,
-                  'updated_at': DateTime.now().toUtc().toIso8601String(),
-                }).eq('id', tracker.partnerVehicleId!);
+              // Only update vehicles/partner_vehicles if position actually shifted (>15m)
+              // This stops unnecessary Realtime triggers from reloading operator dashboards
+              final prevLat = (tMap['last_latitude'] as num?)?.toDouble() ?? 0.0;
+              final prevLng = (tMap['last_longitude'] as num?)?.toDouble() ?? 0.0;
+              final hasMoved = (prevLat != 0.0 && prevLng != 0.0)
+                  ? (position.latitude - prevLat).abs() > 0.00015 ||
+                    (position.longitude - prevLng).abs() > 0.00015
+                  : true;
+
+              if (hasMoved) {
+                if (tracker.vehicleId != null && tracker.vehicleId!.isNotEmpty) {
+                  await supabase.from('vehicles').update({
+                    'latitude': position.latitude,
+                    'longitude': position.longitude,
+                  }).eq('id', tracker.vehicleId!);
+                }
+                if (tracker.partnerVehicleId != null &&
+                    tracker.partnerVehicleId!.isNotEmpty) {
+                  await supabase.from('partner_vehicles').update({
+                    'latitude': position.latitude,
+                    'longitude': position.longitude,
+                    'updated_at': DateTime.now().toUtc().toIso8601String(),
+                  }).eq('id', tracker.partnerVehicleId!);
+                }
               }
             } catch (idleErr) {
               debugPrint('Error updating idle tracker position: $idleErr');

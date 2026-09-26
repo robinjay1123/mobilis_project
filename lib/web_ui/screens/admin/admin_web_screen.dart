@@ -590,7 +590,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       },
     );
     _trackingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 45),
       (_) {
         if (mounted && _selectedIndex == 10) {
           _refreshTrackingLocations();
