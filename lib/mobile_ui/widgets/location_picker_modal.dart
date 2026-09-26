@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../services/address_search_service.dart';
 import '../theme/app_colors.dart';
 import 'leaflet_map.dart';
 
@@ -107,6 +109,10 @@ class _MobilisLocationPickerModalState
   bool _isResolving = false;
   String? _errorMessage;
 
+  Timer? _debounceTimer;
+  List<AddressSuggestion> _suggestions = [];
+  bool _isSearchingSuggestions = false;
+
   LatLng get _mapCenter {
     final selection = _selection;
     return selection == null
@@ -131,9 +137,51 @@ class _MobilisLocationPickerModalState
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _searchController.dispose();
     _mapController.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _debounceTimer?.cancel();
+    final query = value.trim();
+    if (query.length < 2) {
+      if (_suggestions.isNotEmpty || _isSearchingSuggestions) {
+        setState(() {
+          _suggestions = [];
+          _isSearchingSuggestions = false;
+        });
+      }
+      return;
+    }
+
+    setState(() => _isSearchingSuggestions = true);
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      final results = await AddressSearchService().getSuggestions(query);
+      if (!mounted) return;
+      setState(() {
+        _suggestions = results;
+        _isSearchingSuggestions = false;
+      });
+    });
+  }
+
+  void _selectSuggestion(AddressSuggestion item) {
+    _debounceTimer?.cancel();
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _selection = MobilisLocationSelection(
+        address: item.fullAddress,
+        latitude: item.latitude,
+        longitude: item.longitude,
+      );
+      _searchController.text = item.fullAddress;
+      _suggestions = [];
+      _isSearchingSuggestions = false;
+      _errorMessage = null;
+    });
+    _moveMap(LatLng(item.latitude, item.longitude));
   }
 
   void _moveMap(LatLng point, {double zoom = 16}) {
@@ -383,25 +431,57 @@ class _MobilisLocationPickerModalState
             TextField(
               controller: _searchController,
               textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _searchAddress(),
+              onSubmitted: (_) {
+                if (_suggestions.isNotEmpty) {
+                  _selectSuggestion(_suggestions.first);
+                } else {
+                  _searchAddress();
+                }
+              },
+              onChanged: _onSearchChanged,
               style: TextStyle(color: primaryText),
               decoration: InputDecoration(
-                hintText: 'Search complete address',
+                hintText: 'Search city, barangay, or street',
                 hintStyle: TextStyle(color: tertiaryText),
                 prefixIcon: Icon(
                   Icons.search_rounded,
                   color: secondaryText,
                 ),
-                suffixIcon: IconButton(
-                  tooltip: 'Search address',
-                  onPressed: _isResolving ? null : _searchAddress,
-                  icon: _isResolving
-                      ? const SizedBox.square(
-                          dimension: 18,
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isSearchingSuggestions)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: SizedBox.square(
+                          dimension: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.search_rounded),
-                  color: isDark ? AppColors.primary : AppColors.primaryDark,
+                        ),
+                      )
+                    else if (_searchController.text.trim().isNotEmpty)
+                      IconButton(
+                        tooltip: 'Clear',
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {
+                            _suggestions = [];
+                            _isSearchingSuggestions = false;
+                          });
+                        },
+                      ),
+                    IconButton(
+                      tooltip: 'Search address',
+                      onPressed: _isResolving ? null : _searchAddress,
+                      icon: _isResolving
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.search_rounded),
+                      color: isDark ? AppColors.primary : AppColors.primaryDark,
+                    ),
+                  ],
                 ),
                 filled: true,
                 fillColor: fieldFill,
@@ -422,6 +502,102 @@ class _MobilisLocationPickerModalState
                 ),
               ),
             ),
+            if (_suggestions.isNotEmpty) ...[
+              Container(
+                margin: const EdgeInsets.only(top: 8, bottom: 4),
+                constraints: const BoxConstraints(maxHeight: 220),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkBgSecondary : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: _suggestions.length,
+                    separatorBuilder: (context, index) => Divider(
+                      color: border.withValues(alpha: 0.5),
+                      height: 1,
+                    ),
+                    itemBuilder: (context, index) {
+                      final item = _suggestions[index];
+                      return InkWell(
+                        onTap: () => _selectSuggestion(item),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(7),
+                                decoration: BoxDecoration(
+                                  color: (isDark
+                                          ? AppColors.primary
+                                          : AppColors.primaryDark)
+                                      .withValues(alpha: 0.12),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.location_on_rounded,
+                                  size: 16,
+                                  color: isDark
+                                      ? AppColors.primary
+                                      : AppColors.primaryDark,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.title,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                        color: primaryText,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      item.subtitle,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: secondaryText,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.north_west_rounded,
+                                size: 14,
+                                color: tertiaryText,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,

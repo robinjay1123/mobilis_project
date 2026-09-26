@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import '../../../services/address_search_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/preferences_service.dart';
@@ -22,6 +24,9 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _emailTouched = false;
   bool _locationTouched = false;
   bool _addressTouched = false;
+  Timer? _addressDebounce;
+  List<AddressSuggestion> _addressSuggestions = [];
+  bool _isSearchingAddress = false;
   late TextEditingController fullNameController;
   late TextEditingController emailController;
   late TextEditingController phoneController;
@@ -71,6 +76,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   void dispose() {
+    _addressDebounce?.cancel();
     fullNameController.dispose();
     emailController.dispose();
     phoneController.dispose();
@@ -312,7 +318,9 @@ class _SignupScreenState extends State<SignupScreen> {
       title: 'Set your location',
       subtitle: 'Search an address or pin your location on the map.',
       confirmLabel: 'Use this location',
-      initialAddress: locationController.text.trim(),
+      initialAddress: locationController.text.trim().isNotEmpty
+          ? locationController.text.trim()
+          : addressController.text.trim(),
       initialLatitude: _selectedLocation?.latitude,
       initialLongitude: _selectedLocation?.longitude,
     );
@@ -320,6 +328,55 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() {
       _selectedLocation = selection;
       locationController.text = selection.address;
+      if (addressController.text.trim().isEmpty) {
+        addressController.text = selection.address;
+        _addressTouched = true;
+      }
+    });
+  }
+
+  void _onAddressChanged(String value) {
+    setState(() => _addressTouched = true);
+    _addressDebounce?.cancel();
+    final query = value.trim();
+    if (query.length < 2) {
+      if (_addressSuggestions.isNotEmpty || _isSearchingAddress) {
+        setState(() {
+          _addressSuggestions = [];
+          _isSearchingAddress = false;
+        });
+      }
+      return;
+    }
+
+    setState(() => _isSearchingAddress = true);
+    _addressDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final results = await AddressSearchService().getSuggestions(query);
+      if (!mounted) return;
+      setState(() {
+        _addressSuggestions = results;
+        _isSearchingAddress = false;
+      });
+    });
+  }
+
+  void _selectAddressSuggestion(AddressSuggestion item) {
+    _addressDebounce?.cancel();
+    FocusScope.of(context).unfocus();
+    setState(() {
+      addressController.text = item.fullAddress;
+      if (locationController.text.trim().isEmpty) {
+        locationController.text = item.title;
+      }
+      _selectedLocation = MobilisLocationSelection(
+        address: item.fullAddress,
+        latitude: item.latitude,
+        longitude: item.longitude,
+      );
+      _addressSuggestions = [];
+      _isSearchingAddress = false;
+      _addressTouched = true;
+      _locationTouched = true;
     });
   }
 
@@ -798,16 +855,137 @@ class _SignupScreenState extends State<SignupScreen> {
               // Home Address
               CustomTextField(
                 label: 'Home Address *',
-                hintText: 'House No., Street, Barangay, City, Country',
+                hintText: 'Type to search address (e.g. city, street, barangay)',
                 controller: addressController,
                 maxLines: 2,
                 errorText: _addressError,
-                onChanged: (_) => setState(() => _addressTouched = true),
+                onChanged: _onAddressChanged,
                 prefixIcon: const Icon(
                   Icons.home_outlined,
                   color: AppColors.textTertiary,
                 ),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isSearchingAddress)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10),
+                        child: SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else if (addressController.text.trim().isNotEmpty)
+                      IconButton(
+                        tooltip: 'Clear',
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          addressController.clear();
+                          setState(() {
+                            _addressSuggestions = [];
+                            _isSearchingAddress = false;
+                          });
+                        },
+                      ),
+                    IconButton(
+                      tooltip: 'Choose on map',
+                      icon: const Icon(Icons.map_outlined, color: AppColors.primary),
+                      onPressed: _openLocationPicker,
+                    ),
+                  ],
+                ),
               ),
+              if (_addressSuggestions.isNotEmpty) ...[
+                Container(
+                  margin: const EdgeInsets.only(top: 6, bottom: 8),
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkBgSecondary,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.borderColor),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: _addressSuggestions.length,
+                      separatorBuilder: (context, index) => Divider(
+                        color: AppColors.borderColor.withValues(alpha: 0.5),
+                        height: 1,
+                      ),
+                      itemBuilder: (context, index) {
+                        final item = _addressSuggestions[index];
+                        return InkWell(
+                          onTap: () => _selectAddressSuggestion(item),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withValues(alpha: 0.12),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.location_on_rounded,
+                                    size: 16,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        item.subtitle,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.north_west_rounded,
+                                  size: 14,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
 
               // Security Section

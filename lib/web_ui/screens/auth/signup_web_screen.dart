@@ -161,7 +161,9 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
       title: 'Set your location',
       subtitle: 'Search an address or pin your location on the map.',
       confirmLabel: 'Use this location',
-      initialAddress: locationController.text.trim(),
+      initialAddress: locationController.text.trim().isNotEmpty
+          ? locationController.text.trim()
+          : addressController.text.trim(),
       initialLatitude: _selectedLocation?.latitude,
       initialLongitude: _selectedLocation?.longitude,
     );
@@ -169,6 +171,10 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
     setState(() {
       _selectedLocation = selection;
       locationController.text = selection.address;
+      if (addressController.text.trim().isEmpty) {
+        addressController.text = selection.address;
+        _addressTouched = true;
+      }
     });
   }
 
