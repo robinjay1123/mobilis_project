@@ -33,6 +33,7 @@ import '../../../services/terms_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/id_ocr_service.dart';
+import '../../../services/image_optimization_service.dart';
 import '../profile/emergency_contact_screen.dart';
 import '../profile/ratings_reviews_screen.dart';
 import 'signature_capture_screen.dart';
