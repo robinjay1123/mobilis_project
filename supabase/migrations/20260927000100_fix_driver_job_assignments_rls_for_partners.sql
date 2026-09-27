@@ -178,6 +178,10 @@ BEGIN
   END IF;
 END $$;
 
+-- Ensure public.drivers has is_available column
+ALTER TABLE IF EXISTS public.drivers
+  ADD COLUMN IF NOT EXISTS is_available boolean DEFAULT true;
+
 -- 4. Trigger to automatically sync driver availability on assignment status changes
 CREATE OR REPLACE FUNCTION public.sync_driver_job_assignment_availability()
 RETURNS trigger AS $$
@@ -196,6 +200,8 @@ BEGIN
       UPDATE public.drivers SET is_available = true WHERE user_id = NEW.driver_id OR id = NEW.driver_id;
     END IF;
   END IF;
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
