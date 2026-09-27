@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
@@ -38,23 +39,30 @@ class VerificationService {
     Map<String, dynamic>? verificationRecord;
 
     try {
-      userRecord = await supabase
-          .from('users')
-          .select('role, id_verified, verification_status')
-          .eq('id', userId)
-          .maybeSingle();
+      final (uRec, vRec) = await (
+        supabase
+            .from('users')
+            .select('role, id_verified, verification_status')
+            .eq('id', userId)
+            .maybeSingle()
+            .catchError((e) {
+              debugPrint('Unable to read user verification fields: $e');
+              return null;
+            }),
+        supabase
+            .from('user_verifications')
+            .select('verification_status')
+            .eq('user_id', userId)
+            .maybeSingle()
+            .catchError((e) {
+              debugPrint('Unable to read verification record: $e');
+              return null;
+            }),
+      ).wait;
+      userRecord = uRec;
+      verificationRecord = vRec;
     } catch (e) {
-      debugPrint('Unable to read user verification fields: $e');
-    }
-
-    try {
-      verificationRecord = await supabase
-          .from('user_verifications')
-          .select('verification_status')
-          .eq('user_id', userId)
-          .maybeSingle();
-    } catch (e) {
-      debugPrint('Unable to read verification record: $e');
+      debugPrint('Unable to read user verification records: $e');
     }
 
     final userStatus = userRecord?['verification_status'];
@@ -66,14 +74,16 @@ class VerificationService {
         isVerifiedStatus(requestStatus);
 
     if (isVerified && !idVerified) {
-      try {
-        await supabase
+      unawaited(
+        supabase
             .from('users')
             .update({'id_verified': true, 'verification_status': 'verified'})
-            .eq('id', userId);
-      } catch (e) {
-        debugPrint('Unable to sync verified status to users row: $e');
-      }
+            .eq('id', userId)
+            .then((_) {})
+            .catchError((e) {
+              debugPrint('Unable to sync verified status to users row: $e');
+            }),
+      );
     }
 
     return {

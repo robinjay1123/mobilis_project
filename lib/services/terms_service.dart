@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -85,12 +83,23 @@ Identity documents and live trip locations are limited to authorized workflows. 
 Profile and booking information is protected and must not be shared outside Mobilis without a valid service or safety reason. Contact Customer Service to report incorrect information, request assistance, or raise a privacy concern.
 ''';
 
+  static String? _cachedRentalTerms;
+  static String? _cachedRentalTermsPdfUrl;
+  static DateTime? _cacheTimestamp;
+  static const Duration _cacheDuration = Duration(minutes: 10);
+
   final SupabaseClient _supabase;
 
   TermsService({SupabaseClient? supabase})
     : _supabase = supabase ?? Supabase.instance.client;
 
   Future<String> getRentalTerms() async {
+    if (_cachedRentalTerms != null &&
+        _cacheTimestamp != null &&
+        DateTime.now().difference(_cacheTimestamp!) < _cacheDuration) {
+      return _cachedRentalTerms!;
+    }
+
     try {
       final response = await _supabase
           .from('app_settings')
@@ -100,13 +109,17 @@ Profile and booking information is protected and must not be shared outside Mobi
 
       final value = response?['value']?.toString().trim();
       if (value == null || value.isEmpty) {
+        _cachedRentalTerms = defaultRentalTerms;
+        _cacheTimestamp = DateTime.now();
         return defaultRentalTerms;
       }
 
+      _cachedRentalTerms = value;
+      _cacheTimestamp = DateTime.now();
       return value;
     } catch (e) {
       debugPrint('Unable to load rental terms, using fallback: $e');
-      return defaultRentalTerms;
+      return _cachedRentalTerms ?? defaultRentalTerms;
     }
   }
 
@@ -115,6 +128,9 @@ Profile and booking information is protected and must not be shared outside Mobi
     if (trimmed.isEmpty) {
       throw Exception('Rental terms cannot be empty.');
     }
+
+    _cachedRentalTerms = null;
+    _cacheTimestamp = null;
 
     final userId = _supabase.auth.currentUser?.id;
 
@@ -126,6 +142,8 @@ Profile and booking information is protected and must not be shared outside Mobi
         'updated_by': userId,
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'key');
+      _cachedRentalTerms = trimmed;
+      _cacheTimestamp = DateTime.now();
     } on PostgrestException catch (e) {
       if (_isMissingSettingsTable(e)) {
         throw const TermsConfigurationException(_missingSettingsTableMessage);
@@ -227,6 +245,12 @@ Profile and booking information is protected and must not be shared outside Mobi
 
   /// Returns the public URL of the uploaded rental terms PDF, or null if none.
   Future<String?> getRentalTermsPdfUrl() async {
+    if (_cachedRentalTermsPdfUrl != null &&
+        _cacheTimestamp != null &&
+        DateTime.now().difference(_cacheTimestamp!) < _cacheDuration) {
+      return _cachedRentalTermsPdfUrl;
+    }
+
     try {
       final response = await _supabase
           .from('app_settings')
@@ -234,11 +258,22 @@ Profile and booking information is protected and must not be shared outside Mobi
           .eq('key', rentalTermsPdfUrlKey)
           .maybeSingle();
       final value = response?['value']?.toString().trim();
-      return (value == null || value.isEmpty) ? null : value;
+      final resolvedUrl = (value == null || value.isEmpty) ? null : value;
+      _cachedRentalTermsPdfUrl = resolvedUrl;
+      return resolvedUrl;
     } catch (e) {
       debugPrint('Unable to load rental terms PDF URL: $e');
-      return null;
+      return _cachedRentalTermsPdfUrl;
     }
+  }
+
+  /// Retrieves both terms and pdf url concurrently, leveraging memory cache if available.
+  Future<({String terms, String? pdfUrl})> getRentalTermsBundle() async {
+    final (terms, pdfUrl) = await (
+      getRentalTerms(),
+      getRentalTermsPdfUrl(),
+    ).wait;
+    return (terms: terms, pdfUrl: pdfUrl);
   }
 
   /// Uploads [bytes] as the rental terms PDF and saves its public URL.
@@ -298,11 +333,15 @@ Profile and booking information is protected and must not be shared outside Mobi
       'updated_at': DateTime.now().toIso8601String(),
     }, onConflict: 'key');
 
+    _cachedRentalTermsPdfUrl = publicUrl;
+
     return publicUrl;
   }
 
   /// Removes the uploaded PDF from storage and clears its URL from settings.
   Future<void> deleteRentalTermsPdf() async {
+    _cachedRentalTermsPdfUrl = null;
+
     for (final bucket in _pdfBucketCandidates) {
       try {
         await _supabase.storage.from(bucket).remove([_pdfPath]);

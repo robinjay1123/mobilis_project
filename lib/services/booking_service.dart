@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'chat_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
-import 'vehicle_service.dart';
 import 'booking_inspection_service.dart';
 import 'trip_rating_service.dart';
 import 'loyalty_service.dart';
@@ -1375,13 +1374,13 @@ class BookingService {
       ) = await (
         supabase
             .from('vehicles')
-            .select('*')
+            .select('id,plate_number,owner_id,partner_id,owner_role,status,is_available,is_posted,application_status')
             .eq('id', vehicleId)
             .maybeSingle()
             .catchError((_) => null),
         supabase
             .from('partner_vehicles')
-            .select('*')
+            .select('id,plate_number,partner_id,user_id,status,is_available,vehicle_id')
             .eq('id', vehicleId)
             .maybeSingle()
             .catchError((_) => null),
@@ -1499,17 +1498,6 @@ class BookingService {
         throw Exception('This vehicle is currently unavailable for booking');
       }
 
-      if (isPartnerVehicle) {
-        final approvedAndListed = await VehicleService().isVehicleBookable(
-          vehicleId,
-        );
-        if (!approvedAndListed) {
-          throw Exception(
-            'This partner vehicle is not approved for rental anymore',
-          );
-        }
-      }
-
       for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
         final status = b['status']?.toString();
         if (!_isBlockingStatus(status)) continue;
@@ -1578,9 +1566,14 @@ class BookingService {
 
       final cleanPaymentType = reservationPaymentType?.trim().toLowerCase();
 
+      final canonicalVehicleId = vehicleRow != null
+          ? vehicleId
+          : (partnerVehicleRow?['vehicle_id']?.toString());
+
       final bookingPayload = <String, dynamic>{
         'renter_id': renterId,
-        'vehicle_id': vehicleId,
+        if (canonicalVehicleId != null && canonicalVehicleId.isNotEmpty)
+          'vehicle_id': canonicalVehicleId,
         if (isPartnerVehicle) 'partner_vehicle_id': vehicleId,
         if (partnerId != null && partnerId.trim().isNotEmpty)
           'partner_id': partnerId.trim(),
@@ -1776,27 +1769,8 @@ class BookingService {
         );
       }
 
-      // Persist digital documents in dedicated booking_renter_documents table
-      final hasDocs = renterSignatureUrl.trim().isNotEmpty ||
-          renterValidIdUrl.trim().isNotEmpty ||
-          renterSelfieUrl.trim().isNotEmpty;
-      if (bookingId != null && bookingId.isNotEmpty && hasDocs) {
-        try {
-          await supabase.from('booking_renter_documents').upsert({
-            'booking_id': bookingId,
-            'renter_id': renterId,
-            'renter_signature_url': renterSignatureUrl.trim(),
-            'renter_signature_text': renterSignatureText?.trim(),
-            'renter_valid_id_url': renterValidIdUrl.trim(),
-            'renter_selfie_url': renterSelfieUrl.trim(),
-          });
-        } catch (docErr) {
-          debugPrint('Non-blocking: could not insert booking_renter_documents: $docErr');
-        }
-      }
-
-      // Persist line-item financials in dedicated booking_financials table (fire-and-forget)
       if (bookingId != null && bookingId.isNotEmpty) {
+        // Persist line-item financials in dedicated booking_financials table (fire-and-forget)
         unawaited(
           supabase.from('booking_financials').upsert({
             'booking_id': bookingId,
@@ -1813,9 +1787,31 @@ class BookingService {
           }),
         );
 
+        // Run essential post-insert records (documents & payments) in parallel
+        final postInsertFutures = <Future<dynamic>>[];
+
+        final hasDocs = renterSignatureUrl.trim().isNotEmpty ||
+            renterValidIdUrl.trim().isNotEmpty ||
+            renterSelfieUrl.trim().isNotEmpty;
+        if (hasDocs) {
+          postInsertFutures.add(
+            supabase.from('booking_renter_documents').upsert({
+              'booking_id': bookingId,
+              'renter_id': renterId,
+              'renter_signature_url': renterSignatureUrl.trim(),
+              'renter_signature_text': renterSignatureText?.trim(),
+              'renter_valid_id_url': renterValidIdUrl.trim(),
+              'renter_selfie_url': renterSelfieUrl.trim(),
+            }).catchError((docErr) {
+              debugPrint('Non-blocking: could not insert booking_renter_documents: $docErr');
+              return null;
+            }),
+          );
+        }
+
         if (reservationPaymentReference != null && reservationPaymentReference.trim().isNotEmpty) {
-          try {
-            await supabase.from('payments').insert({
+          postInsertFutures.add(
+            supabase.from('payments').insert({
               'booking_id': bookingId,
               'payer_user_id': renterId,
               'amount': reservationFeeAmount ?? (cleanPaymentType == 'full_payment' ? totalPrice : 0.0),
@@ -1824,45 +1820,53 @@ class BookingService {
               'status': 'submitted',
               'reference_number': reservationPaymentReference.trim(),
               'created_at': DateTime.now().toIso8601String(),
-            });
-          } catch (pErr) {
-            debugPrint('Non-blocking: could not insert reservation payment: $pErr');
-          }
+            }).catchError((pErr) {
+              debugPrint('Non-blocking: could not insert reservation payment: $pErr');
+              return null;
+            }),
+          );
         }
 
-        try {
-          await supabase.from('booking_events').insert({
+        if (postInsertFutures.isNotEmpty) {
+          await Future.wait(postInsertFutures);
+        }
+
+        // Telemetry & audit logs run asynchronously in background without delaying user
+        unawaited(
+          supabase.from('booking_events').insert({
             'booking_id': bookingId,
             'event_type': 'created',
             'actor_id': renterId,
             'actor_role': 'renter',
-          });
-        } catch (eErr) {
-          debugPrint('Non-blocking: could not insert booking_events: $eErr');
-        }
+          }).catchError((eErr) {
+            debugPrint('Non-blocking: could not insert booking_events: $eErr');
+          }),
+        );
 
-        try {
-          final shortCode = bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId;
-          await AuditService().logRenterAction(
-            action: 'booking_requested',
-            renterId: renterId,
-            category: 'RENTER REQUEST',
-            bookingId: bookingId,
-            vehicleId: vehicleId,
-            notes: 'Renter submitted rental reservation #$shortCode (PHP ${totalPrice.toStringAsFixed(2)})',
-            metadata: {
-              'booking_id': bookingId,
-              'vehicle_id': vehicleId,
-              'total_price': totalPrice,
-              'payment_type': cleanPaymentType,
-              'start_date': startAt.toIso8601String(),
-              'end_date': endAt.toIso8601String(),
-              'action': 'booking_requested',
-            },
-          );
-        } catch (auditErr) {
-          debugPrint('Non-blocking: could not log booking audit: $auditErr');
-        }
+        unawaited(
+          Future<void>(() async {
+            final shortCode = bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId;
+            await AuditService().logRenterAction(
+              action: 'booking_requested',
+              renterId: renterId,
+              category: 'RENTER REQUEST',
+              bookingId: bookingId,
+              vehicleId: vehicleId,
+              notes: 'Renter submitted rental reservation #$shortCode (PHP ${totalPrice.toStringAsFixed(2)})',
+              metadata: {
+                'booking_id': bookingId,
+                'vehicle_id': vehicleId,
+                'total_price': totalPrice,
+                'payment_type': cleanPaymentType,
+                'start_date': startAt.toIso8601String(),
+                'end_date': endAt.toIso8601String(),
+                'action': 'booking_requested',
+              },
+            );
+          }).catchError((auditErr) {
+            debugPrint('Non-blocking: could not log booking audit: $auditErr');
+          }),
+        );
       }
 
       debugPrint('Booking created successfully');

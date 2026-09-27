@@ -13,6 +13,45 @@ class BookingEvidenceService {
 
   final SupabaseClient supabase = Supabase.instance.client;
 
+  Future<String> uploadEvidenceFileOrBytes({
+    required String userId,
+    required String evidenceType,
+    XFile? file,
+    Uint8List? preOptimizedBytes,
+  }) async {
+    if (preOptimizedBytes != null && preOptimizedBytes.isNotEmpty) {
+      final extension = (file?.path.contains('.') ?? false)
+          ? file!.path.split('.').last.toLowerCase()
+          : 'jpg';
+      final objectPath =
+          '$userId/${evidenceType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+
+      await supabase.storage
+          .from('booking_evidence')
+          .uploadBinary(
+            objectPath,
+            preOptimizedBytes,
+            fileOptions: FileOptions(
+              upsert: true,
+              contentType: file?.mimeType ?? 'image/$extension',
+              cacheControl: '31536000',
+            ),
+          );
+
+      return supabase.storage.from('booking_evidence').getPublicUrl(objectPath);
+    }
+
+    if (file != null) {
+      return uploadEvidenceFile(
+        userId: userId,
+        file: file,
+        evidenceType: evidenceType,
+      );
+    }
+
+    throw ArgumentError('Either file or preOptimizedBytes must be provided');
+  }
+
   Future<String> uploadEvidenceFile({
     required String userId,
     required XFile file,

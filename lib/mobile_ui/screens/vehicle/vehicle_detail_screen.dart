@@ -132,6 +132,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   XFile? _selfiePhoto;
   XFile? _coTravelerValidIdPhoto;
   XFile? _coTravelerSelfiePhoto;
+  Uint8List? _validIdOptimizedBytes;
+  Uint8List? _selfieOptimizedBytes;
+  Uint8List? _coTravelerValidIdOptimizedBytes;
+  Uint8List? _coTravelerSelfieOptimizedBytes;
   bool _noCoTraveler = false;
   String _coTravelerIdType = "Driver's License";
   bool _isScanningCoTravelerOcr = false;
@@ -420,14 +424,42 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       setState(() {
         if (isCoTraveler && isSelfie) {
           _coTravelerSelfiePhoto = file;
+          _coTravelerSelfieOptimizedBytes = null;
         } else if (isCoTraveler) {
           _coTravelerValidIdPhoto = file;
+          _coTravelerValidIdOptimizedBytes = null;
         } else if (isSelfie) {
           _selfiePhoto = file;
+          _selfieOptimizedBytes = null;
         } else {
           _validIdPhoto = file;
+          _validIdOptimizedBytes = null;
         }
       });
+
+      // Background pre-compression so upload during checkout is instantaneous
+      unawaited(
+        file.readAsBytes().then((rawBytes) {
+          return ImageOptimizationService.optimizeForUpload(
+            rawBytes,
+            fileName: file.path,
+            preset: UploadImagePreset.sensitiveDocument,
+          );
+        }).then((optBytes) {
+          if (!mounted) return;
+          if (isCoTraveler && isSelfie) {
+            _coTravelerSelfieOptimizedBytes = optBytes;
+          } else if (isCoTraveler) {
+            _coTravelerValidIdOptimizedBytes = optBytes;
+          } else if (isSelfie) {
+            _selfieOptimizedBytes = optBytes;
+          } else {
+            _validIdOptimizedBytes = optBytes;
+          }
+        }).catchError((e) {
+          debugPrint('Pre-optimization note: $e');
+        }),
+      );
 
       if (isCoTraveler && !isSelfie && !kIsWeb) {
         await _scanCoTravelerId(File(file.path));
@@ -2437,45 +2469,322 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
+  Future<bool> _validateBookingInputs() async {
+    if (_selectedStartDate == null || _selectedEndDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select rental dates'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return false;
+    }
+
+    final startAtLocal = _startAtLocal;
+    final endAtLocal = _endAtLocal;
+    if (startAtLocal == null || endAtLocal == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select booking times'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return false;
+    }
+
+    if (!endAtLocal.isAfter(startAtLocal)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Return time must be after start time'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return false;
+    }
+
+    if (!startAtLocal.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rental start time must be in the future'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return false;
+    }
+
+    if (_dropoffMapPin == null &&
+        _dropoffFreetextController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter or pin the trip destination.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return false;
+    }
+
+    if ((_withDriver || _vehicleDelivery) &&
+        _pickupMapPin == null &&
+        _pickupFreetextController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_withDriver
+              ? 'Please enter or pin your pick-up location.'
+              : 'Please enter or pin the delivery location.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return false;
+    }
+
+    if (_vehicleDelivery && !_withDriver && _deliveryDistanceKm == null) {
+      await _refreshDeliveryEstimate();
+      if (_deliveryDistanceKm == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please pin the delivery location and estimate the fee before booking.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return false;
+      }
+    }
+
+    if (_defaultEmergencyContact == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please add at least one emergency contact before booking.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      await _openEmergencyContactScreen();
+      return false;
+    }
+
+    if (_signatureBytes == null || _signatureBytes!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please draw your digital signature.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return false;
+    }
+
+    if (!_noCoTraveler) {
+      final coTravelerName = toTitleCaseName(_coTravelerNameController.text);
+      final coTravelerPhone = normalizePhilippineMobile(
+        _coTravelerPhoneController.text,
+      );
+      final coTravelerLicense = _coTravelerLicenseController.text.trim();
+      if (coTravelerName.isEmpty ||
+          coTravelerPhone.isEmpty ||
+          coTravelerLicense.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Co-traveler name, phone number, and ID number are required, or check "I don\'t have a co-traveler".',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return false;
+      }
+
+      if (!_isValidPhilippinePhone(coTravelerPhone)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Co-traveler phone must be 11 digits, e.g. 09171234567.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return false;
+      }
+
+      if (_coTravelerIdType == "Driver's License") {
+        if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(coTravelerLicense)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Driver's License Number must be 6-13 letters/numbers and may include hyphens.",
+              ),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+          return false;
+        }
+      } else if (_coTravelerIdType == "National ID (PhilSys)") {
+        final cleanId = coTravelerLicense.replaceAll('-', '');
+        if (cleanId.length < 12 ||
+            cleanId.length > 16 ||
+            !RegExp(r'^\d+$').hasMatch(cleanId)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'PhilSys National ID must contain 12 to 16 digits (e.g. 1234-5678-9012-3456).',
+              ),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+          return false;
+        }
+      } else if (_coTravelerIdType == "Passport") {
+        if (coTravelerLicense.length < 6 || coTravelerLicense.length > 15) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Passport number must be 6 to 15 alphanumeric characters.',
+              ),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+          return false;
+        }
+      } else {
+        if (coTravelerLicense.length < 4) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Please enter a valid Government ID number (at least 4 characters).',
+              ),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+          return false;
+        }
+      }
+
+      if (_coTravelerSignatureBytes == null ||
+          _coTravelerSignatureBytes!.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please provide the co-traveler signature (draw on screen or upload a photo).',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return false;
+      }
+
+      if (_validIdPhoto == null || _selfiePhoto == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please upload a valid ID photo and capture a clear selfie before booking.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return false;
+      }
+
+      if (_coTravelerValidIdPhoto == null || _coTravelerSelfiePhoto == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please upload the co-traveler valid ID and capture their selfie.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return false;
+      }
+    } else {
+      if (_validIdPhoto == null || _selfiePhoto == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please upload a valid ID photo and capture a clear selfie before booking.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   Future<void> _handleBooking() async {
     if (_isBooking) return;
+
+    final authService = AuthService();
+    final user = authService.currentUser;
+    if (user == null) {
+      _showErrorDialog('Error', 'Please log in first');
+      return;
+    }
+
+    // 1. Perform instant synchronous local form validations (0ms, no spinner)
+    if (!await _validateBookingInputs()) {
+      return;
+    }
+
+    final startAtLocal = _startAtLocal;
+    final endAtLocal = _endAtLocal;
+    if (startAtLocal == null || endAtLocal == null) return;
+
+    // 2. Start fast parallel server pre-checks
     setState(() => _isBooking = true);
 
     try {
-      if (!await _ensureVehicleBookable(refreshVehicle: true)) {
-        if (mounted) setState(() => _isBooking = false);
+      final (isBookable, verificationState, scheduleIsAvailable, termsBundle) =
+          await (
+        VehicleService().isVehicleBookable(widget.vehicleId),
+        VerificationService.getUserVerificationState(user.id),
+        VehicleService().isTimeRangeAvailable(
+          vehicleId: widget.vehicleId,
+          startAt: startAtLocal,
+          endAt: endAtLocal,
+        ),
+        TermsService().getRentalTermsBundle(),
+      ).wait;
+
+      if (!mounted) return;
+
+      if (!isBookable) {
+        setState(() => _isBooking = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This vehicle is pending approval, rejected, or no longer listed.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
         return;
       }
 
-      final authService = AuthService();
-      final user = authService.currentUser;
-
-      if (user == null) {
-        if (mounted) setState(() => _isBooking = false);
-        _showErrorDialog('Error', 'Please log in first');
+      if (!scheduleIsAvailable) {
+        setState(() => _isBooking = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'That schedule overlaps an unavailable period or another booking. Choose different dates or times.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
         return;
       }
 
-      // Get user role from database
-      final verificationState =
-          await VerificationService.getUserVerificationState(user.id);
       final userRole = verificationState['role']?.toString() ?? 'renter';
       final isVerified = verificationState['is_verified'] as bool? ?? false;
       final status =
           verificationState['verification_status']?.toString().trim().toLowerCase();
       final isPending = status == 'pending' || status == 'submitted';
 
-      // Only verified drivers can proceed directly with booking
-      if (userRole == 'driver' && isVerified) {
-        debugPrint('✅ Verified driver detected - proceeding with booking');
-        await _proceedWithBooking(requireTermsAgreement: false);
-        return;
-      }
-
-      // For renters, require verification
-      if (!isVerified) {
-        if (mounted) setState(() => _isBooking = false);
-        if (mounted && !_isShowingVerificationDialog) {
+      if (userRole != 'driver' && !isVerified) {
+        setState(() => _isBooking = false);
+        if (!_isShowingVerificationDialog) {
           _isShowingVerificationDialog = true;
           showDialog(
             context: context,
@@ -2523,14 +2832,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         return;
       }
 
-      // Renter is verified, proceed with booking
-      await _proceedWithBooking(requireTermsAgreement: true);
+      // Stop button spinner before opening review/terms dialogs!
+      setState(() => _isBooking = false);
+
+      final isDriver = userRole == 'driver' && isVerified;
+      await _proceedWithBooking(
+        requireTermsAgreement: !isDriver,
+        preloadedTerms: termsBundle.terms,
+        preloadedPdfUrl: termsBundle.pdfUrl,
+      );
     } catch (e) {
       if (mounted) setState(() => _isBooking = false);
-      debugPrint('Error checking verification: $e');
+      debugPrint('Error during booking pre-validation: $e');
       _showErrorDialog(
         'Error',
-        'Unable to verify user status. Please try again.',
+        'Unable to complete booking pre-checks: $e',
       );
     }
   }
@@ -2564,143 +2880,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     return false;
   }
 
-  Future<void> _proceedWithBooking({bool requireTermsAgreement = true}) async {
+  Future<void> _proceedWithBooking({
+    bool requireTermsAgreement = true,
+    String? preloadedTerms,
+    String? preloadedPdfUrl,
+  }) async {
     final authService = AuthService();
     ReservationPaymentProof? reservationPaymentProof;
-
-    if (_selectedStartDate == null || _selectedEndDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select rental dates'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
 
     final startAtLocal = _startAtLocal;
     final endAtLocal = _endAtLocal;
     if (startAtLocal == null || endAtLocal == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select booking times'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    if (!endAtLocal.isAfter(startAtLocal)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Return time must be after start time'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    if (!startAtLocal.isAfter(DateTime.now())) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Rental start time must be in the future'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    late final bool scheduleIsAvailable;
-    try {
-      scheduleIsAvailable = await VehicleService().isTimeRangeAvailable(
-        vehicleId: widget.vehicleId,
-        startAt: startAtLocal,
-        endAt: endAtLocal,
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not validate the selected schedule: $error'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      return;
-    }
-    if (!mounted) return;
-    if (!scheduleIsAvailable) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'That schedule overlaps an unavailable period or another booking. Choose different dates or times.',
-          ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    if (_dropoffMapPin == null &&
-        _dropoffFreetextController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter or pin the trip destination.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    if ((_withDriver || _vehicleDelivery) &&
-        _pickupMapPin == null &&
-        _pickupFreetextController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_withDriver
-              ? 'Please enter or pin your pick-up location.'
-              : 'Please enter or pin the delivery location.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    if (_vehicleDelivery && !_withDriver && _deliveryDistanceKm == null) {
-      await _refreshDeliveryEstimate();
-      if (_deliveryDistanceKm == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please pin the delivery location and estimate the fee before booking.',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-    }
-
-    if (_defaultEmergencyContact == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Please add at least one emergency contact before booking.',
-          ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      await _openEmergencyContactScreen();
-      return;
-    }
-
-    if (_signatureBytes == null || _signatureBytes!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please draw your digital signature.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
       return;
     }
 
@@ -2718,133 +2908,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         _coTravelerPhoneController.text,
       );
       coTravelerLicense = _coTravelerLicenseController.text.trim();
-      if (coTravelerName.isEmpty ||
-          coTravelerPhone.isEmpty ||
-          coTravelerLicense.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Co-traveler name, phone number, and ID number are required, or check "I don\'t have a co-traveler".',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-
-      if (!_isValidPhilippinePhone(coTravelerPhone)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Co-traveler phone must be 11 digits, e.g. 09171234567.',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-
-      if (_coTravelerIdType == "Driver's License") {
-        if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(coTravelerLicense)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "Driver's License Number must be 6-13 letters/numbers and may include hyphens.",
-              ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return;
-        }
-      } else if (_coTravelerIdType == "National ID (PhilSys)") {
-        final cleanId = coTravelerLicense.replaceAll('-', '');
-        if (cleanId.length < 12 || cleanId.length > 16 || !RegExp(r'^\d+$').hasMatch(cleanId)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'PhilSys National ID must contain 12 to 16 digits (e.g. 1234-5678-9012-3456).',
-              ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return;
-        }
-      } else if (_coTravelerIdType == "Passport") {
-        if (coTravelerLicense.length < 6 || coTravelerLicense.length > 15) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Passport number must be 6 to 15 alphanumeric characters.',
-              ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return;
-        }
-      } else {
-        if (coTravelerLicense.length < 4) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Please enter a valid Government ID number (at least 4 characters).',
-              ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return;
-        }
-      }
-
-      if (_coTravelerSignatureBytes == null ||
-          _coTravelerSignatureBytes!.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please provide the co-traveler signature (draw on screen or upload a photo).',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-
-      if (_validIdPhoto == null || _selfiePhoto == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please upload a valid ID photo and capture a clear selfie before booking.',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-
-      if (_coTravelerValidIdPhoto == null || _coTravelerSelfiePhoto == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please upload the co-traveler valid ID and capture their selfie.',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
     }
 
     if (requireTermsAgreement) {
-      setState(() {
-        _isBooking = true;
-      });
-
-      final acceptedTermsSnapshot = await _showTermsAgreementDialog();
+      final acceptedTermsSnapshot = await _showTermsAgreementDialog(
+        preloadedTerms: preloadedTerms,
+        preloadedPdfUrl: preloadedPdfUrl,
+      );
 
       if (!mounted) return;
-
-      setState(() {
-        _isBooking = false;
-      });
 
       if (acceptedTermsSnapshot == null) {
         return;
@@ -2924,14 +2996,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     bytes: _signatureBytes!,
                     evidenceType: 'signature',
                   ),
-                  evidenceService.uploadEvidenceFile(
+                  evidenceService.uploadEvidenceFileOrBytes(
                     userId: currentUser.id,
-                    file: _validIdPhoto!,
+                    file: _validIdPhoto,
+                    preOptimizedBytes: _validIdOptimizedBytes,
                     evidenceType: 'valid_id',
                   ),
-                  evidenceService.uploadEvidenceFile(
+                  evidenceService.uploadEvidenceFileOrBytes(
                     userId: currentUser.id,
-                    file: _selfiePhoto!,
+                    file: _selfiePhoto,
+                    preOptimizedBytes: _selfieOptimizedBytes,
                     evidenceType: 'selfie',
                   ),
                 ).wait;
@@ -2960,24 +3034,28 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     bytes: _coTravelerSignatureBytes!,
                     evidenceType: 'co_traveler_signature',
                   ),
-                  evidenceService.uploadEvidenceFile(
+                  evidenceService.uploadEvidenceFileOrBytes(
                     userId: currentUser.id,
-                    file: _validIdPhoto!,
+                    file: _validIdPhoto,
+                    preOptimizedBytes: _validIdOptimizedBytes,
                     evidenceType: 'valid_id',
                   ),
-                  evidenceService.uploadEvidenceFile(
+                  evidenceService.uploadEvidenceFileOrBytes(
                     userId: currentUser.id,
-                    file: _selfiePhoto!,
+                    file: _selfiePhoto,
+                    preOptimizedBytes: _selfieOptimizedBytes,
                     evidenceType: 'selfie',
                   ),
-                  evidenceService.uploadEvidenceFile(
+                  evidenceService.uploadEvidenceFileOrBytes(
                     userId: currentUser.id,
-                    file: _coTravelerValidIdPhoto!,
+                    file: _coTravelerValidIdPhoto,
+                    preOptimizedBytes: _coTravelerValidIdOptimizedBytes,
                     evidenceType: 'co_traveler_valid_id',
                   ),
-                  evidenceService.uploadEvidenceFile(
+                  evidenceService.uploadEvidenceFileOrBytes(
                     userId: currentUser.id,
-                    file: _coTravelerSelfiePhoto!,
+                    file: _coTravelerSelfiePhoto,
+                    preOptimizedBytes: _coTravelerSelfieOptimizedBytes,
                     evidenceType: 'co_traveler_selfie',
                   ),
                 ).wait;
@@ -3129,9 +3207,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
-  Future<String?> _showTermsAgreementDialog() async {
-    final terms = await TermsService().getRentalTerms();
-    final pdfUrl = await TermsService().getRentalTermsPdfUrl();
+  Future<String?> _showTermsAgreementDialog({
+    String? preloadedTerms,
+    String? preloadedPdfUrl,
+  }) async {
+    final terms = preloadedTerms ?? await TermsService().getRentalTerms();
+    final pdfUrl = preloadedPdfUrl ?? await TermsService().getRentalTermsPdfUrl();
     if (!mounted) return null;
 
     final acceptedTerms = await showDialog<bool>(
@@ -5845,6 +5926,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   _coTravelerSignatureBytes = null;
                   _coTravelerValidIdPhoto = null;
                   _coTravelerSelfiePhoto = null;
+                  _coTravelerValidIdOptimizedBytes = null;
+                  _coTravelerSelfieOptimizedBytes = null;
                   _isScanningCoTravelerOcr = false;
                 }
               });
