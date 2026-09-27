@@ -7,6 +7,7 @@ Future<void> showVehicleInspectionRecordDialog(
   BuildContext context, {
   required Map<String, dynamic> record,
   required String title,
+  Widget? actionButton,
 }) {
   final isDark = Theme.of(context).brightness == Brightness.dark;
   return showDialog<void>(
@@ -59,6 +60,16 @@ Future<void> showVehicleInspectionRecordDialog(
                   isDark: isDark,
                 ),
               ),
+              if (actionButton != null) ...[
+                Divider(
+                  height: 1,
+                  color: isDark ? Colors.white12 : Colors.black12,
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  child: actionButton,
+                ),
+              ],
             ],
           ),
         ),

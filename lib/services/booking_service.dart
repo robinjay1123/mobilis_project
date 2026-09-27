@@ -4661,15 +4661,19 @@ class BookingService {
       throw Exception('Pre-trip car inspection is locked until 24 hours before the actual booking start time.');
     }
 
-    // Always post the inspection audit note to chat as soon as completed checklist is validated
-    await postInspectionAuditToBookingChat(
-      booking: booking,
-      inspection: inspection,
-      inspectionType: 'before',
-    );
+    // Post the inspection audit note to chat non-blockingly so chat network delays never stall the release
+    try {
+      await postInspectionAuditToBookingChat(
+        booking: booking,
+        inspection: inspection,
+        inspectionType: 'before',
+      ).timeout(const Duration(seconds: 4));
+    } catch (chatErr) {
+      debugPrint('[BookingService] Non-blocking chat audit notice: $chatErr');
+    }
 
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
-    if (status != 'approved' && status != 'confirmed') {
+    if (status != 'approved' && status != 'confirmed' && status != 'driver_accepted') {
       if (status == 'active' || status == 'ongoing') return;
       throw Exception('Only approved bookings can begin their trip');
     }
@@ -4683,10 +4687,11 @@ class BookingService {
     }
 
     final now = DateTime.now().toIso8601String();
-    await supabase
-        .from('bookings')
-        .update({'status': 'active', 'picked_up_at': now, 'updated_at': now})
-        .eq('id', bookingId);
+    await safeUpdateBooking(bookingId, {
+      'status': 'ongoing',
+      'picked_up_at': now,
+      'updated_at': now,
+    });
 
     final driverId = booking['driver_id']?.toString();
     if (driverId?.isNotEmpty == true) {
@@ -4703,13 +4708,17 @@ class BookingService {
 
     final renterId = booking['renter_id']?.toString();
     if (renterId?.isNotEmpty == true) {
-      await NotificationService().createNotification(
-        userId: renterId!,
-        title: 'Trip Started',
-        message:
-            'The release checklist is complete and your booking is now ongoing.',
-        type: 'booking_ongoing',
-        data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
+      unawaited(
+        NotificationService().createNotification(
+          userId: renterId!,
+          title: 'Trip Started',
+          message:
+              'The release checklist is complete and your booking is now ongoing.',
+          type: 'booking_ongoing',
+          data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
+        ).catchError((e) {
+          debugPrint('Error sending trip started notification: $e');
+        }),
       );
     }
 

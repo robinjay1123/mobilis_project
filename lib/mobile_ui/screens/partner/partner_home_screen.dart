@@ -10024,12 +10024,111 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         inspectionType: inspectionType,
       );
       if (!mounted) return;
+
+      final currentStatus = booking['status']?.toString().trim().toLowerCase() ?? '';
+      final isTripNotStarted = inspectionType == 'before' &&
+          (currentStatus == 'approved' || currentStatus == 'confirmed' || currentStatus == 'driver_accepted');
+
+      if (isTripNotStarted) {
+        final choice = await showDialog<String>(
+          context: context,
+          builder: (dialogCtx) => AlertDialog(
+            backgroundColor: AppColors.darkBgSecondary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle_outline_rounded, color: Color(0xFF10B981), size: 24),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Pre-Checklist Completed',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: const Text(
+              'The pre-trip checklist is already submitted. Would you like to release the vehicle keys and start the trip now (move booking to Ongoing)?',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx, 'view'),
+                child: const Text('View Checklist', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(dialogCtx, 'start'),
+                icon: const Icon(Icons.key_rounded, size: 16),
+                label: const Text('Start Trip (Ongoing)'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        if (choice == 'start') {
+          final currentUserId = AuthService().currentUser?.id;
+          if (currentUserId == null) return;
+          try {
+            await BookingService().startBookingAfterInspection(
+              bookingId: bookingId,
+              inspectorId: currentUserId,
+            );
+            if (!mounted) return;
+            _showSuccessSnackBar('Trip is now ongoing!');
+            await _loadPartnerData();
+          } catch (e) {
+            if (!mounted) return;
+            _showErrorSnackBar('Failed to start trip: $e');
+          }
+          return;
+        } else if (choice == null) {
+          return;
+        }
+      }
+
       await showVehicleInspectionRecordDialog(
         context,
         record: record,
         title: inspectionType == 'before'
             ? 'Submitted Pre-Trip Checklist'
             : 'Submitted Return Checklist',
+        actionButton: isTripNotStarted
+            ? SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    final currentUserId = AuthService().currentUser?.id;
+                    if (currentUserId == null) return;
+                    try {
+                      await BookingService().startBookingAfterInspection(
+                        bookingId: bookingId,
+                        inspectorId: currentUserId,
+                      );
+                      if (!mounted) return;
+                      _showSuccessSnackBar('Trip is now ongoing!');
+                      await _loadPartnerData();
+                    } catch (e) {
+                      if (!mounted) return;
+                      _showErrorSnackBar('Failed to start trip: $e');
+                    }
+                  },
+                  icon: const Icon(Icons.key_rounded, size: 18),
+                  label: const Text('Release Vehicle & Start Trip (Ongoing)'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+              )
+            : null,
       );
     } catch (_) {
       if (allowCreate) {
@@ -11015,14 +11114,22 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         debugPrint('[PartnerHomeScreen] Warning posting inspection audit: $auditErr');
       }
       if (inspectionType == 'before') {
-        await BookingService().startBookingAfterInspection(
-          bookingId: bookingId,
-          inspectorId: currentUserId,
-        );
-        if (!mounted) return;
-        _showSuccessSnackBar(
-          'Release checklist submitted. The trip is now ongoing.',
-        );
+        try {
+          await BookingService().startBookingAfterInspection(
+            bookingId: bookingId,
+            inspectorId: currentUserId,
+          );
+          if (!mounted) return;
+          _showSuccessSnackBar(
+            'Release checklist submitted. The trip is now ongoing.',
+          );
+        } catch (startErr) {
+          debugPrint('[PartnerHomeScreen] Error starting booking after inspection: $startErr');
+          if (!mounted) return;
+          _showErrorSnackBar(
+            'Checklist saved! To complete handover, tap "Pre-Trip Inspection" to start the trip.',
+          );
+        }
       } else {
         final bookingData =
             await BookingService().getBookingById(bookingId) ?? booking;
