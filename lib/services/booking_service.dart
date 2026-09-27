@@ -3682,10 +3682,12 @@ class BookingService {
         rethrow;
       }
 
-      await supabase
-          .from('users')
-          .update({'is_available': false})
-          .eq('id', driverUserId);
+      try {
+        await supabase
+            .from('users')
+            .update({'is_available': false})
+            .eq('id', driverUserId);
+      } catch (_) {}
 
       try {
         await supabase
