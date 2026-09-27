@@ -8461,6 +8461,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         (booking['totalCost'] as num?)?.toDouble() ??
         1500.0;
 
+    final extStatus =
+        booking['extension_status']?.toString().toLowerCase().trim();
+    final isApprovedExtension = booking['is_approved_extension'] == true ||
+        extStatus == 'finalized' ||
+        extStatus == 'payment_completed' ||
+        extStatus == 'approved';
+
     ReservationPaymentSettings? settings;
     try {
       settings = await ReservationPaymentService().getSettings();
@@ -8469,6 +8476,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       seats: seats,
       lateHours: lateHours,
       dailyRate: dailyRate,
+      isApproved: isApprovedExtension,
     );
 
     final totalCost =
@@ -8526,6 +8534,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             lateHours: lateHours,
             returnTimestamp: now,
             bookingId: bookingId,
+            isApprovedExtension: isApprovedExtension,
           ),
         ),
       );

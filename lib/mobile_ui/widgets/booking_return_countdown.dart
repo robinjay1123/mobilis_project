@@ -146,10 +146,16 @@ class _BookingReturnCountdownState extends State<BookingReturnCountdown> {
         (vehicle?['daily_rate'] as num?)?.toDouble() ??
         (vehicle?['price_per_day'] as num?)?.toDouble() ??
         0.0;
+    final extStatus = widget.booking['extension_status']?.toString().toLowerCase().trim();
+    final isApproved = widget.booking['is_approved_extension'] == true ||
+        extStatus == 'finalized' ||
+        extStatus == 'payment_completed' ||
+        extStatus == 'approved';
     final estimatedPenalty = PricingPolicy.calculateLateReturnFee(
       seats: seats,
       lateHours: lateHours,
       dailyRate: dailyRate,
+      isApproved: isApproved,
     );
     final accent = overdue ? const Color(0xFFFF5C5C) : const Color(0xFFFFD600);
     final foreground = widget.lightBackground

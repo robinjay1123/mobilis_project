@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/pricing_policy.dart';
 import 'image_optimization_service.dart';
 
 class ReservationPaymentSettings {
@@ -12,6 +13,7 @@ class ReservationPaymentSettings {
   final double lateFee4to5Seater;
   final double lateFee6PlusSeater;
   final int lateFeeDayCapHours;
+  final double unapprovedLateFee;
   final String qrUrl;
   final String accountName;
   final String instructions;
@@ -23,6 +25,7 @@ class ReservationPaymentSettings {
     this.lateFee4to5Seater = 200.0,
     this.lateFee6PlusSeater = 350.0,
     this.lateFeeDayCapHours = 6,
+    this.unapprovedLateFee = 5000.0,
     this.qrUrl = '',
     this.accountName = 'PSDC Mobilis Account',
     this.instructions = '',
@@ -38,26 +41,30 @@ class ReservationPaymentSettings {
     return deposit4to5Seater;
   }
 
-  /// Dynamically calculate the late fee based on seat count and late hours.
-  /// - 4–5 seaters: lateFee4to5Seater (default: ₱200/hr)
-  /// - 6+ seaters: lateFee6PlusSeater (default: ₱350/hr)
-  /// - >= lateFeeDayCapHours (default 6 hrs): Capped at whole day rate (dailyRate).
+  /// Dynamically calculate late return fee based on seat count, late hours, and approval status:
+  /// - Approved Extension:
+  ///   - 1 to 5 hours:
+  ///     - 1 to 5 seaters: lateFee4to5Seater (default: ₱200/hr)
+  ///     - 6+ seaters: lateFee6PlusSeater (default: ₱350/hr)
+  ///   - >= lateFeeDayCapHours (default 6 hrs): Capped at whole day rate (dailyRate).
+  /// - Not Approved Extension:
+  ///   - Flat unapprovedLateFee penalty (default: ₱5,000)
   double calculateLateFee({
     required int seats,
     required int lateHours,
     required double dailyRate,
+    bool isApproved = true,
   }) {
-    if (lateHours <= 0) return 0.0;
-    if (lateHours >= lateFeeDayCapHours) {
-      return dailyRate > 0
-          ? dailyRate
-          : ((seats >= 6 ? lateFee6PlusSeater : lateFee4to5Seater) *
-              lateFeeDayCapHours);
-    }
-    final hourlyRate = seats >= 6 ? lateFee6PlusSeater : lateFee4to5Seater;
-    final total = lateHours * hourlyRate;
-    if (dailyRate > 0 && total > dailyRate) return dailyRate;
-    return total;
+    return PricingPolicy.calculateLateReturnFee(
+      seats: seats,
+      lateHours: lateHours,
+      dailyRate: dailyRate,
+      isApproved: isApproved,
+      unapprovedFee: unapprovedLateFee,
+      lateFee4to5Seater: lateFee4to5Seater,
+      lateFee6PlusSeater: lateFee6PlusSeater,
+      lateFeeDayCapHours: lateFeeDayCapHours,
+    );
   }
 }
 
@@ -98,6 +105,7 @@ class ReservationPaymentService {
   static const lateFee4to5Key = 'late_fee_4_5_seater';
   static const lateFee6PlusKey = 'late_fee_6_plus_seater';
   static const lateFeeDayCapHoursKey = 'late_fee_day_cap_hours';
+  static const unapprovedLateFeeKey = 'unapproved_late_fee';
   static const qrUrlKey = 'reservation_payment_qr_url';
   static const accountNameKey = 'reservation_payment_account_name';
   static const instructionsKey = 'reservation_payment_instructions';
@@ -125,6 +133,7 @@ class ReservationPaymentService {
             lateFee4to5Key,
             lateFee6PlusKey,
             lateFeeDayCapHoursKey,
+            unapprovedLateFeeKey,
             qrUrlKey,
             accountNameKey,
             instructionsKey,
@@ -147,6 +156,8 @@ class ReservationPaymentService {
             double.tryParse(values[lateFee6PlusKey] ?? '') ?? 350.0,
         lateFeeDayCapHours:
             int.tryParse(values[lateFeeDayCapHoursKey] ?? '') ?? 6,
+        unapprovedLateFee:
+            double.tryParse(values[unapprovedLateFeeKey] ?? '') ?? 5000.0,
         qrUrl: values[qrUrlKey]?.trim() ?? '',
         accountName: values[accountNameKey]?.trim().isNotEmpty == true
             ? values[accountNameKey]!.trim()
@@ -164,6 +175,7 @@ class ReservationPaymentService {
         lateFee4to5Seater: 200.0,
         lateFee6PlusSeater: 350.0,
         lateFeeDayCapHours: 6,
+        unapprovedLateFee: 5000.0,
         qrUrl: '',
         accountName: 'PSDC',
         instructions: defaultInstructions,
@@ -178,6 +190,7 @@ class ReservationPaymentService {
     double? lateFee4to5Seater,
     double? lateFee6PlusSeater,
     int? lateFeeDayCapHours,
+    double? unapprovedLateFee,
     required String qrUrl,
     required String accountName,
     required String instructions,
@@ -191,6 +204,7 @@ class ReservationPaymentService {
     final effectiveLateFee4to5 = lateFee4to5Seater ?? 200.0;
     final effectiveLateFee6Plus = lateFee6PlusSeater ?? 350.0;
     final effectiveLateCapHours = lateFeeDayCapHours ?? 6;
+    final effectiveUnapprovedFee = unapprovedLateFee ?? 5000.0;
 
     if (effectiveDeposit4to5 <= 0 || effectiveDeposit6Plus <= 0) {
       throw Exception('Security deposit amounts must be greater than zero.');
@@ -238,6 +252,12 @@ class ReservationPaymentService {
         'value': effectiveLateCapHours.toString(),
         'description':
             'Late return hours threshold where fee is capped at 1-day rental rate.',
+      },
+      {
+        'key': unapprovedLateFeeKey,
+        'value': effectiveUnapprovedFee.toStringAsFixed(0),
+        'description':
+            'Flat penalty for unauthorized / unapproved late return.',
       },
       {
         'key': qrUrlKey,

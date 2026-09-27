@@ -44,6 +44,7 @@ class ReservationPaymentScreen extends StatefulWidget {
   final int? lateHours;
   final DateTime? returnTimestamp;
   final String? bookingId;
+  final bool isApprovedExtension;
 
   const ReservationPaymentScreen({
     super.key,
@@ -67,6 +68,7 @@ class ReservationPaymentScreen extends StatefulWidget {
     this.lateHours,
     this.returnTimestamp,
     this.bookingId,
+    this.isApprovedExtension = true,
   });
 
   @override
@@ -391,6 +393,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           seats: seats,
           lateHours: lateHours,
           dailyRate: dailyRate,
+          isApproved: widget.isApprovedExtension,
         );
 
     double payableAmount;
@@ -602,6 +605,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           seats: seats,
           lateHours: lateHours,
           dailyRate: dailyRate,
+          isApproved: widget.isApprovedExtension,
         );
 
     final resFeePaid = widget.paidReservationFee ?? reservationFee;
@@ -2563,8 +2567,16 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   Widget _buildLateReturnInfographicCard(bool isDark, int seats, double dailyRate) {
     final hours = widget.lateHours ?? 1;
     final returnTime = widget.returnTimestamp ?? DateTime.now();
-    final isWholeDayCap = hours >= _settings.lateFeeDayCapHours;
-    final hourlyRate = seats >= 6 ? _settings.lateFee6PlusSeater : _settings.lateFee4to5Seater;
+    final breakdown = PricingPolicy.getExceededReturnBreakdown(
+      seats: seats,
+      lateHours: hours,
+      dailyRate: dailyRate,
+      isApproved: widget.isApprovedExtension,
+      unapprovedFee: _settings.unapprovedLateFee,
+      lateFee4to5Seater: _settings.lateFee4to5Seater,
+      lateFee6PlusSeater: _settings.lateFee6PlusSeater,
+      lateFeeDayCapHours: _settings.lateFeeDayCapHours,
+    );
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2604,9 +2616,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Oh no! You are late on returning the vehicle.',
-                      style: TextStyle(
+                    Text(
+                      widget.isApprovedExtension
+                          ? 'Trip Return Schedule Exceeded'
+                          : 'Unauthorized / Unapproved Late Return',
+                      style: const TextStyle(
                         color: Color(0xFFDC2626),
                         fontWeight: FontWeight.w900,
                         fontSize: 15,
@@ -2615,7 +2629,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Return initiated past scheduled return time',
+                      widget.isApprovedExtension
+                          ? 'Approved extension tier calculation applied'
+                          : 'Flat ₱5,000 penalty applies for unapproved late return',
                       style: TextStyle(
                         color: isDark ? Colors.white70 : const Color(0xFF7F1D1D),
                         fontSize: 11.5,
@@ -2693,7 +2709,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Vehicle Capacity Tier:',
+                      'Pricing Tier:',
                       style: TextStyle(
                         color: isDark ? Colors.white70 : const Color(0xFF64748B),
                         fontSize: 12,
@@ -2701,7 +2717,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                       ),
                     ),
                     Text(
-                      '$seats Seater (${seats >= 6 ? '₱350/hr tier' : '₱200/hr tier'})',
+                      breakdown.tierDescription,
                       style: TextStyle(
                         color: isDark ? Colors.white : const Color(0xFF0F172A),
                         fontSize: 12,
@@ -2715,21 +2731,22 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      isWholeDayCap ? 'Late Fee Rule (≥ 6 hrs):' : 'Late Fee Rule (< 6 hrs):',
+                      'Calculation Breakdown:',
                       style: TextStyle(
                         color: isDark ? Colors.white70 : const Color(0xFF64748B),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    Text(
-                      isWholeDayCap
-                          ? 'Whole Day Price Cap'
-                          : '₱${hourlyRate.toStringAsFixed(0)}/hr × $hours hr${hours > 1 ? 's' : ''}',
-                      style: const TextStyle(
-                        color: Color(0xFFDC2626),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
+                    Flexible(
+                      child: Text(
+                        breakdown.ruleDescription,
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(
+                          color: Color(0xFFDC2626),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ],
@@ -2910,8 +2927,16 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     required double dailyRate,
     required double lateFeeAmount,
   }) {
-    final isWholeDayCap = lateHours >= _settings.lateFeeDayCapHours;
-    final hourlyRate = seats >= 6 ? _settings.lateFee6PlusSeater : _settings.lateFee4to5Seater;
+    final breakdown = PricingPolicy.getExceededReturnBreakdown(
+      seats: seats,
+      lateHours: lateHours,
+      dailyRate: dailyRate,
+      isApproved: widget.isApprovedExtension,
+      unapprovedFee: _settings.unapprovedLateFee,
+      lateFee4to5Seater: _settings.lateFee4to5Seater,
+      lateFee6PlusSeater: _settings.lateFee6PlusSeater,
+      lateFeeDayCapHours: _settings.lateFeeDayCapHours,
+    );
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2947,9 +2972,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           ),
           const SizedBox(height: 8),
           _buildBreakdownRow(
-            isWholeDayCap
-                ? 'Late fee rate (≥6 hrs: Full day price)'
-                : 'Late fee rate (₱${hourlyRate.toStringAsFixed(0)}/hr × $lateHours hr${lateHours > 1 ? 's' : ''})',
+            breakdown.ruleDescription,
             lateFeeAmount,
             isDark: isDark,
           ),

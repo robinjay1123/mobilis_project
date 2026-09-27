@@ -5096,15 +5096,33 @@ class BookingService {
   /// Calculates late return hours and fees for a booking at a given return timestamp.
   Map<String, dynamic> getLateReturnDetails(
     Map<String, dynamic> booking,
-    DateTime returnedAt,
-  ) {
-    return _lateReturnValues(booking, returnedAt);
+    DateTime returnedAt, {
+    bool? isApprovedOverride,
+    double? customUnapprovedFee,
+    double? customLateFee4to5,
+    double? customLateFee6Plus,
+    int? customDayCapHours,
+  }) {
+    return _lateReturnValues(
+      booking,
+      returnedAt,
+      isApprovedOverride: isApprovedOverride,
+      customUnapprovedFee: customUnapprovedFee,
+      customLateFee4to5: customLateFee4to5,
+      customLateFee6Plus: customLateFee6Plus,
+      customDayCapHours: customDayCapHours,
+    );
   }
 
   Map<String, dynamic> _lateReturnValues(
     Map<String, dynamic> booking,
-    DateTime returnedAt,
-  ) {
+    DateTime returnedAt, {
+    bool? isApprovedOverride,
+    double? customUnapprovedFee,
+    double? customLateFee4to5,
+    double? customLateFee6Plus,
+    int? customDayCapHours,
+  }) {
     final scheduledReturn =
         DateTime.tryParse(booking['end_at']?.toString() ?? '') ??
         DateTime.tryParse(booking['end_date']?.toString() ?? '');
@@ -5115,7 +5133,10 @@ class BookingService {
         ? 0
         : math.max(1, (lateSeconds / Duration.secondsPerHour).ceil());
 
-    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final vehicle = (booking['vehicles'] ??
+        booking['partner_vehicles'] ??
+        booking['partner_vehicle'] ??
+        booking['vehicle']) as Map<String, dynamic>?;
     final seats = (vehicle?['seats'] as num?)?.toInt() ??
         (booking['seats'] as num?)?.toInt() ??
         4;
@@ -5129,11 +5150,25 @@ class BookingService {
         0.0;
     final dailyRate = explicitDailyRate ?? (currentTotal / (days > 0 ? days : 1));
 
-    final lateFee = PricingPolicy.calculateLateReturnFee(
+    final extStatus = booking['extension_status']?.toString().toLowerCase().trim();
+    final bool isApproved = isApprovedOverride ??
+        (booking['is_approved_extension'] == true ||
+            extStatus == 'finalized' ||
+            extStatus == 'payment_completed' ||
+            extStatus == 'approved');
+
+    final breakdown = PricingPolicy.getExceededReturnBreakdown(
       seats: seats,
       lateHours: lateHours,
       dailyRate: dailyRate,
+      isApproved: isApproved,
+      unapprovedFee: customUnapprovedFee,
+      lateFee4to5Seater: customLateFee4to5,
+      lateFee6PlusSeater: customLateFee6Plus,
+      lateFeeDayCapHours: customDayCapHours,
     );
+
+    final lateFee = breakdown.totalFee;
 
     final existingLateFee = _asDouble(booking['late_return_fee']) ?? 0.0;
     final totalWithoutPreviousLateFee = math.max(
@@ -7139,8 +7174,17 @@ class BookingService {
         updates['final_payment_proof_url'] = proofUrl;
       }
       if (lateHours != null && lateHours > 0) {
+        double effectiveLateFee = lateFee ?? 0.0;
+        if (lateFee == null) {
+          final booking = cachedBooking ?? await getBookingById(bookingId);
+          if (booking != null) {
+            final lateDetails = getLateReturnDetails(booking, now);
+            effectiveLateFee =
+                (lateDetails['late_return_fee'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
         updates['late_return_hours'] = lateHours;
-        updates['late_return_fee'] = lateFee ?? (lateHours * 300.0);
+        updates['late_return_fee'] = effectiveLateFee;
       }
       if (settledAmount != null && settledAmount > 0) {
         updates['renter_return_payment_submitted'] = true;
@@ -7209,12 +7253,13 @@ class BookingService {
           now;
 
       double lateReturnFee = 0.0;
+      int computedLateHours = 0;
       if (endAt != null && returnedAt.isAfter(endAt)) {
-        final lateHours = (returnedAt.difference(endAt).inMinutes / 60.0)
-            .ceil();
-        if (lateHours > 0) {
-          lateReturnFee = lateHours * 200.0;
-        }
+        final lateDetails = getLateReturnDetails(booking, returnedAt);
+        computedLateHours =
+            (lateDetails['late_return_hours'] as num?)?.toInt() ?? 0;
+        lateReturnFee =
+            (lateDetails['late_return_fee'] as num?)?.toDouble() ?? 0.0;
       }
 
       final currentTotal = (booking['total_price'] as num?)?.toDouble() ?? 0.0;
@@ -7235,6 +7280,7 @@ class BookingService {
         'status': 'awaiting_completion',
         'return_confirmed_at': now.toIso8601String(),
         'return_confirmed_by': reviewerId,
+        if (computedLateHours > 0) 'late_return_hours': computedLateHours,
         'late_return_fee': lateReturnFee,
         'total_price': updatedTotal,
         'final_payment_status': finalPaymentStatus,
