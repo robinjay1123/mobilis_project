@@ -1331,7 +1331,7 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                       _receiptDivider(),
                       _receiptRow(
                         'PSDC Commission ($commissionRate%)',
-                        '− ${_currency(deductions - depositDeduction)}',
+                        '− ${_currency(deductions)}',
                         valueColor: AppColors.error.withValues(alpha: 0.85),
                         icon: Icons.percent_rounded,
                       ),
@@ -1339,9 +1339,9 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                     if (depositDeduction > 0) ...[
                       _receiptDivider(),
                       _receiptRow(
-                        'Security Deposit Deduction',
-                        '− ${_currency(depositDeduction)}',
-                        valueColor: AppColors.error.withValues(alpha: 0.85),
+                        'Damage Compensation (From Deposit)',
+                        '+ ${_currency(depositDeduction)}',
+                        valueColor: AppColors.success.withValues(alpha: 0.85),
                         icon: Icons.security_rounded,
                       ),
                     ],

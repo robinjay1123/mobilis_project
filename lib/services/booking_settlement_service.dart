@@ -93,13 +93,17 @@ class BookingSettlementService {
     final userIds = <String>{userId};
     try {
       if (role == 'driver') {
-        final dProf = await supabase.from('drivers').select('id').eq('user_id', userId).maybeSingle();
+        final dProf = await supabase.from('drivers').select('id, user_id').or('user_id.eq.$userId,id.eq.$userId').maybeSingle();
         final dId = dProf?['id']?.toString();
+        final uId = dProf?['user_id']?.toString();
         if (dId != null && dId.isNotEmpty) userIds.add(dId);
+        if (uId != null && uId.isNotEmpty) userIds.add(uId);
       } else if (role == 'partner') {
-        final pProf = await supabase.from('partners').select('id').eq('user_id', userId).maybeSingle();
+        final pProf = await supabase.from('partners').select('id, user_id').or('user_id.eq.$userId,id.eq.$userId').maybeSingle();
         final pId = pProf?['id']?.toString();
+        final uId = pProf?['user_id']?.toString();
         if (pId != null && pId.isNotEmpty) userIds.add(pId);
+        if (uId != null && uId.isNotEmpty) userIds.add(uId);
       }
     } catch (_) {}
 
@@ -161,6 +165,125 @@ class BookingSettlementService {
       }
     } catch (e) {
       debugPrint('Error loading settlements fallback for payouts: $e');
+    }
+
+    // 3. Fallback from bookings table (where partner_payout_disbursed == true)
+    if (role == 'partner') {
+      try {
+        final bRes = await supabase
+            .from('bookings')
+            .select('''
+              id,
+              total_price,
+              created_at,
+              metadata,
+              vehicles:vehicle_id (brand, model, owner_id)
+            ''')
+            .or('partner_id.in.(${userIds.join(',')}),partner_user_id.in.(${userIds.join(',')})');
+        for (final b in List<Map<String, dynamic>>.from(bRes)) {
+          final bid = b['id']?.toString() ?? '';
+          if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
+          final meta = b['metadata'] is Map ? (b['metadata'] as Map) : {};
+          final isDisbursed = b['partner_payout_disbursed'] == true ||
+              meta['partner_payout_disbursed'] == true ||
+              b['partner_payout_status'] == 'disbursed' ||
+              meta['partner_payout_status'] == 'disbursed';
+          if (!isDisbursed) continue;
+          knownBookingIds.add(bid);
+
+          final net = ((b['partner_payout_amount'] ?? meta['partner_payout_amount']) as num?)?.toDouble() ?? 0.0;
+          final comm = ((b['partner_payout_commission'] ?? meta['partner_payout_commission']) as num?)?.toDouble() ?? 0.0;
+          final ded = ((b['partner_security_deposit_deduction'] ?? meta['partner_security_deposit_deduction']) as num?)?.toDouble() ?? 0.0;
+          final gross = (net + comm - ded).clamp(0.0, double.infinity);
+          final method = (b['partner_payout_method'] ?? meta['partner_payout_method'])?.toString() ?? 'GCash';
+          final ref = (b['partner_payout_ref'] ?? meta['partner_payout_ref'])?.toString() ?? '—';
+          final receipt = (b['partner_payout_receipt_url'] ?? meta['partner_payout_receipt_url'])?.toString();
+          final releasedAt = (b['partner_payout_disbursed_at'] ?? meta['partner_payout_disbursed_at'])?.toString() ?? b['created_at'];
+
+          records.add({
+            'id': 'booking_payout_partner_$bid',
+            'booking_id': bid,
+            'recipient_user_id': userId,
+            'recipient_role': role,
+            'gross_amount': gross,
+            'deductions': comm,
+            'net_amount': net,
+            'status': 'released',
+            'released_at': releasedAt,
+            'metadata': {
+              'payment_method': method,
+              'reference_number': ref,
+              'receipt_url': receipt,
+              'security_deposit_deduction': ded,
+            },
+            'created_at': b['created_at'],
+          });
+        }
+      } catch (e) {
+        debugPrint('Error loading bookings fallback for partner payouts: $e');
+      }
+    } else if (role == 'driver') {
+      try {
+        final bRes = await supabase
+            .from('bookings')
+            .select('''
+              id,
+              created_at,
+              metadata,
+              driver_id,
+              driver_user_id,
+              driver_fee,
+              driver_payout_disbursed,
+              driver_payout_status,
+              driver_payout_amount,
+              driver_payout_commission,
+              driver_payout_method,
+              driver_payout_ref,
+              driver_payout_receipt_url,
+              driver_payout_disbursed_at,
+              vehicles:vehicle_id (brand, model)
+            ''')
+            .or('driver_id.in.(${userIds.join(',')}),driver_user_id.in.(${userIds.join(',')})');
+        for (final b in List<Map<String, dynamic>>.from(bRes)) {
+          final bid = b['id']?.toString() ?? '';
+          if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
+          final meta = b['metadata'] is Map ? (b['metadata'] as Map) : {};
+          final isDisbursed = b['driver_payout_disbursed'] == true ||
+              meta['driver_payout_disbursed'] == true ||
+              b['driver_payout_status'] == 'disbursed' ||
+              meta['driver_payout_status'] == 'disbursed';
+          if (!isDisbursed) continue;
+          knownBookingIds.add(bid);
+
+          final net = ((b['driver_payout_amount'] ?? meta['driver_payout_amount']) as num?)?.toDouble() ?? 0.0;
+          final comm = ((b['driver_payout_commission'] ?? meta['driver_payout_commission']) as num?)?.toDouble() ?? 0.0;
+          final gross = (net + comm).clamp(0.0, double.infinity);
+          final method = (b['driver_payout_method'] ?? meta['driver_payout_method'])?.toString() ?? 'GCash';
+          final ref = (b['driver_payout_ref'] ?? meta['driver_payout_ref'])?.toString() ?? '—';
+          final receipt = (b['driver_payout_receipt_url'] ?? meta['driver_payout_receipt_url'])?.toString();
+          final releasedAt = (b['driver_payout_disbursed_at'] ?? meta['driver_payout_disbursed_at'])?.toString() ?? b['created_at'];
+
+          records.add({
+            'id': 'booking_payout_driver_$bid',
+            'booking_id': bid,
+            'recipient_user_id': userId,
+            'recipient_role': role,
+            'gross_amount': gross,
+            'deductions': comm,
+            'net_amount': net,
+            'status': 'released',
+            'released_at': releasedAt,
+            'metadata': {
+              'payment_method': method,
+              'reference_number': ref,
+              'receipt_url': receipt,
+            },
+            'created_at': b['created_at'],
+          });
+        }
+      } catch (e) {
+        debugPrint('Error loading bookings fallback for driver payouts: $e');
+      }
     }
 
     records.sort((a, b) {

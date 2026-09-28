@@ -18,6 +18,7 @@ import '../../../services/push_notification_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/user_restriction_service.dart';
+import '../../../services/booking_settlement_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/conversation_tile.dart';
 import '../../widgets/notification_item.dart';
@@ -324,6 +325,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           TripRatingService().getRatingSummary(user.id),
           _loadPartnerAvatarUrl(user),
           _restrictionService.getUserRestriction(user.id),
+          BookingSettlementService()
+              .getReleasedPayoutsForUser(
+                userId: user.id,
+                recipientRole: 'partner',
+              )
+              .catchError((_) => <Map<String, dynamic>>[]),
         ]);
 
         final profile = results[0] as Map<String, dynamic>?;
@@ -336,6 +343,26 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         final ratingSummary = results[7] as Map<String, dynamic>;
         final avatarUrl = results[8] as String?;
         final restrictionState = results[9] as UserRestrictionState;
+        final releasedPayouts = results.length > 10
+            ? (results[10] as List<Map<String, dynamic>>)
+            : <Map<String, dynamic>>[];
+
+        double computedEarnings = releasedPayouts.fold<double>(
+          0.0,
+          (sum, p) => sum + ((p['net_amount'] as num?)?.toDouble() ?? 0.0),
+        );
+        if (computedEarnings == 0.0) {
+          for (final b in bList) {
+            final meta = b['metadata'] is Map ? (b['metadata'] as Map) : {};
+            final isDisbursed = b['partner_payout_disbursed'] == true ||
+                meta['partner_payout_disbursed'] == true ||
+                b['partner_payout_status'] == 'disbursed' ||
+                meta['partner_payout_status'] == 'disbursed';
+            if (isDisbursed) {
+              computedEarnings += ((b['partner_payout_amount'] ?? meta['partner_payout_amount']) as num?)?.toDouble() ?? 0.0;
+            }
+          }
+        }
 
         // Compute booking counts from already-loaded bList without extra query
         final bCounts = await BookingService().getPartnerBookingCounts(
@@ -370,6 +397,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             applications = apps;
             bookingCounts = bCounts;
             bookings = bList;
+            totalEarnings = computedEarnings;
             ChatService.sortConversationsByPriority(convs);
             conversations = convs;
             notifications = notifs;
@@ -471,6 +499,15 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             schema: 'public',
             table: 'partner_vehicles',
             callback: (_) {
+              if (mounted) _loadPartnerData(silent: true);
+            },
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'booking_payouts',
+            callback: (_) {
+              debugPrint('🔔 Realtime booking_payouts event received');
               if (mounted) _loadPartnerData(silent: true);
             },
           )

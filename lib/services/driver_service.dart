@@ -1198,34 +1198,108 @@ class DriverService {
     try {
       debugPrint('Fetching earnings for driver: $driverId');
 
-      var query = supabase
-          .from('driver_earnings')
-          .select('net_earnings')
-          .eq('driver_id', driverId);
+      final driverIds = <String>{driverId};
+      try {
+        final dProf = await supabase
+            .from('drivers')
+            .select('id, user_id')
+            .or('user_id.eq.$driverId,id.eq.$driverId')
+            .maybeSingle();
+        final did = dProf?['id']?.toString();
+        final uid = dProf?['user_id']?.toString();
+        if (did != null && did.isNotEmpty) driverIds.add(did);
+        if (uid != null && uid.isNotEmpty) driverIds.add(uid);
+      } catch (_) {}
 
-      if (fromDate != null) {
-        query = query.gte('created_at', fromDate.toIso8601String());
+      final knownBookingIds = <String>{};
+      double total = 0.0;
+
+      // 1. Fetch from driver_earnings table
+      try {
+        var query = supabase
+            .from('driver_earnings')
+            .select('booking_id, net_earnings, created_at, paid_at')
+            .inFilter('driver_id', driverIds.toList());
+
+        if (fromDate != null) {
+          query = query.gte('created_at', fromDate.toIso8601String());
+        }
+        if (toDate != null) {
+          query = query.lte('created_at', toDate.toIso8601String());
+        }
+
+        final response = await query;
+        for (final earning in response as List) {
+          final bid = earning['booking_id']?.toString() ?? '';
+          if (bid.isNotEmpty) knownBookingIds.add(bid);
+          total += (earning['net_earnings'] as num?)?.toDouble() ?? 0.0;
+        }
+      } catch (e) {
+        debugPrint('Error fetching driver_earnings: $e');
       }
-      if (toDate != null) {
-        query = query.lte('created_at', toDate.toIso8601String());
+
+      // 2. Fetch from booking_payouts table (for any released driver payouts)
+      try {
+        var pQuery = supabase
+            .from('booking_payouts')
+            .select('booking_id, net_amount, released_at, created_at')
+            .inFilter('recipient_user_id', driverIds.toList())
+            .eq('recipient_role', 'driver')
+            .eq('status', 'released');
+
+        if (fromDate != null) {
+          pQuery = pQuery.gte('released_at', fromDate.toIso8601String());
+        }
+        if (toDate != null) {
+          pQuery = pQuery.lte('released_at', toDate.toIso8601String());
+        }
+
+        final pResponse = await pQuery;
+        for (final p in pResponse as List) {
+          final bid = p['booking_id']?.toString() ?? '';
+          if (bid.isNotEmpty && knownBookingIds.contains(bid)) continue;
+          if (bid.isNotEmpty) knownBookingIds.add(bid);
+          total += (p['net_amount'] as num?)?.toDouble() ?? 0.0;
+        }
+      } catch (e) {
+        debugPrint('Error fetching driver booking_payouts in getEarnings: $e');
       }
 
-      final response = await query;
-      final earnings = response as List;
+      // 3. Fallback from bookings table (where driver_payout_disbursed == true)
+      try {
+        final bRes = await supabase
+            .from('bookings')
+            .select('id, driver_payout_amount, metadata, driver_payout_disbursed_at, created_at')
+            .or('driver_id.in.(${driverIds.join(',')}),driver_user_id.in.(${driverIds.join(',')})')
+            .eq('driver_payout_disbursed', true);
 
-      double total = 0;
-      for (final earning in earnings) {
-        total += (earning['net_earnings'] as num?)?.toDouble() ?? 0;
+        for (final b in bRes as List) {
+          final bid = b['id']?.toString() ?? '';
+          if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
+
+          final dateStr = (b['driver_payout_disbursed_at'] ?? b['created_at'])?.toString();
+          if (dateStr != null) {
+            final dt = DateTime.tryParse(dateStr);
+            if (dt != null) {
+              if (fromDate != null && dt.isBefore(fromDate)) continue;
+              if (toDate != null && dt.isAfter(toDate)) continue;
+            }
+          }
+
+          knownBookingIds.add(bid);
+          final meta = b['metadata'] is Map ? (b['metadata'] as Map) : {};
+          final net = ((b['driver_payout_amount'] ?? meta['driver_payout_amount']) as num?)?.toDouble() ?? 0.0;
+          total += net;
+        }
+      } catch (e) {
+        debugPrint('Error fetching driver bookings fallback in getEarnings: $e');
       }
 
       debugPrint('Total earnings: $total');
       return total;
-    } on PostgrestException catch (e) {
-      debugPrint('Database error fetching earnings: ${e.message}');
-      rethrow;
     } catch (e) {
       debugPrint('Unexpected error fetching earnings: $e');
-      rethrow;
+      return 0.0;
     }
   }
 

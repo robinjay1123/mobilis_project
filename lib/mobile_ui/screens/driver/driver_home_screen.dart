@@ -904,6 +904,28 @@ class __DashboardTabState extends State<_DashboardTab> {
           ),
           callback: refreshFlow,
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'booking_payouts',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'recipient_user_id',
+            value: userId,
+          ),
+          callback: refreshFlow,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'driver_earnings',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'driver_id',
+            value: userId,
+          ),
+          callback: refreshFlow,
+        )
         .subscribe();
   }
 
@@ -6346,6 +6368,7 @@ class __EarningsTabState extends State<_EarningsTab> {
   final BookingSettlementService _settlementService = BookingSettlementService();
   String _selectedPeriod = 'Month';
   static const List<String> _periodOptions = ['Day', 'Week', 'Month', 'Year'];
+  RealtimeChannel? _earningsChannel;
 
   @override
   void initState() {
@@ -6353,6 +6376,42 @@ class __EarningsTabState extends State<_EarningsTab> {
     _loadEarnings();
     _loadPayoutMethods();
     _loadDisbursements();
+    _setupRealtimeEarningsListener();
+  }
+
+  @override
+  void dispose() {
+    _earningsChannel?.unsubscribe();
+    super.dispose();
+  }
+
+  void _setupRealtimeEarningsListener() {
+    final userId = AuthService().currentUser?.id ?? '';
+    if (userId.isEmpty) return;
+    _earningsChannel = Supabase.instance.client.realtime.channel('driver-earnings-tab-$userId');
+    void onPayoutChange(PostgresChangePayload _) {
+      if (!mounted) return;
+      setState(() {
+        _loadEarnings();
+        _loadDisbursements();
+      });
+    }
+    _earningsChannel!
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'booking_payouts',
+        filter: PostgresChangeFilter(type: PostgresChangeFilterType.eq, column: 'recipient_user_id', value: userId),
+        callback: onPayoutChange,
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'driver_earnings',
+        filter: PostgresChangeFilter(type: PostgresChangeFilterType.eq, column: 'driver_id', value: userId),
+        callback: onPayoutChange,
+      )
+      .subscribe();
   }
 
   void _loadPayoutMethods() {

@@ -490,6 +490,57 @@ class NotificationService {
     );
   }
 
+  /// Notify a partner when the renter's security deposit has been refunded / processed.
+  Future<bool> notifyPartnerSecurityDepositRefunded({
+    required String partnerUserId,
+    required String bookingId,
+    required String renterName,
+    required double originalDeposit,
+    required double deductionAmount,
+    required double refundAmount,
+    required String refundStatus,
+    required String refundMethod,
+    required String referenceNumber,
+    String? vehicleTitle,
+    String? deductionNotes,
+    String? receiptUrl,
+  }) {
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+    final carText = vehicleTitle != null && vehicleTitle.trim().isNotEmpty
+        ? ' for $vehicleTitle'
+        : '';
+    final deductionText = deductionAmount > 0
+        ? ' (Deduction: PHP ${deductionAmount.toStringAsFixed(2)}${deductionNotes != null && deductionNotes.trim().isNotEmpty ? " - $deductionNotes" : ""})'
+        : '';
+
+    return _safeCreate(
+      userId: partnerUserId,
+      title: '🛡️ Renter Security Deposit Refunded',
+      message:
+          'Security deposit of PHP ${originalDeposit.toStringAsFixed(2)} for booking #$shortId$carText (Renter: $renterName) was processed via $refundMethod: PHP ${refundAmount.toStringAsFixed(2)} refunded$deductionText. Ref: $referenceNumber. Status: $refundStatus.',
+      type: 'partner_deposit_refunded',
+      data: {
+        'booking_id': bookingId,
+        'renter_name': renterName,
+        'original_deposit': originalDeposit,
+        'deduction_amount': deductionAmount,
+        'refund_amount': refundAmount,
+        'refund_status': refundStatus,
+        'payment_method': refundMethod,
+        'reference': referenceNumber,
+        if (deductionNotes != null && deductionNotes.isNotEmpty)
+          'deduction_notes': deductionNotes,
+        if (receiptUrl != null && receiptUrl.isNotEmpty)
+          'receipt_url': receiptUrl,
+        if (vehicleTitle != null && vehicleTitle.isNotEmpty)
+          'vehicle_title': vehicleTitle,
+        'event': 'deposit_refund_processed',
+      },
+    );
+  }
+
   /// Notify a driver when their fee/commission payout is completed.
   Future<bool> notifyDriverDisbursementCompleted({
     required String driverUserId,

@@ -31,6 +31,9 @@ class BookingService {
   SupabaseClient get supabase => Supabase.instance.client;
   PaymentService get paymentService => PaymentService(client: supabase);
 
+  static final Set<String> _activeDisbursements = <String>{};
+  static final Set<String> _activeRefunds = <String>{};
+
   static const Set<String> _nonBlockingStatuses = {
     'cancelled',
     'canceled',
@@ -276,6 +279,29 @@ class BookingService {
       'extension_status',
       'partner_id',
       'owner_id',
+      'security_deposit_refund_receipt_url',
+      'security_deposit_operator_reviewed_at',
+      'security_deposit_operator_reviewed_by',
+      'partner_security_deposit_deduction',
+      'partner_payout_disbursed',
+      'partner_payout_status',
+      'partner_payout_amount',
+      'partner_payout_commission',
+      'partner_payout_deposit_deduction',
+      'partner_payout_method',
+      'partner_payout_ref',
+      'partner_payout_receipt_url',
+      'partner_payout_disbursed_at',
+      'partner_payout_disbursed_by',
+      'driver_payout_disbursed',
+      'driver_payout_status',
+      'driver_payout_amount',
+      'driver_payout_commission',
+      'driver_payout_method',
+      'driver_payout_ref',
+      'driver_payout_receipt_url',
+      'driver_payout_disbursed_at',
+      'driver_payout_disbursed_by',
     };
 
     final sparseData = <String, dynamic>{};
@@ -7706,6 +7732,213 @@ class BookingService {
     }
   }
 
+  /// Resolves the authentic `users.id` (auth user UUID) for a partner associated
+  /// with a booking or a given candidate ID (which might be a partners.id or vehicle owner_id).
+  Future<String?> resolvePartnerUserId({
+    String? candidateUserId,
+    String? bookingId,
+    Map<String, dynamic>? bookingData,
+  }) async {
+    final candidate = candidateUserId?.trim();
+    if (candidate != null && candidate.isNotEmpty) {
+      // 1. Check if candidate is already in `users`
+      try {
+        final userRow = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', candidate)
+            .maybeSingle();
+        if (userRow != null && userRow['id'] != null) {
+          return userRow['id'].toString();
+        }
+      } catch (_) {}
+
+      // 2. Check if candidate is a partners.id
+      try {
+        final partnerRow = await supabase
+            .from('partners')
+            .select('user_id')
+            .eq('id', candidate)
+            .maybeSingle();
+        final uid = partnerRow?['user_id']?.toString().trim();
+        if (uid != null && uid.isNotEmpty) {
+          return uid;
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback to booking data / DB query
+    try {
+      Map<String, dynamic>? booking = bookingData;
+      if (booking == null && bookingId != null && bookingId.isNotEmpty) {
+        final bRow = await supabase
+            .from('bookings')
+            .select('''
+              id, partner_id, partner_user_id, metadata,
+              vehicles:vehicle_id (
+                id, owner_id,
+                partners:partner_id (id, user_id)
+              ),
+              partner_vehicles:partner_vehicle_id (
+                id, partner_id, user_id,
+                partners:partner_id (id, user_id)
+              )
+            ''')
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (bRow != null) booking = Map<String, dynamic>.from(bRow);
+      }
+
+      if (booking != null) {
+        final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : {};
+
+        // Try partner_user_id direct field or metadata
+        final directPuid = (booking['partner_user_id'] ?? meta['partner_user_id'])?.toString().trim();
+        if (directPuid != null && directPuid.isNotEmpty) {
+          final res = await resolvePartnerUserId(candidateUserId: directPuid);
+          if (res != null && res.isNotEmpty) return res;
+        }
+
+        // Check vehicles -> partners -> user_id
+        final veh = booking['vehicles'] as Map<String, dynamic>?;
+        final vPartner = veh?['partners'] as Map<String, dynamic>?;
+        final vPartnerUserId = vPartner?['user_id']?.toString().trim();
+        if (vPartnerUserId != null && vPartnerUserId.isNotEmpty) {
+          return vPartnerUserId;
+        }
+
+        // Check partner_vehicles -> partners -> user_id or direct user_id
+        final pv = booking['partner_vehicles'] as Map<String, dynamic>?;
+        final pvUserId = pv?['user_id']?.toString().trim();
+        if (pvUserId != null && pvUserId.isNotEmpty) {
+          final res = await resolvePartnerUserId(candidateUserId: pvUserId);
+          if (res != null && res.isNotEmpty) return res;
+        }
+        final pvPartner = pv?['partners'] as Map<String, dynamic>?;
+        final pvPartnerUserId = pvPartner?['user_id']?.toString().trim();
+        if (pvPartnerUserId != null && pvPartnerUserId.isNotEmpty) {
+          return pvPartnerUserId;
+        }
+
+        // Check vehicle owner_id
+        final ownerId = veh?['owner_id']?.toString().trim();
+        if (ownerId != null && ownerId.isNotEmpty) {
+          final res = await resolvePartnerUserId(candidateUserId: ownerId);
+          if (res != null && res.isNotEmpty) return res;
+        }
+
+        // Check partner_id on booking or vehicles
+        final pid = (booking['partner_id'] ?? meta['partner_id'] ?? pv?['partner_id'] ?? veh?['partner_id'])?.toString().trim();
+        if (pid != null && pid.isNotEmpty) {
+          final res = await resolvePartnerUserId(candidateUserId: pid);
+          if (res != null && res.isNotEmpty) return res;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error in resolvePartnerUserId: $e');
+    }
+
+    return candidate;
+  }
+
+  /// Resolves the authentic `users.id` foreign key for a driver candidate.
+  /// Handles `users.id`, `drivers.id`, `bookings.driver_id`, or `driver_job_assignments`.
+  Future<String?> resolveDriverUserId({
+    String? candidateUserId,
+    String? bookingId,
+    Map<String, dynamic>? bookingData,
+  }) async {
+    final candidate = candidateUserId?.trim();
+    if (candidate != null && candidate.isNotEmpty) {
+      // 1. Check if candidate is already in `users`
+      try {
+        final userRow = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', candidate)
+            .maybeSingle();
+        if (userRow != null && userRow['id'] != null) {
+          return userRow['id'].toString();
+        }
+      } catch (_) {}
+
+      // 2. Check if candidate is a drivers.id or drivers.user_id
+      try {
+        final driverRow = await supabase
+            .from('drivers')
+            .select('user_id')
+            .or('id.eq.$candidate,user_id.eq.$candidate')
+            .maybeSingle();
+        final uid = driverRow?['user_id']?.toString().trim();
+        if (uid != null && uid.isNotEmpty) {
+          return uid;
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback to booking data / DB query
+    try {
+      Map<String, dynamic>? booking = bookingData;
+      if (booking == null && bookingId != null && bookingId.isNotEmpty) {
+        final bRow = await supabase
+            .from('bookings')
+            .select('''
+              id, driver_id, driver_user_id, metadata,
+              drivers:driver_id (id, user_id),
+              driver_job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (driver_id, status)
+            ''')
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (bRow != null) booking = Map<String, dynamic>.from(bRow);
+      }
+
+      if (booking != null) {
+        final meta = booking['metadata'] is Map ? (booking['metadata'] as Map) : {};
+
+        // Direct driver_user_id on booking
+        final directDuid = (booking['driver_user_id'] ?? meta['driver_user_id'])?.toString().trim();
+        if (directDuid != null && directDuid.isNotEmpty) {
+          final res = await resolveDriverUserId(candidateUserId: directDuid);
+          if (res != null && res.isNotEmpty) return res;
+        }
+
+        // Driver joined via drivers:driver_id
+        final driverJoin = booking['drivers'] as Map<String, dynamic>? ??
+            booking['driver'] as Map<String, dynamic>?;
+        final joinedUid = driverJoin?['user_id']?.toString().trim();
+        if (joinedUid != null && joinedUid.isNotEmpty) {
+          final res = await resolveDriverUserId(candidateUserId: joinedUid);
+          if (res != null && res.isNotEmpty) return res;
+        }
+
+        // Direct driver_id on booking
+        final directDid = (booking['driver_id'] ?? meta['driver_id'])?.toString().trim();
+        if (directDid != null && directDid.isNotEmpty) {
+          final res = await resolveDriverUserId(candidateUserId: directDid);
+          if (res != null && res.isNotEmpty) return res;
+        }
+
+        // Check job assignments
+        final rawJobs = booking['driver_job_assignments'] ?? booking['job_assignments'];
+        if (rawJobs is List && rawJobs.isNotEmpty) {
+          for (final job in rawJobs) {
+            if (job is Map) {
+              final jDid = job['driver_id']?.toString().trim();
+              if (jDid != null && jDid.isNotEmpty) {
+                final res = await resolveDriverUserId(candidateUserId: jDid);
+                if (res != null && res.isNotEmpty) return res;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error in resolveDriverUserId: $e');
+    }
+
+    return candidate;
+  }
+
   Future<void> refundSecurityDeposit({
     required String bookingId,
     required double refundAmount,
@@ -7716,55 +7949,217 @@ class BookingService {
     required String refundReceiptUrl,
     required String operatorId,
   }) async {
-    final now = DateTime.now().toUtc();
-    final updatePayload = <String, dynamic>{
-      'security_deposit_refunded': true,
-      'security_deposit_status': 'refund_processed',
-      'security_deposit_refund_amount': refundAmount,
-      'security_deposit_refund_deduction': deductionAmount,
-      'partner_security_deposit_deduction': deductionAmount,
-      'security_deposit_refund_notes': deductionNotes,
-      'security_deposit_refund_method': refundMethod,
-      'security_deposit_refund_ref': refundReference,
-      'security_deposit_refund_receipt_url': refundReceiptUrl,
-      'security_deposit_refunded_at': now.toIso8601String(),
-      'security_deposit_operator_reviewed_at': now.toIso8601String(),
-    };
-    if (operatorId.trim().isNotEmpty) {
-      updatePayload['security_deposit_refunded_by'] = operatorId.trim();
-      updatePayload['security_deposit_operator_reviewed_by'] = operatorId.trim();
+    if (bookingId.trim().isEmpty) {
+      throw Exception('Invalid booking ID for security deposit refund.');
     }
 
-    await safeUpdateBooking(bookingId, updatePayload);
+    // 1. In-memory concurrency guard to prevent rapid double-clicks
+    if (_activeRefunds.contains(bookingId)) {
+      throw Exception('Security deposit refund is already in progress for this booking.');
+    }
+    _activeRefunds.add(bookingId);
 
-    // Fetch booking to notify renter
     try {
+      // 2. Fetch booking and perform backend idempotency validation
       final booking = await supabase
           .from('bookings')
-          .select('renter_id, vehicles(brand, model)')
+          .select('''
+            id,
+            renter_id,
+            security_deposit,
+            security_deposit_refunded,
+            security_deposit_status,
+            partner_id,
+            partner_user_id,
+            vehicle_id,
+            metadata,
+            vehicles:vehicle_id (
+              id, brand, model, owner_id,
+              partners:partner_id (id, user_id)
+            ),
+            partner_vehicles:partner_vehicle_id (
+              id, partner_id, user_id,
+              partners:partner_id (id, user_id)
+            ),
+            renter:users!bookings_renter_id_fkey (id, full_name, email, phone)
+          ''')
           .eq('id', bookingId)
           .maybeSingle();
-      final renterId = booking?['renter_id']?.toString();
-      if (renterId != null && renterId.isNotEmpty) {
-        final vehicleMap = booking?['vehicles'] as Map<String, dynamic>? ?? {};
-        final vehicleName =
-            '${vehicleMap['brand'] ?? ''} ${vehicleMap['model'] ?? ''}'.trim();
-        await NotificationService().createNotification(
-          userId: renterId,
-          title: 'Security Deposit Refunded',
-          message:
-              'Your security deposit of PHP ${refundAmount.toStringAsFixed(0)} for $vehicleName has been successfully refunded via $refundMethod.',
-          type: 'deposit_refunded',
-          data: {
-            'booking_id': bookingId,
-            'refund_amount': refundAmount,
+
+      if (booking == null) {
+        throw Exception('Booking not found: $bookingId');
+      }
+
+      final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata'] as Map) : <String, dynamic>{};
+      final isAlreadyRefunded = booking['security_deposit_refunded'] == true ||
+          meta['security_deposit_refunded'] == true ||
+          booking['security_deposit_status'] == 'refund_processed' ||
+          meta['security_deposit_status'] == 'refund_processed';
+
+      if (isAlreadyRefunded) {
+        throw Exception('This transaction has already been finalized.');
+      }
+
+      // Check booking_refunds table for existing finalized refund
+      try {
+        final existingRefund = await supabase
+            .from('booking_refunds')
+            .select('id, status')
+            .eq('booking_id', bookingId)
+            .maybeSingle();
+        if (existingRefund != null &&
+            (existingRefund['status'] == 'processed' || existingRefund['status'] == 'completed')) {
+          throw Exception('This transaction has already been finalized.');
+        }
+      } catch (e) {
+        if (e.toString().contains('already been finalized')) rethrow;
+      }
+
+      // 3. Compute verified refund amount:
+      // Refund Amount = Security Deposit - Approved Deduction
+      final originalDeposit = (booking['security_deposit'] as num?)?.toDouble() ??
+          ((meta['security_deposit'] as num?)?.toDouble() ?? (refundAmount + deductionAmount));
+      final calculatedRefundAmount = (originalDeposit - deductionAmount).clamp(0.0, double.infinity);
+      final effectiveRefundAmount = refundAmount >= 0 ? refundAmount : calculatedRefundAmount;
+
+      final now = DateTime.now().toUtc();
+      final nowIso = now.toIso8601String();
+
+      // 4. Update booking via safeUpdateBooking
+      final updatePayload = <String, dynamic>{
+        'security_deposit_refunded': true,
+        'security_deposit_status': 'refund_processed',
+        'security_deposit_refund_amount': effectiveRefundAmount,
+        'security_deposit_refund_deduction': deductionAmount,
+        'partner_security_deposit_deduction': deductionAmount,
+        'security_deposit_refund_notes': deductionNotes?.trim(),
+        'security_deposit_refund_method': refundMethod,
+        'security_deposit_refund_ref': refundReference,
+        'security_deposit_refund_receipt_url': refundReceiptUrl,
+        'security_deposit_refunded_at': nowIso,
+        'security_deposit_operator_reviewed_at': nowIso,
+      };
+      if (operatorId.trim().isNotEmpty) {
+        updatePayload['security_deposit_refunded_by'] = operatorId.trim();
+        updatePayload['security_deposit_operator_reviewed_by'] = operatorId.trim();
+      }
+      await safeUpdateBooking(bookingId, updatePayload);
+
+      // 5. Create / upsert refund record in public.booking_refunds
+      try {
+        final refundRecord = {
+          'booking_id': bookingId,
+          'renter_id': booking['renter_id']?.toString(),
+          'amount': effectiveRefundAmount,
+          'payment_reference': refundReference,
+          'status': 'processed',
+          'reason': deductionNotes?.trim().isNotEmpty == true
+              ? 'Security deposit refund (Deduction: PHP ${deductionAmount.toStringAsFixed(2)} - $deductionNotes)'
+              : 'Security deposit refund',
+          'processed_at': nowIso,
+          'updated_at': nowIso,
+        };
+        await supabase.from('booking_refunds').upsert(
+          refundRecord,
+          onConflict: 'booking_id',
+        );
+      } catch (refErr) {
+        debugPrint('Non-blocking booking_refunds record error: $refErr');
+      }
+
+      // 6. Record in public.booking_events
+      try {
+        await supabase.from('booking_events').insert({
+          'booking_id': bookingId,
+          'event_type': 'security_deposit_refunded',
+          'notes': 'Security deposit processed: PHP ${effectiveRefundAmount.toStringAsFixed(2)} refunded, PHP ${deductionAmount.toStringAsFixed(2)} deducted via $refundMethod (Ref: $refundReference)',
+          'event_payload': {
+            'original_deposit': originalDeposit,
+            'refund_amount': effectiveRefundAmount,
+            'deduction_amount': deductionAmount,
+            'deduction_notes': deductionNotes,
+            'refund_method': refundMethod,
             'refund_reference': refundReference,
             'receipt_url': refundReceiptUrl,
+            'operator_id': operatorId,
           },
-        );
+          'created_at': nowIso,
+        });
+      } catch (_) {}
+
+      final vehicleMap = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final vehicleName = '${vehicleMap['brand'] ?? ''} ${vehicleMap['model'] ?? ''}'.trim();
+      final renterMap = booking['renter'] as Map<String, dynamic>? ?? {};
+      final renterName = renterMap['full_name']?.toString() ?? 'Renter';
+
+      // 7. Notify renter (preserving existing renter workflow)
+      final renterId = booking['renter_id']?.toString();
+      if (renterId != null && renterId.isNotEmpty) {
+        try {
+          await NotificationService().createNotification(
+            userId: renterId,
+            title: 'Security Deposit Refunded',
+            message:
+                'Your security deposit of PHP ${effectiveRefundAmount.toStringAsFixed(0)} for $vehicleName has been successfully refunded via $refundMethod.',
+            type: 'deposit_refunded',
+            data: {
+              'booking_id': bookingId,
+              'refund_amount': effectiveRefundAmount,
+              'deduction_amount': deductionAmount,
+              'refund_reference': refundReference,
+              'receipt_url': refundReceiptUrl,
+            },
+          );
+        } catch (e) {
+          debugPrint('Deposit refund notification to renter error: $e');
+        }
       }
-    } catch (e) {
-      debugPrint('Deposit refund notification error: $e');
+
+      // 8. Notify partner with full transaction details
+      try {
+        final partnerUserId = await resolvePartnerUserId(
+          bookingId: bookingId,
+          bookingData: booking,
+        );
+        if (partnerUserId != null && partnerUserId.isNotEmpty) {
+          await NotificationService().notifyPartnerSecurityDepositRefunded(
+            partnerUserId: partnerUserId,
+            bookingId: bookingId,
+            renterName: renterName,
+            originalDeposit: originalDeposit,
+            deductionAmount: deductionAmount,
+            refundAmount: effectiveRefundAmount,
+            refundStatus: 'Completed',
+            refundMethod: refundMethod,
+            referenceNumber: refundReference,
+            vehicleTitle: vehicleName.isNotEmpty ? vehicleName : null,
+            deductionNotes: deductionNotes,
+            receiptUrl: refundReceiptUrl.isNotEmpty ? refundReceiptUrl : null,
+          );
+        }
+      } catch (e) {
+        debugPrint('Deposit refund notification to partner error: $e');
+      }
+
+      unawaited(
+        OperatorActivityLogger.logActivity(
+          activityType: 'security_deposit_refunded',
+          description: 'Refunded security deposit of PHP ${effectiveRefundAmount.toStringAsFixed(2)} to $renterName (Booking: $bookingId)',
+          bookingId: bookingId,
+          metadata: {
+            'original_deposit': originalDeposit,
+            'refund_amount': effectiveRefundAmount,
+            'deduction_amount': deductionAmount,
+            'deduction_notes': deductionNotes,
+            'refund_method': refundMethod,
+            'refund_reference': refundReference,
+            'operator_id': operatorId,
+          },
+          suppressErrors: true,
+        ),
+      );
+    } finally {
+      _activeRefunds.remove(bookingId);
     }
   }
 
@@ -7820,73 +8215,191 @@ class BookingService {
     String? partnerUserId,
     String? vehicleTitle,
   }) async {
-    final now = DateTime.now().toUtc().toIso8601String();
-
-    final updatePayload = <String, dynamic>{
-      'commission_status': 'released',
-      'partner_payout_disbursed': true,
-      'partner_payout_status': 'disbursed',
-      'partner_payout_amount': netAmount,
-      'partner_payout_commission': commissionAmount,
-      'partner_payout_deposit_deduction': securityDepositDeduction,
-      'partner_security_deposit_deduction': securityDepositDeduction,
-      'partner_payout_method': paymentMethod,
-      'partner_payout_ref': referenceNumber,
-      'partner_payout_receipt_url': receiptUrl ?? '',
-      'partner_payout_disbursed_at': now,
-    };
-    if (operatorId.trim().isNotEmpty) {
-      updatePayload['partner_payout_disbursed_by'] = operatorId.trim();
+    if (bookingId.trim().isEmpty) {
+      throw Exception('Invalid booking ID for partner disbursement.');
     }
 
-    await safeUpdateBooking(bookingId, updatePayload);
+    // 1. In-memory concurrency guard to prevent rapid double-clicks
+    if (_activeDisbursements.contains(bookingId)) {
+      throw Exception('Commission disbursement is already in progress for this booking.');
+    }
+    _activeDisbursements.add(bookingId);
 
-    if (partnerUserId != null && partnerUserId.isNotEmpty) {
+    try {
+      // 2. Fetch booking and perform backend idempotency validation
+      final booking = await supabase
+          .from('bookings')
+          .select('''
+            id,
+            partner_payout_disbursed,
+            partner_payout_status,
+            partner_id,
+            partner_user_id,
+            vehicle_id,
+            status,
+            rental_subtotal,
+            total_price,
+            delivery_fee,
+            late_return_fee,
+            metadata,
+            vehicles:vehicle_id (
+              id, brand, model, owner_id,
+              partners:partner_id (id, user_id, business_name)
+            ),
+            partner_vehicles:partner_vehicle_id (
+              id, partner_id, user_id,
+              partners:partner_id (id, user_id, business_name)
+            )
+          ''')
+          .eq('id', bookingId)
+          .maybeSingle();
+
+      if (booking == null) {
+        throw Exception('Booking not found: $bookingId');
+      }
+
+      final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata'] as Map) : <String, dynamic>{};
+      final isAlreadyDisbursed = booking['partner_payout_disbursed'] == true ||
+          meta['partner_payout_disbursed'] == true ||
+          booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed' ||
+          meta['partner_payout_status']?.toString().toLowerCase() == 'disbursed';
+
+      if (isAlreadyDisbursed) {
+        throw Exception('This transaction has already been finalized.');
+      }
+
+      // Check booking_payouts table for existing released partner payout
       try {
         final existingPayout = await supabase
             .from('booking_payouts')
-            .select('id')
+            .select('id, status')
             .eq('booking_id', bookingId)
             .eq('recipient_role', 'partner')
             .maybeSingle();
+        if (existingPayout != null && existingPayout['status'] == 'released') {
+          throw Exception('This transaction has already been finalized.');
+        }
+      } catch (e) {
+        if (e.toString().contains('already been finalized')) rethrow;
+      }
 
-        final payoutData = {
+      // 3. Resolve authentic partner users.id
+      final resolvedPartnerUserId = await resolvePartnerUserId(
+        candidateUserId: partnerUserId,
+        bookingId: bookingId,
+        bookingData: booking,
+      );
+
+      if (resolvedPartnerUserId == null || resolvedPartnerUserId.isEmpty) {
+        throw Exception('Could not resolve a valid partner user ID for this booking.');
+      }
+
+      final now = DateTime.now().toUtc();
+      final nowIso = now.toIso8601String();
+
+      // 4. Update booking via safeUpdateBooking
+      final updatePayload = <String, dynamic>{
+        'commission_status': 'released',
+        'partner_payout_disbursed': true,
+        'partner_payout_status': 'disbursed',
+        'partner_payout_amount': netAmount,
+        'partner_payout_commission': commissionAmount,
+        'partner_payout_deposit_deduction': securityDepositDeduction,
+        'partner_security_deposit_deduction': securityDepositDeduction,
+        'partner_payout_method': paymentMethod,
+        'partner_payout_ref': referenceNumber,
+        'partner_payout_receipt_url': receiptUrl ?? '',
+        'partner_payout_disbursed_at': nowIso,
+      };
+      if (operatorId.trim().isNotEmpty) {
+        updatePayload['partner_payout_disbursed_by'] = operatorId.trim();
+      }
+      await safeUpdateBooking(bookingId, updatePayload);
+
+      // 5. Create / upsert into public.booking_payouts
+      final payoutData = {
+        'booking_id': bookingId,
+        'recipient_user_id': resolvedPartnerUserId,
+        'recipient_role': 'partner',
+        'gross_amount': netAmount + commissionAmount - securityDepositDeduction,
+        'deductions': commissionAmount,
+        'net_amount': netAmount,
+        'status': 'released',
+        'released_at': nowIso,
+        'metadata': {
+          'commission_rate': 5,
+          'security_deposit_deduction': securityDepositDeduction,
+          'payment_method': paymentMethod,
+          'reference_number': referenceNumber,
+          'receipt_url': receiptUrl,
+          if (vehicleTitle != null && vehicleTitle.isNotEmpty)
+            'vehicle_title': vehicleTitle,
+        },
+        'updated_at': nowIso,
+      };
+      try {
+        await supabase.from('booking_payouts').upsert(
+          payoutData,
+          onConflict: 'booking_id, recipient_user_id, recipient_role',
+        );
+      } catch (payoutErr) {
+        debugPrint('booking_payouts upsert failed: $payoutErr. Attempting insert fallback.');
+        try {
+          payoutData['created_at'] = nowIso;
+          await supabase.from('booking_payouts').insert(payoutData);
+        } catch (insErr) {
+          debugPrint('booking_payouts insert fallback error: $insErr');
+        }
+      }
+
+      // 6. Synchronize / upsert into public.booking_settlements
+      try {
+        final settlementData = {
           'booking_id': bookingId,
-          'recipient_user_id': partnerUserId,
-          'recipient_role': 'partner',
-          'gross_amount': netAmount + commissionAmount,
-          'deductions': commissionAmount,
-          'net_amount': netAmount,
+          'rental_amount': netAmount + commissionAmount - securityDepositDeduction,
+          'platform_commission': commissionAmount,
+          'partner_user_id': resolvedPartnerUserId,
+          'partner_amount': netAmount,
           'status': 'released',
-          'released_at': now,
-          'metadata': {
-            'commission_rate': 5,
-            'security_deposit_deduction': securityDepositDeduction,
+          'released_at': nowIso,
+          'details': {
             'payment_method': paymentMethod,
             'reference_number': referenceNumber,
             'receipt_url': receiptUrl,
-            if (vehicleTitle != null && vehicleTitle.isNotEmpty)
-              'vehicle_title': vehicleTitle,
+            'security_deposit_deduction': securityDepositDeduction,
           },
-          'updated_at': now,
+          'updated_at': nowIso,
         };
-
-        if (existingPayout != null) {
-          await supabase
-              .from('booking_payouts')
-              .update(payoutData)
-              .eq('id', existingPayout['id']);
-        } else {
-          payoutData['created_at'] = now;
-          await supabase.from('booking_payouts').insert(payoutData);
-        }
-      } catch (e) {
-        debugPrint('Could not record partner booking_payouts: $e');
+        await supabase.from('booking_settlements').upsert(
+          settlementData,
+          onConflict: 'booking_id',
+        );
+      } catch (setErr) {
+        debugPrint('Non-blocking booking_settlements upsert error: $setErr');
       }
 
+      // 7. Record event in public.booking_events
+      try {
+        await supabase.from('booking_events').insert({
+          'booking_id': bookingId,
+          'event_type': 'partner_commission_disbursed',
+          'notes': 'Partner commission disbursed: PHP ${netAmount.toStringAsFixed(2)} via $paymentMethod (Ref: $referenceNumber)',
+          'event_payload': {
+            'net_amount': netAmount,
+            'commission_amount': commissionAmount,
+            'security_deposit_deduction': securityDepositDeduction,
+            'payment_method': paymentMethod,
+            'reference_number': referenceNumber,
+            'partner_user_id': resolvedPartnerUserId,
+          },
+          'created_at': nowIso,
+        });
+      } catch (_) {}
+
+      // 8. Notify partner
       try {
         await NotificationService().notifyPartnerDisbursementCompleted(
-          partnerUserId: partnerUserId,
+          partnerUserId: resolvedPartnerUserId,
           bookingId: bookingId,
           amount: netAmount,
           paymentMethod: paymentMethod,
@@ -7908,15 +8421,21 @@ class BookingService {
             'commission_amount': commissionAmount,
             'payment_method': paymentMethod,
             'reference_number': referenceNumber,
-            'partner_user_id': partnerUserId,
+            'partner_user_id': resolvedPartnerUserId,
           },
           suppressErrors: true,
         ),
       );
+    } finally {
+      _activeDisbursements.remove(bookingId);
     }
   }
 
   /// Disburse driver trip fee / commission for a completed driver booking.
+  /// Calculation:
+  /// Driver Gross Trip Fee = Daily Rate * Days (or specified trip fee)
+  /// PSDC Platform Fee = 5% of Driver Gross
+  /// Net Driver Disbursement = Driver Gross - PSDC Platform Fee
   Future<void> disburseDriverCommission({
     required String bookingId,
     required String operatorId,
@@ -7926,42 +8445,97 @@ class BookingService {
     required double netAmount,
     required double commissionAmount,
     String? driverUserId,
+    String? vehicleTitle,
   }) async {
-    final now = DateTime.now().toUtc().toIso8601String();
-
-    final updatePayload = <String, dynamic>{
-      'commission_status': 'released',
-      'driver_payout_disbursed': true,
-      'driver_payout_status': 'disbursed',
-      'driver_payout_amount': netAmount,
-      'driver_payout_commission': commissionAmount,
-      'driver_payout_method': paymentMethod,
-      'driver_payout_ref': referenceNumber,
-      'driver_payout_receipt_url': receiptUrl ?? '',
-      'driver_payout_disbursed_at': now,
-    };
-    if (operatorId.trim().isNotEmpty) {
-      updatePayload['driver_payout_disbursed_by'] = operatorId.trim();
+    if (bookingId.trim().isEmpty) {
+      throw Exception('Invalid booking ID for driver disbursement.');
     }
 
-    await safeUpdateBooking(bookingId, updatePayload);
+    // 1. In-memory concurrency guard to prevent rapid double-clicks
+    if (_activeDisbursements.contains(bookingId)) {
+      throw Exception('Commission disbursement is already in progress for this booking.');
+    }
+    _activeDisbursements.add(bookingId);
 
-    // Resolve driver user ID if not explicitly passed
-    String? resolvedDriverUserId = driverUserId;
-    if (resolvedDriverUserId == null || resolvedDriverUserId.isEmpty) {
+    try {
+      // 2. Fetch booking and perform backend idempotency validation
+      final booking = await supabase
+          .from('bookings')
+          .select('''
+            id,
+            driver_payout_disbursed,
+            driver_payout_status,
+            driver_id,
+            driver_user_id,
+            driver_fee,
+            metadata,
+            vehicles:vehicle_id (brand, model),
+            drivers:driver_id (id, user_id)
+          ''')
+          .eq('id', bookingId)
+          .maybeSingle();
+
+      if (booking == null) {
+        throw Exception('Booking not found: $bookingId');
+      }
+
+      final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata'] as Map) : <String, dynamic>{};
+      final isAlreadyDisbursed = booking['driver_payout_disbursed'] == true ||
+          meta['driver_payout_disbursed'] == true ||
+          booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed' ||
+          meta['driver_payout_status']?.toString().toLowerCase() == 'disbursed';
+
+      if (isAlreadyDisbursed) {
+        throw Exception('This transaction has already been finalized.');
+      }
+
+      // Check booking_payouts table for existing released driver payout
       try {
-        final b = await supabase
-            .from('bookings')
-            .select('driver_id, drivers(user_id)')
-            .eq('id', bookingId)
+        final existingPayout = await supabase
+            .from('booking_payouts')
+            .select('id, status')
+            .eq('booking_id', bookingId)
+            .eq('recipient_role', 'driver')
             .maybeSingle();
-        final driverJoin = b?['drivers'] as Map<String, dynamic>?;
-        resolvedDriverUserId = driverJoin?['user_id']?.toString() ??
-            b?['driver_id']?.toString();
-      } catch (_) {}
-    }
+        if (existingPayout != null && existingPayout['status'] == 'released') {
+          throw Exception('This transaction has already been finalized.');
+        }
+      } catch (e) {
+        if (e.toString().contains('already been finalized')) rethrow;
+      }
 
-    if (resolvedDriverUserId != null && resolvedDriverUserId.isNotEmpty) {
+      // 3. Resolve authentic driver users.id
+      final resolvedDriverUserId = await resolveDriverUserId(
+        candidateUserId: driverUserId,
+        bookingId: bookingId,
+        bookingData: booking,
+      );
+
+      if (resolvedDriverUserId == null || resolvedDriverUserId.isEmpty) {
+        throw Exception('Could not resolve a valid driver user ID for this booking.');
+      }
+
+      final now = DateTime.now().toUtc();
+      final nowIso = now.toIso8601String();
+
+      // 4. Update booking via safeUpdateBooking
+      final updatePayload = <String, dynamic>{
+        'commission_status': 'released',
+        'driver_payout_disbursed': true,
+        'driver_payout_status': 'disbursed',
+        'driver_payout_amount': netAmount,
+        'driver_payout_commission': commissionAmount,
+        'driver_payout_method': paymentMethod,
+        'driver_payout_ref': referenceNumber,
+        'driver_payout_receipt_url': receiptUrl ?? '',
+        'driver_payout_disbursed_at': nowIso,
+      };
+      if (operatorId.trim().isNotEmpty) {
+        updatePayload['driver_payout_disbursed_by'] = operatorId.trim();
+      }
+      await safeUpdateBooking(bookingId, updatePayload);
+
+      // 5. Upsert into public.driver_earnings
       try {
         final earningPayload = <String, dynamic>{
           'booking_id': bookingId,
@@ -7972,7 +8546,8 @@ class BookingService {
           'net_earnings': netAmount,
           'payout_status': 'paid',
           'payout_method': paymentMethod,
-          'paid_at': now,
+          'paid_at': nowIso,
+          'updated_at': nowIso,
         };
         final existingEarning = await supabase
             .from('driver_earnings')
@@ -7980,6 +8555,7 @@ class BookingService {
             .eq('booking_id', bookingId)
             .maybeSingle();
         if (existingEarning == null) {
+          earningPayload['created_at'] = nowIso;
           await supabase.from('driver_earnings').insert(earningPayload);
         } else {
           await supabase
@@ -7991,45 +8567,85 @@ class BookingService {
         debugPrint('Could not upsert driver_earnings: $e');
       }
 
+      // 6. Create / upsert into public.booking_payouts
+      final payoutData = {
+        'booking_id': bookingId,
+        'recipient_user_id': resolvedDriverUserId,
+        'recipient_role': 'driver',
+        'gross_amount': netAmount + commissionAmount,
+        'deductions': commissionAmount,
+        'net_amount': netAmount,
+        'status': 'released',
+        'released_at': nowIso,
+        'metadata': {
+          'commission_rate': 5,
+          'payment_method': paymentMethod,
+          'reference_number': referenceNumber,
+          'receipt_url': receiptUrl,
+          if (vehicleTitle != null && vehicleTitle.isNotEmpty)
+            'vehicle_title': vehicleTitle,
+        },
+        'updated_at': nowIso,
+      };
       try {
-        final existingPayout = await supabase
-            .from('booking_payouts')
-            .select('id')
-            .eq('booking_id', bookingId)
-            .eq('recipient_role', 'driver')
-            .maybeSingle();
+        await supabase.from('booking_payouts').upsert(
+          payoutData,
+          onConflict: 'booking_id, recipient_user_id, recipient_role',
+        );
+      } catch (payoutErr) {
+        debugPrint('booking_payouts upsert failed for driver: $payoutErr. Attempting insert fallback.');
+        try {
+          payoutData['created_at'] = nowIso;
+          await supabase.from('booking_payouts').insert(payoutData);
+        } catch (insertErr) {
+          debugPrint('booking_payouts insert fallback failed for driver: $insertErr');
+        }
+      }
 
-        final payoutData = {
+      // 7. Upsert into public.booking_settlements
+      try {
+        final settlementUpdate = {
           'booking_id': bookingId,
-          'recipient_user_id': resolvedDriverUserId,
-          'recipient_role': 'driver',
-          'gross_amount': netAmount + commissionAmount,
-          'deductions': commissionAmount,
-          'net_amount': netAmount,
+          'driver_user_id': resolvedDriverUserId,
+          'driver_gross_amount': netAmount + commissionAmount,
+          'driver_commission_amount': commissionAmount,
+          'driver_amount': netAmount,
           'status': 'released',
-          'released_at': now,
-          'metadata': {
-            'commission_rate': 5,
+          'released_at': nowIso,
+          'details': {
+            'driver_commission_rate': 5,
             'payment_method': paymentMethod,
             'reference_number': referenceNumber,
             'receipt_url': receiptUrl,
           },
-          'updated_at': now,
+          'updated_at': nowIso,
         };
-
-        if (existingPayout != null) {
-          await supabase
-              .from('booking_payouts')
-              .update(payoutData)
-              .eq('id', existingPayout['id']);
-        } else {
-          payoutData['created_at'] = now;
-          await supabase.from('booking_payouts').insert(payoutData);
-        }
-      } catch (e) {
-        debugPrint('Could not record driver booking_payouts: $e');
+        await supabase.from('booking_settlements').upsert(
+          settlementUpdate,
+          onConflict: 'booking_id',
+        );
+      } catch (setErr) {
+        debugPrint('Non-blocking booking_settlements upsert error for driver: $setErr');
       }
 
+      // 8. Record event in public.booking_events
+      try {
+        await supabase.from('booking_events').insert({
+          'booking_id': bookingId,
+          'event_type': 'driver_fee_disbursed',
+          'notes': 'Driver fee disbursed: PHP ${netAmount.toStringAsFixed(2)} via $paymentMethod (Ref: $referenceNumber)',
+          'event_payload': {
+            'net_amount': netAmount,
+            'commission_amount': commissionAmount,
+            'payment_method': paymentMethod,
+            'reference_number': referenceNumber,
+            'driver_user_id': resolvedDriverUserId,
+          },
+          'created_at': nowIso,
+        });
+      } catch (_) {}
+
+      // 9. Notify driver
       try {
         await NotificationService().notifyDriverDisbursementCompleted(
           driverUserId: resolvedDriverUserId,
@@ -8037,6 +8653,7 @@ class BookingService {
           amount: netAmount,
           paymentMethod: paymentMethod,
           referenceNumber: referenceNumber,
+          vehicleTitle: vehicleTitle,
           receiptUrl: receiptUrl,
         );
       } catch (e) {
@@ -8059,6 +8676,8 @@ class BookingService {
           suppressErrors: true,
         ),
       );
+    } finally {
+      _activeDisbursements.remove(bookingId);
     }
   }
 

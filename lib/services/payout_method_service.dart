@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'booking_service.dart';
 
 class PayoutMethod {
   final String id;
@@ -597,8 +598,19 @@ class PayoutMethodService {
 
           final r = refundsByBooking[b['id']?.toString()];
           if (r != null) {
-            b['refund_completed'] ??=
-                (r['status'] == 'completed' || r['status'] == 'refunded');
+            final isProcessed = (r['status'] == 'completed' || r['status'] == 'refunded' || r['status'] == 'processed');
+            final reason = (r['reason'] ?? '').toString().toLowerCase();
+            final isDeposit = reason.contains('security deposit') || reason.contains('deposit');
+
+            if (isDeposit) {
+              b['security_deposit_refunded'] ??= isProcessed;
+              b['security_deposit_refund_amount'] ??= (r['amount'] as num?)?.toDouble();
+              b['security_deposit_refund_ref'] ??= r['payment_reference'] ?? r['refund_reference'];
+              b['security_deposit_refund_receipt_url'] ??= r['receipt_url'];
+              b['security_deposit_refunded_at'] ??= r['processed_at'] ?? r['created_at'];
+            }
+
+            b['refund_completed'] ??= isProcessed;
             b['refund_amount'] ??= (r['amount'] as num?)?.toDouble();
             b['refund_method'] ??= r['payment_method'] ?? r['refund_method'];
             b['refund_ref'] ??=
@@ -667,9 +679,11 @@ class PayoutMethodService {
         try {
           final userIds = <String>{userId};
           try {
-            final pProf = await _supabase.from('partners').select('id').eq('user_id', userId).maybeSingle();
+            final pProf = await _supabase.from('partners').select('id, user_id').or('user_id.eq.$userId,id.eq.$userId').maybeSingle();
             final pId = pProf?['id']?.toString();
+            final uId = pProf?['user_id']?.toString();
             if (pId != null && pId.isNotEmpty) userIds.add(pId);
+            if (uId != null && uId.isNotEmpty) userIds.add(uId);
           } catch (_) {}
 
           final payoutsRes = await _supabase
@@ -718,8 +732,17 @@ class PayoutMethodService {
           debugPrint('Error loading partner booking_payouts: $e');
         }
 
-        // Fallback: check booking_settlements
+        // Fallback 1: check booking_settlements
         try {
+          final userIds = <String>{userId};
+          try {
+            final pProf = await _supabase.from('partners').select('id, user_id').or('user_id.eq.$userId,id.eq.$userId').maybeSingle();
+            final pId = pProf?['id']?.toString();
+            final uId = pProf?['user_id']?.toString();
+            if (pId != null && pId.isNotEmpty) userIds.add(pId);
+            if (uId != null && uId.isNotEmpty) userIds.add(uId);
+          } catch (_) {}
+
           final setRes = await _supabase
               .from('booking_settlements')
               .select('''
@@ -731,7 +754,7 @@ class PayoutMethodService {
                   )
                 )
               ''')
-              .eq('partner_user_id', userId)
+              .inFilter('partner_user_id', userIds.toList())
               .order('created_at', ascending: false);
 
           for (final s in List<Map<String, dynamic>>.from(setRes)) {
@@ -764,18 +787,117 @@ class PayoutMethodService {
             });
           }
         } catch (_) {}
+
+        // Fallback 2 & Security Deposit Refunds: check partner's bookings
+        try {
+          final partnerBookings = await BookingService().getPartnerBookings(userId);
+          for (final b in partnerBookings) {
+            final bid = b['id']?.toString() ?? '';
+            if (bid.isEmpty) continue;
+            final shortBid = bid.length > 8 ? bid.substring(0, 8).toUpperCase() : bid.toUpperCase();
+            final veh = b['vehicles'] as Map<String, dynamic>?;
+            final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+            final meta = b['metadata'] is Map ? (b['metadata'] as Map) : {};
+
+            // Commission payout fallback if missing from payouts table
+            final isPayoutDisbursed = b['partner_payout_disbursed'] == true ||
+                meta['partner_payout_disbursed'] == true ||
+                b['partner_payout_status'] == 'disbursed' ||
+                meta['partner_payout_status'] == 'disbursed';
+            if (isPayoutDisbursed && !knownBookingIds.contains(bid)) {
+              knownBookingIds.add(bid);
+              final net = ((b['partner_payout_amount'] ?? meta['partner_payout_amount']) as num?)?.toDouble() ?? 0.0;
+              final comm = ((b['partner_payout_commission'] ?? meta['partner_payout_commission']) as num?)?.toDouble() ?? 0.0;
+              final ded = ((b['partner_security_deposit_deduction'] ?? meta['partner_security_deposit_deduction']) as num?)?.toDouble() ?? 0.0;
+              final gross = (net + comm - ded).clamp(0.0, double.infinity);
+              final method = (b['partner_payout_method'] ?? meta['partner_payout_method'])?.toString() ?? 'GCash';
+              final ref = (b['partner_payout_ref'] ?? meta['partner_payout_ref'])?.toString() ?? '—';
+              final receipt = (b['partner_payout_receipt_url'] ?? meta['partner_payout_receipt_url'])?.toString();
+              final releasedAt = (b['partner_payout_disbursed_at'] ?? meta['partner_payout_disbursed_at'])?.toString() ?? b['created_at'];
+
+              records.add({
+                'id': 'booking_payout_partner_$bid',
+                'booking_id': bid,
+                'booking_reference': shortBid,
+                'category': 'partner_payout',
+                'title': 'Vehicle Commission Payout',
+                'amount': net,
+                'gross_amount': gross,
+                'deduction': comm,
+                'method': method,
+                'reference_number': ref,
+                'receipt_url': receipt,
+                'date': releasedAt,
+                'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
+                'plate_number': veh?['plate_number']?.toString() ?? '',
+                'status': 'Completed',
+              });
+            }
+
+            // Security Deposit Refund & Damage Deductions for Partner
+            final isSecDepRefunded = b['security_deposit_refunded'] == true ||
+                meta['security_deposit_refunded'] == true ||
+                b['security_deposit_status'] == 'refund_processed' ||
+                meta['security_deposit_status'] == 'refund_processed' ||
+                ((b['security_deposit_refund_amount'] ?? meta['security_deposit_refund_amount']) as num? ?? 0) > 0;
+            final damageDeduction = ((b['partner_security_deposit_deduction'] ??
+                    meta['partner_security_deposit_deduction'] ??
+                    b['security_deposit_refund_deduction'] ??
+                    meta['security_deposit_refund_deduction']) as num?)
+                    ?.toDouble() ??
+                0.0;
+            final refundAmt = ((b['security_deposit_refund_amount'] ?? meta['security_deposit_refund_amount']) as num?)?.toDouble() ?? 0.0;
+
+            if (isSecDepRefunded || damageDeduction > 0) {
+              final secDepId = 'sec_dep_partner_$bid';
+              if (!records.any((r) => r['id'] == secDepId)) {
+                final renter = b['renter'] as Map<String, dynamic>?;
+                final renterName = renter?['full_name']?.toString() ?? 'Renter';
+                final method = (b['security_deposit_refund_method'] ?? meta['security_deposit_refund_method'])?.toString() ?? 'GCash';
+                final ref = (b['security_deposit_refund_ref'] ?? meta['security_deposit_refund_ref'])?.toString() ?? '—';
+                final receipt = (b['security_deposit_refund_receipt_url'] ?? meta['security_deposit_refund_receipt_url'])?.toString();
+                final notes = (b['security_deposit_refund_notes'] ?? meta['security_deposit_refund_notes'])?.toString();
+                final date = (b['security_deposit_refunded_at'] ?? meta['security_deposit_refunded_at'] ?? b['updated_at'] ?? b['created_at'])?.toString();
+
+                records.add({
+                  'id': secDepId,
+                  'booking_id': bid,
+                  'booking_reference': shortBid,
+                  'category': 'security_deposit_refund',
+                  'title': damageDeduction > 0
+                      ? 'Security Deposit Refund (Damage Compensation: PHP ${damageDeduction.toStringAsFixed(2)})'
+                      : 'Renter Security Deposit Refunded',
+                  'amount': refundAmt,
+                  'deduction': damageDeduction,
+                  'deduction_notes': notes,
+                  'method': method,
+                  'reference_number': ref,
+                  'receipt_url': receipt,
+                  'date': date,
+                  'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Partner Vehicle',
+                  'plate_number': veh?['plate_number']?.toString() ?? '',
+                  'renter_name': renterName,
+                  'status': 'Completed',
+                });
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Error loading partner bookings fallback: $e');
+        }
       } else if (normalizedRole == 'driver') {
         final knownBookingIds = <String>{};
+        final userIds = <String>{userId};
+        try {
+          final dProf = await _supabase.from('drivers').select('id, user_id').or('user_id.eq.$userId,id.eq.$userId').maybeSingle();
+          final dId = dProf?['id']?.toString();
+          final uId = dProf?['user_id']?.toString();
+          if (dId != null && dId.isNotEmpty) userIds.add(dId);
+          if (uId != null && uId.isNotEmpty) userIds.add(uId);
+        } catch (_) {}
 
         // 1. Check booking_payouts table (primary source for driver payouts)
         try {
-          final userIds = <String>{userId};
-          try {
-            final dProf = await _supabase.from('drivers').select('id').eq('user_id', userId).maybeSingle();
-            final dId = dProf?['id']?.toString();
-            if (dId != null && dId.isNotEmpty) userIds.add(dId);
-          } catch (_) {}
-
           final payoutsRes = await _supabase
               .from('booking_payouts')
               .select('''
@@ -913,6 +1035,71 @@ class PayoutMethodService {
               'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Trip Vehicle',
               'plate_number': veh?['plate_number']?.toString() ?? '',
               'status': s['status']?.toString() == 'released' ? 'Completed' : 'Pending',
+            });
+          }
+        } catch (_) {}
+
+        // 4. Fallback check: bookings table
+        try {
+          final bRes = await _supabase
+              .from('bookings')
+              .select('''
+                id,
+                created_at,
+                metadata,
+                driver_id,
+                driver_user_id,
+                driver_fee,
+                driver_payout_disbursed,
+                driver_payout_status,
+                driver_payout_amount,
+                driver_payout_commission,
+                driver_payout_method,
+                driver_payout_ref,
+                driver_payout_receipt_url,
+                driver_payout_disbursed_at,
+                vehicles:vehicle_id (id, brand, model, year, plate_number)
+              ''')
+              .or('driver_id.in.(${userIds.join(',')}),driver_user_id.in.(${userIds.join(',')})');
+
+          for (final b in List<Map<String, dynamic>>.from(bRes)) {
+            final bid = b['id']?.toString() ?? '';
+            if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
+            final meta = b['metadata'] is Map ? (b['metadata'] as Map) : {};
+            final isDisbursed = b['driver_payout_disbursed'] == true ||
+                meta['driver_payout_disbursed'] == true ||
+                b['driver_payout_status'] == 'disbursed' ||
+                meta['driver_payout_status'] == 'disbursed';
+            if (!isDisbursed) continue;
+            knownBookingIds.add(bid);
+
+            final veh = b['vehicles'] as Map<String, dynamic>?;
+            final vehicleName = '${veh?['brand'] ?? ''} ${veh?['model'] ?? ''}'.trim();
+            final shortBid = bid.length > 8 ? bid.substring(0, 8).toUpperCase() : bid.toUpperCase();
+            final net = ((b['driver_payout_amount'] ?? meta['driver_payout_amount']) as num?)?.toDouble() ?? 0.0;
+            final comm = ((b['driver_payout_commission'] ?? meta['driver_payout_commission']) as num?)?.toDouble() ?? 0.0;
+            final gross = (net + comm).clamp(0.0, double.infinity);
+            final method = (b['driver_payout_method'] ?? meta['driver_payout_method'])?.toString() ?? 'GCash';
+            final ref = (b['driver_payout_ref'] ?? meta['driver_payout_ref'])?.toString() ?? '—';
+            final receipt = (b['driver_payout_receipt_url'] ?? meta['driver_payout_receipt_url'])?.toString();
+            final releasedAt = (b['driver_payout_disbursed_at'] ?? meta['driver_payout_disbursed_at'])?.toString() ?? b['created_at'];
+
+            records.add({
+              'id': 'booking_payout_driver_$bid',
+              'booking_id': bid,
+              'booking_reference': shortBid,
+              'category': 'driver_payout',
+              'title': 'Driver Trip Fee Payout',
+              'amount': net,
+              'gross_amount': gross,
+              'deduction': comm,
+              'method': method,
+              'reference_number': ref,
+              'receipt_url': receipt,
+              'date': releasedAt,
+              'vehicle_name': vehicleName.isNotEmpty ? vehicleName : 'Trip Vehicle',
+              'plate_number': veh?['plate_number']?.toString() ?? '',
+              'status': 'Completed',
             });
           }
         } catch (_) {}

@@ -3545,13 +3545,25 @@ class _BookingCard extends StatelessWidget {
                                   ),
                                 );
                               } catch (e) {
-                                setDialogState(() => isSubmitting = false);
+                                final msg = e.toString().replaceAll('Exception:', '').trim();
+                                setDialogState(() {
+                                  isSubmitting = false;
+                                  if (msg.contains('already been finalized')) {
+                                    booking['security_deposit_refunded'] = true;
+                                    booking['security_deposit_status'] = 'refund_processed';
+                                  }
+                                });
                                 ScaffoldMessenger.of(dialogContext).showSnackBar(
                                   SnackBar(
-                                    content: Text('Refund error: $e'),
+                                    content: Text(msg.contains('already been finalized')
+                                        ? 'This transaction has already been finalized.'
+                                        : 'Refund error: $msg'),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
+                                if (msg.contains('already been finalized')) {
+                                  onRefresh?.call();
+                                }
                               }
                             },
                       style: ElevatedButton.styleFrom(
@@ -3598,7 +3610,7 @@ class _BookingCard extends StatelessWidget {
     final partnerData = (partnerVehicle['partners'] ?? vehicle['partners'] ?? vehicle['owner']) as Map<String, dynamic>? ?? {};
     final partnerUserData = (partnerData['users'] ?? partnerData['user']) as Map<String, dynamic>? ?? {};
 
-    final partnerUserId = (partnerData['user_id'] ?? partnerVehicle['partner_id'] ?? vehicle['owner_id'] ?? booking['partner_id'] ?? booking['partner_user_id'])?.toString();
+    final partnerUserId = (partnerUserData['id'] ?? partnerData['user_id'] ?? partnerVehicle['partner_id'] ?? vehicle['owner_id'] ?? booking['partner_id'] ?? booking['partner_user_id'])?.toString();
     final partnerName = partnerData['business_name']?.toString() ??
         partnerUserData['full_name']?.toString() ??
         partnerData['full_name']?.toString() ??
@@ -4130,13 +4142,25 @@ class _BookingCard extends StatelessWidget {
                                   ),
                                 );
                               } catch (e) {
-                                setDialogState(() => isSubmitting = false);
+                                final msg = e.toString().replaceAll('Exception:', '').trim();
+                                setDialogState(() {
+                                  isSubmitting = false;
+                                  if (msg.contains('already been finalized')) {
+                                    booking['partner_payout_disbursed'] = true;
+                                    booking['partner_payout_status'] = 'disbursed';
+                                  }
+                                });
                                 ScaffoldMessenger.of(dialogContext).showSnackBar(
                                   SnackBar(
-                                    content: Text('Disbursement error: $e'),
+                                    content: Text(msg.contains('already been finalized')
+                                        ? 'This transaction has already been finalized.'
+                                        : 'Disbursement error: $msg'),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
+                                if (msg.contains('already been finalized')) {
+                                  onRefresh?.call();
+                                }
                               }
                             },
                       style: ElevatedButton.styleFrom(
@@ -4181,8 +4205,8 @@ class _BookingCard extends StatelessWidget {
     final driverUserData = (driverData['users'] ?? driverData['user']) as Map<String, dynamic>? ?? {};
     final driverUserJoined = (booking['driver_user'] ?? booking['driver_profile']) as Map<String, dynamic>? ?? {};
 
-    final driverUserId = (driverData['user_id'] ??
-            driverUserData['id'] ??
+    final driverUserId = (driverUserData['id'] ??
+            driverData['user_id'] ??
             driverUserJoined['id'] ??
             booking['driver_id'])
         ?.toString();
@@ -4670,13 +4694,25 @@ class _BookingCard extends StatelessWidget {
                                   ),
                                 );
                               } catch (e) {
-                                setDialogState(() => isSubmitting = false);
+                                final msg = e.toString().replaceAll('Exception:', '').trim();
+                                setDialogState(() {
+                                  isSubmitting = false;
+                                  if (msg.contains('already been finalized')) {
+                                    booking['driver_payout_disbursed'] = true;
+                                    booking['driver_payout_status'] = 'disbursed';
+                                  }
+                                });
                                 ScaffoldMessenger.of(dialogContext).showSnackBar(
                                   SnackBar(
-                                    content: Text('Disbursement error: $e'),
+                                    content: Text(msg.contains('already been finalized')
+                                        ? 'This transaction has already been finalized.'
+                                        : 'Disbursement error: $msg'),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
+                                if (msg.contains('already been finalized')) {
+                                  onRefresh?.call();
+                                }
                               }
                             },
                       style: ElevatedButton.styleFrom(

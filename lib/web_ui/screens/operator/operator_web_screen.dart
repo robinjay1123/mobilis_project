@@ -2440,6 +2440,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 location,
                 partners:partner_id (
                   id,
+                  user_id,
                   business_name,
                   business_phone,
                   users:user_id (
@@ -2529,6 +2530,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 location,
                 partners:partner_id (
                   id,
+                  user_id,
                   business_name,
                   business_phone,
                   users:user_id (
@@ -18676,7 +18678,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final double defaultSecurityDeposit = adminSettings.getDepositForSeats(seats);
     final depositAmount = (booking['security_deposit'] as num?)?.toDouble() ?? defaultSecurityDeposit;
 
-    final isAlreadyRefunded = booking['security_deposit_refunded'] == true;
+    bool isAlreadyRefunded = booking['security_deposit_refunded'] == true;
     final pastRefundAmount = (booking['security_deposit_refund_amount'] as num?)?.toDouble();
     final pastDeduction = (booking['security_deposit_refund_deduction'] as num?)?.toDouble();
     final pastNotes = booking['security_deposit_refund_notes']?.toString() ?? '';
@@ -19889,10 +19891,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           );
                                         }
                                       } catch (e) {
+                                        final msg = e.toString().replaceAll('Exception:', '').trim();
                                         setDialogState(() {
                                           isSubmitting = false;
-                                          dialogError = 'Refund failed: $e';
+                                          dialogError = msg.contains('already been finalized')
+                                              ? 'This transaction has already been finalized.'
+                                              : 'Refund failed: $msg';
+                                          if (msg.contains('already been finalized')) {
+                                            isAlreadyRefunded = true;
+                                            booking['security_deposit_refunded'] = true;
+                                            booking['security_deposit_status'] = 'refund_processed';
+                                          }
                                         });
+                                        if (msg.contains('already been finalized')) {
+                                          _loadRecentBookings();
+                                        }
                                       }
                                     },
                               style: ElevatedButton.styleFrom(
@@ -20932,7 +20945,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final partnerData = (partnerVehicle['partners'] ?? vehicle['partners'] ?? vehicle['owner']) as Map<String, dynamic>? ?? {};
     final partnerUserData = (partnerData['users'] ?? partnerData['user']) as Map<String, dynamic>? ?? {};
 
-    final partnerUserId = (partnerData['user_id'] ?? partnerVehicle['partner_id'] ?? vehicle['owner_id'] ?? booking['partner_id'] ?? booking['partner_user_id'])?.toString();
+    final partnerUserId = (partnerUserData['id'] ?? partnerData['user_id'] ?? partnerVehicle['partner_id'] ?? vehicle['owner_id'] ?? booking['partner_id'] ?? booking['partner_user_id'])?.toString();
     final partnerName = partnerData['business_name']?.toString() ??
         partnerUserData['full_name']?.toString() ??
         partnerData['full_name']?.toString() ??
@@ -21660,10 +21673,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           );
                                         }
                                       } catch (e) {
+                                        final msg = e.toString().replaceAll('Exception:', '').trim();
                                         setDialogState(() {
                                           isSubmitting = false;
-                                          dialogError = 'Failed to disburse partner payout: ${e.toString().replaceAll('Exception:', '').trim()}';
+                                          dialogError = msg.contains('already been finalized')
+                                              ? 'This transaction has already been finalized.'
+                                              : 'Failed to disburse partner payout: $msg';
+                                          if (msg.contains('already been finalized')) {
+                                            isAlreadyDisbursed = true;
+                                            booking['partner_payout_disbursed'] = true;
+                                            booking['partner_payout_status'] = 'disbursed';
+                                          }
                                         });
+                                        if (msg.contains('already been finalized')) {
+                                          _loadRecentBookings();
+                                        }
                                       }
                                     },
                               style: ElevatedButton.styleFrom(
@@ -21711,8 +21735,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final driverUserData = (driverData['users'] ?? driverData['user']) as Map<String, dynamic>? ?? {};
     final driverUserJoined = (booking['driver_user'] ?? booking['driver_profile']) as Map<String, dynamic>? ?? {};
 
-    final driverUserId = (driverData['user_id'] ??
-            driverUserData['id'] ??
+    final driverUserId = (driverUserData['id'] ??
+            driverData['user_id'] ??
             driverUserJoined['id'] ??
             booking['driver_id'])
         ?.toString();
@@ -22397,10 +22421,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           );
                                         }
                                       } catch (e) {
+                                        final msg = e.toString().replaceAll('Exception:', '').trim();
                                         setDialogState(() {
                                           isSubmitting = false;
-                                          dialogError = 'Failed to disburse driver payout: ${e.toString().replaceAll('Exception:', '').trim()}';
+                                          dialogError = msg.contains('already been finalized')
+                                              ? 'This transaction has already been finalized.'
+                                              : 'Failed to disburse driver payout: $msg';
+                                          if (msg.contains('already been finalized')) {
+                                            isAlreadyDisbursed = true;
+                                            booking['driver_payout_disbursed'] = true;
+                                            booking['driver_payout_status'] = 'disbursed';
+                                          }
                                         });
+                                        if (msg.contains('already been finalized')) {
+                                          _loadRecentBookings();
+                                        }
                                       }
                                     },
                               style: ElevatedButton.styleFrom(
