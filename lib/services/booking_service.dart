@@ -4776,6 +4776,9 @@ class BookingService {
     required String bookingId,
     required String inspectorId,
     bool confirmPaymentIfUnpaid = false,
+    String? penaltyPaymentMethod,
+    String? penaltyPaymentReference,
+    String? penaltyReceiptUrl,
   }) async {
     final inspectionService = BookingInspectionService();
     await inspectionService.assertResponsibleInspector(
@@ -4826,6 +4829,12 @@ class BookingService {
         'final_payment_status': 'paid',
         'final_payment_confirmed_at': now,
         'final_payment_confirmed_by': inspectorId,
+        if (penaltyPaymentMethod != null && penaltyPaymentMethod.isNotEmpty)
+          'final_payment_method': penaltyPaymentMethod,
+        if (penaltyPaymentReference != null && penaltyPaymentReference.isNotEmpty)
+          'final_payment_reference': penaltyPaymentReference,
+        if (penaltyReceiptUrl != null && penaltyReceiptUrl.isNotEmpty)
+          'final_payment_proof_url': penaltyReceiptUrl,
         'security_deposit_status': depositStatus,
         ...lateReturn,
         'updated_at': now,

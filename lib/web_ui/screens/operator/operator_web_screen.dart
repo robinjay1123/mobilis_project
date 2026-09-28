@@ -23386,142 +23386,567 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             lateReturnFee > 0 || remainingBalance > 0 || !isFullyPaid;
         bool confirmPaymentNow = false;
 
+        // Settlement form state (hoisted so it's accessible after the dialog)
+        String selectedMethod = 'GCash';
+        TextEditingController? refController;
+        String? uploadedReceiptUrl;
+
         if (hasChargesOrViolations) {
+          // Check if already settled (e.g. re-opened after partial save)
+          final alreadySettled =
+              bookingData['final_payment_status']?.toString().toLowerCase() == 'paid';
+          final meta = bookingData['metadata'] is Map
+              ? Map<String, dynamic>.from(bookingData['metadata'] as Map)
+              : <String, dynamic>{};
+          final totalPenalty = lateReturnFee + remainingBalance;
+
+          // Settlement form state
+          final pastMethod = (bookingData['final_payment_method'] ?? meta['final_payment_method'])?.toString();
+          final pastRef = (bookingData['final_payment_reference'] ?? meta['final_payment_reference'])?.toString();
+          final pastReceipt = (bookingData['final_payment_proof_url'] ?? meta['final_payment_proof_url'])?.toString();
+
+          selectedMethod = pastMethod?.isNotEmpty == true ? pastMethod! : 'GCash';
+          refController = TextEditingController(text: pastRef ?? '');
+          PlatformFile? receiptFile;
+          uploadedReceiptUrl = pastReceipt?.isNotEmpty == true ? pastReceipt : null;
+          bool isSettling = false;
+          String? settlementError;
+
           final choice = await showDialog<String>(
             context: context,
             barrierDismissible: false,
-            builder: (dialogContext) => AlertDialog(
-              backgroundColor: AppColors.darkBgSecondary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: const BorderSide(color: AppColors.borderColor),
-              ),
-              title: const Row(
-                children: [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    color: Colors.orange,
-                    size: 28,
-                  ),
-                  SizedBox(width: 10),
-                  Text(
-                    'Late Fee & Balance Settlement',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
+            builder: (dialogContext) => StatefulBuilder(
+              builder: (dialogContext, setDs) {
+                final isDark = Theme.of(context).brightness == Brightness.dark;
+                return Dialog(
+                  backgroundColor: isDark ? const Color(0xFF1E2235) : Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(
+                      color: isDark ? const Color(0xFF2D3148) : Colors.grey.shade200,
                     ),
                   ),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (lateReturnFee > 0) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF5C5C).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: const Color(0xFFFF5C5C).withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Late Return Penalty ($lateHours hr${lateHours == 1 ? '' : 's'}):',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                              color: Colors.white,
+                          // ─── Header ───────────────────────────────────
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.receipt_long_rounded,
+                                    color: Color(0xFFF59E0B), size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      alreadySettled ? 'Settlement Record' : 'Late Fee & Balance Settlement',
+                                      style: TextStyle(
+                                        color: isDark ? Colors.white : Colors.black87,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 17,
+                                      ),
+                                    ),
+                                    Text(
+                                      alreadySettled ? 'Payment confirmed and recorded.' : 'Settle all outstanding charges before completing return.',
+                                      style: TextStyle(
+                                        color: isDark ? Colors.white54 : Colors.black45,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.pop(dialogContext, 'cancel'),
+                                icon: Icon(Icons.close_rounded,
+                                    color: isDark ? Colors.white38 : Colors.black38),
+                                splashRadius: 18,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+
+                          // ─── Already Settled Badge ─────────────────────
+                          if (alreadySettled) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle_rounded,
+                                      color: Color(0xFF10B981), size: 18),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Settlement already confirmed',
+                                    style: const TextStyle(
+                                      color: Color(0xFF10B981),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+
+                          // ─── Charge Breakdown ──────────────────────────
+                          if (lateReturnFee > 0) ...[
+                            _buildSettlementLineItem(
+                              label: 'Late Return Penalty ($lateHours hr${lateHours == 1 ? '' : 's'})',
+                              amount: lateReturnFee,
+                              color: const Color(0xFFEF4444),
+                              icon: Icons.schedule_rounded,
+                              isDark: isDark,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          if (remainingBalance > 0) ...[
+                            _buildSettlementLineItem(
+                              label: 'Unpaid Rental Balance',
+                              amount: remainingBalance,
+                              color: const Color(0xFFF59E0B),
+                              icon: Icons.account_balance_wallet_rounded,
+                              isDark: isDark,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+
+                          // ─── Total ────────────────────────────────────
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF252A3D) : const Color(0xFFF3F4F6),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Total Amount to Settle',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white70 : Colors.black54,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  'PHP ${_formatCurrency(totalPenalty)}',
+                                  style: const TextStyle(
+                                    color: Color(0xFFEF4444),
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 18,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Text(
-                            'PHP ${_formatCurrency(lateReturnFee)}',
-                            style: const TextStyle(
-                              color: Color(0xFFFF5C5C),
-                              fontWeight: FontWeight.w900,
-                              fontSize: 15,
+                          const SizedBox(height: 20),
+
+                          if (!alreadySettled) ...[
+                            // ─── Payment Method ────────────────────────
+                            Text(
+                              'Settlement Payment Method',
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black54,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 6),
+                            DropdownButtonFormField<String>(
+                              value: selectedMethod,
+                              decoration: InputDecoration(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF252A3D) : Colors.grey.shade50,
+                              ),
+                              dropdownColor: isDark ? const Color(0xFF252A3D) : Colors.white,
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontSize: 14,
+                              ),
+                              items: ['GCash', 'Maya', 'Bank Transfer', 'Cash', 'GoTyme']
+                                  .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                                  .toList(),
+                              onChanged: alreadySettled
+                                  ? null
+                                  : (v) => setDs(() => selectedMethod = v ?? selectedMethod),
+                            ),
+                            const SizedBox(height: 14),
+
+                            // ─── Reference No ─────────────────────────
+                            Text(
+                              'Reference / Transaction No.',
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black54,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: refController,
+                              readOnly: alreadySettled,
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontSize: 14,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: 'e.g. 1234567890123',
+                                hintStyle: TextStyle(
+                                  color: isDark ? Colors.white30 : Colors.black26,
+                                  fontSize: 13,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                filled: true,
+                                fillColor: isDark ? const Color(0xFF252A3D) : Colors.grey.shade50,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+
+                            // ─── Receipt Upload ────────────────────────
+                            Text(
+                              'Proof of Settlement (Receipt / Screenshot)',
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black54,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            GestureDetector(
+                              onTap: alreadySettled
+                                  ? null
+                                  : () async {
+                                      final result = await FilePicker.platform.pickFiles(
+                                        type: FileType.image,
+                                        withData: true,
+                                      );
+                                      if (result != null && result.files.isNotEmpty) {
+                                        setDs(() => receiptFile = result.files.first);
+                                      }
+                                    },
+                              child: Container(
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0xFF252A3D) : Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: receiptFile != null
+                                        ? const Color(0xFF10B981)
+                                        : (isDark ? Colors.white24 : Colors.grey.shade300),
+                                    width: receiptFile != null ? 1.5 : 1.0,
+                                  ),
+                                ),
+                                child: receiptFile != null
+                                    ? Row(
+                                        children: [
+                                          const SizedBox(width: 12),
+                                          const Icon(Icons.image_rounded,
+                                              color: Color(0xFF10B981), size: 20),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              receiptFile!.name,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Color(0xFF10B981),
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            onPressed: () =>
+                                                setDs(() => receiptFile = null),
+                                            icon: const Icon(Icons.delete_outline_rounded,
+                                                color: Colors.redAccent, size: 18),
+                                            splashRadius: 16,
+                                          ),
+                                        ],
+                                      )
+                                    : Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.upload_file_rounded,
+                                              size: 18,
+                                              color: isDark
+                                                  ? Colors.white38
+                                                  : Colors.black38),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Tap to upload receipt',
+                                            style: TextStyle(
+                                              color: isDark
+                                                  ? Colors.white38
+                                                  : Colors.black38,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                              ),
+                            ),
+                          ],
+
+                          // ─── Already Settled: Show Details ─────────────
+                          if (alreadySettled) ...[
+                            if (pastMethod?.isNotEmpty == true)
+                              _buildSettlementDetailRow(
+                                  label: 'Payment Method',
+                                  value: pastMethod!,
+                                  icon: Icons.payment_rounded,
+                                  isDark: isDark),
+                            if (pastRef?.isNotEmpty == true)
+                              _buildSettlementDetailRow(
+                                  label: 'Reference No.',
+                                  value: pastRef!,
+                                  icon: Icons.tag_rounded,
+                                  isDark: isDark),
+                            if (pastReceipt?.isNotEmpty == true)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: GestureDetector(
+                                  onTap: () {
+                                    // Open receipt URL in browser
+                                    // ignore: avoid_print
+                                    debugPrint('Receipt: $pastReceipt');
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14, vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF0284C7)
+                                          .withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(0xFF0284C7)
+                                            .withValues(alpha: 0.35),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.receipt_rounded,
+                                            color: Color(0xFF0284C7), size: 18),
+                                        const SizedBox(width: 8),
+                                        const Expanded(
+                                          child: Text(
+                                            'View Settlement Receipt',
+                                            style: TextStyle(
+                                              color: Color(0xFF0284C7),
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                        const Icon(Icons.open_in_new_rounded,
+                                            color: Color(0xFF0284C7), size: 16),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+
+                          // ─── Error ─────────────────────────────────────
+                          if (settlementError != null) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                    color: Colors.red.withValues(alpha: 0.35)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.error_outline_rounded,
+                                      color: Colors.redAccent, size: 18),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      settlementError!,
+                                      style: const TextStyle(
+                                          color: Colors.redAccent, fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          const SizedBox(height: 24),
+
+                          // ─── Actions ───────────────────────────────────
+                          if (alreadySettled)
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: () =>
+                                    Navigator.pop(dialogContext, 'cancel'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: isDark
+                                      ? Colors.white12
+                                      : Colors.grey.shade200,
+                                  foregroundColor: isDark
+                                      ? Colors.white70
+                                      : Colors.black54,
+                                  minimumSize:
+                                      const Size.fromHeight(46),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(12)),
+                                ),
+                                child: const Text('Close'),
+                              ),
+                            )
+                          else
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: isSettling
+                                        ? null
+                                        : () => Navigator.pop(
+                                            dialogContext, 'cancel'),
+                                    style: OutlinedButton.styleFrom(
+                                      side: BorderSide(
+                                        color: isDark
+                                            ? Colors.white24
+                                            : Colors.grey.shade300,
+                                      ),
+                                      foregroundColor: isDark
+                                          ? Colors.white54
+                                          : Colors.black45,
+                                      minimumSize:
+                                          const Size(0, 46),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12)),
+                                    ),
+                                    child: const Text('Cancel'),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: isSettling
+                                        ? null
+                                        : () => Navigator.pop(
+                                            dialogContext, 'proceed_unpaid'),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(
+                                          color: Colors.orange),
+                                      foregroundColor: Colors.orange,
+                                      minimumSize:
+                                          const Size(0, 46),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12)),
+                                    ),
+                                    child: const Text(
+                                      'Leave Unpaid',
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  flex: 2,
+                                  child: ElevatedButton(
+                                    onPressed: isSettling
+                                        ? null
+                                        : () async {
+                                            if ((refController?.text ?? '').trim().isEmpty) {
+                                              setDs(() => settlementError =
+                                                  'Please enter a reference / transaction number.');
+                                              return;
+                                            }
+                                            setDs(() {
+                                              isSettling = true;
+                                              settlementError = null;
+                                            });
+                                            try {
+                                              if (receiptFile?.bytes !=
+                                                  null) {
+                                                uploadedReceiptUrl =
+                                                    await BookingInspectionService()
+                                                        .uploadEvidenceBytes(
+                                                  userId: currentUserId,
+                                                  bookingId: bookingId,
+                                                  bytes: receiptFile!
+                                                      .bytes!,
+                                                  extension: receiptFile!
+                                                          .extension ??
+                                                      'jpg',
+                                                );
+                                              }
+                                              Navigator.pop(
+                                                  dialogContext,
+                                                  'confirm_payment');
+                                            } catch (e) {
+                                              setDs(() {
+                                                isSettling = false;
+                                                settlementError =
+                                                    'Receipt upload failed: ${e.toString().replaceAll('Exception:', '').trim()}';
+                                              });
+                                            }
+                                          },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor:
+                                          const Color(0xFF10B981),
+                                      foregroundColor: Colors.white,
+                                      minimumSize:
+                                          const Size(0, 46),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12)),
+                                    ),
+                                    child: isSettling
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                                color: Colors.white,
+                                                strokeWidth: 2),
+                                          )
+                                        : const Text(
+                                            'Confirm Settlement',
+                                            textAlign: TextAlign.center,
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 10),
-                  ],
-                  if (remainingBalance > 0) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Unpaid Rental Balance:',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                              color: Colors.white,
-                            ),
-                          ),
-                          Text(
-                            'PHP ${_formatCurrency(remainingBalance)}',
-                            style: const TextStyle(
-                              color: Color(0xFFF59E0B),
-                              fontWeight: FontWeight.w900,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  const Text(
-                    'The renter has additional charges or late return fees. Settle and confirm payment to complete this return.',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
                   ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'cancel'),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: AppColors.textTertiary),
-                  ),
-                ),
-                OutlinedButton(
-                  onPressed: () =>
-                      Navigator.pop(dialogContext, 'proceed_unpaid'),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.orange),
-                    foregroundColor: Colors.orange,
-                  ),
-                  child: const Text('Proceed (Stay Awaiting Payment)'),
-                ),
-                ElevatedButton(
-                  onPressed: () =>
-                      Navigator.pop(dialogContext, 'confirm_payment'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.black,
-                  ),
-                  child: const Text('Settle & Complete Return'),
-                ),
-              ],
+                );
+              },
             ),
           );
 
@@ -23532,6 +23957,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           if (choice == 'confirm_payment') {
             confirmPaymentNow = true;
           }
+
         } else {
           // No late return fee and fully paid -> completes automatically without showing payment window!
           confirmPaymentNow = true;
@@ -23541,6 +23967,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           bookingId: bookingId,
           inspectorId: currentUserId,
           confirmPaymentIfUnpaid: confirmPaymentNow,
+          penaltyPaymentMethod:
+              hasChargesOrViolations ? selectedMethod : null,
+          penaltyPaymentReference:
+              hasChargesOrViolations ? (refController?.text.trim() ?? '') : null,
+          penaltyReceiptUrl:
+              hasChargesOrViolations ? uploadedReceiptUrl : null,
         );
 
         if (!mounted) return;
@@ -23571,6 +24003,85 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         controller.dispose();
       }
     }
+  }
+
+  Widget _buildSettlementLineItem({
+    required String label,
+    required double amount,
+    required Color color,
+    required IconData icon,
+    required bool isDark,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.30)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Text(
+            'PHP ${_formatCurrency(amount)}',
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettlementDetailRow({
+    required String label,
+    required String value,
+    required IconData icon,
+    required bool isDark,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon,
+              size: 16,
+              color: isDark ? Colors.white38 : Colors.black38),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: TextStyle(
+              color: isDark ? Colors.white54 : Colors.black45,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildInspectionTextField(
