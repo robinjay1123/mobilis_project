@@ -422,7 +422,7 @@ class MpinService {
     final user = _supabase.auth.currentUser;
     if (user == null) throw StateError('No signed-in user found.');
 
-    // Strictly enforce operator or admin role
+    // Check user role
     final userRow = await _supabase
         .from('users')
         .select('role')
@@ -432,11 +432,7 @@ class MpinService {
         ?.toString()
         .toLowerCase()
         .trim();
-    if (role != 'operator' && role != 'admin') {
-      throw StateError(
-        'Unauthorized: Only users with operator or admin roles can configure a Desk Authorization MPIN.',
-      );
-    }
+    final isOperatorOrAdmin = role == 'operator' || role == 'admin';
 
     final salt = _newSalt();
     final hash = _hash(mpin, salt);
@@ -450,69 +446,90 @@ class MpinService {
       'mpin_updated_at': updatedAt,
     };
 
-    // 1. Update auth user metadata
+    // 1. Update auth user metadata (enables personal booking confirmation MPIN for all users, including renters)
     await _supabase.auth.updateUser(
       UserAttributes(
         data: updatedMetadata,
       ),
     );
 
-    final name = user.userMetadata?['full_name']?.toString().trim().isNotEmpty == true
-        ? user.userMetadata!['full_name'].toString().trim()
-        : (user.email?.split('@').first ?? 'Desk Operator');
+    // 2. Global sync to app_settings registry ONLY for operators and admins
+    if (isOperatorOrAdmin) {
+      try {
+        final name = user.userMetadata?['full_name']?.toString().trim().isNotEmpty == true
+            ? user.userMetadata!['full_name'].toString().trim()
+            : (user.email?.split('@').first ?? 'Desk Operator');
 
-    // 2. Global sync to app_settings registry so ANY renter / device can verify against this operator's MPIN
-    try {
-      final currentRes = await _supabase
-          .from('app_settings')
-          .select('value')
-          .eq('key', _registryKey)
-          .maybeSingle();
+        final currentRes = await _supabase
+            .from('app_settings')
+            .select('value')
+            .eq('key', _registryKey)
+            .maybeSingle();
 
-      Map<String, dynamic> mpinsMap = {};
-      if (currentRes != null && currentRes['value'] is Map) {
-        mpinsMap = Map<String, dynamic>.from(currentRes['value'] as Map);
-      }
+        Map<String, dynamic> mpinsMap = {};
+        if (currentRes != null && currentRes['value'] is Map) {
+          mpinsMap = Map<String, dynamic>.from(currentRes['value'] as Map);
+        }
 
-      mpinsMap[user.id] = {
-        'operator_id': user.id,
-        'operator_name': name,
-        'operator_email': user.email ?? '',
-        'salt': salt,
-        'hash': hash,
-        'enabled': true,
-        'updated_at': updatedAt,
-      };
-
-      await _supabase.from('app_settings').upsert({
-        'key': _registryKey,
-        'value': mpinsMap,
-        'updated_at': updatedAt,
-      }, onConflict: 'key');
-    } catch (e) {
-      debugPrint('Syncing MPIN to app_settings registry note: $e');
-    }
-
-    // 3. Log MPIN configuration in audit trail
-    try {
-      await _supabase.from('admin_audit_logs').insert({
-        'entity_id': user.id,
-        'entity_type': 'operator_activity',
-        'action': 'operator_mpin_configured',
-        'notes': 'Operator $name updated Desk Authorization MPIN',
-        'created_at': DateTime.now().toIso8601String(),
-        'metadata': {
+        mpinsMap[user.id] = {
           'operator_id': user.id,
           'operator_name': name,
           'operator_email': user.email ?? '',
-          'mpin_salt': salt,
-          'mpin_hash': hash,
-          'action': 'operator_mpin_configured',
+          'salt': salt,
+          'hash': hash,
+          'enabled': true,
           'updated_at': updatedAt,
-        },
-      });
-    } catch (e) {
-      debugPrint('Audit logging for MPIN config note: $e');
+        };
+
+        await _supabase.from('app_settings').upsert({
+          'key': _registryKey,
+          'value': mpinsMap,
+          'updated_at': updatedAt,
+        }, onConflict: 'key');
+
+        // Log operator MPIN configuration in audit trail
+        await _supabase.from('admin_audit_logs').insert({
+          'entity_id': user.id,
+          'entity_type': 'operator_activity',
+          'action': 'operator_mpin_configured',
+          'notes': 'Operator $name updated Desk Authorization MPIN',
+          'created_at': DateTime.now().toIso8601String(),
+          'metadata': {
+            'operator_id': user.id,
+            'operator_name': name,
+            'operator_email': user.email ?? '',
+            'mpin_salt': salt,
+            'mpin_hash': hash,
+            'action': 'operator_mpin_configured',
+            'updated_at': updatedAt,
+          },
+        });
+      } catch (e) {
+        debugPrint('Syncing MPIN to app_settings registry note: $e');
+      }
+    } else {
+      // For non-operators (renters), ensure they are never present in desk_operator_mpins
+      try {
+        final currentRes = await _supabase
+            .from('app_settings')
+            .select('value')
+            .eq('key', _registryKey)
+            .maybeSingle();
+
+        if (currentRes != null && currentRes['value'] is Map) {
+          final mpinsMap = Map<String, dynamic>.from(currentRes['value'] as Map);
+          if (mpinsMap.containsKey(user.id)) {
+            mpinsMap.remove(user.id);
+            await _supabase.from('app_settings').upsert({
+              'key': _registryKey,
+              'value': mpinsMap,
+              'updated_at': updatedAt,
+            }, onConflict: 'key');
+          }
+        }
+      } catch (e) {
+        debugPrint('Pruning non-operator from desk_operator_mpins registry note: $e');
+      }
     }
   }
 

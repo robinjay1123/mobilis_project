@@ -15,11 +15,14 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
   final _formKey = GlobalKey<FormState>();
   final _mpinController = TextEditingController();
   final _confirmController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _service = MpinService();
 
   late final bool _isConfigured;
   bool _isSubmitting = false;
   bool _obscureMpin = true;
+  bool _obscurePassword = true;
+  bool _isResetMode = false;
   String? _errorText;
 
   @override
@@ -32,6 +35,7 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
   void dispose() {
     _mpinController.dispose();
     _confirmController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -54,7 +58,20 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
 
     try {
       final mpin = _mpinController.text.trim();
-      if (_isConfigured) {
+
+      if (_isResetMode) {
+        final password = _passwordController.text.trim();
+        final success = await _service.resetMpinWithPassword(
+          password: password,
+          newMpin: mpin,
+        );
+        if (!success) {
+          setState(() {
+            _errorText = 'Incorrect account password. Please try again.';
+          });
+          return;
+        }
+      } else if (_isConfigured) {
         if (!_service.verify(mpin)) {
           setState(() {
             _errorText = 'Incorrect MPIN. Please try again.';
@@ -85,6 +102,8 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
         ? AppColors.textSecondary
         : AppColors.lightTextSecondary;
 
+    final isNewUser = !_isConfigured;
+
     return AlertDialog(
       scrollable: true,
       backgroundColor: isDark ? AppColors.darkCard : Colors.white,
@@ -106,7 +125,9 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              _isConfigured ? 'Confirm with MPIN' : 'Create Your MPIN',
+              _isResetMode
+                  ? 'Reset Your MPIN'
+                  : (isNewUser ? 'Create Your MPIN' : 'Confirm with MPIN'),
               style: TextStyle(
                 color: foreground,
                 fontSize: 18,
@@ -130,30 +151,61 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _isConfigured
-                  ? 'Enter your 6-digit MPIN to authorize this booking and continue to payment.'
-                  : 'Set a 6-digit MPIN to protect this and future booking payments.',
+              _isResetMode
+                  ? 'Enter your account password to verify your identity and set a new 6-digit MPIN.'
+                  : (isNewUser
+                      ? 'Set a 6-digit MPIN to protect this and future booking payments.'
+                      : 'Enter your 6-digit MPIN to authorize this booking and continue to payment.'),
               style: TextStyle(color: secondary, fontSize: 13, height: 1.4),
             ),
             const SizedBox(height: 18),
+            if (_isResetMode) ...[
+              TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Enter your account password.';
+                  }
+                  return null;
+                },
+                decoration: InputDecoration(
+                  labelText: 'Account Password',
+                  prefixIcon: const Icon(Icons.password_rounded),
+                  suffixIcon: IconButton(
+                    onPressed: () => setState(
+                      () => _obscurePassword = !_obscurePassword,
+                    ),
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             TextFormField(
               controller: _mpinController,
               autofocus: true,
               obscureText: _obscureMpin,
               keyboardType: TextInputType.number,
-              textInputAction: _isConfigured
-                  ? TextInputAction.done
-                  : TextInputAction.next,
+              textInputAction: (isNewUser || _isResetMode)
+                  ? TextInputAction.next
+                  : TextInputAction.done,
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
                 LengthLimitingTextInputFormatter(6),
               ],
               validator: _validateMpin,
               onFieldSubmitted: (_) {
-                if (_isConfigured) _submit();
+                if (!isNewUser && !_isResetMode) _submit();
               },
               decoration: InputDecoration(
-                labelText: _isConfigured ? '6-digit MPIN' : 'New 6-digit MPIN',
+                labelText: (isNewUser || _isResetMode)
+                    ? 'New 6-digit MPIN'
+                    : '6-digit MPIN',
                 prefixIcon: const Icon(Icons.lock_outline_rounded),
                 suffixIcon: IconButton(
                   onPressed: () => setState(() => _obscureMpin = !_obscureMpin),
@@ -165,7 +217,7 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
                 ),
               ),
             ),
-            if (!_isConfigured) ...[
+            if (isNewUser || _isResetMode) ...[
               const SizedBox(height: 12),
               TextFormField(
                 controller: _confirmController,
@@ -187,6 +239,33 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
                 decoration: const InputDecoration(
                   labelText: 'Confirm MPIN',
                   prefixIcon: Icon(Icons.verified_user_outlined),
+                ),
+              ),
+            ],
+            if (_isConfigured) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _isSubmitting
+                      ? null
+                      : () => setState(() {
+                            _isResetMode = !_isResetMode;
+                            _errorText = null;
+                          }),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(50, 24),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    _isResetMode ? 'Remember current MPIN?' : 'Forgot MPIN?',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -228,8 +307,17 @@ class _MpinVerificationDialogState extends State<MpinVerificationDialog> {
                     color: Colors.black,
                   ),
                 )
-              : const Icon(Icons.lock_open_rounded, size: 19),
-          label: Text(_isConfigured ? 'Authorize' : 'Set & Continue'),
+              : Icon(
+                  _isResetMode
+                      ? Icons.lock_reset_rounded
+                      : Icons.lock_open_rounded,
+                  size: 19,
+                ),
+          label: Text(
+            _isResetMode
+                ? 'Reset & Authorize'
+                : (isNewUser ? 'Set & Continue' : 'Authorize'),
+          ),
         ),
       ],
     );

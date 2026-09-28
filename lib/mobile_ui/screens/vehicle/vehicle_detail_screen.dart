@@ -16,6 +16,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/leaflet_map.dart';
+import '../../widgets/mpin_verification_dialog.dart';
 import '../../widgets/booking_status_dialog.dart';
 import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/vehicle_image_carousel.dart';
@@ -2941,6 +2942,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       );
 
       if (!mounted || !detailsConfirmed) return;
+
+      final mpinAuthorized =
+          await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const MpinVerificationDialog(),
+          ) ??
+          false;
+
+      if (!mounted || !mpinAuthorized) return;
 
       reservationPaymentProof = await _showReservationPaymentDialog(
         userId: currentUser.id,
