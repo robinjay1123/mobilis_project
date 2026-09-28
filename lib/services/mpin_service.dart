@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -82,6 +83,8 @@ class MpinService {
     String? bookingId,
     num? amount,
     String? contextDescription,
+    String? participatingOperatorId,
+    String? participatingOperatorName,
   }) async {
     final cleanMpin = mpin.trim();
     if (!RegExp(r'^\d{6}$').hasMatch(cleanMpin)) {
@@ -90,6 +93,13 @@ class MpinService {
         errorMessage: 'MPIN must be exactly 6 digits.',
       );
     }
+
+    final effectiveOpId = (participatingOperatorId != null && participatingOperatorId.trim().isNotEmpty)
+        ? participatingOperatorId.trim()
+        : null;
+    final effectiveOpName = (participatingOperatorName != null && participatingOperatorName.trim().isNotEmpty)
+        ? participatingOperatorName.trim()
+        : null;
 
     // 1. Check if the currently signed-in user has an MPIN configured and it matches
     try {
@@ -101,26 +111,42 @@ class MpinService {
 
       if (currentMpinEnabled && currentSalt.isNotEmpty && currentHash.isNotEmpty) {
         if (_hash(cleanMpin, currentSalt) == currentHash) {
-          final name = currentMetadata?['full_name']?.toString().trim() ??
-              currentUser?.email?.split('@').first ??
-              'Desk Operator';
-          final email = currentUser?.email ?? '';
+          // Strictly verify that current user is an operator or admin
+          final uRow = await _supabase
+              .from('users')
+              .select('role')
+              .eq('id', currentUser?.id ?? '')
+              .maybeSingle();
+          final userRole = (uRow?['role'] ?? currentMetadata?['role'])
+              ?.toString()
+              .toLowerCase()
+              .trim();
 
-          await _logMpinAuthorization(
-            operatorId: currentUser?.id ?? '',
-            operatorName: name,
-            operatorEmail: email,
-            bookingId: bookingId,
-            amount: amount,
-            contextDescription: contextDescription,
-          );
+          if (userRole == 'operator' || userRole == 'admin') {
+            final name = currentMetadata?['full_name']?.toString().trim() ??
+                currentUser?.email?.split('@').first ??
+                'Desk Operator';
+            final email = currentUser?.email ?? '';
 
-          return MpinVerificationResult(
-            success: true,
-            operatorId: currentUser?.id,
-            operatorName: name,
-            operatorEmail: email,
-          );
+            final logOpId = effectiveOpId ?? currentUser?.id ?? '';
+            final logOpName = effectiveOpName ?? name;
+
+            await _logMpinAuthorization(
+              operatorId: logOpId,
+              operatorName: logOpName,
+              operatorEmail: email,
+              bookingId: bookingId,
+              amount: amount,
+              contextDescription: contextDescription,
+            );
+
+            return MpinVerificationResult(
+              success: true,
+              operatorId: logOpId,
+              operatorName: logOpName,
+              operatorEmail: email,
+            );
+          }
         }
       }
     } catch (e) {
@@ -137,7 +163,45 @@ class MpinService {
 
       if (res != null && res['value'] is Map) {
         final mpinsMap = Map<String, dynamic>.from(res['value'] as Map);
-        for (final entry in mpinsMap.values) {
+        bool registryModified = false;
+
+        // Check participating operator MPIN first if specified
+        if (effectiveOpId != null && mpinsMap.containsKey(effectiveOpId)) {
+          final entry = mpinsMap[effectiveOpId];
+          if (entry is Map) {
+            final enabled = entry['enabled'] == true;
+            final salt = entry['salt']?.toString() ?? '';
+            final hash = entry['hash']?.toString() ?? '';
+
+            if (enabled && salt.isNotEmpty && hash.isNotEmpty && _hash(cleanMpin, salt) == hash) {
+              final logOpId = effectiveOpId;
+              final logOpName = effectiveOpName ??
+                  (entry['operator_name']?.toString().trim().isNotEmpty == true
+                      ? entry['operator_name'].toString().trim()
+                      : 'PSDC Desk Operator');
+              final email = entry['operator_email']?.toString() ?? '';
+
+              await _logMpinAuthorization(
+                operatorId: logOpId,
+                operatorName: logOpName,
+                operatorEmail: email,
+                bookingId: bookingId,
+                amount: amount,
+                contextDescription: contextDescription,
+              );
+
+              return MpinVerificationResult(
+                success: true,
+                operatorId: logOpId,
+                operatorName: logOpName,
+                operatorEmail: email,
+              );
+            }
+          }
+        }
+
+        for (final entryKey in mpinsMap.keys.toList()) {
+          final entry = mpinsMap[entryKey];
           if (entry is Map) {
             final enabled = entry['enabled'] == true;
             final salt = entry['salt']?.toString() ?? '';
@@ -145,15 +209,51 @@ class MpinService {
 
             if (enabled && salt.isNotEmpty && hash.isNotEmpty) {
               if (_hash(cleanMpin, salt) == hash) {
-                final opId = entry['operator_id']?.toString() ?? '';
+                final opId = entry['operator_id']?.toString() ?? entryKey;
+
+                // Strictly verify candidate has operator or admin role
+                if (opId.isNotEmpty) {
+                  final opCheck = await _supabase
+                      .from('users')
+                      .select('role')
+                      .eq('id', opId)
+                      .maybeSingle();
+                  final candidateRole =
+                      opCheck?['role']?.toString().toLowerCase().trim();
+                  if (candidateRole != null &&
+                      candidateRole != 'operator' &&
+                      candidateRole != 'admin') {
+                    debugPrint(
+                      'Rejecting non-operator MPIN holder $opId (role: $candidateRole)',
+                    );
+                    // Prune non-operator from registry
+                    mpinsMap.remove(entryKey);
+                    registryModified = true;
+                    continue;
+                  }
+                }
+
+                if (registryModified) {
+                  unawaited(
+                    _supabase.from('app_settings').upsert({
+                      'key': _registryKey,
+                      'value': mpinsMap,
+                      'updated_at': DateTime.now().toUtc().toIso8601String(),
+                    }, onConflict: 'key'),
+                  );
+                }
+
                 final name = entry['operator_name']?.toString().trim().isNotEmpty == true
                     ? entry['operator_name'].toString().trim()
                     : 'PSDC Desk Operator';
                 final email = entry['operator_email']?.toString() ?? '';
 
+                final logOpId = effectiveOpId ?? opId;
+                final logOpName = effectiveOpName ?? name;
+
                 await _logMpinAuthorization(
-                  operatorId: opId,
-                  operatorName: name,
+                  operatorId: logOpId,
+                  operatorName: logOpName,
                   operatorEmail: email,
                   bookingId: bookingId,
                   amount: amount,
@@ -162,13 +262,23 @@ class MpinService {
 
                 return MpinVerificationResult(
                   success: true,
-                  operatorId: opId,
-                  operatorName: name,
+                  operatorId: logOpId,
+                  operatorName: logOpName,
                   operatorEmail: email,
                 );
               }
             }
           }
+        }
+
+        if (registryModified) {
+          unawaited(
+            _supabase.from('app_settings').upsert({
+              'key': _registryKey,
+              'value': mpinsMap,
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            }, onConflict: 'key'),
+          );
         }
       }
     } catch (e) {
@@ -192,12 +302,32 @@ class MpinService {
           if (salt.isNotEmpty && hash.isNotEmpty) {
             if (_hash(cleanMpin, salt) == hash) {
               final opId = (meta['operator_id'] ?? log['entity_id'])?.toString() ?? '';
+
+              // Strictly verify operator or admin role
+              if (opId.isNotEmpty) {
+                final opCheck = await _supabase
+                    .from('users')
+                    .select('role')
+                    .eq('id', opId)
+                    .maybeSingle();
+                final candidateRole =
+                    opCheck?['role']?.toString().toLowerCase().trim();
+                if (candidateRole != null &&
+                    candidateRole != 'operator' &&
+                    candidateRole != 'admin') {
+                  continue;
+                }
+              }
+
               final name = meta['operator_name']?.toString() ?? 'Desk Operator';
               final email = meta['operator_email']?.toString() ?? '';
 
+              final logOpId = effectiveOpId ?? opId;
+              final logOpName = effectiveOpName ?? name;
+
               await _logMpinAuthorization(
-                operatorId: opId,
-                operatorName: name,
+                operatorId: logOpId,
+                operatorName: logOpName,
                 operatorEmail: email,
                 bookingId: bookingId,
                 amount: amount,
@@ -206,8 +336,8 @@ class MpinService {
 
               return MpinVerificationResult(
                 success: true,
-                operatorId: opId,
-                operatorName: name,
+                operatorId: logOpId,
+                operatorName: logOpName,
                 operatorEmail: email,
               );
             }
@@ -220,8 +350,8 @@ class MpinService {
 
     // 4. Default standard PSDC Desk Operator authorized PINs
     if (_defaultDeskPins.contains(cleanMpin)) {
-      final opId = _supabase.auth.currentUser?.id ?? 'psdc_desk_operator';
-      const name = 'PSDC Cashier / Operator';
+      final opId = effectiveOpId ?? _supabase.auth.currentUser?.id ?? 'psdc_desk_operator';
+      final name = effectiveOpName ?? 'PSDC Cashier / Operator';
       final email = 'desk@mobilis.com';
 
       await _logMpinAuthorization(
@@ -291,6 +421,22 @@ class MpinService {
 
     final user = _supabase.auth.currentUser;
     if (user == null) throw StateError('No signed-in user found.');
+
+    // Strictly enforce operator or admin role
+    final userRow = await _supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+    final role = (userRow?['role'] ?? user.userMetadata?['role'])
+        ?.toString()
+        .toLowerCase()
+        .trim();
+    if (role != 'operator' && role != 'admin') {
+      throw StateError(
+        'Unauthorized: Only users with operator or admin roles can configure a Desk Authorization MPIN.',
+      );
+    }
 
     final salt = _newSalt();
     final hash = _hash(mpin, salt);
@@ -378,6 +524,18 @@ class MpinService {
     final meta = user.userMetadata;
     if (meta?['mpin_enabled'] != true) return;
 
+    // Strictly enforce operator or admin role
+    final userRow = await _supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+    final role = (userRow?['role'] ?? meta?['role'])
+        ?.toString()
+        .toLowerCase()
+        .trim();
+    if (role != 'operator' && role != 'admin') return;
+
     final salt = meta?['mpin_salt']?.toString() ?? '';
     final hash = meta?['mpin_hash']?.toString() ?? '';
     if (salt.isEmpty || hash.isEmpty) return;
@@ -425,6 +583,97 @@ class MpinService {
     } catch (e) {
       debugPrint('Auto sync operator MPIN registry note (may require staff RLS policy): $e');
     }
+  }
+
+  /// Resets the operator's MPIN by verifying their account password.
+  /// Used when the operator forgot their current MPIN.
+  Future<bool> resetMpinWithPassword({
+    required String password,
+    required String newMpin,
+  }) async {
+    if (!RegExp(r'^\d{6}$').hasMatch(newMpin)) {
+      throw const FormatException('New MPIN must contain exactly 6 digits.');
+    }
+
+    final user = _supabase.auth.currentUser;
+    final email = user?.email;
+    if (user == null || email == null || email.isEmpty) {
+      throw StateError('No signed-in user session found.');
+    }
+
+    // 1. Verify user password via re-authentication
+    try {
+      final authRes = await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+      if (authRes.user == null) {
+        return false;
+      }
+    } catch (e) {
+      debugPrint('Password re-authentication failed for MPIN reset: $e');
+      return false;
+    }
+
+    // 2. Configure new MPIN (will check operator/admin role and update app_settings)
+    await configure(newMpin);
+
+    // 3. Log audit event
+    try {
+      final name = user.userMetadata?['full_name']?.toString().trim() ?? email;
+      await _supabase.from('admin_audit_logs').insert({
+        'entity_id': user.id,
+        'entity_type': 'operator_activity',
+        'action': 'operator_mpin_reset',
+        'notes': 'Operator $name reset Desk Authorization MPIN via password verification',
+        'created_at': DateTime.now().toIso8601String(),
+        'metadata': {
+          'operator_id': user.id,
+          'operator_name': name,
+          'operator_email': email,
+          'method': 'password_reauth',
+          'action': 'operator_mpin_reset',
+        },
+      });
+    } catch (_) {}
+
+    return true;
+  }
+
+  /// Clears/disables the current user's MPIN and removes them from the desk registry.
+  Future<void> clearMpin() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw StateError('No signed-in user found.');
+
+    final updatedMetadata = {
+      ...?user.userMetadata,
+      'mpin_enabled': false,
+      'mpin_salt': '',
+      'mpin_hash': '',
+      'mpin_updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+
+    await _supabase.auth.updateUser(
+      UserAttributes(data: updatedMetadata),
+    );
+
+    try {
+      final currentRes = await _supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', _registryKey)
+          .maybeSingle();
+
+      if (currentRes != null && currentRes['value'] is Map) {
+        final mpinsMap = Map<String, dynamic>.from(currentRes['value'] as Map);
+        mpinsMap.remove(user.id);
+        await _supabase.from('app_settings').upsert({
+          'key': _registryKey,
+          'value': mpinsMap,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        }, onConflict: 'key');
+      }
+    } catch (_) {}
   }
 
   String _hash(String mpin, String salt) {

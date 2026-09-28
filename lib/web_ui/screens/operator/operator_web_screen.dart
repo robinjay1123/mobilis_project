@@ -747,11 +747,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final mpinService = MpinService();
     final isConfigured = mpinService.currentState().isConfigured;
     final currentPinController = TextEditingController();
+    final passwordController = TextEditingController();
     final newPinController = TextEditingController();
     final confirmPinController = TextEditingController();
     final formKey = GlobalKey<FormState>();
     bool isSaving = false;
     bool obscurePins = true;
+    bool obscurePassword = true;
+    bool isResetWithPasswordMode = false;
     String? dialogError;
 
     await showDialog<void>(
@@ -798,9 +801,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                isConfigured
-                                    ? 'Change Desk Authorization MPIN'
-                                    : 'Setup Desk Authorization MPIN',
+                                isResetWithPasswordMode
+                                    ? 'Reset Desk MPIN'
+                                    : (isConfigured
+                                        ? 'Change Desk Authorization MPIN'
+                                        : 'Setup Desk Authorization MPIN'),
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w800,
@@ -809,9 +814,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                isConfigured
-                                    ? 'Update your 6-digit MPIN for cashier & desk payments'
-                                    : 'Create a 6-digit MPIN to authorize in-person payments',
+                                isResetWithPasswordMode
+                                    ? 'Verify your account password to set a new MPIN'
+                                    : (isConfigured
+                                        ? 'Update your 6-digit MPIN for cashier & desk payments'
+                                        : 'Create a 6-digit MPIN to authorize in-person payments'),
                                 style: TextStyle(fontSize: 12, color: muted),
                               ),
                             ],
@@ -825,14 +832,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       ],
                     ),
                     const SizedBox(height: 20),
-                    if (isConfigured) ...[
-                      Text(
-                        'Current 6-Digit MPIN',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: foreground,
-                        ),
+                    if (isConfigured && !isResetWithPasswordMode) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Current 6-Digit MPIN',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: foreground,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: isSaving
+                                ? null
+                                : () => setDialogState(() {
+                                      isResetWithPasswordMode = true;
+                                      dialogError = null;
+                                    }),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(50, 24),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              'Forgot MPIN?',
+                              style: TextStyle(
+                                color: _operatorGold,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 6),
                       TextFormField(
@@ -844,6 +877,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           LengthLimitingTextInputFormatter(6),
                         ],
                         validator: (v) {
+                          if (isResetWithPasswordMode) return null;
                           if (v == null || v.trim().length != 6) {
                             return 'Enter your current 6-digit MPIN.';
                           }
@@ -863,6 +897,113 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           prefixIcon: const Icon(
                             Icons.lock_outline_rounded,
                             size: 20,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    if (isConfigured && isResetWithPasswordMode) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: _operatorGold.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _operatorGold.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.lock_reset_rounded,
+                              size: 20,
+                              color: _operatorGold,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Forgot your current MPIN? Verify your account password to set a new 6-digit MPIN.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: foreground,
+                                  height: 1.3,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Account Password',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: foreground,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: isSaving
+                                ? null
+                                : () => setDialogState(() {
+                                      isResetWithPasswordMode = false;
+                                      dialogError = null;
+                                    }),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(50, 24),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              'Remember current MPIN?',
+                              style: TextStyle(
+                                color: _operatorGold,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: passwordController,
+                        obscureText: obscurePassword,
+                        validator: (v) {
+                          if (!isResetWithPasswordMode) return null;
+                          if (v == null || v.trim().isEmpty) {
+                            return 'Enter your account password.';
+                          }
+                          return null;
+                        },
+                        style: TextStyle(color: foreground),
+                        decoration: InputDecoration(
+                          hintText: 'Enter your account password',
+                          filled: true,
+                          fillColor: isDark
+                              ? Colors.white.withOpacity(0.05)
+                              : const Color(0xFFF4F6F8),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.password_rounded,
+                            size: 20,
+                          ),
+                          suffixIcon: IconButton(
+                            onPressed: () => setDialogState(
+                              () => obscurePassword = !obscurePassword,
+                            ),
+                            icon: Icon(
+                              obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              size: 20,
+                            ),
                           ),
                         ),
                       ),
@@ -1011,11 +1152,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   });
 
                                   try {
-                                    final currentPin = currentPinController.text
-                                        .trim();
                                     final newPin = newPinController.text.trim();
 
-                                    if (isConfigured) {
+                                    if (isConfigured && isResetWithPasswordMode) {
+                                      final password = passwordController.text.trim();
+                                      final success = await mpinService.resetMpinWithPassword(
+                                        password: password,
+                                        newMpin: newPin,
+                                      );
+                                      if (!success) {
+                                        setDialogState(() {
+                                          dialogError =
+                                              'Incorrect account password. Please try again.';
+                                          isSaving = false;
+                                        });
+                                        return;
+                                      }
+                                    } else if (isConfigured) {
+                                      final currentPin = currentPinController.text
+                                          .trim();
                                       if (!mpinService.verify(currentPin)) {
                                         setDialogState(() {
                                           dialogError =
@@ -1024,9 +1179,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         });
                                         return;
                                       }
+                                      await mpinService.configure(newPin);
+                                    } else {
+                                      await mpinService.configure(newPin);
                                     }
-
-                                    await mpinService.configure(newPin);
 
                                     if (!mounted) return;
                                     Navigator.pop(dialogCtx);
@@ -1034,9 +1190,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(
-                                          isConfigured
-                                              ? 'Desk Authorization MPIN updated successfully.'
-                                              : 'Desk Authorization MPIN set up successfully!',
+                                          isResetWithPasswordMode
+                                              ? 'Desk Authorization MPIN reset successfully!'
+                                              : (isConfigured
+                                                  ? 'Desk Authorization MPIN updated successfully.'
+                                                  : 'Desk Authorization MPIN set up successfully!'),
                                         ),
                                         backgroundColor: Colors.green,
                                       ),
@@ -1069,14 +1227,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     color: Colors.black,
                                   ),
                                 )
-                              : const Icon(
-                                  Icons.check_circle_rounded,
+                              : Icon(
+                                  isResetWithPasswordMode
+                                      ? Icons.lock_reset_rounded
+                                      : Icons.check_circle_rounded,
                                   size: 18,
                                 ),
                           label: Text(
                             isSaving
                                 ? 'Saving...'
-                                : (isConfigured ? 'Update MPIN' : 'Save MPIN'),
+                                : (isResetWithPasswordMode
+                                    ? 'Reset MPIN'
+                                    : (isConfigured ? 'Update MPIN' : 'Save MPIN')),
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),

@@ -14,7 +14,7 @@ class VehicleService {
       'category,vehicle_type,vehicle_name,description,color,fuel_type,'
       'transmission,location,'
       'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
-      'owner_role,owner_name,rating,rating_count,'
+      'owner_role,owner_name,rating,rating_count,operator_id,'
       'vehicle_images(image_url,display_order)';
   static const List<String> _bookingBlockingStatuses = [
     'pending',

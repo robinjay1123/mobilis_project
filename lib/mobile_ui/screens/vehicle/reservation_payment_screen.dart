@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../theme/app_colors.dart';
@@ -98,10 +99,14 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   String _selectedPaymentChannel = 'qr'; // 'qr' or 'desk'
   String? _errorText;
 
+  final _supabase = Supabase.instance.client;
+
   bool _isDeskMpinVerifying = false;
   bool _isDeskMpinApproved = false;
   String? _deskApprovedOperatorName;
   String? _deskApprovedOperatorId;
+  String? _participatingOperatorId;
+  String? _participatingOperatorName;
   int _deskMpinFailedAttempts = 0;
   bool _isDeskPaymentLocked = false;
   String? _deskMpinError;
@@ -124,8 +129,165 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     super.dispose();
   }
 
+  Future<void> _resolveParticipatingOperator() async {
+    try {
+      String? foundOperatorId;
+      String? foundOperatorName;
+
+      // 1. If bookingId is provided, check booking directly
+      final bookingId = widget.bookingId?.trim();
+      if (bookingId != null && bookingId.isNotEmpty) {
+        try {
+          final bookingRes = await _supabase
+              .from('bookings')
+              .select('operator_id, vehicle_id, partner_vehicle_id, metadata')
+              .eq('id', bookingId)
+              .maybeSingle();
+
+          if (bookingRes != null) {
+            final opId = bookingRes['operator_id']?.toString().trim();
+            if (opId != null && opId.isNotEmpty) {
+              foundOperatorId = opId;
+            } else {
+              final meta = bookingRes['metadata'];
+              if (meta is Map) {
+                final metaOpId = meta['operator_id']?.toString().trim();
+                if (metaOpId != null && metaOpId.isNotEmpty) {
+                  foundOperatorId = metaOpId;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching operator from bookings: $e');
+        }
+
+        // 2. If not found on booking, check booking conversation participants
+        if (foundOperatorId == null || foundOperatorId.isEmpty) {
+          try {
+            final convRes = await _supabase
+                .from('conversations')
+                .select('id')
+                .eq('booking_id', bookingId)
+                .maybeSingle();
+
+            if (convRes != null && convRes['id'] != null) {
+              final parts = await _supabase
+                  .from('conversation_participants')
+                  .select('user_id')
+                  .eq('conversation_id', convRes['id']);
+
+              final userIds = List<Map<String, dynamic>>.from(parts)
+                  .map((p) => p['user_id']?.toString().trim() ?? '')
+                  .where((id) => id.isNotEmpty)
+                  .toList();
+
+              if (userIds.isNotEmpty) {
+                final opUsers = await _supabase
+                    .from('users')
+                    .select('id, full_name, email')
+                    .inFilter('id', userIds)
+                    .eq('role', 'operator')
+                    .limit(1);
+
+                if (opUsers.isNotEmpty) {
+                  foundOperatorId = opUsers.first['id']?.toString().trim();
+                  final n = opUsers.first['full_name']?.toString().trim();
+                  if (n != null && n.isNotEmpty) {
+                    foundOperatorName = n;
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('Error fetching operator from conversation participants: $e');
+          }
+        }
+      }
+
+      // 3. Check vehicleData
+      if (foundOperatorId == null || foundOperatorId.isEmpty) {
+        final vOpId = widget.vehicleData['operator_id']?.toString().trim();
+        if (vOpId != null && vOpId.isNotEmpty) {
+          foundOperatorId = vOpId;
+        }
+      }
+
+      // 4. Query vehicles and partner_vehicles tables by vehicle id
+      final vehicleId = (widget.vehicleData['id'] ?? widget.vehicleData['vehicle_id'])
+          ?.toString()
+          .trim();
+      if ((foundOperatorId == null || foundOperatorId.isEmpty) &&
+          vehicleId != null &&
+          vehicleId.isNotEmpty) {
+        try {
+          final vRow = await _supabase
+              .from('vehicles')
+              .select('operator_id')
+              .eq('id', vehicleId)
+              .maybeSingle();
+          final vOpId = vRow?['operator_id']?.toString().trim();
+          if (vOpId != null && vOpId.isNotEmpty) {
+            foundOperatorId = vOpId;
+          }
+        } catch (e) {
+          debugPrint('Error fetching operator from vehicles: $e');
+        }
+
+        if (foundOperatorId == null || foundOperatorId.isEmpty) {
+          try {
+            final pvRow = await _supabase
+                .from('partner_vehicles')
+                .select('operator_id')
+                .or('id.eq.$vehicleId,vehicle_id.eq.$vehicleId')
+                .maybeSingle();
+            final pvOpId = pvRow?['operator_id']?.toString().trim();
+            if (pvOpId != null && pvOpId.isNotEmpty) {
+              foundOperatorId = pvOpId;
+            }
+          } catch (e) {
+            debugPrint('Error fetching operator from partner_vehicles: $e');
+          }
+        }
+      }
+
+      // 5. If we found an operatorId, fetch their name from users table
+      if (foundOperatorId != null &&
+          foundOperatorId.isNotEmpty &&
+          (foundOperatorName == null || foundOperatorName.isEmpty)) {
+        try {
+          final uRow = await _supabase
+              .from('users')
+              .select('id, full_name, email')
+              .eq('id', foundOperatorId)
+              .maybeSingle();
+
+          if (uRow != null) {
+            final n = uRow['full_name']?.toString().trim();
+            final email = uRow['email']?.toString().trim();
+            foundOperatorName = (n != null && n.isNotEmpty)
+                ? n
+                : (email != null && email.isNotEmpty ? email.split('@').first : null);
+          }
+        } catch (e) {
+          debugPrint('Error fetching operator profile from users: $e');
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _participatingOperatorId = foundOperatorId;
+          _participatingOperatorName = foundOperatorName;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error resolving participating operator: $e');
+    }
+  }
+
   Future<void> _loadInitialData() async {
     setState(() => _isLoadingSettings = true);
+    unawaited(_resolveParticipatingOperator());
     try {
       final settings = await _paymentService.getSettings();
       final savedNumbers =
@@ -291,29 +453,44 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     final vehicleId = widget.vehicleData['id']?.toString();
 
     try {
+      if (_participatingOperatorId == null && _participatingOperatorName == null) {
+        await _resolveParticipatingOperator();
+      }
+
       final result = await MpinService().verifyOperatorMpin(
         pin,
         amount: payableAmount,
         contextDescription:
             'Desk counter settlement for $vehicleTitle (User: ${widget.userId})',
         bookingId: vehicleId,
+        participatingOperatorId: _participatingOperatorId,
+        participatingOperatorName: _participatingOperatorName,
       );
 
       if (!mounted) return;
 
       if (result.success) {
+        final opName = (_participatingOperatorName != null &&
+                _participatingOperatorName!.trim().isNotEmpty)
+            ? _participatingOperatorName!.trim()
+            : (result.operatorName ?? 'PSDC Desk Operator');
+        final opId = (_participatingOperatorId != null &&
+                _participatingOperatorId!.trim().isNotEmpty)
+            ? _participatingOperatorId!.trim()
+            : result.operatorId;
+
         setState(() {
           _isDeskMpinVerifying = false;
           _isDeskMpinApproved = true;
-          _deskApprovedOperatorName = result.operatorName ?? 'PSDC Desk Operator';
-          _deskApprovedOperatorId = result.operatorId;
+          _deskApprovedOperatorName = opName;
+          _deskApprovedOperatorId = opId;
           _deskMpinError = null;
           _errorText = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'MPIN accepted! Authorized by ${_deskApprovedOperatorName ?? 'Operator'}. You can now confirm payment.',
+              'MPIN accepted! Authorized by $opName. You can now confirm payment.',
             ),
             backgroundColor: const Color(0xFF10B981),
           ),
