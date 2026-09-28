@@ -303,6 +303,9 @@ class BookingService {
       'driver_payout_method',
       'driver_payout_ref',
       'driver_payout_receipt_url',
+      'final_payment_rejection_reason',
+      'final_payment_rejected_at',
+      'final_payment_rejected_by',
       'driver_payout_disbursed_at',
       'driver_payout_disbursed_by',
     };
@@ -2405,6 +2408,72 @@ class BookingService {
       'final_payment_confirmed_by': actorId,
       'updated_at': now,
     });
+  }
+
+  /// Operator rejects the submitted final / settlement payment proof
+  Future<void> rejectFinalSettlementPayment({
+    required String bookingId,
+    required String operatorId,
+    String? rejectionReason,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found: $bookingId');
+
+    final reason = (rejectionReason != null && rejectionReason.trim().isNotEmpty)
+        ? rejectionReason.trim()
+        : 'Payment proof or transaction reference could not be verified by the operator.';
+
+    await safeUpdateBooking(bookingId, {
+      'final_payment_status': 'rejected',
+      'renter_return_payment_submitted': false,
+      'final_payment_rejection_reason': reason,
+      'final_payment_rejected_at': now,
+      'final_payment_rejected_by': operatorId,
+      'completion_stage': 'awaiting_payment',
+      'status': 'ongoing',
+      'updated_at': now,
+    });
+
+    try {
+      await supabase.from('booking_events').insert({
+        'booking_id': bookingId,
+        'event_type': 'settlement_payment_rejected',
+        'notes': 'Settlement payment rejected: $reason',
+        'event_payload': {
+          'operator_id': operatorId,
+          'reason': reason,
+        },
+        'created_at': now,
+      });
+    } catch (_) {}
+
+    final renterId = booking['renter_id']?.toString();
+    if (renterId != null && renterId.isNotEmpty) {
+      try {
+        final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+        final vehicleTitle = _vehicleTitle(vehicle);
+        await NotificationService().createNotification(
+          userId: renterId,
+          title: '⚠️ Settlement Payment Rejected',
+          message:
+              'Your settlement payment proof for $vehicleTitle was rejected: $reason. Please settle your balance at the desk or re-upload valid proof.',
+          type: 'booking',
+          data: {'booking_id': bookingId, 'status': 'payment_rejected'},
+        );
+      } catch (e) {
+        debugPrint('Error notifying renter of settlement rejection: $e');
+      }
+    }
+
+    unawaited(
+      OperatorActivityLogger.logActivity(
+        activityType: 'settlement_payment_rejected',
+        description: 'Rejected settlement payment proof for booking $bookingId ($reason)',
+        bookingId: bookingId,
+        suppressErrors: true,
+      ),
+    );
   }
 
   /// Verify renter reservation payment proof (Operator action)

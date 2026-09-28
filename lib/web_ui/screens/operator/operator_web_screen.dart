@@ -23725,15 +23725,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   value: pastRef!,
                                   icon: Icons.tag_rounded,
                                   isDark: isDark),
-                            if (pastReceipt?.isNotEmpty == true)
+                            if (pastReceipt?.isNotEmpty == true) ...[
                               Padding(
                                 padding: const EdgeInsets.only(top: 10),
-                                child: GestureDetector(
-                                  onTap: () {
-                                    // Open receipt URL in browser
-                                    // ignore: avoid_print
-                                    debugPrint('Receipt: $pastReceipt');
-                                  },
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: () => _showReceiptProofDialog(pastReceipt!, isDark),
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 14, vertical: 10),
@@ -23768,6 +23765,46 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 ),
                               ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: InkWell(
+                                    onTap: () => _showReceiptProofDialog(pastReceipt!, isDark),
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        OnDemandNetworkImage(
+                                          imageUrl: pastReceipt!,
+                                          width: double.infinity,
+                                          height: 140,
+                                          fit: BoxFit.cover,
+                                          label: 'Receipt Proof',
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(alpha: 0.6),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.zoom_in, color: Colors.white, size: 16),
+                                              SizedBox(width: 4),
+                                              Text(
+                                                'Click to view full receipt',
+                                                style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
 
                           // ─── Error ─────────────────────────────────────
@@ -23802,26 +23839,124 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
                           // ─── Actions ───────────────────────────────────
                           if (alreadySettled)
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () =>
-                                    Navigator.pop(dialogContext, 'cancel'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: isDark
-                                      ? Colors.white12
-                                      : Colors.grey.shade200,
-                                  foregroundColor: isDark
-                                      ? Colors.white70
-                                      : Colors.black54,
-                                  minimumSize:
-                                      const Size.fromHeight(46),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12)),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: isSettling
+                                        ? null
+                                        : () => Navigator.pop(dialogContext, 'cancel'),
+                                    style: OutlinedButton.styleFrom(
+                                      side: BorderSide(
+                                        color: isDark ? Colors.white24 : Colors.grey.shade300,
+                                      ),
+                                      foregroundColor: isDark ? Colors.white70 : Colors.black54,
+                                      minimumSize: const Size(0, 46),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    child: const Text('Close'),
+                                  ),
                                 ),
-                                child: const Text('Close'),
-                              ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: isSettling
+                                        ? null
+                                        : () async {
+                                            final reasonCtrl = TextEditingController();
+                                            final rejectReason = await showDialog<String>(
+                                              context: dialogContext,
+                                              builder: (rCtx) => AlertDialog(
+                                                backgroundColor: isDark ? const Color(0xFF1E2235) : Colors.white,
+                                                title: const Text('Reject Payment Proof?'),
+                                                content: Column(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    const Text(
+                                                      'If the renter entered the wrong amount, invalid reference, or fake receipt, reject this settlement. The renter will be asked to re-submit or settle at the front desk.',
+                                                      style: TextStyle(fontSize: 13),
+                                                    ),
+                                                    const SizedBox(height: 12),
+                                                    TextField(
+                                                      controller: reasonCtrl,
+                                                      decoration: const InputDecoration(
+                                                        labelText: 'Rejection Reason',
+                                                        hintText: 'e.g. Receipt unreadable / Reference invalid',
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () => Navigator.pop(rCtx),
+                                                    child: const Text('Back'),
+                                                  ),
+                                                  ElevatedButton(
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: Colors.redAccent,
+                                                      foregroundColor: Colors.white,
+                                                    ),
+                                                    onPressed: () => Navigator.pop(
+                                                      rCtx,
+                                                      reasonCtrl.text.trim().isNotEmpty
+                                                          ? reasonCtrl.text.trim()
+                                                          : 'Settlement receipt or reference could not be verified.',
+                                                    ),
+                                                    child: const Text('Confirm Reject'),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+
+                                            if (rejectReason != null && rejectReason.isNotEmpty) {
+                                              setDs(() => isSettling = true);
+                                              try {
+                                                await BookingService().rejectFinalSettlementPayment(
+                                                  bookingId: bookingId,
+                                                  operatorId: currentUserId,
+                                                  rejectionReason: rejectReason,
+                                                );
+                                                Navigator.pop(dialogContext, 'reject_payment');
+                                              } catch (e) {
+                                                setDs(() {
+                                                  isSettling = false;
+                                                  settlementError = 'Rejection failed: $e';
+                                                });
+                                              }
+                                            }
+                                          },
+                                    icon: const Icon(Icons.cancel_outlined, size: 16),
+                                    label: const Text('Reject'),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Colors.redAccent),
+                                      foregroundColor: Colors.redAccent,
+                                      minimumSize: const Size(0, 46),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  flex: 2,
+                                  child: ElevatedButton.icon(
+                                    onPressed: isSettling
+                                        ? null
+                                        : () => Navigator.pop(dialogContext, 'confirm_payment'),
+                                    icon: const Icon(Icons.check_circle_rounded, size: 18),
+                                    label: const Text(
+                                      'Confirm & Complete',
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF10B981),
+                                      foregroundColor: Colors.white,
+                                      minimumSize: const Size(0, 46),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             )
                           else
                             Row(
@@ -23952,6 +24087,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
           if (choice == 'cancel' || choice == null) {
             _hideOperationLoading();
+            return;
+          }
+          if (choice == 'reject_payment') {
+            _hideOperationLoading();
+            await _loadDashboardData(showLoading: false);
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Settlement payment rejected. Renter notified to re-submit or settle at desk.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
             return;
           }
           if (choice == 'confirm_payment') {
