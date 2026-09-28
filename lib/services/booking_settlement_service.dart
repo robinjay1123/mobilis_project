@@ -179,7 +179,7 @@ class BookingSettlementService {
               metadata,
               vehicles:vehicle_id (brand, model, owner_id)
             ''')
-            .or('partner_id.in.(${userIds.join(',')}),partner_user_id.in.(${userIds.join(',')})');
+            .inFilter('partner_id', userIds.toList());
         for (final b in List<Map<String, dynamic>>.from(bRes)) {
           final bid = b['id']?.toString() ?? '';
           if (bid.isEmpty || knownBookingIds.contains(bid)) continue;
@@ -231,7 +231,6 @@ class BookingSettlementService {
               created_at,
               metadata,
               driver_id,
-              driver_user_id,
               driver_fee,
               driver_payout_disbursed,
               driver_payout_status,
@@ -243,7 +242,7 @@ class BookingSettlementService {
               driver_payout_disbursed_at,
               vehicles:vehicle_id (brand, model)
             ''')
-            .or('driver_id.in.(${userIds.join(',')}),driver_user_id.in.(${userIds.join(',')})');
+            .inFilter('driver_id', userIds.toList());
         for (final b in List<Map<String, dynamic>>.from(bRes)) {
           final bid = b['id']?.toString() ?? '';
           if (bid.isEmpty || knownBookingIds.contains(bid)) continue;

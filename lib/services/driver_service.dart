@@ -1270,7 +1270,7 @@ class DriverService {
         final bRes = await supabase
             .from('bookings')
             .select('id, driver_payout_amount, metadata, driver_payout_disbursed_at, created_at')
-            .or('driver_id.in.(${driverIds.join(',')}),driver_user_id.in.(${driverIds.join(',')})')
+            .inFilter('driver_id', driverIds.toList())
             .eq('driver_payout_disbursed', true);
 
         for (final b in bRes as List) {

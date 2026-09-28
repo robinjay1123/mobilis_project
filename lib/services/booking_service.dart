@@ -293,6 +293,9 @@ class BookingService {
       'partner_payout_receipt_url',
       'partner_payout_disbursed_at',
       'partner_payout_disbursed_by',
+      'security_deposit',
+      'partner_user_id',
+      'driver_user_id',
       'driver_payout_disbursed',
       'driver_payout_status',
       'driver_payout_amount',
@@ -7783,7 +7786,7 @@ class BookingService {
         final bRow = await supabase
             .from('bookings')
             .select('''
-              id, partner_id, partner_user_id, metadata,
+              *,
               vehicles:vehicle_id (
                 id, owner_id,
                 partners:partner_id (id, user_id)
@@ -7892,7 +7895,7 @@ class BookingService {
         final bRow = await supabase
             .from('bookings')
             .select('''
-              id, driver_id, driver_user_id, metadata,
+              *,
               drivers:driver_id (id, user_id),
               driver_job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (driver_id, status)
             ''')
@@ -7973,13 +7976,7 @@ class BookingService {
       final booking = await supabase
           .from('bookings')
           .select('''
-            id,
-            renter_id,
-            security_deposit,
-            partner_id,
-            partner_user_id,
-            vehicle_id,
-            metadata,
+            *,
             vehicles:vehicle_id (
               id, brand, model
             ),
@@ -8230,16 +8227,7 @@ class BookingService {
       final booking = await supabase
           .from('bookings')
           .select('''
-            id,
-            partner_id,
-            partner_user_id,
-            vehicle_id,
-            status,
-            rental_subtotal,
-            total_price,
-            delivery_fee,
-            late_return_fee,
-            metadata,
+            *,
             vehicles:vehicle_id (
               id, brand, model
             )
@@ -8453,11 +8441,7 @@ class BookingService {
       final booking = await supabase
           .from('bookings')
           .select('''
-            id,
-            driver_id,
-            driver_user_id,
-            driver_fee,
-            metadata,
+            *,
             vehicles:vehicle_id (brand, model),
             drivers:driver_id (id, user_id)
           ''')

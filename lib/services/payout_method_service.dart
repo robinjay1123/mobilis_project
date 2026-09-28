@@ -1048,7 +1048,6 @@ class PayoutMethodService {
                 created_at,
                 metadata,
                 driver_id,
-                driver_user_id,
                 driver_fee,
                 driver_payout_disbursed,
                 driver_payout_status,
@@ -1060,7 +1059,7 @@ class PayoutMethodService {
                 driver_payout_disbursed_at,
                 vehicles:vehicle_id (id, brand, model, year, plate_number)
               ''')
-              .or('driver_id.in.(${userIds.join(',')}),driver_user_id.in.(${userIds.join(',')})');
+              .inFilter('driver_id', userIds.toList());
 
           for (final b in List<Map<String, dynamic>>.from(bRes)) {
             final bid = b['id']?.toString() ?? '';
