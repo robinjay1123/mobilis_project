@@ -7967,19 +7967,12 @@ class BookingService {
             id,
             renter_id,
             security_deposit,
-            security_deposit_refunded,
-            security_deposit_status,
             partner_id,
             partner_user_id,
             vehicle_id,
             metadata,
             vehicles:vehicle_id (
-              id, brand, model, owner_id,
-              partners:partner_id (id, user_id)
-            ),
-            partner_vehicles:partner_vehicle_id (
-              id, partner_id, user_id,
-              partners:partner_id (id, user_id)
+              id, brand, model
             ),
             renter:users!bookings_renter_id_fkey (id, full_name, email, phone)
           ''')
@@ -7991,9 +7984,7 @@ class BookingService {
       }
 
       final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata'] as Map) : <String, dynamic>{};
-      final isAlreadyRefunded = booking['security_deposit_refunded'] == true ||
-          meta['security_deposit_refunded'] == true ||
-          booking['security_deposit_status'] == 'refund_processed' ||
+      final isAlreadyRefunded = meta['security_deposit_refunded'] == true ||
           meta['security_deposit_status'] == 'refund_processed';
 
       if (isAlreadyRefunded) {
@@ -8231,8 +8222,6 @@ class BookingService {
           .from('bookings')
           .select('''
             id,
-            partner_payout_disbursed,
-            partner_payout_status,
             partner_id,
             partner_user_id,
             vehicle_id,
@@ -8243,12 +8232,7 @@ class BookingService {
             late_return_fee,
             metadata,
             vehicles:vehicle_id (
-              id, brand, model, owner_id,
-              partners:partner_id (id, user_id, business_name)
-            ),
-            partner_vehicles:partner_vehicle_id (
-              id, partner_id, user_id,
-              partners:partner_id (id, user_id, business_name)
+              id, brand, model
             )
           ''')
           .eq('id', bookingId)
@@ -8259,9 +8243,7 @@ class BookingService {
       }
 
       final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata'] as Map) : <String, dynamic>{};
-      final isAlreadyDisbursed = booking['partner_payout_disbursed'] == true ||
-          meta['partner_payout_disbursed'] == true ||
-          booking['partner_payout_status']?.toString().toLowerCase() == 'disbursed' ||
+      final isAlreadyDisbursed = meta['partner_payout_disbursed'] == true ||
           meta['partner_payout_status']?.toString().toLowerCase() == 'disbursed';
 
       if (isAlreadyDisbursed) {
@@ -8463,8 +8445,6 @@ class BookingService {
           .from('bookings')
           .select('''
             id,
-            driver_payout_disbursed,
-            driver_payout_status,
             driver_id,
             driver_user_id,
             driver_fee,
@@ -8480,9 +8460,7 @@ class BookingService {
       }
 
       final meta = booking['metadata'] is Map ? Map<String, dynamic>.from(booking['metadata'] as Map) : <String, dynamic>{};
-      final isAlreadyDisbursed = booking['driver_payout_disbursed'] == true ||
-          meta['driver_payout_disbursed'] == true ||
-          booking['driver_payout_status']?.toString().toLowerCase() == 'disbursed' ||
+      final isAlreadyDisbursed = meta['driver_payout_disbursed'] == true ||
           meta['driver_payout_status']?.toString().toLowerCase() == 'disbursed';
 
       if (isAlreadyDisbursed) {
