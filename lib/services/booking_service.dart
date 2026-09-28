@@ -1374,16 +1374,22 @@ class BookingService {
       ) = await (
         supabase
             .from('vehicles')
-            .select('id,plate_number,owner_id,partner_id,owner_role,status,is_available,is_posted,application_status')
+            .select('id,plate_number,owner_id,partner_id,owner_role,status,is_available,is_posted')
             .eq('id', vehicleId)
             .maybeSingle()
-            .catchError((_) => null),
+            .catchError((err) {
+              debugPrint('BookingService createBooking vehicles fetch error: $err');
+              return null;
+            }),
         supabase
             .from('partner_vehicles')
             .select('id,plate_number,partner_id,user_id,status,is_available,vehicle_id')
-            .eq('id', vehicleId)
+            .or('id.eq.$vehicleId,vehicle_id.eq.$vehicleId')
             .maybeSingle()
-            .catchError((_) => null),
+            .catchError((err) {
+              debugPrint('BookingService createBooking partner_vehicles fetch error: $err');
+              return null;
+            }),
         UserRestrictionService().getUserRestriction(renterId),
         supabase
             .from('bookings')
@@ -4722,6 +4728,7 @@ class BookingService {
           data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
         ).catchError((e) {
           debugPrint('Error sending trip started notification: $e');
+          return <String, dynamic>{};
         }),
       );
     }
