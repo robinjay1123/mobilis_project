@@ -427,6 +427,24 @@ class _IdentityVerificationFormScreenState
 
   Future<void> _scanAndPrefillFromId(File file, {bool isBack = false}) async {
     if (!mounted) return;
+    if (!IdOcrService.isSupported) {
+      if (!isBack) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'ID photo uploaded successfully. Please fill in your details below.',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+            backgroundColor: Color(0xFF1E293B),
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() => _isOcrScanning = true);
 
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -3480,6 +3498,9 @@ class _IdentityVerificationFormScreenState
     required Color textColor,
     required Color hintTextColor,
   }) {
+    if (!IdOcrService.isSupported) {
+      return const SizedBox.shrink();
+    }
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(16),
@@ -3979,7 +4000,7 @@ class _IdentityVerificationFormScreenState
                         ),
                       ),
                     ),
-                    if (photoType == 'id_front') ...[
+                    if (photoType == 'id_front' && IdOcrService.isSupported) ...[
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(

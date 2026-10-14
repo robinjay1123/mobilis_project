@@ -57,9 +57,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
     return Scaffold(
       backgroundColor: scaffoldBg,
-      body: Column(
-        children: [
-          // Skip button
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Skip button
           Padding(
             padding: const EdgeInsets.only(top: 24, right: 24),
             child: Align(
@@ -182,7 +183,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildPage(WelcomePageData page, int pageIndex) {

@@ -282,6 +282,22 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
 
   Future<void> _scanAndPrefillId(File file) async {
     if (!mounted) return;
+    if (!IdOcrService.isSupported) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'ID photo attached successfully. Please enter your details below.',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          duration: Duration(seconds: 3),
+          backgroundColor: Color(0xFF1E293B),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     setState(() => isOcrScanning = true);
 
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -466,7 +482,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Smart ID Auto-Fill Banner
+              // Smart ID Auto-Fill Banner (only on platforms supporting OCR)
+              if (IdOcrService.isSupported)
               Container(
                 margin: const EdgeInsets.only(bottom: 24),
                 padding: const EdgeInsets.all(16),

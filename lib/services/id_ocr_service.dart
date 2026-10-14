@@ -49,11 +49,21 @@ class IdOcrService {
   factory IdOcrService() => _instance;
   IdOcrService._internal();
 
+  /// Returns whether on-device OCR is supported and enabled on the current platform.
+  /// On iOS and Web, OCR is disabled so users input their details manually.
+  static bool get isSupported {
+    if (kIsWeb) return false;
+    if (Platform.isIOS) return false;
+    return true;
+  }
+
   /// Scans the given ID [imageFile] on-device and extracts text fields.
-  /// Returns null if on web (where native ML Kit is unavailable) or if scan fails.
+  /// Returns null if on iOS/web (where OCR is disabled) or if scan fails.
   Future<IdOcrResult?> scanIdImage(File imageFile) async {
-    if (kIsWeb) {
-      debugPrint('ℹ️ [IdOcrService] ML Kit on-device OCR is skipped on web');
+    if (!isSupported) {
+      debugPrint(
+        'ℹ️ [IdOcrService] ML Kit on-device OCR is disabled on this platform (${kIsWeb ? "Web" : (Platform.isIOS ? "iOS" : "other")}). Manual input required.',
+      );
       return null;
     }
 
