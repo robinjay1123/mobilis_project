@@ -20,6 +20,30 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Patch camera_avfoundation for Xcode 16 / iOS 18
+        run: |
+          python3 -c "
+          import os
+          cache_dir = os.path.expanduser('~/.pub-cache')
+          for root, dirs, files in os.walk(cache_dir):
+              for file in files:
+                  if file == 'DefaultCamera.swift':
+                      path = os.path.join(root, file)
+                      with open(path, 'r', encoding='utf-8') as f:
+                          content = f.read()
+                      new_content = content.replace(
+                          'AVCaptureSession.wasInterruptedNotification',
+                          'NSNotification.Name(\"AVCaptureSessionWasInterruptedNotification\")'
+                      ).replace(
+                          'AVCaptureSession.runtimeErrorNotification',
+                          'NSNotification.Name(\"AVCaptureSessionRuntimeErrorNotification\")'
+                      )
+                      if content != new_content:
+                          with open(path, 'w', encoding='utf-8') as f:
+                              f.write(new_content)
+                          print(f'Successfully patched {path}')
+          "
+
       - name: Build iOS app (Release, unsigned)
         run: flutter build ios --release --no-codesign
 
