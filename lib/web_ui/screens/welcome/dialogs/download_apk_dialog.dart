@@ -18,8 +18,8 @@ void showDownloadApkDialog(BuildContext context, {Map<String, dynamic>? selected
           side: const BorderSide(color: Color(0x33FFD740)),
         ),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: Padding(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(26),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -88,73 +88,74 @@ void showDownloadApkDialog(BuildContext context, {Map<String, dynamic>? selected
                 ],
 
                 Text(
-                  vehicleName != null ? 'Book in the Mobilis App' : 'Download Mobilis for Android',
+                  vehicleName != null ? 'Book in the Mobilis App' : 'Get Mobilis for Android',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 19,
+                    fontSize: 20,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   vehicleName != null
-                      ? 'Download the official Mobilis app to complete real-time reservation, license verification, and digital payment.'
-                      : 'Official release for Renters, Drivers, and Vehicle Partners in Pangasinan.',
+                      ? 'Install the official Mobilis app to complete real-time reservation, license verification, and digital payment.'
+                      : 'Available on Google Play Store and direct package download for Renters, Drivers, and Partners in Pangasinan.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12.5, height: 1.45),
                 ),
                 const SizedBox(height: 20),
 
-                // Direct Download Button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      WelcomeWebConstants.openUrl(WelcomeWebConstants.apkDownloadUrl);
-                    },
-                    icon: const Icon(Icons.download_rounded, size: 18),
-                    label: const Text(
-                      'Direct Download (.apk)',
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: const Color(0xFF030A18),
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      elevation: 6,
-                    ),
-                  ),
+                // Option 1: Google Play Store (Featured / Recommended)
+                _buildDownloadOption(
+                  context: context,
+                  isPrimary: true,
+                  badge: 'Official',
+                  badgeColor: const Color(0xFF10B981),
+                  icon: Icons.shop_two_rounded,
+                  title: 'Get it on Google Play',
+                  subtitle: 'Official Google Play Store release • Auto-updates',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    WelcomeWebConstants.openUrl(WelcomeWebConstants.playStoreUrl);
+                  },
                 ),
                 const SizedBox(height: 10),
 
-                // GitHub Releases Link
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      WelcomeWebConstants.openUrl(WelcomeWebConstants.githubReleasesUrl);
-                    },
-                    icon: const Icon(Icons.code_rounded, size: 18, color: Colors.white),
-                    label: const Text(
-                      'View on GitHub Releases',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: Colors.white),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0x33FFFFFF)),
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                  ),
+                // Option 2: Direct APK Download
+                _buildDownloadOption(
+                  context: context,
+                  isPrimary: false,
+                  badge: 'v1.3.3',
+                  badgeColor: AppColors.primary,
+                  icon: Icons.download_rounded,
+                  title: 'Direct Download (.apk)',
+                  subtitle: 'Direct installation package for Android devices',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    WelcomeWebConstants.openUrl(WelcomeWebConstants.apkDownloadUrl);
+                  },
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
+
+                // Option 3: GitHub Releases
+                _buildDownloadOption(
+                  context: context,
+                  isPrimary: false,
+                  isOutlined: true,
+                  icon: Icons.code_rounded,
+                  title: 'GitHub Releases',
+                  subtitle: 'View all releases, change logs & source assets',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    WelcomeWebConstants.openUrl(WelcomeWebConstants.githubReleasesUrl);
+                  },
+                ),
+                const SizedBox(height: 16),
 
                 // Installation Tips
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: const Color(0xFF030A18),
                     borderRadius: BorderRadius.circular(12),
@@ -163,12 +164,12 @@ void showDownloadApkDialog(BuildContext context, {Map<String, dynamic>? selected
                   child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 15),
-                      SizedBox(width: 8),
+                      Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 16),
+                      SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'If prompted "File might be harmful", tap "Download anyway" -> Open file -> Tap "Install".',
-                          style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11, height: 1.4),
+                          'For instant installation, tap "Get it on Google Play". If downloading .apk directly, select "Download anyway" -> Open file -> Tap "Install".',
+                          style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11.5, height: 1.4),
                         ),
                       ),
                     ],
@@ -185,5 +186,130 @@ void showDownloadApkDialog(BuildContext context, {Map<String, dynamic>? selected
         ),
       );
     },
+  );
+}
+
+Widget _buildDownloadOption({
+  required BuildContext context,
+  required IconData icon,
+  required String title,
+  required String subtitle,
+  required VoidCallback onTap,
+  bool isPrimary = false,
+  bool isOutlined = false,
+  String? badge,
+  Color? badgeColor,
+}) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(14),
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isPrimary
+            ? AppColors.primary
+            : (isOutlined ? const Color(0xFF0A1C3E) : const Color(0xFF0F2656)),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isPrimary
+              ? AppColors.primary
+              : (isOutlined ? const Color(0x33FFFFFF) : AppColors.primary.withValues(alpha: 0.3)),
+          width: isPrimary ? 1.5 : 1,
+        ),
+        boxShadow: isPrimary
+            ? [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: isPrimary
+                  ? Colors.black.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              icon,
+              color: isPrimary ? const Color(0xFF030A18) : Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          color: isPrimary ? const Color(0xFF030A18) : Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                    ),
+                    if (badge != null) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isPrimary
+                              ? const Color(0xFF030A18)
+                              : (badgeColor ?? AppColors.primary).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: isPrimary
+                                ? Colors.transparent
+                                : (badgeColor ?? AppColors.primary).withValues(alpha: 0.6),
+                          ),
+                        ),
+                        child: Text(
+                          badge,
+                          style: TextStyle(
+                            color: isPrimary ? Colors.white : (badgeColor ?? AppColors.primary),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: isPrimary
+                        ? const Color(0xFF1E293B)
+                        : const Color(0xFF94A3B8),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: isPrimary ? const Color(0xFF030A18) : const Color(0xFF64748B),
+            size: 20,
+          ),
+        ],
+      ),
+    ),
   );
 }

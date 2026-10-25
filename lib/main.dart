@@ -1042,6 +1042,8 @@ class MobileOnlyAccessScreen extends StatefulWidget {
 }
 
 class _MobileOnlyAccessScreenState extends State<MobileOnlyAccessScreen> {
+  static const String playStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.psdc.mobilis';
   static const String apkDownloadUrl =
       'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app.apk';
   static const String githubReleasesUrl =
@@ -1186,6 +1188,32 @@ class _MobileOnlyAccessScreenState extends State<MobileOnlyAccessScreen> {
                   ),
                   const SizedBox(height: 24),
 
+                  // Google Play Store Button (Recommended)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        final uri = Uri.parse(playStoreUrl);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      icon: const Icon(Icons.shop_two_rounded, size: 20),
+                      label: const Text(
+                        'Get it on Google Play',
+                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
                   // Download Button
                   SizedBox(
                     width: double.infinity,
@@ -1193,7 +1221,7 @@ class _MobileOnlyAccessScreenState extends State<MobileOnlyAccessScreen> {
                       onPressed: _downloadApk,
                       icon: const Icon(Icons.download_rounded, size: 20),
                       label: const Text(
-                        'Download Android APK Now',
+                        'Direct APK Download (v1.3.3)',
                         style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
                       ),
                       style: ElevatedButton.styleFrom(

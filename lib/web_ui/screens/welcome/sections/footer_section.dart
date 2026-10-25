@@ -211,6 +211,11 @@ class FooterSection extends StatelessWidget {
       children: [
         const Text('QUICK ACCESS', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
         const SizedBox(height: 10),
+        InkWell(
+          onTap: () => WelcomeWebConstants.openUrl(WelcomeWebConstants.playStoreUrl),
+          child: const Text('🛍️ Google Play Store', style: TextStyle(color: Color(0xFF10B981), fontSize: 12, fontWeight: FontWeight.w700)),
+        ),
+        const SizedBox(height: 6),
         InkWell(onTap: onDownloadApk, child: const Text('📲 Download Android App (.apk)', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700))),
         const SizedBox(height: 6),
         InkWell(onTap: onLogin, child: const Text('Admin & Operator Portal', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12))),
