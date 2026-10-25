@@ -1068,12 +1068,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
-          table: 'user_reports',
-          callback: handleActionLogChange,
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
           table: 'partner_vehicle_applications',
           callback: handleActionLogChange,
         )
@@ -2374,7 +2368,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           'is_psdc_driver': isPsdcDriver,
           'driver_id': driverData?['id'],
           'is_archived': isArchived,
-          'archived_at': user['archived_at'],
+          'archived_at': user['archived_at'] ??
+              (isArchived ? (user['updated_at'] ?? user['created_at']) : null),
         });
       }
 
@@ -2410,7 +2405,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'display_verification_status': displayStatus,
             'avatar_url': uMap?['avatar_url'],
             'is_archived': isArchived,
-            'archived_at': uMap?['archived_at'],
+            'archived_at': uMap?['archived_at'] ??
+                (isArchived ? (uMap?['updated_at'] ?? uMap?['created_at']) : null),
           });
         }
       }
@@ -2456,7 +2452,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               owner_id,
               owner_role,
               operator_id,
-              is_partner_vehicle,
               partner_id,
               vehicle_images(image_url, display_order)
             ),

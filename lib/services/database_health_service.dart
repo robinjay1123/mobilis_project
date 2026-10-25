@@ -41,6 +41,20 @@ class DatabaseHealthService extends ChangeNotifier {
       final details = (error.details?.toString() ?? '').toLowerCase();
       final hint = (error.hint?.toString() ?? '').toLowerCase();
 
+      // Explicitly reject query syntax, constraint, schema, or missing-entity codes
+      // 42xxx = Syntax Error or Access Rule Violation (e.g. 42703 undefined_column, 42P01 undefined_table)
+      // 23xxx = Integrity Constraint Violation (e.g. 23505 unique_violation, 23503 foreign_key_violation)
+      // 22xxx = Data Exception (e.g. invalid_text_representation)
+      // 28xxx = Invalid Authorization Specification
+      // PGRSTxxx = PostgREST client/schema errors (e.g. PGRST116, PGRST205, PGRST100)
+      if (code.startsWith('42') ||
+          code.startsWith('23') ||
+          code.startsWith('22') ||
+          code.startsWith('28') ||
+          code.startsWith('PGRST')) {
+        return false;
+      }
+
       // PostgreSQL connection and system fault codes
       // 08xxx = Connection Exception
       // 53xxx = Insufficient Resources (too_many_connections, out_of_memory)
@@ -58,13 +72,29 @@ class DatabaseHealthService extends ChangeNotifier {
           _containsUnhealthyKeywords(hint)) {
         return true;
       }
+
+      return false;
     }
 
     final text = error.toString().toLowerCase();
 
-    // 2. HTTP Server Error codes (500, 502, 503, 504, 520-526)
-    if (RegExp(r'\b(500|502|503|504|520|521|522|523|524|525|526)\b')
-        .hasMatch(text)) {
+    // 2. HTTP Server Error codes (502, 503, 504, 520-526, or 500 internal server error)
+    if (RegExp(r'\b(502|503|504|520|521|522|523|524|525|526)\b').hasMatch(text) &&
+        (text.contains('http') ||
+            text.contains('status') ||
+            text.contains('gateway') ||
+            text.contains('server') ||
+            text.contains('cloudflare') ||
+            text.contains('supabase'))) {
+      return true;
+    }
+
+    if (text.contains('500 internal server error') ||
+        text.contains('internal server error') ||
+        text.contains('status: 500') ||
+        text.contains('statuscode: 500') ||
+        text.contains('code: 500') ||
+        text.contains('code: "500"')) {
       return true;
     }
 
@@ -75,11 +105,11 @@ class DatabaseHealthService extends ChangeNotifier {
   static bool _containsUnhealthyKeywords(String text) {
     return text.contains('database unavailable') ||
         text.contains('database is unhealthy') ||
+        text.contains('database health: unhealthy') ||
         text.contains('unhealthy state') ||
         text.contains('upstream connect error') ||
         text.contains('connection refused') ||
-        text.contains('connection closed') ||
-        text.contains('server error') ||
+        text.contains('failed to connect to postgres') ||
         text.contains('service unavailable') ||
         text.contains('bad gateway') ||
         text.contains('gateway timeout') ||
@@ -90,8 +120,7 @@ class DatabaseHealthService extends ChangeNotifier {
         text.contains('the database system is shutting down') ||
         text.contains('cannot connect now') ||
         text.contains('admin shutdown') ||
-        text.contains('deadlock detected') ||
-        text.contains('database error');
+        text.contains('deadlock detected');
   }
 
   /// Handles any error. If it indicates an unhealthy database, shows the modal and returns true.
@@ -140,9 +169,9 @@ class DatabaseHealthService extends ChangeNotifier {
   Future<bool> checkHealth() async {
     try {
       final client = Supabase.instance.client;
-      // Lightweight select to verify database connection
+      // Lightweight select on public table to verify database connection
       await client
-          .from('users')
+          .from('vehicles')
           .select('id')
           .limit(1)
           .timeout(const Duration(seconds: 4));
@@ -156,7 +185,7 @@ class DatabaseHealthService extends ChangeNotifier {
         notifyListeners();
         return false;
       }
-      // If table query threw an auth or other non-server error, the DB connection itself is alive
+      // If table query threw a non-downtime error, the DB connection itself is alive
       return true;
     }
   }

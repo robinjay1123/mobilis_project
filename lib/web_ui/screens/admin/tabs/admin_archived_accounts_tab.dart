@@ -1,4 +1,4 @@
-﻿part of '../admin_web_screen.dart';
+part of '../admin_web_screen.dart';
 
 extension _AdminArchivedAccountsTab on _AdminWebScreenState {
   Widget _buildArchivedAccountsContent(bool isDark) {
@@ -982,7 +982,9 @@ extension _AdminArchivedAccountsTab on _AdminWebScreenState {
               ),
               _buildArchivedDetailRow(
                 'Archived At',
-                user['archived_at']?.toString() ?? 'Archived',
+                user['archived_at']?.toString() ??
+                    user['updated_at']?.toString() ??
+                    'Archived',
                 isDark,
               ),
               _buildArchivedDetailRow(
