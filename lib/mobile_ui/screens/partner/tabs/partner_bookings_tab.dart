@@ -1,0 +1,4876 @@
+﻿part of '../partner_home_screen.dart';
+
+extension _PartnerBookingsTab on _PartnerHomeScreenState {
+  Widget _buildBookingsTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    const statusList = [
+      'pending',
+      'approved',
+      'ongoing',
+      'completed',
+      'cancelled',
+    ];
+    final filteredBookings = bookings
+        .where((booking) => _matchesBookingTab(booking, _partnerBookingStatus))
+        .toList();
+
+    filteredBookings.sort((a, b) {
+      final aDate =
+          DateTime.tryParse(a['start_at']?.toString() ?? '') ??
+          DateTime.tryParse(a['start_date']?.toString() ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate =
+          DateTime.tryParse(b['start_at']?.toString() ?? '') ??
+          DateTime.tryParse(b['start_date']?.toString() ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return aDate.compareTo(bDate);
+    });
+
+    return Column(
+      children: [
+        _buildCenteredTabHeader('My Bookings'),
+        // Top Segment Switch: [ 🚗 Rental Bookings ] | [ ⏱️ Extend Trip Requests ]
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () =>
+                      setState(() => _partnerBookingSubSection = 'bookings'),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _partnerBookingSubSection == 'bookings'
+                          ? AppColors.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.book_online_rounded,
+                          size: 16,
+                          color: _partnerBookingSubSection == 'bookings'
+                              ? Colors.black
+                              : (isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade700),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Bookings',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: _partnerBookingSubSection == 'bookings'
+                                ? Colors.black
+                                : (isDark
+                                    ? Colors.grey[300]
+                                    : Colors.grey.shade800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: InkWell(
+                  onTap: () =>
+                      setState(() => _partnerBookingSubSection = 'extensions'),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _partnerBookingSubSection == 'extensions'
+                          ? AppColors.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.update_rounded,
+                          size: 16,
+                          color: _partnerBookingSubSection == 'extensions'
+                              ? Colors.black
+                              : (isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade700),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Extend Trips',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: _partnerBookingSubSection == 'extensions'
+                                ? Colors.black
+                                : (isDark
+                                    ? Colors.grey[300]
+                                    : Colors.grey.shade800),
+                          ),
+                        ),
+                        if (_partnerPendingExtensionRequestsCount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _partnerBookingSubSection == 'extensions'
+                                  ? Colors.black
+                                  : AppColors.error,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$_partnerPendingExtensionRequestsCount',
+                              style: TextStyle(
+                                color:
+                                    _partnerBookingSubSection == 'extensions'
+                                        ? AppColors.primary
+                                        : Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _loadPartnerData,
+            color: AppColors.primary,
+            child: _partnerBookingSubSection == 'extensions'
+                ? _buildPartnerExtendTripRequestsSection(isDark)
+                : ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+                    children: [
+                      RoleTabHeader(
+                        title: 'Rental Bookings',
+                        subtitle:
+                            'Requests, active rentals, completed trips, and tracking',
+                        icon: Icons.calendar_month_outlined,
+                        badge: '${bookings.length} total',
+                      ),
+                      const SizedBox(height: 12),
+                      _buildPartnerStatusPillTabs(statusList),
+                      const SizedBox(height: 14),
+                      if (_partnerBookingStatus == 'ongoing' &&
+                          filteredBookings.isNotEmpty) ...[
+                        _buildActiveBookingsHero(filteredBookings),
+                        const SizedBox(height: 14),
+                      ],
+                      if (_isFetchingPartnerData && bookings.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: MobilisSkeletonList(
+                            isDark: isDark,
+                            itemCount: 4,
+                            padding: EdgeInsets.zero,
+                          ),
+                        )
+                      else if (filteredBookings.isEmpty)
+                        RoleEmptyStateCard(
+                          icon: Icons.calendar_today_outlined,
+                          title:
+                              'No ${_bookingTabLabel(_partnerBookingStatus).toLowerCase()} bookings',
+                          message:
+                              'Booking requests and rental updates will appear here once available.',
+                        )
+                      else
+                        ...filteredBookings.map(
+                          (booking) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _buildPartnerBookingCard(
+                              booking,
+                              emphasizeLive: _partnerBookingStatus == 'ongoing',
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPartnerExtendTripRequestsSection(bool isDark) {
+    final allExtensionBookings = bookings.where((b) {
+      final ext = b['extension_status']?.toString().toLowerCase().trim();
+      return ext != null && ext.isNotEmpty && ext != 'none';
+    }).toList();
+
+    final filteredExtensions = allExtensionBookings.where((booking) {
+      final status =
+          booking['extension_status']?.toString().toLowerCase().trim() ?? '';
+      final matchesFilter = switch (_partnerExtensionFilter) {
+        'all' => true,
+        'pending' =>
+          status == 'pending' ||
+              status == 'pending_partner' ||
+              status == 'pending_operator',
+        'payment_pending' =>
+          status == 'accepted' || status == 'payment_pending',
+        'payment_completed' => status == 'payment_completed',
+        'pending_final_confirmation' => status == 'pending_final_confirmation',
+        'finalized' => status == 'finalized' || status == 'approved',
+        'rejected' => status == 'rejected' || status == 'cancelled',
+        _ => true,
+      };
+      if (!matchesFilter) return false;
+
+      if (_partnerExtensionSearchQuery.isNotEmpty) {
+        final query = _partnerExtensionSearchQuery.toLowerCase();
+        final vehicle = booking['vehicles'] is Map
+            ? booking['vehicles'] as Map<String, dynamic>
+            : <String, dynamic>{};
+        final renter = booking['users'] is Map
+            ? booking['users'] as Map<String, dynamic>
+            : <String, dynamic>{};
+        final bId = booking['id']?.toString() ?? '';
+        final shortBId = bId.length >= 8 ? bId.substring(0, 8) : bId;
+        final haystack = [
+          bId,
+          'EXT-$shortBId',
+          renter['full_name'],
+          renter['email'],
+          renter['phone'],
+          vehicle['vehicle_name'],
+          vehicle['brand'],
+          vehicle['model'],
+          vehicle['plate_number'],
+          booking['dropoff_location'],
+          booking['extension_requested_destination'],
+        ].whereType<Object>().join(' ').toLowerCase();
+        if (!haystack.contains(query)) return false;
+      }
+
+      return true;
+    }).toList();
+
+    filteredExtensions.sort((a, b) {
+      final aDate = DateTime.tryParse(
+            a['extension_requested_at']?.toString() ??
+                a['created_at']?.toString() ??
+                '',
+          ) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = DateTime.tryParse(
+            b['extension_requested_at']?.toString() ??
+                b['created_at']?.toString() ??
+                '',
+          ) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return bDate.compareTo(aDate);
+    });
+
+    final pendingCount = allExtensionBookings
+        .where(
+          (b) =>
+              b['extension_status'] == 'pending' ||
+              b['extension_status'] == 'pending_partner',
+        )
+        .length;
+    final payPendingCount = allExtensionBookings
+        .where(
+          (b) =>
+              b['extension_status'] == 'accepted' ||
+              b['extension_status'] == 'payment_pending',
+        )
+        .length;
+    final payReviewCount = allExtensionBookings
+        .where((b) => b['extension_status'] == 'payment_completed')
+        .length;
+    final pendingConfCount = allExtensionBookings
+        .where((b) => b['extension_status'] == 'pending_final_confirmation')
+        .length;
+    final finalizedCount = allExtensionBookings
+        .where((b) => b['extension_status'] == 'finalized')
+        .length;
+    final rejectedCount = allExtensionBookings
+        .where(
+          (b) =>
+              b['extension_status'] == 'rejected' ||
+              b['extension_status'] == 'cancelled',
+        )
+        .length;
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+      children: [
+        RoleTabHeader(
+          title: 'Extend Trip Requests',
+          subtitle:
+              'Review renter extension requests, verify payments, and finalize trips',
+          icon: Icons.update_rounded,
+          badge: '${allExtensionBookings.length} total',
+        ),
+        const SizedBox(height: 12),
+        // Filter pills
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildPartnerExtensionFilterTab(
+                'all',
+                'All (${allExtensionBookings.length})',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'pending',
+                'Pending ($pendingCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'payment_pending',
+                'Payment Pending ($payPendingCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'payment_completed',
+                'Payment Review ($payReviewCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'pending_final_confirmation',
+                'To Finalize ($pendingConfCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'finalized',
+                'Finalized ($finalizedCount)',
+                isDark,
+              ),
+              _buildPartnerExtensionFilterTab(
+                'rejected',
+                'Declined ($rejectedCount)',
+                isDark,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        // Search bar
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.search_rounded,
+                size: 20,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _partnerExtensionSearchController,
+                  onChanged: (value) => setState(() {
+                    _partnerExtensionSearchQuery = value.trim();
+                  }),
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontSize: 13,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'Search request ID, renter, vehicle, destination',
+                    hintStyle: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 12,
+                    ),
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+              if (_partnerExtensionSearchQuery.isNotEmpty)
+                IconButton(
+                  icon: const Icon(
+                    Icons.clear_rounded,
+                    size: 18,
+                    color: AppColors.textSecondary,
+                  ),
+                  onPressed: () {
+                    _partnerExtensionSearchController.clear();
+                    setState(() => _partnerExtensionSearchQuery = '');
+                  },
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (filteredExtensions.isEmpty)
+          RoleEmptyStateCard(
+            icon: Icons.update_disabled_rounded,
+            title: 'No trip extension requests',
+            message:
+                'When renters request to extend their active trips on your vehicles, they will appear here for review.',
+          )
+        else
+          ...filteredExtensions.map(
+            (booking) => Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: _buildPartnerExtendTripRequestCard(booking, isDark),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPartnerExtensionFilterTab(
+    String key,
+    String label,
+    bool isDark,
+  ) {
+    final isSelected = _partnerExtensionFilter == key;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => setState(() => _partnerExtensionFilter = key),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.primary
+                : (isDark ? AppColors.darkBg : Colors.white),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.primary
+                  : (isDark
+                      ? AppColors.borderColor
+                      : AppColors.lightBorderColor),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected
+                  ? Colors.black
+                  : (isDark
+                      ? AppColors.textSecondary
+                      : AppColors.lightTextSecondary),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPartnerExtendTripRequestCard(
+    Map<String, dynamic> booking,
+    bool isDark,
+  ) {
+    final bookingId = booking['id']?.toString() ?? '';
+    final shortBId = bookingId.length >= 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+    final requestId = 'EXT-$shortBId';
+
+    final vehicle = booking['vehicles'] is Map
+        ? booking['vehicles'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final renter = booking['users'] is Map
+        ? booking['users'] as Map<String, dynamic>
+        : <String, dynamic>{};
+
+    final extStatus =
+        booking['extension_status']?.toString().toLowerCase().trim() ??
+        'pending';
+    final requestedAt = DateTime.tryParse(
+      booking['extension_requested_at']?.toString() ?? '',
+    );
+    final requestedEndAt = DateTime.tryParse(
+      booking['extension_requested_end_at']?.toString() ?? '',
+    );
+    final currentEndAt = DateTime.tryParse(
+      (booking['end_at'] ?? booking['end_date'])?.toString() ?? '',
+    );
+
+    final extensionDays =
+        int.tryParse(booking['extension_days']?.toString() ?? '') ??
+        (booking['extension_days'] is num
+            ? (booking['extension_days'] as num).toInt()
+            : 1);
+    final additionalPrice =
+        double.tryParse(
+          booking['extension_additional_price']?.toString() ?? '',
+        ) ??
+        (booking['extension_additional_price'] is num
+            ? (booking['extension_additional_price'] as num).toDouble()
+            : 0.0);
+    final currentTotal =
+        (booking['total_price'] as num?)?.toDouble() ??
+        double.tryParse(booking['total_price']?.toString() ?? '') ??
+        0.0;
+    final updatedTotalPrice = extStatus == 'finalized'
+        ? currentTotal
+        : (currentTotal + additionalPrice);
+
+    final requestedDestination =
+        booking['extension_requested_destination']?.toString().trim();
+    final proofUrl =
+        booking['extension_payment_proof_url']?.toString().trim() ?? '';
+    final paymentMethod =
+        booking['extension_payment_method']?.toString().trim() ?? 'E-Wallet';
+    final paymentRef =
+        booking['extension_payment_reference']?.toString().trim() ?? 'N/A';
+
+    final vehicleTitle =
+        '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+    final vehiclePlate = vehicle['plate_number']?.toString().trim() ?? '';
+    final imageUrl = _bookingVehicleImageUrl(vehicle);
+
+    final renterName = renter['full_name']?.toString().trim().isNotEmpty == true
+        ? renter['full_name'].toString().trim()
+        : 'Renter';
+    final renterPhone = renter['phone']?.toString().trim() ?? '';
+
+    final (statusColor, statusLabel) = switch (extStatus) {
+      'pending' || 'pending_partner' || 'pending_operator' => (
+        const Color(0xFFE5A93C),
+        'PENDING REVIEW',
+      ),
+      'accepted' || 'payment_pending' => (
+        Colors.blueAccent,
+        'PAYMENT PENDING',
+      ),
+      'payment_completed' => (
+        Colors.purpleAccent,
+        'PAYMENT REVIEW',
+      ),
+      'pending_final_confirmation' => (
+        Colors.tealAccent,
+        'PENDING CONFIRMATION',
+      ),
+      'finalized' || 'approved' => (AppColors.success, 'FINALIZED'),
+      'rejected' || 'cancelled' => (AppColors.error, 'DECLINED'),
+      _ => (AppColors.warning, extStatus.toUpperCase()),
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBg : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? AppColors.darkBgSecondary
+                  : const Color(0xFFF8FAFC),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(18),
+              ),
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.update_rounded, color: statusColor, size: 16),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$requestId • Booking #$shortBId',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : AppColors.textPrimary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (requestedAt != null)
+                        Text(
+                          'Requested ${_formatDateShort(requestedAt.toIso8601String())}',
+                          style: const TextStyle(
+                            color: AppColors.textTertiary,
+                            fontSize: 10,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    statusLabel,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Vehicle & Renter row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        color: AppColors.darkBgSecondary,
+                        child: imageUrl != null
+                            ? OptimizedNetworkImage(
+                                imageUrl: imageUrl,
+                                fit: BoxFit.cover,
+                                errorWidget: _buildBookingImageFallback(),
+                              )
+                            : _buildBookingImageFallback(),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vehicleTitle.isEmpty ? 'Vehicle' : vehicleTitle,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          if (vehiclePlate.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Plate: $vehiclePlate',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.person_outline,
+                                size: 13,
+                                color: AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  renterName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                // Extension info grid
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.darkBgSecondary
+                        : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Original End Date',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          Text(
+                            currentEndAt != null
+                                ? _formatDateShort(currentEndAt.toIso8601String())
+                                : 'N/A',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Requested New End Date',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            requestedEndAt != null
+                                ? _formatDateShort(requestedEndAt.toIso8601String())
+                                : 'N/A',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '+$extensionDays Extra Day${extensionDays == 1 ? '' : 's'} Fee',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          Text(
+                            'PHP ${_formatMoney(additionalPrice)}',
+                            style: const TextStyle(
+                              color: AppColors.success,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Updated Total Booking Cost',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          Text(
+                            'PHP ${_formatMoney(updatedTotalPrice)}',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (requestedDestination != null &&
+                          requestedDestination.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Requested Destination: ',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                requestedDestination,
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (proofUrl.isNotEmpty ||
+                    (paymentRef.isNotEmpty && paymentRef != 'N/A')) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Colors.purple.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.receipt_long_rounded,
+                          color: Colors.purpleAccent,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$paymentMethod • Ref: $paymentRef',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.purpleAccent,
+                            ),
+                          ),
+                        ),
+                        if (proofUrl.isNotEmpty)
+                          TextButton(
+                            onPressed: () =>
+                                _showProofImageModal(proofUrl, paymentRef),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'View Receipt',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.purpleAccent,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                // Action buttons based on status
+                if (extStatus == 'pending' ||
+                    extStatus == 'pending_partner' ||
+                    extStatus == 'pending_operator') ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _handleAcceptTripExtension(booking),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Accept Request',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _handleRejectTripExtension(booking),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: const BorderSide(color: AppColors.error),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Decline',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (extStatus == 'accepted' ||
+                    extStatus == 'payment_pending') ...[
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Waiting for Renter to submit extension payment...',
+                          style: TextStyle(
+                            color: Colors.blueAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton(
+                        onPressed: () => _handleRejectTripExtension(booking),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          side: const BorderSide(color: AppColors.error),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text('Decline'),
+                      ),
+                    ],
+                  ),
+                ] else if (extStatus == 'payment_completed') ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () =>
+                              _handleVerifyExtensionPayment(booking),
+                          icon: const Icon(Icons.check_circle_outline, size: 16),
+                          label: const Text('Verify Payment'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.purpleAccent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _handleRejectTripExtension(booking),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: const BorderSide(color: AppColors.error),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('Decline'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (extStatus == 'pending_final_confirmation') ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _handleFinalizeTripExtension(booking),
+                          icon: const Icon(Icons.verified, size: 16),
+                          label: const Text('Finalize Extension'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: OutlinedButton(
+                          onPressed: () => _handleRejectTripExtension(booking),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: const BorderSide(color: AppColors.error),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('Decline'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (extStatus == 'finalized' ||
+                    extStatus == 'approved') ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          color: AppColors.success,
+                          size: 16,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Extension Active & Finalized',
+                          style: TextStyle(
+                            color: AppColors.success,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (extStatus == 'rejected' ||
+                    extStatus == 'cancelled') ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Request Declined${booking['extension_rejection_reason'] != null ? ': ${booking['extension_rejection_reason']}' : ''}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.error,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                  Builder(
+                    builder: (context) {
+                      final extPayStatus = booking['extension_payment_status']?.toString().toLowerCase().trim() ?? '';
+                      final extPayRef = booking['extension_payment_reference']?.toString().trim() ?? '';
+                      final hasExtPayment = (extPayStatus == 'paid' ||
+                              extPayStatus == 'verified' ||
+                              extPayStatus == 'pending_review') ||
+                          (extPayRef.isNotEmpty && extPayRef != 'N/A');
+                      final extRefundStatus = booking['extension_refund_status']?.toString().toLowerCase().trim() ?? '';
+                      final isExtRefunded = extRefundStatus == 'refunded' || booking['extension_refund_completed'] == true;
+                      final refundAmount = (booking['extension_refund_amount'] as num?)?.toDouble() ??
+                          (booking['extension_additional_price'] as num?)?.toDouble() ??
+                          additionalPrice;
+
+                      if (isExtRefunded) {
+                        final refundReceipt = booking['extension_refund_receipt_url']?.toString();
+                        final refundRef = booking['extension_refund_ref']?.toString() ?? 'N/A';
+                        final refundMethod = booking['extension_refund_method']?.toString() ?? 'Online';
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.green.withValues(alpha: 0.35)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 16),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Extension Fee Refund Completed (PHP ${_formatMoney(refundAmount)})',
+                                        style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w800, fontSize: 12),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Disbursed via $refundMethod • Ref: $refundRef',
+                                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                                ),
+                                if (refundReceipt != null && refundReceipt.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  InkWell(
+                                    onTap: () => _showProofImageModal(refundReceipt, refundRef),
+                                    child: const Text(
+                                      'View Refund Receipt Proof',
+                                      style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      } else if (hasExtPayment || booking['extension_refund_required'] == true) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Renter Paid PHP ${_formatMoney(refundAmount)} — Refund Required',
+                                        style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.w800, fontSize: 12),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'This extension was declined after payment was received. Please disburse the refund to the renter.',
+                                  style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                                ),
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _showPartnerExtensionRefundDialog(booking),
+                                    icon: const Icon(Icons.currency_exchange_rounded, size: 16),
+                                    label: const Text('Process Extension Refund'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.amber,
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(vertical: 10),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            _showBookingDetailModal(context, booking),
+                        icon: const Icon(Icons.info_outline, size: 14),
+                        label: const Text('Trip Details'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: isDark
+                              ? Colors.white70
+                              : AppColors.textPrimary,
+                          side: BorderSide(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade300,
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _launchPhone(String phone) async {
+    try {
+      final cleanPhone = phone.replaceAll(RegExp(r'[^\d+]'), '');
+      final uri = Uri.parse('tel:$cleanPhone');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      }
+    } catch (_) {}
+  }
+
+  void _showProofImageModal(String url, String ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black87,
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              title: Text(
+                'Receipt • $ref',
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+              leading: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ),
+            Flexible(
+              child: InteractiveViewer(
+                child: Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Text(
+                      'Failed to load proof image',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleAcceptTripExtension(Map<String, dynamic> booking) async {
+    try {
+      final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+      final bookingId = booking['id']?.toString() ?? '';
+      await BookingService().acceptTripExtension(
+        bookingId: bookingId,
+        reviewerId: currentPartnerId,
+        reviewerRole: 'partner',
+      );
+      _showSuccessSnackBar(
+        'Extension request accepted! Renter notified to complete payment.',
+      );
+      await _loadPartnerData(silent: true);
+    } catch (e) {
+      _showErrorSnackBar('Failed to accept extension: $e');
+    }
+  }
+
+  Future<void> _handleRejectTripExtension(Map<String, dynamic> booking) async {
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: const Text(
+          'Decline Extension Request',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Please provide a reason for declining this extension request.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: InputDecoration(
+                hintText: 'e.g., Vehicle scheduled for maintenance',
+                hintStyle: const TextStyle(color: AppColors.textTertiary),
+                filled: true,
+                fillColor: AppColors.darkBg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Decline Extension'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+      final bookingId = booking['id']?.toString() ?? '';
+      final reason = reasonController.text.trim().isNotEmpty
+          ? reasonController.text.trim()
+          : 'Declined by vehicle owner';
+
+      // ⚡ Optimistic UI update
+      final bookingIndex =
+          bookings.indexWhere((b) => b['id']?.toString() == bookingId);
+      final originalBooking = bookingIndex != -1
+          ? Map<String, dynamic>.from(bookings[bookingIndex])
+          : null;
+      if (bookingIndex != -1) {
+        setState(() {
+          final target = Map<String, dynamic>.from(bookings[bookingIndex]);
+          target['extension_status'] = 'rejected';
+          target['extension_rejection_reason'] = reason;
+          bookings[bookingIndex] = target;
+        });
+      }
+
+      _showSuccessSnackBar('Trip extension request declined');
+
+      try {
+        await BookingService().rejectTripExtension(
+          bookingId: bookingId,
+          reviewerId: currentPartnerId,
+          reviewerRole: 'partner',
+          reason: reason,
+          cachedBooking: booking,
+        );
+        await _loadPartnerData(silent: true);
+      } catch (e) {
+        if (originalBooking != null && bookingIndex != -1 && mounted) {
+          setState(() {
+            bookings[bookingIndex] = originalBooking;
+          });
+        }
+        _showErrorSnackBar('Failed to decline extension: $e');
+      }
+    }
+  }
+
+  Future<void> _handleVerifyExtensionPayment(
+    Map<String, dynamic> booking,
+  ) async {
+    try {
+      final currentPartnerId =
+          partnerId ?? AuthService().currentUser?.id ?? '';
+      final bookingId = booking['id']?.toString() ?? '';
+      await BookingService().verifyExtensionPayment(
+        bookingId: bookingId,
+        verifierId: currentPartnerId,
+        verifierRole: 'partner',
+      );
+      _showSuccessSnackBar(
+        'Extension payment verified! You can now finalize the extension.',
+      );
+      await _loadPartnerData(silent: true);
+    } catch (e) {
+      _showErrorSnackBar('Failed to verify payment: $e');
+    }
+  }
+
+  Future<void> _handleFinalizeTripExtension(
+    Map<String, dynamic> booking,
+  ) async {
+    try {
+      final currentPartnerId =
+          partnerId ?? AuthService().currentUser?.id ?? '';
+      final bookingId = booking['id']?.toString() ?? '';
+      await BookingService().finalizeTripExtension(
+        bookingId: bookingId,
+        finalizerId: currentPartnerId,
+        finalizerRole: 'partner',
+      );
+      _showSuccessSnackBar(
+        'Trip extension finalized! Booking end date and total price updated.',
+      );
+      await _loadPartnerData(silent: true);
+    } catch (e) {
+      _showErrorSnackBar('Failed to finalize extension: $e');
+    }
+  }
+
+  Widget _buildPartnerStatusPillTabs(List<String> statuses) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: statuses.map((status) {
+          final selected = _partnerBookingStatus == status;
+          final count = bookings
+              .where((b) => _matchesBookingTab(b, status))
+              .length;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() => _partnerBookingStatus = status),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: status == 'cancelled' ? 108 : 96,
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primary
+                      : (isDark ? AppColors.darkBg : Colors.white),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: selected
+                        ? AppColors.primary
+                        : (isDark
+                              ? AppColors.borderColor
+                              : AppColors.lightBorderColor),
+                  ),
+                ),
+                child: Text(
+                  '${_bookingTabLabel(status)} ($count)',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? Colors.black
+                        : (isDark
+                              ? AppColors.textSecondary
+                              : AppColors.lightTextSecondary),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildActiveBookingsHero(List<Map<String, dynamic>> filteredBookings) {
+    final liveCount = filteredBookings
+        .where((booking) => _trackingForBooking(booking) != null)
+        .length;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+      decoration: const BoxDecoration(color: Color(0xFF0D2A1F)),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Ongoing Rentals',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF173A2E),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '${liveCount == 0 ? filteredBookings.length : liveCount} Live',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPartnerBookingCard(
+    Map<String, dynamic> booking, {
+    bool emphasizeLive = false,
+  }) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final renter = booking['users'] as Map<String, dynamic>?;
+    final tracking = _trackingForBooking(booking);
+    final renterName =
+        renter?['full_name']?.toString().trim().isNotEmpty == true
+        ? renter!['full_name'].toString().trim()
+        : 'Unknown Renter';
+    final brand = vehicle?['brand']?.toString().trim() ?? '';
+    final model = vehicle?['model']?.toString().trim() ?? '';
+    final year = vehicle?['year']?.toString().trim() ?? '';
+    final rawVehicleName = vehicle?['vehicle_name']?.toString().trim() ?? '';
+    final combo = [brand, model].where((part) => part.isNotEmpty).join(' ');
+    final vehicleTitle = combo.isNotEmpty
+        ? (year.isNotEmpty ? '$combo ($year)' : combo)
+        : (rawVehicleName.isNotEmpty &&
+                rawVehicleName.toLowerCase() != 'partner vehicle' &&
+                rawVehicleName.toLowerCase() != 'unknown vehicle' &&
+                rawVehicleName.toLowerCase() != 'vehicle'
+            ? rawVehicleName
+            : 'Partner Vehicle');
+
+    final directImg = (vehicle?['image_url'] ??
+            vehicle?['vehicle_photo_url'] ??
+            vehicle?['photo_url'] ??
+            booking['vehicle_image_url'] ??
+            booking['image_url'])
+        ?.toString()
+        .trim() ??
+        '';
+    String vehicleImageUrl = directImg;
+    if (vehicleImageUrl.isEmpty) {
+      final vImgs = vehicle?['vehicle_images'];
+      if (vImgs is List && vImgs.isNotEmpty) {
+        for (final img in vImgs) {
+          if (img is Map) {
+            final u = (img['image_url'] ?? img['file_url'] ?? img['url'])
+                ?.toString()
+                .trim() ??
+                '';
+            if (u.isNotEmpty) {
+              vehicleImageUrl = u;
+              break;
+            }
+          }
+        }
+      }
+    }
+    final bookingStatus = _bookingStatusLabel(booking, tracking);
+    final statusGroup = bookingStatusGroup(booking['status']);
+    final rawStatus = (booking['status'] ?? '').toString().toLowerCase().trim();
+    final dateRange = _formatBookingRange(
+      booking['start_at']?.toString() ?? booking['start_date']?.toString(),
+      booking['end_at']?.toString() ?? booking['end_date']?.toString(),
+    );
+    final locationLabel =
+        (booking['dropoff_location']?.toString().trim().isNotEmpty == true)
+        ? booking['dropoff_location'].toString().trim()
+        : booking['pickup_location']?.toString().trim().isNotEmpty == true
+        ? booking['pickup_location'].toString().trim()
+        : 'Location not set';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF132A42),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(
+          color: emphasizeLive && tracking != null
+              ? const Color(0xFF204B6B)
+              : const Color(0xFF1D3A58),
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 18,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (vehicleImageUrl.isNotEmpty) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: OptimizedNetworkImage(
+                      imageUrl: vehicleImageUrl,
+                      fit: BoxFit.cover,
+                      errorWidget: Container(
+                        color: const Color(0xFFE8E0C0),
+                        alignment: Alignment.center,
+                        child: Text(
+                          _initialsForName(renterName),
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ] else ...[
+                Container(
+                  width: 48,
+                  height: 48,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8E0C0),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    _initialsForName(renterName),
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      renterName,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: vehicleTitle.isEmpty
+                                ? 'Vehicle'
+                                : vehicleTitle,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                          TextSpan(
+                            text: ' - $bookingStatus',
+                            style: TextStyle(
+                              color: _bookingStatusColor(bookingStatus),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text(
+                    'RENTAL PERIOD',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    dateRange,
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          if (emphasizeLive && tracking != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF32586F),
+                    Color(0xFF3E6A85),
+                    Color(0xFF173850),
+                  ],
+                ),
+              ),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.location_on_outlined,
+                        color: Colors.black,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 220),
+                        child: Text(
+                          locationLabel,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (statusGroup == BookingStatusGroup.ongoing) ...[
+            const SizedBox(height: 14),
+            BookingReturnCountdown(booking: booking),
+          ],
+          // Trip Extension Management Section for Partner
+          if (booking['extension_status'] != null &&
+              booking['extension_status'].toString().isNotEmpty &&
+              booking['extension_status'] != 'none') ...[
+            const SizedBox(height: 14),
+            _buildPartnerExtensionManagementSection(booking),
+          ],
+          const SizedBox(height: 14),
+          if (rawStatus == 'driver_accepted') ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_outline, color: Colors.green, size: 20),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Driver Accepted Job Offer',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          'Driver is ready! Approve booking to finalize.',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => _handleBookingApproval(
+                      context,
+                      booking,
+                      closeCurrentScreen: false,
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text('Approve', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (rawStatus == 'approved' || rawStatus == 'confirmed' || rawStatus == 'driver_accepted') ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _openPartnerInspectionRecordOrForm(
+                  booking,
+                  inspectionType: 'before',
+                  allowCreate: true,
+                ),
+                icon: const Icon(Icons.fact_check_outlined, size: 18),
+                label: Text(
+                  BookingInspectionService.isPreInspectionUnlocked(booking)
+                      ? 'Pre-Trip Checklist & Inspection'
+                      : 'Pre-Trip Checklist (Locked until 24h before)',
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: BookingInspectionService.isPreInspectionUnlocked(booking)
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFFE5A93C),
+                  side: BorderSide(
+                    color: BookingInspectionService.isPreInspectionUnlocked(booking)
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFFE5A93C),
+                    width: 1.5,
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _showBookingDetailModal(context, booking),
+              icon: const Icon(Icons.remove_red_eye_outlined, size: 18),
+              label: const Text('View Details'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              if (statusGroup == BookingStatusGroup.ongoing) ...[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openTrackingScreen(booking),
+                    icon: const Icon(Icons.map_outlined, size: 18),
+                    label: const Text('Track'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      side: BorderSide(
+                        color: tracking != null
+                            ? const Color(0xFF4172A0)
+                            : const Color(0xFF2C5379),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _openBookingConversation(booking),
+                  icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                  label: const Text('Message'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: Color(0xFF2C5379)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPartnerExtensionManagementSection(Map<String, dynamic> booking) {
+    final extStatus =
+        booking['extension_status']?.toString().toLowerCase().trim() ?? 'pending';
+    final requestedEndAt = DateTime.tryParse(
+      booking['extension_requested_end_at']?.toString() ?? '',
+    );
+    final days = (booking['extension_days'] as num?)?.toInt() ?? 1;
+    final additionalPrice =
+        (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+    final newDest =
+        booking['extension_requested_destination']?.toString().trim();
+    final proofUrl =
+        booking['extension_payment_proof_url']?.toString().trim() ?? '';
+    final payMethod =
+        booking['extension_payment_method']?.toString().trim() ?? 'E-Wallet';
+    final payRef =
+        booking['extension_payment_reference']?.toString().trim() ?? 'N/A';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C1F33),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF204B6B)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.update_rounded,
+                  color: AppColors.primary,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Trip Extension Request',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              _buildPartnerExtensionStatusPill(extStatus),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Requested Return:',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+              Text(
+                requestedEndAt != null
+                    ? '${_formatDateShort(requestedEndAt.toIso8601String())} (+$days d)'
+                    : 'N/A',
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          if (newDest != null && newDest.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'New Destination:',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                ),
+                Flexible(
+                  child: Text(
+                    newDest,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Extension Fee Due:',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+              Text(
+                '+₱${formatAmount(additionalPrice, decimalDigits: 2)}',
+                style: const TextStyle(
+                  color: Colors.greenAccent,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          if (proofUrl.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.receipt_long_rounded, size: 18, color: Colors.greenAccent),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Payment: $payMethod • Ref: $payRef',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => _showReceiptProofDialog(proofUrl),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      child: Text(
+                        'View Proof',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          // Action Buttons for Partner
+          if (extStatus == 'pending' || extStatus == 'pending_partner') ...[
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _showPartnerRejectExtensionDialog(booking),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: const BorderSide(color: AppColors.error),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _handlePartnerAcceptExtension(booking),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text('Accept & Request Pay', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ] else if (extStatus == 'payment_completed') ...[
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _handlePartnerVerifyPayment(booking),
+                    icon: const Icon(Icons.verified_user_rounded, size: 16),
+                    label: const Text('Verify Payment Proof'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF38BDF8),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => _showPartnerRejectExtensionDialog(booking),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Decline'),
+                ),
+              ],
+            ),
+          ] else if (extStatus == 'pending_final_confirmation') ...[
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _handlePartnerFinalizeExtension(booking),
+                    icon: const Icon(Icons.task_alt_rounded, size: 16),
+                    label: const Text('Finalize Extension'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => _showPartnerRejectExtensionDialog(booking),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Decline'),
+                ),
+              ],
+            ),
+          ] else if (extStatus == 'accepted' || extStatus == 'payment_pending') ...[
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Waiting for Renter to submit extension payment...',
+                    style: TextStyle(
+                      color: Colors.amber,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => _showPartnerRejectExtensionDialog(booking),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Decline'),
+                ),
+              ],
+            ),
+          ] else if (extStatus == 'rejected' || extStatus == 'cancelled') ...[
+            Builder(
+              builder: (context) {
+                final extPayStatus = booking['extension_payment_status']?.toString().toLowerCase().trim() ?? '';
+                final extPayRef = booking['extension_payment_reference']?.toString().trim() ?? '';
+                final hasExtPayment = (extPayStatus == 'paid' ||
+                        extPayStatus == 'verified' ||
+                        extPayStatus == 'pending_review') ||
+                    (extPayRef.isNotEmpty && extPayRef != 'N/A');
+                final extRefundStatus = booking['extension_refund_status']?.toString().toLowerCase().trim() ?? '';
+                final isExtRefunded = extRefundStatus == 'refunded' || booking['extension_refund_completed'] == true;
+                final refundAmount = (booking['extension_refund_amount'] as num?)?.toDouble() ??
+                    (booking['extension_additional_price'] as num?)?.toDouble() ??
+                    additionalPrice;
+
+                if (isExtRefunded) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      'Extension Declined • Refund Completed (PHP ${_formatMoney(refundAmount)})',
+                      style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.w700),
+                    ),
+                  );
+                } else if (hasExtPayment || booking['extension_refund_required'] == true) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Extension Declined • Refund Required (PHP ${_formatMoney(refundAmount)})',
+                          style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _showPartnerExtensionRefundDialog(booking),
+                            icon: const Icon(Icons.currency_exchange_rounded, size: 14),
+                            label: const Text('Process Refund', style: TextStyle(fontSize: 12)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPartnerExtensionStatusPill(String status) {
+    Color color;
+    String label;
+
+    switch (status) {
+      case 'pending':
+      case 'pending_partner':
+      case 'pending_operator':
+        color = Colors.amber;
+        label = 'Pending Review';
+        break;
+      case 'accepted':
+      case 'payment_pending':
+        color = const Color(0xFF38BDF8);
+        label = 'Payment Pending';
+        break;
+      case 'payment_completed':
+        color = Colors.purpleAccent;
+        label = 'Payment Review';
+        break;
+      case 'pending_final_confirmation':
+        color = const Color(0xFF6366F1);
+        label = 'Pending Final';
+        break;
+      case 'finalized':
+      case 'approved':
+        color = Colors.greenAccent;
+        label = 'Finalized';
+        break;
+      case 'rejected':
+      case 'cancelled':
+        color = AppColors.error;
+        label = 'Rejected';
+        break;
+      default:
+        color = AppColors.textSecondary;
+        label = status.toUpperCase();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handlePartnerAcceptExtension(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final currentPartnerId = partnerId;
+    if (bookingId.isEmpty || currentPartnerId == null) return;
+
+    try {
+      await BookingService().acceptTripExtension(
+        bookingId: bookingId,
+        reviewerId: currentPartnerId,
+        reviewerRole: 'partner',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Extension request accepted! Renter notified for payment.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Error accepting extension: $e');
+    }
+  }
+
+  Future<void> _handlePartnerVerifyPayment(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final currentPartnerId = partnerId;
+    if (bookingId.isEmpty || currentPartnerId == null) return;
+
+    try {
+      await BookingService().verifyExtensionPayment(
+        bookingId: bookingId,
+        verifierId: currentPartnerId,
+        verifierRole: 'partner',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment verified! Extension is ready for final confirmation.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Error verifying payment: $e');
+    }
+  }
+
+  Future<void> _handlePartnerFinalizeExtension(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final currentPartnerId = partnerId;
+    if (bookingId.isEmpty || currentPartnerId == null) return;
+
+    try {
+      await BookingService().finalizeTripExtension(
+        bookingId: bookingId,
+        finalizerId: currentPartnerId,
+        finalizerRole: 'partner',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Trip extension finalized! New dates & total price committed.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Error finalizing extension: $e');
+    }
+  }
+
+  Future<void> _showPartnerRejectExtensionDialog(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final reasonController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Reject Trip Extension', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Please provide a reason for declining this extension request:',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'e.g. Schedule conflict or maintenance required.',
+                hintStyle: const TextStyle(color: Colors.grey),
+                filled: true,
+                fillColor: Colors.white10,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              final currentPartnerId = partnerId;
+              if (currentPartnerId == null) return;
+              Navigator.pop(dialogContext);
+              try {
+                await BookingService().rejectTripExtension(
+                  bookingId: bookingId,
+                  reviewerId: currentPartnerId,
+                  reviewerRole: 'partner',
+                  reason: reasonController.text.trim(),
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Trip extension rejected.'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                  _loadPartnerData();
+                }
+              } catch (e) {
+                if (mounted) _showErrorSnackBar('Error rejecting extension: $e');
+              }
+            },
+            child: const Text('Reject Request'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReceiptProofDialog(String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: AppColors.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          constraints: const BoxConstraints(maxWidth: 450, maxHeight: 600),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Payment Receipt Proof',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: OptimizedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.contain,
+                    placeholder: const Center(child: CircularProgressIndicator()),
+                    errorWidget: const Center(
+                      child: Text('Could not load receipt image.'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _matchesBookingTab(Map<String, dynamic> booking, String tabKey) {
+    if (tabKey == 'extensions') {
+      final ext = booking['extension_status']?.toString().toLowerCase().trim();
+      return ext != null && ext.isNotEmpty && ext != 'none';
+    }
+    return bookingStatusGroup(booking['status']).name == tabKey;
+  }
+
+  String _bookingTabLabel(String tabKey) {
+    switch (tabKey) {
+      case 'pending':
+        return 'Pending';
+      case 'extensions':
+        return 'Extend Trips';
+      case 'approved':
+        return 'Approved';
+      case 'ongoing':
+        return 'Ongoing';
+      case 'completed':
+        return 'Completed';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return 'Bookings';
+    }
+  }
+
+  String _formatDateShort(String? raw) {
+    if (raw == null || raw.isEmpty) return 'N/A';
+    final dt = DateTime.tryParse(raw)?.toLocal();
+    if (dt == null) return raw;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
+  Map<String, dynamic>? _trackingForBooking(Map<String, dynamic> booking) {
+    final bookingId = booking['id']?.toString();
+    if (bookingId == null || bookingId.isEmpty) return null;
+    for (final location in trackingLocations) {
+      if (location['booking_id']?.toString() == bookingId) {
+        return location;
+      }
+    }
+    return null;
+  }
+
+  String _bookingStatusLabel(
+    Map<String, dynamic> booking,
+    Map<String, dynamic>? tracking,
+  ) {
+    final status = (booking['status']?.toString() ?? '').toLowerCase();
+    if (tracking != null) {
+      final speed =
+          ((tracking['speed_mps'] as num?)?.toDouble() ?? 0) * 2.23694;
+      return speed > 4 ? 'In Transit' : 'Parked';
+    }
+    return bookingStatusLabel(bookingStatusGroup(status));
+  }
+
+  Color _bookingStatusColor(String label) {
+    final normalized = label.toLowerCase();
+    if (normalized.contains('transit') || normalized.contains('ongoing')) {
+      return AppColors.primary;
+    }
+    if (normalized.contains('park') || normalized.contains('approved')) {
+      return AppColors.success;
+    }
+    if (normalized.contains('cancel') || normalized.contains('reject')) {
+      return AppColors.error;
+    }
+    return AppColors.textSecondary;
+  }
+
+  String _formatBookingRange(String? startRaw, String? endRaw) {
+    final start = DateTime.tryParse(startRaw ?? '')?.toLocal();
+    final end = DateTime.tryParse(endRaw ?? '')?.toLocal();
+    if (start == null || end == null) return 'Dates unavailable';
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[start.month - 1]} ${start.day} - ${months[end.month - 1]} ${end.day}';
+  }
+
+  String _initialsForName(String name) {
+    final parts = name
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .take(2)
+        .toList();
+    if (parts.isEmpty) return 'P';
+    return parts.map((part) => part.trim()[0].toUpperCase()).join();
+  }
+
+  Future<void> _openBookingConversation(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final renter = booking['users'] as Map<String, dynamic>?;
+    final renterId =
+        renter?['id']?.toString() ?? booking['renter_id']?.toString() ?? '';
+    final renterName = renter?['full_name']?.toString() ?? 'Booking Chat';
+
+    if (bookingId.isEmpty) {
+      _showErrorSnackBar('Booking conversation is unavailable');
+      return;
+    }
+
+    try {
+      final chatService = ChatService();
+      var conversation = await chatService.getConversationByBookingId(
+        bookingId,
+      );
+
+      final bookingStatus =
+          booking['status']?.toString().trim().toLowerCase() ?? '';
+      const activeChatStatuses = {
+        'approved',
+        'confirmed',
+        'active',
+        'ongoing',
+        'return_pending_inspection',
+        'awaiting_completion',
+        'completed',
+      };
+
+      if (conversation == null) {
+        if (!activeChatStatuses.contains(bookingStatus)) {
+          _showErrorSnackBar(
+            'Chat will be available once the booking is confirmed.',
+          );
+          return;
+        }
+        if (!BookingService().isEligibleForBookingChat(booking)) {
+          _showErrorSnackBar(
+            'Chat will automatically be available 3 days before the trip starts.',
+          );
+          return;
+        }
+        if (partnerId != null && renterId.isNotEmpty) {
+          conversation = await chatService.createGroupConversation(
+            bookingId: bookingId,
+            participantIds: [partnerId!, renterId],
+          );
+        }
+      }
+
+      final conversationId = conversation?['id']?.toString() ?? '';
+      if (conversationId.isEmpty) {
+        _showErrorSnackBar('No conversation found for this booking');
+        return;
+      }
+
+      if (!mounted) return;
+      Navigator.pushNamed(
+        context,
+        '/chat-detail',
+        arguments: {
+          'conversationId': conversationId,
+          'recipientName': renterName,
+          'recipientAvatar': '',
+          'isDarkMode': true,
+          'isAutoGenerated': true,
+        },
+      );
+    } catch (e) {
+      _showErrorSnackBar('Failed to open booking conversation');
+    }
+  }
+
+  Future<void> _openPartnerInspectionRecordOrForm(
+    Map<String, dynamic> booking, {
+    required String inspectionType,
+    required bool allowCreate,
+  }) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    try {
+      final record = await BookingInspectionService().getCompletedInspection(
+        bookingId: bookingId,
+        inspectionType: inspectionType,
+      );
+      if (!mounted) return;
+
+      final currentStatus = booking['status']?.toString().trim().toLowerCase() ?? '';
+      final isTripNotStarted = inspectionType == 'before' &&
+          (currentStatus == 'approved' || currentStatus == 'confirmed' || currentStatus == 'driver_accepted');
+
+      if (isTripNotStarted) {
+        final choice = await showDialog<String>(
+          context: context,
+          builder: (dialogCtx) => AlertDialog(
+            backgroundColor: AppColors.darkBgSecondary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle_outline_rounded, color: Color(0xFF10B981), size: 24),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Pre-Checklist Completed',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: const Text(
+              'The pre-trip checklist is already submitted. Would you like to release the vehicle keys and start the trip now (move booking to Ongoing)?',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx, 'view'),
+                child: const Text('View Checklist', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(dialogCtx, 'start'),
+                icon: const Icon(Icons.key_rounded, size: 16),
+                label: const Text('Start Trip (Ongoing)'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        if (choice == 'start') {
+          final currentUserId = AuthService().currentUser?.id;
+          if (currentUserId == null) return;
+          try {
+            await BookingService().startBookingAfterInspection(
+              bookingId: bookingId,
+              inspectorId: currentUserId,
+            );
+            if (!mounted) return;
+            _showSuccessSnackBar('Trip is now ongoing!');
+            await _loadPartnerData();
+          } catch (e) {
+            if (!mounted) return;
+            _showErrorSnackBar('Failed to start trip: $e');
+          }
+          return;
+        } else if (choice == null) {
+          return;
+        }
+      }
+
+      await showVehicleInspectionRecordDialog(
+        context,
+        record: record,
+        title: inspectionType == 'before'
+            ? 'Submitted Pre-Trip Checklist'
+            : 'Submitted Return Checklist',
+        actionButton: isTripNotStarted
+            ? SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    final currentUserId = AuthService().currentUser?.id;
+                    if (currentUserId == null) return;
+                    try {
+                      await BookingService().startBookingAfterInspection(
+                        bookingId: bookingId,
+                        inspectorId: currentUserId,
+                      );
+                      if (!mounted) return;
+                      _showSuccessSnackBar('Trip is now ongoing!');
+                      await _loadPartnerData();
+                    } catch (e) {
+                      if (!mounted) return;
+                      _showErrorSnackBar('Failed to start trip: $e');
+                    }
+                  },
+                  icon: const Icon(Icons.key_rounded, size: 18),
+                  label: const Text('Release Vehicle & Start Trip (Ongoing)'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+              )
+            : null,
+      );
+    } catch (_) {
+      if (allowCreate) {
+        if (inspectionType == 'before' && !BookingInspectionService.isPreInspectionUnlocked(booking)) {
+          final unlockTime = BookingInspectionService.getPreInspectionUnlockTime(booking);
+          final timeStr = unlockTime != null
+              ? DateFormat('MMM d, yyyy h:mm a').format(unlockTime)
+              : '24 hours before trip start';
+          if (!mounted) return;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.lock_clock_rounded, color: Color(0xFFE5A93C)),
+                  SizedBox(width: 10),
+                  Text('Pre-Checklist Locked', style: TextStyle(color: Colors.white, fontSize: 16)),
+                ],
+              ),
+              content: Text(
+                'The Pre-Trip Checklist & Car Inspection is locked until 24 hours before the actual booking start time.\n\nAvailable starting: $timeStr',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK', style: TextStyle(color: Color(0xFFE5A93C))),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+
+        await _showPartnerInspectionDialog(
+          booking,
+          inspectionType: inspectionType,
+        );
+        return;
+      }
+      if (!mounted) return;
+      _showErrorSnackBar('No submitted checklist is available yet');
+    }
+  }
+
+  Future<void> _openTrackingScreen(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) {
+      _showErrorSnackBar('Tracking is unavailable for this booking');
+      return;
+    }
+
+    try {
+      final chatService = ChatService();
+      var conversation = await chatService.getConversationByBookingId(
+        bookingId,
+      );
+      final renter = booking['users'] as Map<String, dynamic>?;
+      final renterId =
+          renter?['id']?.toString() ?? booking['renter_id']?.toString() ?? '';
+      final renterName = renter?['full_name']?.toString() ?? 'Renter';
+
+      final bookingStatus =
+          booking['status']?.toString().trim().toLowerCase() ?? '';
+      const activeChatStatuses = {
+        'approved',
+        'confirmed',
+        'active',
+        'ongoing',
+        'return_pending_inspection',
+        'awaiting_completion',
+        'completed',
+      };
+
+      if (conversation == null &&
+          activeChatStatuses.contains(bookingStatus) &&
+          BookingService().isEligibleForBookingChat(booking) &&
+          partnerId != null &&
+          renterId.isNotEmpty) {
+        conversation = await chatService.createGroupConversation(
+          bookingId: bookingId,
+          participantIds: [partnerId!, renterId],
+        );
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PartnerTrackingScreen(
+            booking: booking,
+            conversationId: conversation?['id']?.toString() ?? '',
+            recipientName: renterName,
+          ),
+        ),
+      );
+    } catch (e) {
+      _showErrorSnackBar('Failed to open live tracker');
+    }
+  }
+
+  /// 🎯 Show booking detail modal with approve/reject and driver assignment
+  Future<void> _confirmPartnerFinalPayment(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final actorId = AuthService().currentUser?.id;
+    if (bookingId.isEmpty || actorId == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Full Payment'),
+        content: const Text(
+          'Confirm that the full rental balance and any late-return fee have been paid. You will rate the renter after this.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not Yet'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirm Payment'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await BookingService().confirmFinalPayment(
+        bookingId: bookingId,
+        actorId: actorId,
+        actorRole: 'partner',
+      );
+      await _loadPartnerData();
+      if (!mounted) return;
+      _showSuccessSnackBar('Full payment confirmed. Opening renter rating...');
+      await _openPartnerRenterRating(context, booking);
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _openPartnerRenterRating(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    final submitted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => TripRatingFlowScreen(
+          bookingId: bookingId,
+          reviewerRole: 'partner',
+          title: 'Rate Trip',
+          subtitle:
+              'Rate the renter and driver for this trip.',
+        ),
+      ),
+    );
+    if (submitted == true) {
+      final actorId = AuthService().currentUser?.id;
+      final reconciled = await TripRatingService().reconcileCompletedBooking(
+        bookingId,
+        operatorFallbackUserId: actorId,
+      );
+      await _loadPartnerData();
+      if (!mounted) return;
+      _showSuccessSnackBar(
+        reconciled
+            ? 'Rating saved. Trip completed and revenue updated.'
+            : 'Rating saved. Waiting for remaining required reviews.',
+      );
+    }
+  }
+
+  void _showBookingDetailModal(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) {
+    final parentContext = context;
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final renter = booking['users'] as Map<String, dynamic>?;
+    final withDriver = _bookingNeedsDriver(booking['with_driver']);
+    final driverId = booking['driver_id'];
+    final status = (booking['status'] as String? ?? 'pending').toLowerCase();
+    final completionState = BookingService().getTripCompletionState(booking);
+    final completionStage = completionState['completionStage']?.toString();
+    final canAssignDriver = withDriver &&
+        (status == 'pending' ||
+            status == 'driver_accepted' ||
+            status == 'approved' ||
+            status == 'confirmed');
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (pageContext) => Scaffold(
+          backgroundColor: AppColors.darkBg,
+          appBar: AppBar(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.black,
+            elevation: 0,
+            title: const Text(
+              'Booking Details',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+          ),
+          body: SafeArea(
+            child: BookingDetailModal(
+              booking: booking,
+              vehicle: vehicle,
+              renter: renter,
+              showHeader: false,
+              onApprove: () => _handleBookingApproval(pageContext, booking),
+              onReject: () => _handleBookingRejection(pageContext, booking),
+              onAssignDriver: canAssignDriver
+                  ? () => _showDriverAssignmentModal(pageContext, booking)
+                  : null,
+              onReviewDocs: () =>
+                  _openPartnerBookingSafetyReview(pageContext, booking),
+              onMessage:
+                  status == 'approved' ||
+                      status == 'confirmed' ||
+                      status == 'driver_accepted' ||
+                      status == 'active' ||
+                      status == 'ongoing' ||
+                      status == 'return_pending_inspection'
+                  ? () => _openBookingConversation(booking)
+                  : null,
+              onBeforeInspection: status == 'approved' ||
+                      status == 'confirmed' ||
+                      status == 'driver_accepted'
+                  ? () => _openPartnerInspectionRecordOrForm(
+                      booking,
+                      inspectionType: 'before',
+                      allowCreate: true,
+                    )
+                  : null,
+              onViewBeforeInspection:
+                  status == 'active' ||
+                      status == 'ongoing' ||
+                      status == 'return_pending_inspection'
+                  ? () => _openPartnerInspectionRecordOrForm(
+                      booking,
+                      inspectionType: 'before',
+                      allowCreate: false,
+                    )
+                  : null,
+              onAfterInspection:
+                  status == 'active' ||
+                      status == 'ongoing' ||
+                      status == 'return_pending_inspection'
+                  ? () => _showPartnerInspectionDialog(
+                      booking,
+                      inspectionType: 'after',
+                    )
+                  : null,
+              onRateTrip: (completionStage == 'partner_rating' ||
+                      status == 'completed' ||
+                      status == 'returned' ||
+                      status == 'return_inspected')
+                  ? () => _openPartnerRenterRating(parentContext, booking)
+                  : null,
+              onReceipt: () => BookingReceiptService.shareReceipt(booking),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 🚗 Open dedicated screen for Renter Safety Review & Documents
+  void _openPartnerBookingSafetyReview(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PartnerSafetyReviewScreen(booking: booking),
+      ),
+    );
+  }
+
+  Widget _buildPartnerReviewLine(String label, String? value) {
+    final clean = value?.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            clean == null || clean.isEmpty ? 'Not provided' : clean,
+            style: const TextStyle(color: AppColors.textPrimary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _showPartnerReleasePaymentSettlementDialog(
+    BuildContext context,
+    Map<String, dynamic> currentBooking,
+    double remainingBalance,
+  ) async {
+    final bookingId = currentBooking['id']?.toString() ?? '';
+    final partnerId = AuthService().currentUser?.id ?? '';
+    String selectedMethod = 'Cash';
+    final refController = TextEditingController(text: 'CASH-HANDOVER');
+    final notesController = TextEditingController();
+    bool isSettling = false;
+
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: AppColors.darkBgSecondary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: AppColors.borderColor),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.point_of_sale_rounded, color: AppColors.primary),
+              SizedBox(width: 10),
+              Text('Settle Remaining Balance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Balance to Settle:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.white70)),
+                      Text(
+                        'PHP ${formatAmount(remainingBalance, decimalDigits: 2)}',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text('Payment Method', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedMethod,
+                  dropdownColor: AppColors.darkBgSecondary,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  items: const [
+                    DropdownMenuItem(value: 'Cash', child: Text('Cash Handover at Pickup')),
+                    DropdownMenuItem(value: 'GCash', child: Text('GCash')),
+                    DropdownMenuItem(value: 'Maya', child: Text('Maya / PayMaya')),
+                    DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer (BDO/BPI/QR Ph)')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setDialogState(() {
+                        selectedMethod = val;
+                        if (val == 'Cash') {
+                          refController.text = 'CASH-HANDOVER';
+                        } else if (refController.text == 'CASH-HANDOVER') {
+                          refController.text = '';
+                        }
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: refController,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: const InputDecoration(
+                    labelText: 'Payment Reference / Transaction ID *',
+                    labelStyle: TextStyle(color: AppColors.textSecondary),
+                    hintText: 'e.g. CASH-HANDOVER or GCash Ref #',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: notesController,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: const InputDecoration(
+                    labelText: 'Notes / Remarks (Optional)',
+                    labelStyle: TextStyle(color: AppColors.textSecondary),
+                    hintText: 'e.g. Collected remaining rental payment at key handover',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSettling ? null : () => Navigator.pop(dialogCtx, false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: isSettling
+                  ? null
+                  : () async {
+                      final ref = refController.text.trim();
+                      if (ref.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Please provide a payment reference or receipt ID.')),
+                        );
+                        return;
+                      }
+                      setDialogState(() => isSettling = true);
+                      try {
+                        await BookingService().settleReleasePayment(
+                          bookingId: bookingId,
+                          actorId: partnerId,
+                          actorRole: 'partner',
+                          paymentMethod: selectedMethod,
+                          paymentReference: ref,
+                          notes: notesController.text.trim(),
+                        );
+                        if (dialogCtx.mounted) Navigator.pop(dialogCtx, true);
+                      } catch (e) {
+                        setDialogState(() => isSettling = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Failed to settle payment: $e'), backgroundColor: AppColors.error),
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+              ),
+              child: isSettling
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  : const Text('Confirm Payment Received', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPartnerInspectionDialog(
+    Map<String, dynamic> booking, {
+    required String inspectionType,
+  }) async {
+    final currentUserId = AuthService().currentUser?.id;
+    final bookingId = booking['id']?.toString() ?? '';
+    if (currentUserId == null || bookingId.isEmpty) return;
+
+    var currentBookingData = Map<String, dynamic>.from(booking);
+
+    final fuelController = TextEditingController();
+    final tiresController = TextEditingController();
+    final magsController = TextEditingController();
+    final exteriorRemarksController = TextEditingController(text: 'Good');
+    final interiorRemarksController = TextEditingController(text: 'Good');
+    final autosweepBalanceController = TextEditingController(text: 'N/A');
+    final easytripBalanceController = TextEditingController(text: 'N/A');
+    final toolsRemarksController = TextEditingController(text: 'Good');
+    final cleanlinessRemarksController = TextEditingController(text: 'Good');
+    final otherItemsController = TextEditingController(text: 'N/A');
+    final othersRemarksController = TextEditingController(text: 'Good');
+    final releasedByController = TextEditingController();
+    final receivedByController = TextEditingController();
+    final inspectionControllers = <TextEditingController>[
+      fuelController,
+      tiresController,
+      magsController,
+      exteriorRemarksController,
+      interiorRemarksController,
+      autosweepBalanceController,
+      easytripBalanceController,
+      toolsRemarksController,
+      cleanlinessRemarksController,
+      otherItemsController,
+      othersRemarksController,
+      releasedByController,
+      receivedByController,
+    ];
+    final checklistItems = <String, bool>{
+      for (final key in BookingInspectionService.requiredChecklistKeys)
+        key: false,
+    };
+    final selectedEvidence = <PlatformFile>[];
+    bool partnerEligibleRecommendation = true;
+
+    final shouldSave = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          final isFullyPaid = BookingService().isBookingFullyPaid(currentBookingData);
+          final remainingBalance = BookingService().getBookingRemainingBalance(currentBookingData);
+
+          return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              18,
+              18,
+              18,
+              18 + MediaQuery.of(sheetContext).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: const Icon(
+                          Icons.fact_check_outlined,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              inspectionType == 'before'
+                                  ? 'Pre-Trip Vehicle Release Inspection'
+                                  : 'Post-Trip Vehicle Return Inspection',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              inspectionType == 'before'
+                                  ? 'Required before this booking can move to Ongoing.'
+                                  : 'Report the vehicle condition for Operator deposit review.',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (inspectionType == 'before') ...[
+                    if (isFullyPaid) ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '100% Fully Paid (PHP 0.00 balance) • Ready for key release',
+                                style: TextStyle(
+                                  color: Color(0xFF10B981),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.5)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B), size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Unpaid Balance: PHP ${formatAmount(remainingBalance, decimalDigits: 2)}',
+                                    style: const TextStyle(
+                                      color: Color(0xFFF59E0B),
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Full payment is strictly required before handing over vehicle keys. Settle balance below to unlock release.',
+                              style: TextStyle(fontSize: 11, color: Colors.white70),
+                            ),
+                            const SizedBox(height: 10),
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                final settled = await _showPartnerReleasePaymentSettlementDialog(
+                                  sheetContext,
+                                  currentBookingData,
+                                  remainingBalance,
+                                );
+                                if (settled == true) {
+                                  final updated = await BookingService().getBookingById(bookingId);
+                                  if (updated != null) {
+                                    setSheetState(() => currentBookingData = updated);
+                                  }
+                                }
+                              },
+                              icon: const Icon(Icons.payments_outlined, size: 16),
+                              label: const Text('Settle Remaining Balance with Renter'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFF59E0B),
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                  DialogStatusIndicator(
+                    compact: true,
+                    isComplete:
+                        fuelController.text.trim().isNotEmpty &&
+                        tiresController.text.trim().isNotEmpty &&
+                        magsController.text.trim().isNotEmpty &&
+                        releasedByController.text.trim().isNotEmpty &&
+                        receivedByController.text.trim().isNotEmpty &&
+                        selectedEvidence.isNotEmpty,
+                    completeLabel: 'Inspection information complete',
+                    incompleteLabel: 'Inspection information incomplete',
+                    completeDetail:
+                        'Required fields and photo evidence are ready. Checklist items are optional.',
+                    incompleteDetail:
+                        'Fill in required condition fields (fuel, tires, mags, names) and attach at least one photo or video.',
+                  ),
+                  const SizedBox(height: 12),
+                  // Informative checklist banner
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.blue.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info_outline_rounded, size: 15, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            inspectionType == 'before'
+                                ? 'Pre-trip checklist items are optional. Check only items that apply and are in working condition. Unchecked items will be recorded as existing defects.'
+                                : 'Post-trip checklist: check items in good working condition. Unchecked items and damages will be sent to the Operator to determine applicable security deposit deductions.',
+                            style: const TextStyle(fontSize: 11, color: Colors.blue, height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  VehicleInspectionChecklistFields(
+                    values: checklistItems,
+                    isDark: true,
+                    onChanged: (entry) => setSheetState(
+                      () => checklistItems[entry.key] = entry.value,
+                    ),
+                    onSelectAll: (selected) => setSheetState(() {
+                      for (final key in checklistItems.keys) {
+                        checklistItems[key] = selected;
+                      }
+                    }),
+                  ),
+                  const SizedBox(height: 4),
+                  VehicleInspectionSupplementalFields(
+                    isDark: true,
+                    fuelLevelController: fuelController,
+                    tiresController: tiresController,
+                    magsController: magsController,
+                    exteriorRemarksController: exteriorRemarksController,
+                    interiorRemarksController: interiorRemarksController,
+                    autosweepBalanceController: autosweepBalanceController,
+                    easytripBalanceController: easytripBalanceController,
+                    toolsRemarksController: toolsRemarksController,
+                    cleanlinessRemarksController: cleanlinessRemarksController,
+                    otherItemsController: otherItemsController,
+                    othersRemarksController: othersRemarksController,
+                    releasedByController: releasedByController,
+                    receivedByController: receivedByController,
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final result = await FilePicker.platform.pickFiles(
+                        type: FileType.media,
+                        allowMultiple: true,
+                        withData: true,
+                      );
+                      if (result == null) return;
+                      final usableFiles = result.files
+                          .where(
+                            (file) =>
+                                file.bytes != null &&
+                                file.size <= 25 * 1024 * 1024,
+                          )
+                          .toList();
+                      setSheetState(() {
+                        final existingNames =
+                            selectedEvidence.map((f) => f.name).toSet();
+                        for (final file in usableFiles) {
+                          if (!existingNames.contains(file.name) &&
+                              selectedEvidence.length < 10) {
+                            selectedEvidence.add(file);
+                            existingNames.add(file.name);
+                          }
+                        }
+                      });
+                    },
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    label: Text(
+                      selectedEvidence.isEmpty
+                          ? 'Add photos or videos (4 to 5 images recommended)'
+                          : 'Add more photos/videos (${selectedEvidence.length} selected)',
+                    ),
+                  ),
+                  if (selectedEvidence.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: selectedEvidence
+                          .map(
+                            (file) => InputChip(
+                              avatar: const Icon(Icons.image_outlined, size: 16),
+                              label: Text(file.name),
+                              onDeleted: () => setSheetState(
+                                () => selectedEvidence.remove(file),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
+                  if (inspectionType == 'after') ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: partnerEligibleRecommendation
+                            ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                            : AppColors.darkBg,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: partnerEligibleRecommendation
+                              ? const Color(0xFF10B981)
+                              : AppColors.borderColor,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Checkbox(
+                            value: partnerEligibleRecommendation,
+                            activeColor: const Color(0xFF10B981),
+                            onChanged: (val) {
+                              setSheetState(() {
+                                partnerEligibleRecommendation = val ?? false;
+                              });
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Partner Report: Vehicle Returned in Good Condition',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                    color: partnerEligibleRecommendation
+                                        ? const Color(0xFF10B981)
+                                        : AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                const Text(
+                                  'Check if vehicle has no unaddressed damages or issues. This serves as your condition recommendation; the Operator will review all inspection findings and make the final decision regarding security deposit refund or deductions.',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textSecondary,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        if (inspectionType == 'before' && !isFullyPaid) {
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Cannot release vehicle keys: Full payment of PHP ${formatAmount(remainingBalance, decimalDigits: 2)} is required before handover. Please settle balance first.',
+                              ),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                          return;
+                        }
+
+                        final requiredFieldsReady =
+                            fuelController.text.trim().isNotEmpty &&
+                            tiresController.text.trim().isNotEmpty &&
+                            magsController.text.trim().isNotEmpty &&
+                            releasedByController.text.trim().isNotEmpty &&
+                            receivedByController.text.trim().isNotEmpty;
+
+                        if (!requiredFieldsReady || selectedEvidence.isEmpty) {
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Please fill in condition fields (fuel, tires, mags, names) and attach at least one photo or video.',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                        Navigator.pop(sheetContext, true);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: Text(
+                        inspectionType == 'before'
+                            ? 'Submit and Start Trip'
+                            : 'Submit Inspection to Operator',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        },
+      ),
+    );
+
+    if (shouldSave != true) {
+      for (final controller in inspectionControllers) {
+        controller.dispose();
+      }
+      return;
+    }
+
+    final missingRequiredFields =
+        fuelController.text.trim().isEmpty ||
+        tiresController.text.trim().isEmpty ||
+        magsController.text.trim().isEmpty ||
+        releasedByController.text.trim().isEmpty ||
+        receivedByController.text.trim().isEmpty;
+    if (missingRequiredFields || selectedEvidence.isEmpty) {
+      _showErrorSnackBar(
+        selectedEvidence.isEmpty
+            ? 'Please attach at least one checklist photo or video'
+            : 'Please complete the required condition and handover fields',
+      );
+      for (final controller in inspectionControllers) {
+        controller.dispose();
+      }
+      return;
+    }
+
+    try {
+      if (selectedEvidence.isNotEmpty) {
+        _showSuccessSnackBar('Uploading checklist evidence...');
+      }
+      final filesToUpload = selectedEvidence
+          .where((file) => file.bytes != null)
+          .map((file) => (bytes: file.bytes!, extension: file.extension ?? 'jpg'))
+          .toList();
+      final evidenceUrls = await BookingInspectionService()
+          .uploadMultipleEvidenceBytes(
+            userId: currentUserId,
+            bookingId: bookingId,
+            files: filesToUpload,
+          );
+      final savedInspection = await BookingInspectionService().saveInspection(
+        bookingId: bookingId,
+        inspectionType: inspectionType,
+        inspectorId: currentUserId,
+        fuelLevel: fuelController.text.trim(),
+        cleanliness: cleanlinessRemarksController.text.trim(),
+        scratches: exteriorRemarksController.text.trim(),
+        remarks: othersRemarksController.text.trim(),
+        tiresDetails: tiresController.text.trim(),
+        magsDetails: magsController.text.trim(),
+        autosweepBalance: autosweepBalanceController.text.trim(),
+        easytripBalance: easytripBalanceController.text.trim(),
+        otherItems: otherItemsController.text.trim(),
+        sectionRemarks: {
+          'exterior': exteriorRemarksController.text.trim(),
+          'interior': interiorRemarksController.text.trim(),
+          'tools_accessories': toolsRemarksController.text.trim(),
+          'cleanliness': cleanlinessRemarksController.text.trim(),
+          'others': othersRemarksController.text.trim(),
+        },
+        evidenceUrls: evidenceUrls,
+        checklistItems: checklistItems,
+        releasedBy: releasedByController.text,
+        receivedBy: receivedByController.text,
+      );
+      // Immediately post the inspection checklist audit to chat so it is guaranteed to submit
+      try {
+        await BookingService().postInspectionAuditToBookingChat(
+          booking: currentBookingData,
+          inspection: savedInspection,
+          inspectionType: inspectionType,
+        );
+      } catch (auditErr) {
+        debugPrint('[PartnerHomeScreen] Warning posting inspection audit: $auditErr');
+      }
+      if (inspectionType == 'before') {
+        try {
+          await BookingService().startBookingAfterInspection(
+            bookingId: bookingId,
+            inspectorId: currentUserId,
+          );
+          if (!mounted) return;
+          _showSuccessSnackBar(
+            'Release checklist submitted. The trip is now ongoing.',
+          );
+        } catch (startErr) {
+          debugPrint('[PartnerHomeScreen] Error starting booking after inspection: $startErr');
+          if (!mounted) return;
+          _showErrorSnackBar(
+            'Checklist saved! To complete handover, tap "Pre-Trip Inspection" to start the trip.',
+          );
+        }
+      } else {
+        final bookingData =
+            await BookingService().getBookingById(bookingId) ?? booking;
+        final isFullyPaid = BookingService().isBookingFullyPaid(bookingData);
+        final remainingBalance =
+            BookingService().getBookingRemainingBalance(bookingData);
+        final lateReturn =
+            BookingService().getLateReturnDetails(bookingData, DateTime.now());
+        final lateReturnFee =
+            (lateReturn['late_return_fee'] as num?)?.toDouble() ?? 0.0;
+        final lateHours =
+            (lateReturn['late_return_hours'] as num?)?.toInt() ?? 0;
+
+        final hasChargesOrViolations =
+            lateReturnFee > 0 || remainingBalance > 0 || !isFullyPaid;
+        bool confirmPaymentNow = false;
+
+        if (hasChargesOrViolations) {
+          final choice = await showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => AlertDialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.borderColor),
+              ),
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.orange,
+                    size: 28,
+                  ),
+                  SizedBox(width: 10),
+                  Text(
+                    'Late Fee & Balance Settlement',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (lateReturnFee > 0) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF5C5C).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: const Color(0xFFFF5C5C).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Late Return Penalty ($lateHours hr${lateHours == 1 ? '' : 's'}):',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'PHP ${formatAmount(lateReturnFee, decimalDigits: 2)}',
+                            style: const TextStyle(
+                              color: Color(0xFFFF5C5C),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (remainingBalance > 0) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Unpaid Rental Balance:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'PHP ${formatAmount(remainingBalance, decimalDigits: 2)}',
+                            style: const TextStyle(
+                              color: Color(0xFFF59E0B),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  const Text(
+                    'The renter has additional charges or late return fees. Settle and confirm payment to complete this return.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'cancel'),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: AppColors.textTertiary),
+                  ),
+                ),
+                OutlinedButton(
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, 'proceed_unpaid'),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.orange),
+                    foregroundColor: Colors.orange,
+                  ),
+                  child: const Text('Proceed (Stay Awaiting Payment)'),
+                ),
+                ElevatedButton(
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, 'confirm_payment'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Settle & Complete Return'),
+                ),
+              ],
+            ),
+          );
+
+          if (choice == 'cancel' || choice == null) return;
+          if (choice == 'confirm_payment') {
+            confirmPaymentNow = true;
+          }
+        } else {
+          // No late return fee and fully paid -> completes automatically without showing payment window!
+          confirmPaymentNow = true;
+        }
+
+        await BookingService().completeBookingAfterInspection(
+          bookingId: bookingId,
+          inspectorId: currentUserId,
+          confirmPaymentIfUnpaid: confirmPaymentNow,
+        );
+
+        await BookingService().setSecurityDepositReturnEligibility(
+          bookingId: bookingId,
+          isEligible: partnerEligibleRecommendation,
+          ineligibilityReason: partnerEligibleRecommendation
+              ? null
+              : 'Partner reported damages / vehicle issues for Operator review.',
+        );
+
+        if (!mounted) return;
+        _showSuccessSnackBar(
+          (!hasChargesOrViolations || confirmPaymentNow)
+              ? 'Return checklist submitted. Vehicle condition reported to Operator for security deposit review.'
+              : 'Return checklist submitted. Trip is awaiting late fee / balance payment confirmation.',
+        );
+      }
+      await _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Failed to save checklist: $e');
+    } finally {
+      for (final controller in inspectionControllers) {
+        controller.dispose();
+      }
+    }
+  }
+
+  Widget _buildPartnerInspectionField(
+    TextEditingController controller,
+    String label, {
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+    String? hintText,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        style: const TextStyle(color: AppColors.textPrimary),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hintText,
+          labelStyle: const TextStyle(color: AppColors.textSecondary),
+          filled: true,
+          fillColor: AppColors.darkBg,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPartnerInspectionCondition(
+    TextEditingController controller,
+    String label, {
+    required VoidCallback refresh,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          for (final option in const ['Good', 'Bad']) ...[
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: Text(option),
+              selected: controller.text == option,
+              onSelected: (_) {
+                controller.text = option;
+                refresh();
+              },
+              selectedColor: option == 'Good'
+                  ? AppColors.success.withValues(alpha: 0.22)
+                  : AppColors.error.withValues(alpha: 0.2),
+              labelStyle: TextStyle(
+                color: controller.text == option
+                    ? option == 'Good'
+                          ? AppColors.success
+                          : AppColors.error
+                    : AppColors.textSecondary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _partnerVehicleTitle(Map<String, dynamic>? vehicle) {
+    if (vehicle == null) return 'Partner Vehicle';
+    final name = vehicle['name']?.toString().trim();
+    if (name != null && name.isNotEmpty) return name;
+    final parts = [
+      vehicle['brand'] ?? vehicle['make'],
+      vehicle['model'],
+      vehicle['year'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).map((p) => p.toString().trim()).toList();
+    if (parts.isNotEmpty) return parts.join(' ');
+    return vehicle['plate_number']?.toString().trim().isNotEmpty == true
+        ? 'Vehicle (${vehicle['plate_number']})'
+        : 'Partner Vehicle';
+  }
+
+  Future<List<Map<String, double>>> _resolvePartnerBookingVehicleAndProximityTargets(
+    Map<String, dynamic> booking,
+  ) async {
+    final targets = <Map<String, double>>[];
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final vehicleId = vehicle['id']?.toString() ?? booking['vehicle_id']?.toString() ?? '';
+    final renter = booking['users'] as Map<String, dynamic>? ?? booking['renter'] as Map<String, dynamic>? ?? {};
+
+    void addValidPoint(MobilisMapPoint? point) {
+      if (point == null || !PhilippineGeocoding.isValidPhilippines(point)) return;
+      final duplicate = targets.any(
+        (target) =>
+            (target['latitude']! - point.latitude).abs() < 0.0001 &&
+            (target['longitude']! - point.longitude).abs() < 0.0001,
+      );
+      if (!duplicate) {
+        targets.add({'latitude': point.latitude, 'longitude': point.longitude});
+      }
+    }
+
+    // 1. Check vehicle_trackers table for live GPS hardware fix
+    if (vehicleId.isNotEmpty) {
+      try {
+        final trackerRows = await Supabase.instance.client
+            .from('vehicle_trackers')
+            .select('latitude, longitude, last_location_update')
+            .or('vehicle_id.eq.$vehicleId,partner_vehicle_id.eq.$vehicleId')
+            .order('last_location_update', ascending: false)
+            .limit(1);
+        final list = List<Map<String, dynamic>>.from(trackerRows);
+        if (list.isNotEmpty) {
+          addValidPoint(PhilippineGeocoding.parseCoordinate(
+            list.first['latitude'],
+            list.first['longitude'],
+          ));
+        }
+      } catch (err) {
+        debugPrint('Partner vehicle tracker lookup note: $err');
+      }
+
+      // 2. Check tracking_locations table
+      if (targets.isEmpty) {
+        try {
+          final locRows = await Supabase.instance.client
+              .from('tracking_locations')
+              .select('latitude, longitude, recorded_at')
+              .eq('vehicle_id', vehicleId)
+              .order('recorded_at', ascending: false)
+              .limit(1);
+          final list = List<Map<String, dynamic>>.from(locRows);
+          if (list.isNotEmpty) {
+            addValidPoint(PhilippineGeocoding.parseCoordinate(
+              list.first['latitude'],
+              list.first['longitude'],
+            ));
+          }
+        } catch (err) {
+          debugPrint('Partner tracking locations lookup note: $err');
+        }
+      }
+    }
+
+    // 3. Resolve vehicle registered location
+    final vehLoc = vehicle['location']?.toString() ?? '';
+    final vehPoint = await PhilippineGeocoding.resolveLocation(
+      vehLoc,
+      latitudeValue: vehicle['latitude'],
+      longitudeValue: vehicle['longitude'],
+    );
+    addValidPoint(vehPoint);
+
+    // 4. Resolve pickup location (Plus Code or city)
+    final pickup = booking['pickup_location']?.toString() ?? '';
+    final pickupPoint = await PhilippineGeocoding.resolveLocation(
+      pickup,
+      latitudeValue: booking['pickup_latitude'],
+      longitudeValue: booking['pickup_longitude'],
+    );
+    addValidPoint(pickupPoint);
+
+    // 5. Resolve renter location
+    final renterLoc = renter['location']?.toString() ?? renter['address']?.toString() ?? '';
+    if (renterLoc.isNotEmpty || renter['latitude'] != null) {
+      addValidPoint(await PhilippineGeocoding.resolveLocation(
+        renterLoc,
+        latitudeValue: renter['latitude'],
+        longitudeValue: renter['longitude'],
+      ));
+    }
+
+    if (targets.isEmpty) {
+      targets.add({
+        'latitude': PhilippineGeocoding.defaultLat,
+        'longitude': PhilippineGeocoding.defaultLng,
+      });
+    }
+
+    return targets;
+  }
+
+  Widget _buildPartnerDriverCoverageSummary({
+    required Map<String, dynamic> booking,
+    required Map<String, dynamic> vehicle,
+    required List<Map<String, dynamic>> drivers,
+    required List<Map<String, double>> mapTargets,
+    String? selectedDriverId,
+    bool isRefreshing = false,
+    DateTime? lastUpdated,
+    VoidCallback? onRefreshTap,
+    void Function(String driverId, int driverIndex)? onDriverMarkerTap,
+    VoidCallback? onEnlargeTap,
+  }) {
+    final unitName = _partnerVehicleTitle(vehicle);
+
+    final mapMarkers = <MobilisMapMarker>[
+      // ── ONLY ONE Car marker: the booked partner vehicle at its tracker/location ──
+      if (mapTargets.isNotEmpty)
+        MobilisMapMarker(
+          latitude: mapTargets.first['latitude']!,
+          longitude: mapTargets.first['longitude']!,
+          icon: Icons.directions_car_filled_rounded,
+          color: AppColors.primary,
+          size: 38,
+          label: unitName.isNotEmpty ? unitName : 'Vehicle',
+          tooltip: unitName.isNotEmpty ? '$unitName (GPS Tracker)' : 'Partner vehicle',
+        ),
+
+      // ── Driver markers ──
+      ...drivers.take(12).toList().asMap().entries.expand((entry) {
+        final driverIndex = entry.key;
+        final driver = entry.value;
+        final user = driver['users'] as Map<String, dynamic>? ?? {};
+
+        final rawLocation = user['location'] ?? user['address'] ?? user['city'] ?? driver['address'] ?? '';
+        final point = PhilippineGeocoding.resolveLocationSync(
+          rawLocation,
+          latitudeValue: user['latitude'] ?? driver['latitude'],
+          longitudeValue: user['longitude'] ?? driver['longitude'],
+        );
+
+        if (!PhilippineGeocoding.isValidPhilippines(point)) return const <MobilisMapMarker>[];
+
+        final driverId = driver['id']?.toString() ?? '';
+        final driverName = (user['full_name']?.toString().trim().isNotEmpty == true)
+            ? user['full_name'].toString().trim()
+            : (user['email']?.toString().split('@').first ?? 'Driver');
+        final isSelected = selectedDriverId == driverId;
+        final isPsdcDriver =
+            driver['is_psdc_driver'] == true ||
+            user['is_psdc_driver'] == true ||
+            driver['driver_tier']?.toString().toLowerCase() == 'psdc';
+
+        final markerColor = isSelected
+            ? AppColors.primary
+            : isPsdcDriver
+                ? const Color(0xFFD97706)
+                : AppColors.success;
+
+        final driverWidget = SizedBox(
+          width: 40,
+          height: 40,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: markerColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: markerColor.withValues(alpha: 0.5),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.white,
+                    width: isSelected ? 2.5 : 1.5,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.person_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xFF0F172A)
+                        : isPsdcDriver
+                            ? const Color(0xFFF59E0B)
+                            : const Color(0xFF0EA5E9),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: const Icon(
+                    Icons.sports_motorsports_rounded,
+                    color: Colors.white,
+                    size: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        return [
+          MobilisMapMarker(
+            latitude: point.latitude,
+            longitude: point.longitude,
+            icon: Icons.person_pin_circle_rounded,
+            color: markerColor,
+            size: 34,
+            label: driverName,
+            tooltip: driverName,
+            customChild: driverWidget,
+            onTap: onDriverMarkerTap == null
+                ? null
+                : () => onDriverMarkerTap(driverId, driverIndex),
+          ),
+        ];
+      }),
+    ];
+
+    return Container(
+      height: 190,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppColors.cardOf(context),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorderOf(context)),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: MobilisLeafletMap(
+              key: ValueKey(
+                'partner_map_${selectedDriverId ?? ''}_${mapMarkers.map((m) => '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}').join('|')}',
+              ),
+              markers: mapMarkers,
+              initialZoom: mapMarkers.length > 1 ? 11 : 13,
+            ),
+          ),
+          // Live tracker indicator chip
+          Positioned(
+            top: 10,
+            left: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A).withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: (isRefreshing ? AppColors.primary : const Color(0xFF10B981)).withValues(alpha: 0.5),
+                ),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 2)),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _PartnerLivePulseDot(
+                    color: isRefreshing ? AppColors.primary : const Color(0xFF10B981),
+                    size: 6,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    isRefreshing ? 'REFRESHING GPS...' : 'LIVE GPS (8s)',
+                    style: TextStyle(
+                      color: isRefreshing ? AppColors.primary : const Color(0xFF10B981),
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (onEnlargeTap != null)
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onEnlargeTap,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A).withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.6)),
+                      boxShadow: const [
+                        BoxShadow(color: Colors.black45, blurRadius: 6, offset: Offset(0, 2)),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.open_in_full_rounded, color: AppColors.primary, size: 13),
+                        const SizedBox(width: 5),
+                        Text(
+                          'Enlarge Map',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showEnlargedPartnerDriverMapDialog({
+    required Map<String, dynamic> booking,
+    required Map<String, dynamic> vehicle,
+    required List<Map<String, dynamic>> drivers,
+    required List<Map<String, double>> mapTargets,
+    String? selectedDriverId,
+    required void Function(String? driverId) onSelectDriver,
+    required void Function(String driverId) onFinalize,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) => _PartnerEnlargedDriverMapDialog(
+        booking: booking,
+        vehicle: vehicle,
+        initialDrivers: drivers,
+        initialMapTargets: mapTargets,
+        initialSelectedDriverId: selectedDriverId,
+        state: this,
+        onSelectDriver: onSelectDriver,
+        onFinalize: onFinalize,
+      ),
+    );
+  }
+
+  void _showDriverAssignmentModal(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) => _PartnerAssignDriverModal(
+        booking: booking,
+        state: this,
+        onAssignDriver: (driverId) {
+          _performAssignDriver(booking, driverId);
+        },
+      ),
+    );
+  }
+
+  Future<void> _performAssignDriver(
+    Map<String, dynamic> booking,
+    String driverId,
+  ) async {
+    final bookingService = BookingService();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      await bookingService.assignDriver(
+        booking['id'],
+        driverId,
+        0.0,
+      );
+
+      booking['driver_id'] = driverId;
+      booking['driver_assigned_at'] = DateTime.now().toIso8601String();
+      final newAssignment = {
+        'driver_id': driverId,
+        'status': 'pending_offer',
+        'offered_at': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toIso8601String(),
+      };
+      final existingAssignments = (booking['job_assignments'] is List)
+          ? List<Map<String, dynamic>>.from(booking['job_assignments'])
+          : <Map<String, dynamic>>[];
+      existingAssignments.insert(0, newAssignment);
+      booking['job_assignments'] = existingAssignments;
+
+      if (!mounted) return;
+      Navigator.pop(context); // Close loader
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Driver job offer requested! Waiting for driver confirmation.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+
+      setState(() {});
+      _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // Close loader
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error assigning driver: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  /// ✅ Approve booking
+  Future<void> _handleBookingApproval(
+    BuildContext context,
+    Map<String, dynamic> booking, {
+    bool closeCurrentScreen = true,
+  }) async {
+    final bookingService = BookingService();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final withDriver = booking['with_driver'] == true;
+      final driverId = booking['driver_id']?.toString().trim();
+      final status = (booking['status']?.toString() ?? '').trim().toLowerCase();
+
+      if (withDriver) {
+        if (driverId == null || driverId.isEmpty) {
+          throw Exception('Please assign a driver before approving this booking.');
+        }
+        if (status != 'driver_accepted' && status != 'confirmed' && status != 'approved') {
+          throw Exception('Waiting for the assigned driver to accept the job offer first.');
+        }
+      }
+
+      await bookingService.updateBookingStatus(booking['id'], 'approved');
+
+      Navigator.pop(context); // Close loading dialog
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('✅ Booking approved')));
+
+        // Reload bookings
+        _loadPartnerData();
+        if (closeCurrentScreen && Navigator.canPop(context)) {
+          Navigator.pop(context); // Close modal
+        }
+      }
+    } catch (e) {
+      Navigator.pop(context); // Close loading dialog
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
+      }
+    }
+  }
+
+  /// ❌ Reject booking
+  Future<void> _handleBookingRejection(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final reasonController = TextEditingController();
+
+    final payState = resolveBookingPaymentState(booking);
+    final hasPaidFunds = payState == BookingPaymentState.paid ||
+        payState == BookingPaymentState.pendingConfirmation ||
+        payState == BookingPaymentState.paymentReview;
+
+    final confirmedReason = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Decline Booking', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (hasPaidFunds) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded, color: Colors.amber, size: 16),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Payment Alert: The renter has submitted or completed payment. Declining will initiate a refund requirement.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.amber,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const Text(
+              'Please provide a reason for declining this booking request.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                hintText: 'e.g., Vehicle unavailable for scheduled dates',
+                hintStyle: TextStyle(color: AppColors.textTertiary),
+                border: OutlineInputBorder(),
+              ),
+              style: const TextStyle(color: Colors.white),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, null),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final r = reasonController.text.trim();
+              Navigator.pop(dialogCtx, r.isNotEmpty ? r : 'Declined by vehicle owner');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Decline'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmedReason == null || !mounted) return;
+    final reason = confirmedReason;
+    final bookingId = booking['id']?.toString() ?? '';
+    final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+
+    // Pop the booking detail modal immediately so the user returns to the list with 0 latency
+    Navigator.of(context).pop();
+
+    // ⚡ Optimistic UI update in the list
+    final bookingIndex =
+        bookings.indexWhere((b) => b['id']?.toString() == bookingId);
+    final originalBooking = bookingIndex != -1
+        ? Map<String, dynamic>.from(bookings[bookingIndex])
+        : null;
+
+    if (bookingIndex != -1) {
+      setState(() {
+        final target = Map<String, dynamic>.from(bookings[bookingIndex]);
+        target['status'] = 'rejected';
+        target['rejection_reason'] = reason;
+        target['partner_booking_rejected_at'] = DateTime.now().toIso8601String();
+        bookings[bookingIndex] = target;
+
+        bookingCounts['pending'] =
+            ((bookingCounts['pending'] ?? 1) - 1).clamp(0, 999999);
+        bookingCounts['cancelled'] =
+            (bookingCounts['cancelled'] ?? 0) + 1;
+      });
+    }
+
+    _showSuccessSnackBar('Booking declined');
+
+    try {
+      if (currentPartnerId != null) {
+        await BookingService().rejectPartnerBooking(
+          bookingId: bookingId,
+          partnerId: currentPartnerId,
+          reason: reason,
+          cachedBooking: booking,
+        );
+      } else {
+        await BookingService().rejectBooking(
+          bookingId,
+          reason,
+          cachedBooking: booking,
+        );
+      }
+
+      _loadPartnerData(silent: true);
+    } catch (e) {
+      debugPrint('Partner booking rejection error: $e');
+      if (originalBooking != null && bookingIndex != -1 && mounted) {
+        setState(() {
+          bookings[bookingIndex] = originalBooking;
+          bookingCounts['pending'] = (bookingCounts['pending'] ?? 0) + 1;
+          bookingCounts['cancelled'] =
+              ((bookingCounts['cancelled'] ?? 1) - 1).clamp(0, 999999);
+        });
+      }
+      _showErrorSnackBar('Failed to decline booking: $e');
+    }
+  }
+
+  int _calculateDays(String? startStr, String? endStr) {
+    if (startStr == null || endStr == null) return 1;
+    try {
+      final start = DateTime.parse(startStr);
+      final end = DateTime.parse(endStr);
+      return end.difference(start).inDays + 1;
+    } catch (e) {
+      return 1;
+    }
+  }
+}
+
