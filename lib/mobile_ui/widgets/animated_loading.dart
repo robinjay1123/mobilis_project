@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../theme/app_colors.dart';
 
 class AnimatedLoadingWidget extends StatefulWidget {
@@ -50,7 +51,7 @@ class _AnimatedLoadingWidgetState extends State<AnimatedLoadingWidget>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark = kIsWeb || Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? AppColors.darkBg : AppColors.lightBg;
     final textColor = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
     final secondaryTextColor =

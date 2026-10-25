@@ -1,6 +1,6 @@
-/// Stub implementation of dart:html for mobile/desktop platforms.
-/// This file provides placeholder classes to prevent compilation errors
-/// when dart:html is conditionally imported on non-web platforms.
+// Stub implementation of dart:html for mobile/desktop platforms.
+// This file provides placeholder classes to prevent compilation errors
+// when dart:html is conditionally imported on non-web platforms.
 
 class Blob {
   final List<dynamic> data;
@@ -31,8 +31,13 @@ class Notification {
   static Future<String> requestPermission() async => 'denied';
 }
 
+class _ElementStub {
+  void remove() {}
+}
+
 class _DocumentStub {
   _BodyStub? get body => null;
+  _ElementStub? getElementById(String id) => null;
 }
 
 class _BodyStub {

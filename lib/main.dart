@@ -43,6 +43,7 @@ import 'services/notification_permission_service.dart';
 import 'services/push_notification_service.dart';
 import 'services/theme_service.dart';
 import 'utils/button_guard.dart';
+import 'utils/web_html.dart' as html;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -77,19 +78,26 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   bool _isOnline = true;
-  bool _isDarkMode = false;
+  bool _isDarkMode = kIsWeb ? true : false;
 
   @override
   void initState() {
     super.initState();
     _initializeConnectivity();
     _loadThemePreference();
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          html.document.getElementById('loading-splash')?.remove();
+        } catch (_) {}
+      });
+    }
   }
 
   void _loadThemePreference() async {
     final isDark = await ThemeService.getIsDarkMode();
     setState(() {
-      _isDarkMode = isDark;
+      _isDarkMode = kIsWeb ? true : isDark;
     });
   }
 
@@ -144,6 +152,7 @@ class _MyAppState extends State<MyApp> {
       navigatorKey: DatabaseHealthService.navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'Mobilis',
+      color: const Color(0xFF030A18),
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
@@ -529,7 +538,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
   void initState() {
     super.initState();
     _initialScreen = _determineInitialScreen();
-    NotificationPermissionService().ensurePrompted();
+    if (AuthService().isAuthenticated) {
+      unawaited(NotificationPermissionService().ensurePrompted());
+    }
     _setupAuthListener();
     _setupUserProfileListener();
   }
@@ -856,6 +867,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   @override
   Widget build(BuildContext context) {
+    // Fast path: On Web, unauthenticated visitors accessing root immediately render
+    // the public landing page synchronously without waiting for a FutureBuilder
+    if (kIsWeb && !AuthService().isAuthenticated) {
+      return const ResponsiveWelcomeScreen();
+    }
+
     return FutureBuilder<Widget>(
       future: _initialScreen,
       builder: (context, snapshot) {
