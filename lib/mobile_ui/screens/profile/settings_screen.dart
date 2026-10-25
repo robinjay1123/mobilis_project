@@ -969,7 +969,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     var launched = false;
     try {
       final uri = Uri.parse(
-        'https://play.google.com/store/apps/details?id=com.example.mobilis_by_psdc_app',
+        'https://play.google.com/store/apps/details?id=com.psdc.mobilis',
       );
       launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {

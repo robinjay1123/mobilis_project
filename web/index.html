@@ -200,7 +200,40 @@
         navigator.serviceWorker.register('firebase-messaging-sw.js');
       });
     }
+
+    // Enforce cache-busting on main.dart.js so browsers never execute stale bundles
+    (function () {
+      var appVersion = '20261025_playstore_v2';
+      var origCreateElement = document.createElement;
+      document.createElement = function (tagName, options) {
+        var el = origCreateElement.call(document, tagName, options);
+        if (tagName && tagName.toLowerCase() === 'script') {
+          var origSetAttribute = el.setAttribute;
+          el.setAttribute = function (name, value) {
+            if (name === 'src' && typeof value === 'string' && value.indexOf('main.dart.js') !== -1 && value.indexOf('?v=') === -1) {
+              value = value + '?v=' + appVersion;
+            }
+            return origSetAttribute.call(this, name, value);
+          };
+          var descriptor = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+          if (descriptor && descriptor.set) {
+            Object.defineProperty(el, 'src', {
+              set: function (val) {
+                if (typeof val === 'string' && val.indexOf('main.dart.js') !== -1 && val.indexOf('?v=') === -1) {
+                  val = val + '?v=' + appVersion;
+                }
+                descriptor.set.call(this, val);
+              },
+              get: function () {
+                return descriptor.get.call(this);
+              }
+            });
+          }
+        }
+        return el;
+      };
+    })();
   </script>
-  <script src="flutter_bootstrap.js?v=20261025_playstore_v1" async></script>
+  <script src="flutter_bootstrap.js?v=20261025_playstore_v2" async></script>
 </body>
 </html>
