@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminVerificationsTab on _AdminWebScreenState {
+extension _AdminVerificationsTab on _AdminWebScreenState {
   Widget _buildVerificationsContent(bool isDark) {
     // 1. Calculate role stats for badges
     int allCount = _verificationRecords.length;

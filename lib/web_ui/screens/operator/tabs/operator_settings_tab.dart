@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorSettingsTab on _OperatorWebScreenState {
+extension _OperatorSettingsTab on _OperatorWebScreenState {
   Widget _buildSettingsContent(bool isDark) {
     return SettingsScreen(
       isDarkMode: isDark,

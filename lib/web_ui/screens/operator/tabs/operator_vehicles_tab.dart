@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorVehiclesTab on _OperatorWebScreenState {
+extension _OperatorVehiclesTab on _OperatorWebScreenState {
   Widget _buildVehiclesContent(bool isDark) {
     final source = _vehicleView == 'partner' ? _partnerVehicles : _vehicles;
     final query = _vehicleSearchQuery.toLowerCase();

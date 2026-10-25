@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminTrackingTab on _AdminWebScreenState {
+extension _AdminTrackingTab on _AdminWebScreenState {
   Widget _buildTrackingContent(bool isDark) {
     final visibleLocations = _visibleTrackingLocations();
     final isFocused = _focusedTrackingBookingId != null &&

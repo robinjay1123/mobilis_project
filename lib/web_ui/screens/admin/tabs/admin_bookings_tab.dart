@@ -1,6 +1,6 @@
 part of '../admin_web_screen.dart';
 
-extension AdminBookingsTab on _AdminWebScreenState {
+extension _AdminBookingsTab on _AdminWebScreenState {
   Widget _buildBookingsContent(bool isDark) {
     // 1. Calculate status counts
     final allCount = _allBookings.length;
@@ -2267,7 +2267,7 @@ extension AdminBookingsTab on _AdminWebScreenState {
     );
   }
 
-  final Map<String, List<MobilisMapPoint>> _trackingRoadRouteCache = {};
+  static final Map<String, List<MobilisMapPoint>> _trackingRoadRouteCache = {};
 
   List<MobilisMapPoint> _getTrackingRoutePoints(
     MobilisMapPoint? carPoint,

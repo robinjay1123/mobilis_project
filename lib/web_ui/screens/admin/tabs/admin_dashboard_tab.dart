@@ -1,6 +1,6 @@
 part of '../admin_web_screen.dart';
 
-extension AdminDashboardTab on _AdminWebScreenState {
+extension _AdminDashboardTab on _AdminWebScreenState {
   Widget _buildDashboardContent(bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
@@ -415,7 +415,7 @@ extension AdminDashboardTab on _AdminWebScreenState {
     final endIndex = (startIndex + _recentBookingsPerPage).clamp(
       0,
       _allBookings.length,
-    );
+    ).toInt();
     final pageBookings = _allBookings.sublist(startIndex, endIndex);
 
     return Column(

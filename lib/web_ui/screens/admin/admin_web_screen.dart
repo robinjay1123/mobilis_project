@@ -66,6 +66,9 @@ part 'tabs/admin_archived_accounts_tab.dart';
 part 'tabs/admin_users_tab.dart';
 part 'tabs/admin_dashboard_tab.dart';
 
+const int _recentBookingsPerPage = 5;
+const int _commissionHistoryPerPage = 10;
+
 class AdminWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
   final bool isDarkMode;
@@ -411,7 +414,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _bookingStatusFilter = 'all';
   String _bookingViewMode = 'cards'; // 'cards' vs 'table'
   int _recentBookingsPage = 1;
-  static const int _recentBookingsPerPage = 5;
   RealtimeChannel? _bookingsSubscription;
   Timer? _bookingsSilentRefreshTimer;
   Timer? _bookingsRealtimeDebounce;
@@ -426,7 +428,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _commissionRoleFilter = 'all'; // 'all', 'partner', 'driver'
   String _commissionStatusFilter = 'all'; // 'all', 'disbursed', 'pending'
   int _commissionHistoryPage = 1;
-  static const int _commissionHistoryPerPage = 10;
 
   Future<void> _loadLastSeenCounts() async {
     try {

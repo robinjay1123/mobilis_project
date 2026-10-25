@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorInspectionsTab on _OperatorWebScreenState {
+extension _OperatorInspectionsTab on _OperatorWebScreenState {
   Widget _buildInspectionsContent(bool isDark) {
     final cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
     final textPrimary = isDark ? Colors.white : Colors.black;

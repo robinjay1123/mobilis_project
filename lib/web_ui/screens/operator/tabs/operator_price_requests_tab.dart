@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorPriceRequestsTab on _OperatorWebScreenState {
+extension _OperatorPriceRequestsTab on _OperatorWebScreenState {
   Widget _buildPriceRequestsContent(bool isDark) {
     // Filter and search price requests
     final filtered = _priceChangeRequests.where((req) {

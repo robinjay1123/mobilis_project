@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminAnnouncementsTab on _AdminWebScreenState {
+extension _AdminAnnouncementsTab on _AdminWebScreenState {
   Widget _buildAnnouncementsContent(bool isDark) {
     if (_isAnnouncementEditorOpen) {
       return _buildAnnouncementEditor(isDark);

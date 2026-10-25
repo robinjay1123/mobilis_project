@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminCustomerServiceTab on _AdminWebScreenState {
+extension _AdminCustomerServiceTab on _AdminWebScreenState {
   Widget _buildCustomerServiceContent(bool isDark) {
     final selectedConversation = _supportConversations
         .cast<Map<String, dynamic>?>()

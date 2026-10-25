@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminApplicationsTab on _AdminWebScreenState {
+extension _AdminApplicationsTab on _AdminWebScreenState {
   Widget _buildApplicationsContent(bool isDark) {
     final records = _pendingPartnerVehicleApplications;
     return SingleChildScrollView(

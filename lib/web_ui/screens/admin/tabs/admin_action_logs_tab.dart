@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminActionLogsTab on _AdminWebScreenState {
+extension _AdminActionLogsTab on _AdminWebScreenState {
   Widget _buildActionLogsContent(bool isDark) {
     final search = _actionLogSearchQuery.trim().toLowerCase();
     final category = _actionLogCategoryFilter;

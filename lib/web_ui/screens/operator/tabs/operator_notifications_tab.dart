@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorNotificationsTab on _OperatorWebScreenState {
+extension _OperatorNotificationsTab on _OperatorWebScreenState {
   Widget _buildNotificationsContent(bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),

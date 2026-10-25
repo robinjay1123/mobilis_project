@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminUsersTab on _AdminWebScreenState {
+extension _AdminUsersTab on _AdminWebScreenState {
   Widget _buildUsersContent(bool isDark) {
     final activeUsers =
         _allUsers.where((u) => u['is_archived'] != true).toList();

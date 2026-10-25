@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorDashboardTab on _OperatorWebScreenState {
+extension _OperatorDashboardTab on _OperatorWebScreenState {
   Widget _buildDashboardContent(bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),

@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminVehiclesTab on _AdminWebScreenState {
+extension _AdminVehiclesTab on _AdminWebScreenState {
   Widget _buildVehiclesContent(bool isDark) {
     // 1. Separate PSDC vs Partner vehicles based on source & database origin
     final psdcVehicles = _allVehicles.where((v) {

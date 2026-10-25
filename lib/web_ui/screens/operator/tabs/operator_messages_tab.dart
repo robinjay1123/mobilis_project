@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorMessagesTab on _OperatorWebScreenState {
+extension _OperatorMessagesTab on _OperatorWebScreenState {
   Widget _buildMessagesContent(bool isDark) {
     if (_isLoadingConversations && _conversations.isEmpty) {
       return const Center(

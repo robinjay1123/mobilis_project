@@ -1,6 +1,6 @@
 part of '../admin_web_screen.dart';
 
-extension AdminAnalyticsTab on _AdminWebScreenState {
+extension _AdminAnalyticsTab on _AdminWebScreenState {
   Widget _buildAnalyticsContent(bool isDark) {
     final fin = _calculatePlatformFinancials();
     final grossVolume = fin['totalGrossVolume'] ?? 0.0;
@@ -1297,7 +1297,7 @@ extension AdminAnalyticsTab on _AdminWebScreenState {
   Widget _buildCommissionHistoryCard(bool isDark) {
     final filteredRecords = _getFilteredCommissionRecords();
     final totalPages = (filteredRecords.length / _commissionHistoryPerPage).ceil();
-    final currentPage = _commissionHistoryPage.clamp(1, totalPages > 0 ? totalPages : 1);
+    final currentPage = _commissionHistoryPage.clamp(1, totalPages > 0 ? totalPages : 1).toInt();
     final startIndex = (currentPage - 1) * _commissionHistoryPerPage;
     final pagedRecords = filteredRecords.skip(startIndex).take(_commissionHistoryPerPage).toList();
 

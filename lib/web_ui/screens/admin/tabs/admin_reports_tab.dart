@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminReportsTab on _AdminWebScreenState {
+extension _AdminReportsTab on _AdminWebScreenState {
   Future<void> _loadUserReports({bool showLoading = true}) async {
     if (showLoading && mounted) {
       setState(() => _isLoadingReports = true);

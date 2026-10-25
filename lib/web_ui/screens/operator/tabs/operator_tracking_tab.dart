@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorTrackingTab on _OperatorWebScreenState {
+extension _OperatorTrackingTab on _OperatorWebScreenState {
   Widget _buildTrackingContent(bool isDark) {
     final visibleLocations = _visibleTrackingLocations();
     final isFocused = _focusedTrackingBookingId != null &&

@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorBookingsTab on _OperatorWebScreenState {
+extension _OperatorBookingsTab on _OperatorWebScreenState {
   Widget _buildBookingsContent(bool isDark) {
     final filteredBookings = _recentBookings.where((booking) {
       final matchesStatus = _bookingFilterMatches(booking, _bookingFilter);

@@ -1,6 +1,6 @@
 ﻿part of '../operator_web_screen.dart';
 
-extension OperatorRevenueTab on _OperatorWebScreenState {
+extension _OperatorRevenueTab on _OperatorWebScreenState {
   Widget _buildRevenueContent(bool isDark) {
     final allManaged = _operatorManagedBookings();
     final allReleasedSettlements = _operatorSettlements

@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminArchivedAccountsTab on _AdminWebScreenState {
+extension _AdminArchivedAccountsTab on _AdminWebScreenState {
   Widget _buildArchivedAccountsContent(bool isDark) {
     final archivedUsers =
         _allUsers.where((u) => u['is_archived'] == true).toList();

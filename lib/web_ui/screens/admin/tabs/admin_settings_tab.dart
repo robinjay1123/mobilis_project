@@ -1,6 +1,6 @@
-part of '../admin_web_screen.dart';
+﻿part of '../admin_web_screen.dart';
 
-extension AdminSettingsTab on _AdminWebScreenState {
+extension _AdminSettingsTab on _AdminWebScreenState {
   Widget _buildSettingsContent(bool isDark) {
     return SettingsScreen(
       isDarkMode: isDark,
