@@ -11,7 +11,7 @@ class WelcomeWebConstants {
   static const String googleMapsLocationUrl =
       'https://maps.app.goo.gl/5YNiPsuy2GTGxdUy7';
   static const String apkDownloadUrl =
-      'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app_v1.3.2.apk';
+      'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app_v1.3.3.apk';
   static const String githubReleasesUrl =
       'https://github.com/robinjay1123/mobilis_project/releases';
 
