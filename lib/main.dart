@@ -33,8 +33,8 @@ import 'mobile_ui/screens/driver/driver_availability_screen.dart';
 import 'mobile_ui/screens/driver/driver_home_screen.dart';
 import 'mobile_ui/screens/home/chat_detail_screen.dart';
 import 'responsive/responsive_screens.dart';
-import 'web_ui/screens/admin/admin_web_screen.dart';
-import 'web_ui/screens/operator/operator_web_screen.dart';
+import 'web_ui/screens/admin/admin_web_screen.dart' deferred as admin_web;
+import 'web_ui/screens/operator/operator_web_screen.dart' deferred as operator_web;
 import 'mobile_ui/screens/operator/operator_mobile_home_screen.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
@@ -286,9 +286,12 @@ class _MyAppState extends State<MyApp> {
               isDarkMode: _isDarkMode,
             );
           }
-          return OperatorWebScreen(
-            onThemeToggle: _toggleTheme,
-            isDarkMode: _isDarkMode,
+          return DeferredLoader(
+            loadLibrary: operator_web.loadLibrary,
+            builder: () => operator_web.OperatorWebScreen(
+              onThemeToggle: _toggleTheme,
+              isDarkMode: _isDarkMode,
+            ),
           );
         },
         '/admin-home': (context) {
@@ -303,9 +306,12 @@ class _MyAppState extends State<MyApp> {
           if (!kIsWeb) {
             return const WebOnlyAccessScreen(role: 'Admin');
           }
-          return AdminWebScreen(
-            onThemeToggle: _toggleTheme,
-            isDarkMode: _isDarkMode,
+          return DeferredLoader(
+            loadLibrary: admin_web.loadLibrary,
+            builder: () => admin_web.AdminWebScreen(
+              onThemeToggle: _toggleTheme,
+              isDarkMode: _isDarkMode,
+            ),
           );
         },
         '/vehicle-detail': (context) {
@@ -761,9 +767,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
           if (!kIsWeb) {
             return const WebOnlyAccessScreen(role: 'Admin');
           }
-          return AdminWebScreen(
-            onThemeToggle: widget.onThemeToggle,
-            isDarkMode: widget.isDarkMode,
+          return DeferredLoader(
+            loadLibrary: admin_web.loadLibrary,
+            builder: () => admin_web.AdminWebScreen(
+              onThemeToggle: widget.onThemeToggle,
+              isDarkMode: widget.isDarkMode,
+            ),
           );
         }
 
@@ -774,9 +783,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
               isDarkMode: widget.isDarkMode,
             );
           }
-          return OperatorWebScreen(
-            onThemeToggle: widget.onThemeToggle,
-            isDarkMode: widget.isDarkMode,
+          return DeferredLoader(
+            loadLibrary: operator_web.loadLibrary,
+            builder: () => operator_web.OperatorWebScreen(
+              onThemeToggle: widget.onThemeToggle,
+              isDarkMode: widget.isDarkMode,
+            ),
           );
         }
 
@@ -860,6 +872,56 @@ class _AuthWrapperState extends State<AuthWrapper> {
           subtitle: 'Car Rental Solutions',
           gifPath: 'assets/loading.gif',
           logoPath: 'assets/icon/logo1.png',
+        );
+      },
+    );
+  }
+}
+
+/// Lightweight helper to load deferred Dart libraries on demand with a minimal loader
+class DeferredLoader extends StatefulWidget {
+  final Future<void> Function() loadLibrary;
+  final Widget Function() builder;
+
+  const DeferredLoader({
+    super.key,
+    required this.loadLibrary,
+    required this.builder,
+  });
+
+  @override
+  State<DeferredLoader> createState() => _DeferredLoaderState();
+}
+
+class _DeferredLoaderState extends State<DeferredLoader> {
+  late final Future<void> _loadFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFuture = widget.loadLibrary();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _loadFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done) {
+          return widget.builder();
+        }
+        return const Scaffold(
+          backgroundColor: Color(0xFF030A18),
+          body: Center(
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Color(0xFFFFD740),
+              ),
+            ),
+          ),
         );
       },
     );

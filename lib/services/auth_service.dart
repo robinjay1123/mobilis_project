@@ -18,6 +18,13 @@ class AuthService {
   AuthService._internal();
 
   final supabase = Supabase.instance.client;
+  final Map<String, String> _inMemoryRoleCache = {};
+  final Map<String, Future<String?>> _inFlightRoleFutures = {};
+
+  void clearRoleCache() {
+    _inMemoryRoleCache.clear();
+    _inFlightRoleFutures.clear();
+  }
 
   // Get current user
   User? get currentUser => supabase.auth.currentUser;
@@ -31,8 +38,36 @@ class AuthService {
   // Listen to auth state changes
   Stream<AuthState> get authStateChanges => supabase.auth.onAuthStateChange;
 
-  // Get user role from users table
-  Future<String?> getUserRole() async {
+  // Get user role from users table with in-memory caching & request deduplication
+  Future<String?> getUserRole({bool forceRefresh = false}) async {
+    final user = currentUser;
+    if (user == null) {
+      debugPrint('❌ No user - role is null');
+      return null;
+    }
+
+    if (!forceRefresh && _inMemoryRoleCache.containsKey(user.id)) {
+      return _inMemoryRoleCache[user.id];
+    }
+
+    if (!forceRefresh && _inFlightRoleFutures.containsKey(user.id)) {
+      return await _inFlightRoleFutures[user.id]!;
+    }
+
+    final future = _fetchUserRole(user);
+    _inFlightRoleFutures[user.id] = future;
+    try {
+      final role = await future;
+      if (role != null && role.isNotEmpty) {
+        _inMemoryRoleCache[user.id] = role;
+      }
+      return role;
+    } finally {
+      _inFlightRoleFutures.remove(user.id);
+    }
+  }
+
+  Future<String?> _fetchUserRole(User user) async {
     final user = currentUser;
     if (user == null) {
       debugPrint('❌ No user - role is null');
@@ -172,6 +207,7 @@ class AuthService {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_user_role_${user.id}', newRole);
       } catch (_) {}
+      _inMemoryRoleCache[user.id] = newRole;
 
       debugPrint('User role updated to: $newRole');
     } on PostgrestException catch (e) {
@@ -896,6 +932,7 @@ class AuthService {
       }
 
       await supabase.auth.signOut();
+      clearRoleCache();
       debugPrint('Sign out successful');
     } on AuthException catch (e) {
       debugPrint('Auth error during signout: ${e.message}');

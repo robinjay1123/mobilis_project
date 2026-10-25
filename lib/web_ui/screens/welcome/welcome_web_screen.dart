@@ -77,7 +77,8 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> with SingleTickerPr
             .from('vehicles')
             .select('id, brand, model, year, plate_number, price_per_day, seats, transmission, fuel_type, vehicle_type, vehicle_name, description, status, rating, rating_count, vehicle_images(image_url, display_order)')
             .neq('status', 'deleted')
-            .order('created_at', ascending: false);
+            .order('created_at', ascending: false)
+            .limit(24);
 
         for (final item in List<Map<String, dynamic>>.from(companyRes)) {
           combined.add(_normalizeVehicle(item, isPartner: false));
@@ -2936,6 +2937,7 @@ class _HoverVehicleCardState extends State<_HoverVehicleCard> with SingleTickerP
                           ? Image.network(
                               imageUrl,
                               fit: BoxFit.cover,
+                              cacheWidth: 640,
                               errorBuilder: (context, error, stackTrace) => _buildFallbackCarGraphic(brand, model),
                             )
                           : _buildFallbackCarGraphic(brand, model),

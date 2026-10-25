@@ -1,4 +1,4 @@
-package com.example.mobilis_by_psdc_app
+package com.psdc.mobilis
 
 import io.flutter.embedding.android.FlutterActivity
 

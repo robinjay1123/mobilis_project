@@ -223,16 +223,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     });
     _loadPartnerData();
     _initializeConnectivity();
-    // Gentle 60s backup sync; live updates are pushed immediately via Supabase Realtime
+    // 120s backup sync; live updates are pushed immediately via Supabase Realtime
     _notificationsAutoRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 120),
       (_) {
         if (mounted) _loadPartnerData(silent: true);
       },
     );
-    // 15s live tracking GPS refresh timer
+    // 30s live tracking GPS refresh timer
     _partnerTrackingPeriodicTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 30),
       (_) {
         if (mounted && selectedNavIndex == 2) {
           _refreshPartnerTracking(silent: true);

@@ -47,6 +47,7 @@ supabase/.env.local
 
 # Symbolication related
 app.*.symbols
+debug_symbols/
 
 # Obfuscation related
 app.*.map.json
@@ -81,6 +82,10 @@ android/.gradle/
 **/android/.gradle/
 **/android/local.properties
 android/local.properties
+**/key.properties
+key.properties
+*.jks
+*.keystore
 *.lock
 *.bkp
 

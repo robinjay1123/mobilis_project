@@ -67,11 +67,16 @@ class OptimizedNetworkImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (kIsWeb) {
+      final pixelRatio = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 2.5);
+      final int webCacheWidth = width != null && width!.isFinite && width! > 0
+          ? (width! * pixelRatio).round()
+          : (isThumbnail ? 640 : 1600);
       final webImage = Image.network(
         imageUrl,
         width: width,
         height: height,
         fit: fit,
+        cacheWidth: webCacheWidth,
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
           return placeholder ?? const _ImageLoadingPlaceholder();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'trip_rating_service.dart';
@@ -70,6 +71,15 @@ class VehicleService {
 
   SupabaseClient get supabase => Supabase.instance.client;
   Future<String>? _availabilityTableFuture;
+
+  List<Map<String, dynamic>>? _cachedAvailableVehicles;
+  DateTime? _lastAvailableVehiclesFetch;
+  static const Duration _availableVehiclesCacheTtl = Duration(seconds: 30);
+
+  void clearAvailableVehiclesCache() {
+    _cachedAvailableVehicles = null;
+    _lastAvailableVehiclesFetch = null;
+  }
 
   Future<String> _availabilityTable() {
     return _availabilityTableFuture ??= _resolveAvailabilityTable();
@@ -714,54 +724,84 @@ class VehicleService {
     DateTime? availableFrom,
     DateTime? availableTo,
     String? category,
+    bool forceRefresh = false,
   }) async {
     debugPrint('getAvailableVehicles: category=$category');
 
     try {
-      try {
-        await VehicleTurnaroundService().processExpiredTurnarounds();
-      } catch (_) {}
+      List<Map<String, dynamic>> allVehicles;
 
-      final approvedLinks = await _getApprovedPartnerVehicleLinks();
-      final response = await supabase
-          .from('vehicles')
-          .select(_vehicleSelect)
-          .eq('is_posted', true)
-          .eq('is_available', true)
-          .order('created_at', ascending: false);
+      final isCacheValid = !forceRefresh &&
+          _cachedAvailableVehicles != null &&
+          _lastAvailableVehiclesFetch != null &&
+          DateTime.now().difference(_lastAvailableVehiclesFetch!) <
+              _availableVehiclesCacheTtl;
 
-      debugPrint('Raw rows returned: ${response.length}');
+      if (isCacheValid) {
+        allVehicles = _cachedAvailableVehicles!;
+      } else {
+        // Run expired turnaround cleanup in background without blocking UI
+        unawaited(
+          VehicleTurnaroundService()
+              .processExpiredTurnarounds()
+              .catchError((e) {
+            debugPrint('Background processExpiredTurnarounds error: $e');
+          }),
+        );
 
-      final vehicles = List<Map<String, dynamic>>.from(response);
+        // Fetch approved links and company vehicles concurrently
+        final approvedLinksFuture = _getApprovedPartnerVehicleLinks();
+        final companyVehiclesFuture = supabase
+            .from('vehicles')
+            .select(_vehicleSelect)
+            .eq('is_posted', true)
+            .eq('is_available', true)
+            .order('created_at', ascending: false);
 
-      final normalized = _normalizeList(vehicles)
-          .where(
-            (vehicle) => _isApprovedForRenterListing(vehicle, approvedLinks),
-          )
-          .toList();
-      final linkedPartnerVehicles = await _getAvailablePartnerVehicles(
-        approvedLinks,
-      );
-      final allVehicles = <Map<String, dynamic>>[];
-      final seenVehicleKeys = <String>{};
-      for (final vehicle in [...normalized, ...linkedPartnerVehicles]) {
-        final plate = vehicle['plate_number']?.toString().trim().toUpperCase();
-        final id = vehicle['id']?.toString().trim() ?? '';
-        final idKey = id.isEmpty ? null : 'id:$id';
-        final plateKey = plate == null || plate.isEmpty ? null : 'plate:$plate';
-        if ((idKey != null && seenVehicleKeys.contains(idKey)) ||
-            (plateKey != null && seenVehicleKeys.contains(plateKey))) {
-          continue;
+        final parallelResults = await Future.wait<dynamic>([
+          approvedLinksFuture,
+          companyVehiclesFuture,
+        ]);
+
+        final approvedLinks = parallelResults[0] as Map<String, Set<String>>;
+        final companyRows = parallelResults[1] as List<dynamic>;
+
+        final vehicles = List<Map<String, dynamic>>.from(companyRows);
+        final normalized = _normalizeList(vehicles)
+            .where(
+              (vehicle) => _isApprovedForRenterListing(vehicle, approvedLinks),
+            )
+            .toList();
+
+        final linkedPartnerVehicles = await _getAvailablePartnerVehicles(
+          approvedLinks,
+        );
+
+        final mergedList = <Map<String, dynamic>>[];
+        final seenVehicleKeys = <String>{};
+        for (final vehicle in [...normalized, ...linkedPartnerVehicles]) {
+          final plate = vehicle['plate_number']?.toString().trim().toUpperCase();
+          final id = vehicle['id']?.toString().trim() ?? '';
+          final idKey = id.isEmpty ? null : 'id:$id';
+          final plateKey = plate == null || plate.isEmpty ? null : 'plate:$plate';
+          if ((idKey != null && seenVehicleKeys.contains(idKey)) ||
+              (plateKey != null && seenVehicleKeys.contains(plateKey))) {
+            continue;
+          }
+          if (idKey != null) seenVehicleKeys.add(idKey);
+          if (plateKey != null) seenVehicleKeys.add(plateKey);
+          mergedList.add(vehicle);
         }
-        if (idKey != null) seenVehicleKeys.add(idKey);
-        if (plateKey != null) seenVehicleKeys.add(plateKey);
-        allVehicles.add(vehicle);
-      }
 
-      try {
-        await TripRatingService().batchHydrateVehicleRatings(allVehicles);
-      } catch (ratingErr) {
-        debugPrint('Error hydrating vehicle ratings: $ratingErr');
+        try {
+          await TripRatingService().batchHydrateVehicleRatings(mergedList);
+        } catch (ratingErr) {
+          debugPrint('Error hydrating vehicle ratings: $ratingErr');
+        }
+
+        allVehicles = mergedList;
+        _cachedAvailableVehicles = mergedList;
+        _lastAvailableVehiclesFetch = DateTime.now();
       }
 
       final categoryFiltered = category == null || category.isEmpty
@@ -1623,6 +1663,7 @@ class VehicleService {
       throw Exception('Vehicle not found or could not be updated: $vehicleId');
     }
 
+    clearAvailableVehiclesCache();
     return _normalizeVehicleRecord(Map<String, dynamic>.from(response));
   }
 
@@ -1631,6 +1672,7 @@ class VehicleService {
         .from('vehicles')
         .update({'status': 'inactive', 'is_available': false})
         .eq('id', vehicleId);
+    clearAvailableVehiclesCache();
   }
 
   Future<void> updateVehicleStatus(String vehicleId, String status) async {
@@ -1638,6 +1680,7 @@ class VehicleService {
         .from('vehicles')
         .update({'status': status, 'is_available': status == 'active'})
         .eq('id', vehicleId);
+    clearAvailableVehiclesCache();
   }
 
   // ---------------------------------------------------------------------------

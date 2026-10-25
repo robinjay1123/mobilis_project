@@ -572,9 +572,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _setupActionLogsRealtimeListener();
     _setupBookingsRealtimeListener();
     _setupVerificationsAndApplicationsRealtimeListener();
-    // Relax periodic polling intervals since Supabase Realtime listeners handle instant live updates
+    // Fallback sync intervals: Supabase Realtime listeners handle instant live updates
     _bookingsSilentRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 120),
       (_) {
         if (mounted && (_selectedIndex == 2 || _selectedIndex == 0)) {
           _loadAllBookings();
@@ -582,7 +582,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       },
     );
     _verificationsAndApplicationsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 120),
       (_) {
         if (mounted && (_selectedIndex == 4 || _selectedIndex == 5 || _selectedIndex == 0)) {
           _refreshVerificationsAndApplicationsSilently();
@@ -590,7 +590,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       },
     );
     _trackingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 45),
+      const Duration(seconds: 60),
       (_) {
         if (mounted && _selectedIndex == 10) {
           _refreshTrackingLocations();
@@ -598,7 +598,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       },
     );
     _actionLogsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 120),
       (_) {
         if (mounted && (_selectedIndex == 12 || _selectedIndex == 0)) {
           _loadActionLogs(showLoading: false);
@@ -606,15 +606,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       },
     );
     _announcementRefreshTimer = Timer.periodic(
-      const Duration(seconds: 90),
+      const Duration(seconds: 180),
       (_) => _refreshAnnouncementsIfVisible(),
     );
     _notificationsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 120),
       (_) => _loadNotifications(showLoading: false),
     );
     _userReportsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 180),
       (_) {
         if (mounted && (_selectedIndex == 13 || _selectedIndex == 0)) {
           _loadUserReports(showLoading: false);

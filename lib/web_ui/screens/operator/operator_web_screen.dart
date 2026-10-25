@@ -1267,7 +1267,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     });
     _setupBookingFlowListener();
     _bookingsSilentRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
+      const Duration(seconds: 120),
       (_) {
         if (mounted && (_selectedIndex == 1 || _selectedIndex == 0)) {
           _loadRecentBookings();
@@ -1275,14 +1275,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       },
     );
     _trackingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 45),
+      const Duration(seconds: 60),
       (_) {
         if (mounted && _selectedIndex == 6) {
           _refreshTrackingLocations();
         }
       },
     );
-    _notificationsRefreshTimer = Timer.periodic(const Duration(seconds: 60), (
+    _notificationsRefreshTimer = Timer.periodic(const Duration(seconds: 120), (
       _,
     ) {
       if (mounted) {
@@ -1291,8 +1291,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadUnreadMessagesCount();
       }
     });
+    // Relaxed countdown ticker (30s) prevents rebuilding the entire 40,000-line screen every 1s
     _countdownTickerTimer = Timer.periodic(
-      const Duration(seconds: 1),
+      const Duration(seconds: 30),
       (_) {
         if (mounted && (_selectedIndex == 1 || _selectedIndex == 0)) {
           setState(() {});
