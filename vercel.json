@@ -22,20 +22,20 @@
       ]
     },
     {
+      "source": "/(main\\.dart\\.js|flutter\\.js|flutter_service_worker\\.js|flutter_bootstrap\\.js|firebase-messaging-sw\\.js|manifest\\.json|version\\.json)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
       "source": "/(.*)\\.js",
       "headers": [
         {
           "key": "Cache-Control",
           "value": "public, max-age=86400, stale-while-revalidate=604800"
-        }
-      ]
-    },
-    {
-      "source": "/(flutter_bootstrap\\.js|firebase-messaging-sw\\.js|manifest\\.json|version\\.json)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate"
         }
       ]
     },
