@@ -22,15 +22,12 @@ Since compiling iOS apps requires macOS, we use GitHub's free cloud Mac runner:
 
 1. Open your browser and go to your repository:
    👉 **[https://github.com/robinjay1123/mobilis_project/actions](https://github.com/robinjay1123/mobilis_project/actions)**
-2. In the left sidebar, click **Build iOS IPA for Sideloadly**.
-3. On the right, click **Run workflow** -> select branch `main` -> click the green **Run workflow** button.
+2. In the left sidebar, click **Build iOS IPA & Publish Release**.
+3. On the right, click **Run workflow** -> select branch `main` (you can choose target release tag like `v1.3.3`) -> click the green **Run workflow** button.
 4. Wait for the build to finish (takes about **6 to 10 minutes**; it turns green with a checkmark).
-5. Click on the completed workflow run.
-6. Scroll down to the bottom **Artifacts** section and click **`Mobilis-iOS-IPA`** to download the zip.
-7. Unzip the downloaded file on your computer to get:
-   ```text
-   Mobilis.ipa
-   ```
+5. **Two ways to get your `Mobilis.ipa`:**
+   - **From GitHub Releases (Permanent, No Unzipping):** Go to [https://github.com/robinjay1123/mobilis_project/releases](https://github.com/robinjay1123/mobilis_project/releases) and download `Mobilis.ipa` directly from the release assets!
+   - **From Workflow Artifacts (30-day backup):** Click on the completed run, scroll down to **Artifacts**, download `Mobilis-iOS-IPA.zip`, and extract `Mobilis.ipa`.
 
 ---
 

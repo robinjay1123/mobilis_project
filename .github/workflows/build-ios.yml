@@ -1,7 +1,24 @@
-name: Build iOS IPA for Sideloadly
+name: Build iOS IPA & Publish Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release Tag to publish to (e.g. v1.3.3 or APK)'
+        required: false
+        default: 'v1.3.3'
+      create_release:
+        description: 'Publish Mobilis.ipa to GitHub Releases'
+        type: boolean
+        required: true
+        default: true
+  push:
+    tags:
+      - 'v*'
+      - 'ios-v*'
+
+permissions:
+  contents: write
 
 jobs:
   build-ios:
@@ -64,4 +81,28 @@ jobs:
         with:
           name: Mobilis-iOS-IPA
           path: build/ios/iphoneos/Mobilis.ipa
-          retention-days: 7
+          retention-days: 30
+
+      - name: Determine Release Tag
+        id: release_info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+            [ -z "$TAG" ] && TAG="v1.3.3"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Publish Mobilis.ipa to GitHub Releases
+        if: ${{ github.event_name == 'push' || github.event.inputs.create_release != 'false' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag }}
+          name: "Mobilis Release ${{ steps.release_info.outputs.tag }}"
+          files: build/ios/iphoneos/Mobilis.ipa
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
