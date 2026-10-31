@@ -857,6 +857,15 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                   location: location,
                   avatarUrl: avatarUrl,
                 ),
+                if (_isRenter) ...[
+                  const SizedBox(height: 18),
+                  _loyaltyRewardsCard(
+                    feedbackContext: context,
+                    onStateChanged: () {
+                      _refreshLoyaltyReward();
+                    },
+                  ),
+                ],
                 const SizedBox(height: 18),
                 _settingsTile(
                   icon: widget.isDarkMode
@@ -1887,7 +1896,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   }
 
   LoyaltyRewardMilestone? _loyaltyMilestoneFor(int stamp) {
-    for (final milestone in LoyaltyRewardState.milestones) {
+    for (final milestone in (_loyaltyReward?.milestones ?? LoyaltyRewardState.defaultMilestones)) {
       if (milestone.stamp == stamp) return milestone;
     }
     return null;

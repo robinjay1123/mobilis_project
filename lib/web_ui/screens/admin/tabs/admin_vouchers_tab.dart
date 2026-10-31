@@ -102,11 +102,19 @@ extension _AdminVouchersTab on _AdminWebScreenState {
                 ),
                 const SizedBox(width: 16),
                 FilledButton.icon(
-                  onPressed: () => _showVoucherDialog(null, isDark),
+                  onPressed: () {
+                    if (_voucherSubTab == 0) {
+                      _showVoucherDialog(null, isDark);
+                    } else {
+                      _showLoyaltyMilestoneDialog(null, isDark);
+                    }
+                  },
                   icon: const Icon(Icons.add_rounded, size: 20),
-                  label: const Text(
-                    'Create New Voucher',
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                  label: Text(
+                    _voucherSubTab == 0
+                        ? 'Create New Voucher'
+                        : 'Add Card Milestone',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: adminGold,
@@ -122,6 +130,95 @@ extension _AdminVouchersTab on _AdminWebScreenState {
             ),
           ),
           const SizedBox(height: 22),
+
+          // Sub-Tab Navigation Bar
+          Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () => setAdminState(() => _voucherSubTab = 0),
+                    borderRadius: BorderRadius.circular(9),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _voucherSubTab == 0 ? adminGold : Colors.transparent,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.local_offer_rounded,
+                            size: 18,
+                            color: _voucherSubTab == 0 ? Colors.black : textSecondary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Seasonal & Promo Vouchers (${_vouchers.length})',
+                            style: TextStyle(
+                              color: _voucherSubTab == 0 ? Colors.black : textColor,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      setAdminState(() => _voucherSubTab = 1);
+                      if (_loyaltyMilestones.isEmpty) {
+                        _loadLoyaltyMilestones();
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(9),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _voucherSubTab == 1 ? adminGold : Colors.transparent,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.military_tech_rounded,
+                            size: 19,
+                            color: _voucherSubTab == 1 ? Colors.black : textSecondary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'PSDC Loyalty Card Milestones (${_loyaltyMilestones.length})',
+                            style: TextStyle(
+                              color: _voucherSubTab == 1 ? Colors.black : textColor,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+
+          if (_voucherSubTab == 0) ...[
 
           // Stats Metrics Row
           LayoutBuilder(
@@ -337,6 +434,9 @@ extension _AdminVouchersTab on _AdminWebScreenState {
                 );
               },
             ),
+          ] else ...[
+            _buildLoyaltyMilestonesSection(isDark),
+          ],
         ],
       ),
     );
@@ -1421,6 +1521,1071 @@ extension _AdminVouchersTab on _AdminWebScreenState {
                                 )
                               : const Icon(Icons.check_rounded, size: 18),
                           label: Text(isEditing ? 'Save Changes' : 'Create Voucher'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: adminGold,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildLoyaltyMilestonesSection(bool isDark) {
+    final adminGold = _adminGold;
+    final cardBg = isDark ? const Color(0xFF021F35) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final textSecondary = isDark ? Colors.white70 : Colors.black54;
+    final borderColor = isDark ? AppColors.primary.withValues(alpha: 0.25) : Colors.grey.shade300;
+
+    final sortedMilestones = List<LoyaltyRewardMilestone>.from(_loyaltyMilestones)
+      ..sort((a, b) => a.stamp.compareTo(b.stamp));
+    final activeCount = sortedMilestones.where((m) => m.isActive).length;
+    final grandMilestone = sortedMilestones.firstWhere(
+      (m) => m.stamp == 18,
+      orElse: () => const LoyaltyRewardMilestone(18, 'None', isActive: false),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Loyalty Overview Card with Quick Actions
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: adminGold.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.stars_rounded, color: adminGold, size: 26),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '18-Stamp PSDC Loyalty Rewards Card Rules',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Renters earn 1 stamp on their digital card in their Profile tab for every completed booking. Configure which stamp numbers unlock discounts, gifts, or free hours.',
+                          style: TextStyle(color: textSecondary, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => _confirmResetLoyaltyMilestones(isDark),
+                    icon: const Icon(Icons.restore_rounded, size: 16),
+                    label: const Text('Reset Defaults'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: textSecondary,
+                      side: BorderSide(color: borderColor),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton.icon(
+                    onPressed: () => _showLoyaltyMilestoneDialog(null, isDark),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text('Add Milestone'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: adminGold,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Divider(height: 1),
+              const SizedBox(height: 18),
+
+              // Overview Stats Row
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildVoucherStatCard(
+                      'Configured Milestones',
+                      '${sortedMilestones.length} / 18 Stamps',
+                      Icons.military_tech_rounded,
+                      Colors.blue,
+                      isDark,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildVoucherStatCard(
+                      'Active Rewards',
+                      '$activeCount Active',
+                      Icons.check_circle_outline_rounded,
+                      const Color(0xFF10B981),
+                      isDark,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildVoucherStatCard(
+                      'Grand Reward (Stamp 18)',
+                      grandMilestone.isActive ? grandMilestone.label : 'Inactive',
+                      Icons.emoji_events_rounded,
+                      adminGold,
+                      isDark,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 22),
+
+        // Milestones List / Grid
+        if (_isLoadingLoyaltyMilestones)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(48),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (sortedMilestones.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(48),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderColor),
+            ),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.card_membership_outlined,
+                  size: 64,
+                  color: textSecondary.withValues(alpha: 0.5),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No loyalty milestones configured yet',
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Restore the 7 default PSDC milestones (Stamps 3, 6, 8, 10, 12, 15, 18) or add custom ones.',
+                  style: TextStyle(color: textSecondary, fontSize: 13),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: () => _confirmResetLoyaltyMilestones(isDark),
+                  icon: const Icon(Icons.restore_rounded, size: 18),
+                  label: const Text('Load PSDC Default Milestones'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: adminGold,
+                    foregroundColor: Colors.black,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 1000;
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: isWide ? 2 : 1,
+                  mainAxisExtent: 220,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                itemCount: sortedMilestones.length,
+                itemBuilder: (context, index) {
+                  final milestone = sortedMilestones[index];
+                  return _buildLoyaltyMilestoneCard(milestone, isDark);
+                },
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildLoyaltyMilestoneCard(LoyaltyRewardMilestone milestone, bool isDark) {
+    final adminGold = _adminGold;
+    final cardBg = isDark ? const Color(0xFF021F35) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final textSecondary = isDark ? Colors.white70 : Colors.black54;
+    final borderColor = isDark ? AppColors.primary.withValues(alpha: 0.25) : Colors.grey.shade300;
+
+    final isGrand = milestone.stamp == 18;
+    final isActive = milestone.isActive;
+
+    Color rewardColor;
+    IconData rewardIcon;
+    String rewardTypeLabel;
+    switch (milestone.rewardType) {
+      case 'gift':
+        rewardColor = Colors.orange;
+        rewardIcon = Icons.card_giftcard_rounded;
+        rewardTypeLabel = 'Merchandise Gift';
+        break;
+      case 'free_time':
+        rewardColor = Colors.deepPurpleAccent;
+        rewardIcon = Icons.hourglass_top_rounded;
+        rewardTypeLabel = '${milestone.freeHours}h Free Rental';
+        break;
+      case 'discount':
+      default:
+        rewardColor = const Color(0xFF10B981);
+        rewardIcon = Icons.payments_outlined;
+        rewardTypeLabel = milestone.discountPercent > 0
+            ? '${milestone.discountPercent}% OFF'
+            : '₱${NumberFormat('#,##0').format(milestone.discountAmount)} OFF';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isGrand
+              ? adminGold.withValues(alpha: 0.6)
+              : (isActive ? borderColor : Colors.grey.withValues(alpha: 0.3)),
+          width: isGrand ? 1.6 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row: Stamp badge, Reward Type chip, and Active Switch
+          Row(
+            children: [
+              // Stamp Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isGrand
+                      ? adminGold.withValues(alpha: 0.25)
+                      : AppColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isGrand ? adminGold : AppColors.primary.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isGrand ? Icons.emoji_events_rounded : Icons.check_circle_rounded,
+                      size: 14,
+                      color: isGrand ? adminGold : AppColors.primary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      isGrand ? 'STAMP #18 (GRAND)' : 'STAMP #${milestone.stamp}',
+                      style: TextStyle(
+                        color: isGrand ? adminGold : AppColors.primary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Reward Type Chip
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: rewardColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(rewardIcon, size: 12, color: rewardColor),
+                    const SizedBox(width: 4),
+                    Text(
+                      rewardTypeLabel,
+                      style: TextStyle(
+                        color: rewardColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+
+              // Active Switch
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isActive ? 'Active' : 'Disabled',
+                    style: TextStyle(
+                      color: isActive ? Colors.green : textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Transform.scale(
+                    scale: 0.75,
+                    child: Switch(
+                      value: isActive,
+                      activeThumbColor: adminGold,
+                      onChanged: (val) => _handleToggleMilestoneStatus(milestone, val),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Label
+          Text(
+            milestone.label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 3),
+
+          // Description
+          Text(
+            milestone.description.isNotEmpty
+                ? milestone.description
+                : 'Unlocked when renter completes ${milestone.stamp} verified trips.',
+            style: TextStyle(color: textSecondary, fontSize: 12),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 10),
+
+          // Chips (Voucher Code if present, Reward Value details)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _buildCriteriaBadge(
+                'Requires ${milestone.stamp} completed trips',
+                Icons.directions_car_rounded,
+                Colors.blue,
+                isDark,
+              ),
+              if (milestone.voucherCode != null && milestone.voucherCode!.isNotEmpty)
+                _buildCriteriaBadge(
+                  'Code: ${milestone.voucherCode}',
+                  Icons.qr_code_rounded,
+                  adminGold,
+                  isDark,
+                ),
+            ],
+          ),
+          const Spacer(),
+          const Divider(height: 12),
+
+          // Action Buttons: Edit and Delete
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                onPressed: () => _showLoyaltyMilestoneDialog(milestone, isDark),
+                icon: const Icon(Icons.edit_rounded, size: 16),
+                label: const Text('Edit Milestone'),
+                style: TextButton.styleFrom(
+                  foregroundColor: adminGold,
+                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: () => _confirmDeleteMilestone(milestone, isDark),
+                icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                label: const Text('Delete'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red.shade400,
+                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleToggleMilestoneStatus(LoyaltyRewardMilestone milestone, bool newStatus) async {
+    try {
+      await LoyaltyRewardService().toggleMilestoneStatus(milestone.stamp, newStatus);
+      await AuditService().logAudit(
+        action: newStatus ? 'loyalty_milestone_activated' : 'loyalty_milestone_deactivated',
+        category: 'loyalty',
+        entityId: milestone.stamp.toString(),
+        entityType: 'loyalty_milestone',
+        notes: 'Admin toggled milestone stamp ${milestone.stamp} to ${newStatus ? 'active' : 'inactive'}',
+      );
+      if (mounted) {
+        setAdminState(() {
+          final idx = _loyaltyMilestones.indexWhere((m) => m.stamp == milestone.stamp);
+          if (idx != -1) {
+            _loyaltyMilestones[idx] = _loyaltyMilestones[idx].copyWith(isActive: newStatus);
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update status: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteMilestone(LoyaltyRewardMilestone milestone, bool isDark) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        title: Text('Delete Milestone Stamp #${milestone.stamp}?'),
+        content: Text(
+          'Are you sure you want to delete Stamp #${milestone.stamp} ("${milestone.label}") from the loyalty card? Renters will no longer receive this reward.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete Milestone'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await LoyaltyRewardService().deleteMilestone(milestone.stamp);
+        await AuditService().logAudit(
+          action: 'loyalty_milestone_deleted',
+          category: 'loyalty',
+          entityId: milestone.stamp.toString(),
+          entityType: 'loyalty_milestone',
+          notes: 'Admin deleted loyalty milestone stamp ${milestone.stamp} (${milestone.label})',
+        );
+        await _loadLoyaltyMilestones();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Milestone Stamp #${milestone.stamp} deleted.')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to delete milestone: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _confirmResetLoyaltyMilestones(bool isDark) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        title: const Text('Reset Loyalty Card to Defaults?'),
+        content: const Text(
+          'This will restore the 7 default PSDC milestones (Stamps 3, 6, 8, 10, 12, 15, and 18) on the loyalty card.\n\nAny custom milestones you created will be replaced with the standard PSDC reward set.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: _adminGold, foregroundColor: Colors.black),
+            child: const Text('Reset to Defaults'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final service = LoyaltyRewardService();
+        for (final m in LoyaltyRewardState.defaultMilestones) {
+          await service.saveMilestone(m);
+        }
+        await AuditService().logAudit(
+          action: 'loyalty_milestones_reset_defaults',
+          category: 'loyalty',
+          entityId: 'all',
+          entityType: 'loyalty_milestone',
+          notes: 'Admin reset loyalty milestones to PSDC 18-stamp defaults',
+        );
+        await _loadLoyaltyMilestones();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('PSDC loyalty card milestones restored to defaults!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to reset milestones: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showLoyaltyMilestoneDialog(LoyaltyRewardMilestone? existing, bool isDark) async {
+    final adminGold = _adminGold;
+    final isEditing = existing != null;
+
+    int selectedStamp = existing?.stamp ?? 1;
+    String rewardType = existing?.rewardType ?? 'discount';
+    bool isPercent = existing != null && existing.discountPercent > 0;
+    bool isActive = existing?.isActive ?? true;
+
+    final labelController = TextEditingController(text: existing?.label ?? '');
+    final descController = TextEditingController(text: existing?.description ?? '');
+    final amountController = TextEditingController(
+      text: existing != null
+          ? (isPercent
+              ? existing.discountPercent.toString()
+              : existing.discountAmount.toString())
+          : '50',
+    );
+    final freeHoursController = TextEditingController(
+      text: existing?.freeHours.toString() ?? '3',
+    );
+    final voucherCodeController = TextEditingController(
+      text: existing?.voucherCode ?? '',
+    );
+
+    bool isSaving = false;
+    String? formError;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final cardBg = isDark ? const Color(0xFF03223A) : Colors.white;
+          final textColor = isDark ? Colors.white : Colors.black87;
+          final textSecondary = isDark ? Colors.white60 : Colors.black54;
+
+          final stampAlreadyUsed = !isEditing &&
+              _loyaltyMilestones.any((m) => m.stamp == selectedStamp);
+
+          return Dialog(
+            backgroundColor: cardBg,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 580, maxHeight: 720),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: adminGold.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            isEditing ? Icons.edit_rounded : Icons.military_tech_rounded,
+                            color: adminGold,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isEditing
+                                    ? 'Edit Milestone: Stamp #${existing.stamp}'
+                                    : 'Add Loyalty Card Milestone',
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                'Set reward given when renters reach this stamp on their 18-stamp card.',
+                                style: TextStyle(color: textSecondary, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(dialogCtx),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 24),
+
+                    // Scrollable form body
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (formError != null) ...[
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.error_outline, color: Colors.red, size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        formError!,
+                                        style: const TextStyle(color: Colors.red, fontSize: 12),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+
+                            // Stamp selector & Reward type
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Stamp Number (1 - 18) *',
+                                        style: TextStyle(
+                                          color: textColor,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      DropdownButtonFormField<int>(
+                                        initialValue: selectedStamp,
+                                        dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+                                        style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w700),
+                                        decoration: InputDecoration(
+                                          filled: true,
+                                          fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                        ),
+                                        items: List.generate(18, (i) => i + 1).map((s) {
+                                          final isExistingMilestone = _loyaltyMilestones.any((m) => m.stamp == s);
+                                          return DropdownMenuItem<int>(
+                                            value: s,
+                                            child: Text(
+                                              s == 18
+                                                  ? 'Stamp #18 (Grand Finale)'
+                                                  : (isExistingMilestone ? 'Stamp #$s (Configured)' : 'Stamp #$s'),
+                                            ),
+                                          );
+                                        }).toList(),
+                                        onChanged: isEditing
+                                            ? null
+                                            : (val) {
+                                                if (val != null) {
+                                                  setDialogState(() => selectedStamp = val);
+                                                }
+                                              },
+                                      ),
+                                      if (stampAlreadyUsed)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 4),
+                                          child: Text(
+                                            'Note: Stamp #$selectedStamp already exists and will be updated.',
+                                            style: const TextStyle(color: Colors.amber, fontSize: 11),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Reward Category *',
+                                        style: TextStyle(
+                                          color: textColor,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      DropdownButtonFormField<String>(
+                                        initialValue: rewardType,
+                                        dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+                                        style: TextStyle(color: textColor, fontSize: 13),
+                                        decoration: InputDecoration(
+                                          filled: true,
+                                          fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(
+                                            value: 'discount',
+                                            child: Text('Discount (₱ / %)'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'gift',
+                                            child: Text('Merchandise Gift'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'free_time',
+                                            child: Text('Free Rental Hours'),
+                                          ),
+                                        ],
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setDialogState(() {
+                                              rewardType = val;
+                                              if (rewardType == 'free_time' && labelController.text.isEmpty) {
+                                                labelController.text = 'Free 3 Hours';
+                                              } else if (rewardType == 'gift' && labelController.text.isEmpty) {
+                                                labelController.text = 'PSDC Umbrella';
+                                              }
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Milestone Label / Display Name
+                            Text(
+                              'Reward Title / Label *',
+                              style: TextStyle(color: textColor, fontWeight: FontWeight.w700, fontSize: 13),
+                            ),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: labelController,
+                              style: TextStyle(color: textColor, fontWeight: FontWeight.w700),
+                              decoration: InputDecoration(
+                                hintText: rewardType == 'gift'
+                                    ? 'e.g. PSDC Umbrella'
+                                    : (rewardType == 'free_time' ? 'e.g. Free 24 Hours' : 'e.g. ₱200 OFF'),
+                                hintStyle: TextStyle(color: textSecondary),
+                                filled: true,
+                                fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Conditional input based on rewardType
+                            if (rewardType == 'discount') ...[
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text('Discount Type', style: TextStyle(color: textColor, fontWeight: FontWeight.w700, fontSize: 13)),
+                                        const SizedBox(height: 6),
+                                        SegmentedButton<bool>(
+                                          segments: const [
+                                            ButtonSegment(value: false, label: Text('Flat (₱)')),
+                                            ButtonSegment(value: true, label: Text('Percent (%)')),
+                                          ],
+                                          selected: {isPercent},
+                                          onSelectionChanged: (set) {
+                                            setDialogState(() => isPercent = set.first);
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          isPercent ? 'Percent Off (%) *' : 'Amount Off (₱) *',
+                                          style: TextStyle(color: textColor, fontWeight: FontWeight.w700, fontSize: 13),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        TextField(
+                                          controller: amountController,
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          style: TextStyle(color: textColor, fontWeight: FontWeight.w800),
+                                          decoration: InputDecoration(
+                                            prefixText: isPercent ? '' : '₱ ',
+                                            suffixText: isPercent ? '%' : '',
+                                            hintText: isPercent ? '10' : '200',
+                                            filled: true,
+                                            fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+                                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                            ] else if (rewardType == 'free_time') ...[
+                              Text('Free Rental Hours *', style: TextStyle(color: textColor, fontWeight: FontWeight.w700, fontSize: 13)),
+                              const SizedBox(height: 6),
+                              TextField(
+                                controller: freeHoursController,
+                                keyboardType: TextInputType.number,
+                                style: TextStyle(color: textColor, fontWeight: FontWeight.w800),
+                                decoration: InputDecoration(
+                                  hintText: 'e.g. 3 or 24',
+                                  suffixText: 'hours',
+                                  filled: true,
+                                  fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
+                            // Voucher Code (optional)
+                            Text('Auto-Generated Voucher Code (Optional)', style: TextStyle(color: textColor, fontWeight: FontWeight.w700, fontSize: 13)),
+                            const SizedBox(height: 2),
+                            Text('When the renter claims this reward, this code will be copied to their clipboard or activated.', style: TextStyle(color: textSecondary, fontSize: 11)),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: voucherCodeController,
+                              textCapitalization: TextCapitalization.characters,
+                              style: TextStyle(color: textColor, fontFamily: 'monospace', fontWeight: FontWeight.w700),
+                              decoration: InputDecoration(
+                                hintText: 'e.g. LOYALTY200 or FREE24H',
+                                hintStyle: TextStyle(color: textSecondary),
+                                filled: true,
+                                fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Description
+                            Text('Description', style: TextStyle(color: textColor, fontWeight: FontWeight.w700, fontSize: 13)),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: descController,
+                              maxLines: 2,
+                              style: TextStyle(color: textColor),
+                              decoration: InputDecoration(
+                                hintText: 'Detailed note for renters on the loyalty card...',
+                                hintStyle: TextStyle(color: textSecondary),
+                                filled: true,
+                                fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Active Switch
+                            Row(
+                              children: [
+                                Switch(
+                                  value: isActive,
+                                  activeThumbColor: adminGold,
+                                  onChanged: (val) => setDialogState(() => isActive = val),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Make milestone active on loyalty cards immediately',
+                                  style: TextStyle(color: textColor, fontWeight: FontWeight.w600, fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 24),
+
+                    // Actions
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: isSaving ? null : () => Navigator.pop(dialogCtx),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  final cleanLabel = labelController.text.trim();
+                                  final discountVal = double.tryParse(amountController.text.trim()) ?? 0.0;
+                                  final freeHoursVal = int.tryParse(freeHoursController.text.trim()) ?? 0;
+
+                                  if (cleanLabel.isEmpty) {
+                                    setDialogState(() => formError = 'Please enter a reward label.');
+                                    return;
+                                  }
+                                  if (rewardType == 'discount' && discountVal <= 0) {
+                                    setDialogState(() => formError = 'Discount amount must be greater than 0.');
+                                    return;
+                                  }
+                                  if (rewardType == 'discount' && isPercent && discountVal > 100) {
+                                    setDialogState(() => formError = 'Percentage discount cannot exceed 100%.');
+                                    return;
+                                  }
+                                  if (rewardType == 'free_time' && freeHoursVal <= 0) {
+                                    setDialogState(() => formError = 'Free rental hours must be greater than 0.');
+                                    return;
+                                  }
+
+                                  final messenger = ScaffoldMessenger.of(context);
+                                  setDialogState(() {
+                                    isSaving = true;
+                                    formError = null;
+                                  });
+
+                                  try {
+                                    final milestone = LoyaltyRewardMilestone(
+                                      selectedStamp,
+                                      cleanLabel,
+                                      id: existing?.id,
+                                      description: descController.text.trim(),
+                                      rewardType: rewardType,
+                                      discountAmount: rewardType == 'discount' && !isPercent ? discountVal : 0.0,
+                                      discountPercent: rewardType == 'discount' && isPercent ? discountVal : 0.0,
+                                      freeHours: rewardType == 'free_time' ? freeHoursVal : 0,
+                                      voucherCode: voucherCodeController.text.trim().isEmpty
+                                          ? null
+                                          : voucherCodeController.text.trim().toUpperCase(),
+                                      isActive: isActive,
+                                    );
+
+                                    await LoyaltyRewardService().saveMilestone(milestone);
+                                    await AuditService().logAudit(
+                                      action: isEditing ? 'loyalty_milestone_updated' : 'loyalty_milestone_created',
+                                      category: 'loyalty',
+                                      entityId: selectedStamp.toString(),
+                                      entityType: 'loyalty_milestone',
+                                      notes: 'Admin saved loyalty milestone stamp $selectedStamp ($cleanLabel)',
+                                    );
+
+                                    await _loadLoyaltyMilestones();
+
+                                    if (dialogCtx.mounted) {
+                                      Navigator.pop(dialogCtx);
+                                    }
+                                    messenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text('Milestone Stamp #$selectedStamp ("$cleanLabel") saved successfully!'),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    setDialogState(() {
+                                      isSaving = false;
+                                      formError = 'Failed to save milestone: $e';
+                                    });
+                                  }
+                                },
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.black,
+                                  ),
+                                )
+                              : const Icon(Icons.check_rounded, size: 18),
+                          label: Text(isEditing ? 'Save Changes' : 'Add Milestone'),
                           style: FilledButton.styleFrom(
                             backgroundColor: adminGold,
                             foregroundColor: Colors.black,

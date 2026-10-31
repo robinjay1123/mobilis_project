@@ -51,6 +51,7 @@ import '../../../services/booking_viewed_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/audit_service.dart';
 import '../../../services/voucher_service.dart';
+import '../../../services/loyalty_reward_service.dart';
 
 part 'tabs/admin_reports_tab.dart';
 part 'tabs/admin_action_logs_tab.dart';
@@ -398,6 +399,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   bool _isLoadingVouchers = false;
   String _voucherSearchQuery = '';
   String _selectedVoucherCategoryFilter = 'all';
+  int _voucherSubTab = 0;
+  List<LoyaltyRewardMilestone> _loyaltyMilestones = [];
+  bool _isLoadingLoyaltyMilestones = false;
   List<Map<String, dynamic>> _supportConversations = [];
   final Map<String, List<Map<String, dynamic>>> _supportMessages = {};
   String? _selectedSupportConversationId;
@@ -1100,6 +1104,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       debugPrint('AdminWebScreen: Error loading vouchers: $e');
       if (mounted) {
         setState(() => _isLoadingVouchers = false);
+      }
+    }
+  }
+
+  Future<void> _loadLoyaltyMilestones() async {
+    if (_isLoadingLoyaltyMilestones) return;
+    _isLoadingLoyaltyMilestones = true;
+    if (mounted) setState(() {});
+    try {
+      final list = await LoyaltyRewardService().loadMilestones();
+      if (mounted) {
+        setState(() {
+          _loyaltyMilestones = list;
+          _isLoadingLoyaltyMilestones = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('AdminWebScreen: Error loading loyalty milestones: $e');
+      if (mounted) {
+        setState(() => _isLoadingLoyaltyMilestones = false);
       }
     }
   }
@@ -5532,6 +5556,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               if (_vouchers.isEmpty) {
                 _loadVouchers();
               }
+              if (_loyaltyMilestones.isEmpty) {
+                _loadLoyaltyMilestones();
+              }
             } else if (index == 10) {
               _refreshTrackingLocations();
             } else if (index == 2) {
@@ -5766,7 +5793,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       return;
     }
     if (_selectedIndex == 15) {
-      await _loadVouchers();
+      await Future.wait([_loadVouchers(), _loadLoyaltyMilestones()]);
       return;
     }
     await _loadDashboardData();

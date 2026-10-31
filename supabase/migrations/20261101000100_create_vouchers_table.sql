@@ -36,3 +36,4 @@ values
   ('PSDC5TRIPS500', '₱500 OFF PSDC Loyal Renter Reward', 'Unlocked after 5 completed trips with PSDC!', 0.0, 500.0, false, 5, 0.0, null, true, 'loyalty_milestone'),
   ('PSDCVIP20', '20% OFF PSDC VIP Renter Voucher', 'Unlocked after 10 completed trips with PSDC!', 20.0, 0.0, true, 10, 0.0, null, true, 'loyalty_milestone')
 on conflict (code) do nothing;
+
