@@ -52,6 +52,7 @@ import '../../../services/trip_rating_service.dart';
 import '../../../services/audit_service.dart';
 import '../../../services/voucher_service.dart';
 import '../../../services/loyalty_reward_service.dart';
+import '../../../services/operator_remittance_service.dart';
 
 part 'tabs/admin_reports_tab.dart';
 part 'tabs/admin_action_logs_tab.dart';
@@ -68,6 +69,7 @@ part 'tabs/admin_archived_accounts_tab.dart';
 part 'tabs/admin_users_tab.dart';
 part 'tabs/admin_dashboard_tab.dart';
 part 'tabs/admin_vouchers_tab.dart';
+part 'tabs/admin_remittances_tab.dart';
 
 const int _recentBookingsPerPage = 5;
 const int _commissionHistoryPerPage = 10;
@@ -402,6 +404,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   int _voucherSubTab = 0;
   List<LoyaltyRewardMilestone> _loyaltyMilestones = [];
   bool _isLoadingLoyaltyMilestones = false;
+  List<OperatorRemittanceModel> _operatorRemittances = [];
+  bool _isLoadingOperatorRemittances = false;
+  String _remittanceSearchQuery = '';
+  String _selectedRemittanceFilter = 'all';
+  int _pendingRemittancesCount = 0;
   List<Map<String, dynamic>> _supportConversations = [];
   final Map<String, List<Map<String, dynamic>>> _supportMessages = {};
   String? _selectedSupportConversationId;
@@ -1124,6 +1131,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       debugPrint('AdminWebScreen: Error loading loyalty milestones: $e');
       if (mounted) {
         setState(() => _isLoadingLoyaltyMilestones = false);
+      }
+    }
+  }
+
+  Future<void> _loadOperatorRemittances() async {
+    if (_isLoadingOperatorRemittances) return;
+    _isLoadingOperatorRemittances = true;
+    if (mounted) setState(() {});
+    try {
+      final list = await OperatorRemittanceService().getRemittances();
+      if (mounted) {
+        setState(() {
+          _operatorRemittances = list;
+          _pendingRemittancesCount = list.where((r) => r.isPendingReview).length;
+          _isLoadingOperatorRemittances = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('AdminWebScreen: Error loading operator remittances: $e');
+      if (mounted) {
+        setState(() => _isLoadingOperatorRemittances = false);
       }
     }
   }
@@ -5244,6 +5272,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return 'Archived Accounts';
       case 15:
         return 'Vouchers & Loyalty';
+      case 16:
+        return 'Operator Remittances';
       default:
         return 'Dashboard';
     }
@@ -5287,6 +5317,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return _buildArchivedAccountsContent(isDark);
       case 15:
         return _buildVouchersContent(isDark);
+      case 16:
+        return _buildOperatorRemittancesContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
@@ -5485,6 +5517,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'Vouchers & Loyalty',
             isDark,
           ),
+          _buildNavItem(
+            16,
+            Icons.price_check_rounded,
+            'Operator Remittances',
+            isDark,
+            badge: _pendingRemittancesCount > 0 ? _pendingRemittancesCount : null,
+          ),
           _buildNavItem(11, Icons.settings_rounded, 'Settings', isDark),
           Divider(color: Colors.white.withOpacity(0.08), height: 1),
           Tooltip(
@@ -5558,6 +5597,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               }
               if (_loyaltyMilestones.isEmpty) {
                 _loadLoyaltyMilestones();
+              }
+            } else if (index == 16) {
+              if (_operatorRemittances.isEmpty) {
+                _loadOperatorRemittances();
               }
             } else if (index == 10) {
               _refreshTrackingLocations();
@@ -5680,6 +5723,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     13: 'safety-reports',
     14: 'archived-accounts',
     15: 'vouchers',
+    16: 'remittances',
   };
 
   static const Map<String, int> _adminSlugToTab = {
@@ -5718,6 +5762,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     'loyalty': 15,
     'discounts': 15,
     'promotions': 15,
+    'remittances': 16,
+    'remittance': 16,
+    'operator-remittances': 16,
   };
 
   void _syncWebUrl(int index) {
@@ -5794,6 +5841,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
     if (_selectedIndex == 15) {
       await Future.wait([_loadVouchers(), _loadLoyaltyMilestones()]);
+      return;
+    }
+    if (_selectedIndex == 16) {
+      await _loadOperatorRemittances();
       return;
     }
     await _loadDashboardData();

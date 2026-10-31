@@ -35,7 +35,7 @@ void main() {
   });
 
   test('all 18 stamps and redemptions complete the card', () {
-    final redeemed = LoyaltyRewardState.milestones
+    final redeemed = LoyaltyRewardState.defaultMilestones
         .map((milestone) => milestone.stamp)
         .toSet();
     final state = rewardState(trips: 18, redeemed: redeemed);

@@ -1,11 +1,15 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../services/booking_settlement_service.dart';
 import '../../../services/payout_method_service.dart';
+import '../../../services/operator_remittance_service.dart';
+import '../../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
 
@@ -34,8 +38,11 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
       BookingSettlementService();
   final PayoutMethodService _payoutMethodService = PayoutMethodService();
   String _selectedPeriod = 'Month';
+  int _selectedRevenueTab = 0; // 0: Earnings & Payouts, 1: Platform Remittances
+  String _selectedRemittanceFilter = 'all';
   late Future<List<Map<String, dynamic>>> _payoutsFuture;
   late Future<List<PayoutMethod>> _payoutMethodsFuture;
+  late Future<List<OperatorRemittanceModel>> _remittancesFuture;
   static const List<String> _periodOptions = ['Day', 'Week', 'Month', 'Year'];
 
   @override
@@ -43,6 +50,17 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     super.initState();
     _payoutsFuture = _fetchPayouts();
     _payoutMethodsFuture = _fetchPayoutMethods();
+    _remittancesFuture = _fetchRemittances();
+  }
+
+  Future<List<OperatorRemittanceModel>> _fetchRemittances() {
+    return OperatorRemittanceService().getRemittances(operatorId: widget.partnerId);
+  }
+
+  Future<void> _refreshRemittances() async {
+    final req = _fetchRemittances();
+    setState(() => _remittancesFuture = req);
+    await req;
   }
 
   Future<List<PayoutMethod>> _fetchPayoutMethods() {
@@ -103,7 +121,10 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
 
             return RefreshIndicator(
               color: AppColors.primary,
-              onRefresh: _refreshPayouts,
+              onRefresh: () async {
+                await _refreshPayouts();
+                await _refreshRemittances();
+              },
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 26),
@@ -124,7 +145,7 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                             text: 'Mobilis ',
                             children: [
                               TextSpan(
-                                text: 'Mobilis',
+                                text: 'Partner Hub',
                                 style: TextStyle(color: AppColors.primary),
                               ),
                             ],
@@ -154,9 +175,12 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 32),
-                  Row(
-                    children: [
+                  const SizedBox(height: 18),
+                  _buildSubTabSelector(),
+                  const SizedBox(height: 22),
+                  if (_selectedRevenueTab == 0) ...[
+                    Row(
+                      children: [
                       const Expanded(
                         child: Text(
                           'Analytics',
@@ -227,6 +251,9 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                     )
                   else
                     ...payouts.map(_buildEarningRow),
+                  ] else ...[
+                    _buildPlatformRemittancesSection(),
+                  ],
                 ],
               ),
             );
@@ -1706,6 +1733,1623 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     } catch (_) {
       return value;
     }
+  }
+
+  Widget _buildSubTabSelector() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedRevenueTab = 0),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: _selectedRevenueTab == 0
+                      ? AppColors.primary
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.account_balance_wallet_rounded,
+                      size: 16,
+                      color: _selectedRevenueTab == 0
+                          ? Colors.black
+                          : AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Earnings & Payouts',
+                      style: TextStyle(
+                        color: _selectedRevenueTab == 0
+                            ? Colors.black
+                            : AppColors.textSecondary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedRevenueTab = 1),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: _selectedRevenueTab == 1
+                      ? AppColors.primary
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.price_check_rounded,
+                      size: 16,
+                      color: _selectedRevenueTab == 1
+                          ? Colors.black
+                          : AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Platform Remittances',
+                      style: TextStyle(
+                        color: _selectedRevenueTab == 1
+                            ? Colors.black
+                            : AppColors.textSecondary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlatformRemittancesSection() {
+    return FutureBuilder<List<OperatorRemittanceModel>>(
+      future: _remittancesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 40),
+            child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+          );
+        }
+
+        final remittances = snapshot.data ?? <OperatorRemittanceModel>[];
+        final remittanceByBooking = <String, OperatorRemittanceModel>{
+          for (final r in remittances) r.bookingId: r,
+        };
+
+        final completedBookings = widget.bookings.where((b) {
+          final s = (b['status']?.toString() ?? '').toLowerCase().trim();
+          return s == 'completed' || s == 'returned';
+        }).toList();
+
+        double totalRemitted = 0.0;
+        double pendingReview = 0.0;
+        double dueToRemit = 0.0;
+        int remittedCount = 0;
+        int pendingCount = 0;
+        int dueCount = 0;
+        int rejectedCount = 0;
+
+        for (final booking in completedBookings) {
+          final bookingId = booking['id']?.toString() ?? '';
+          final rem = remittanceByBooking[bookingId];
+          final gross = _getBookingRentalGross(booking);
+          final commission = rem?.commissionAmount ?? (gross * 0.05);
+          final status = rem?.status ?? (booking['operator_remittance_status']?.toString().toLowerCase() ?? 'unremitted');
+
+          if (status == 'remitted') {
+            totalRemitted += commission;
+            remittedCount++;
+          } else if (status == 'pending_review') {
+            pendingReview += commission;
+            pendingCount++;
+          } else if (status == 'rejected') {
+            dueToRemit += commission;
+            rejectedCount++;
+            dueCount++;
+          } else {
+            dueToRemit += commission;
+            dueCount++;
+          }
+        }
+
+        final filteredBookings = completedBookings.where((booking) {
+          final bookingId = booking['id']?.toString() ?? '';
+          final rem = remittanceByBooking[bookingId];
+          final status = rem?.status ?? (booking['operator_remittance_status']?.toString().toLowerCase() ?? 'unremitted');
+
+          switch (_selectedRemittanceFilter) {
+            case 'due':
+              return status == 'unremitted' || status == 'rejected';
+            case 'pending_review':
+              return status == 'pending_review';
+            case 'remitted':
+              return status == 'remitted';
+            case 'rejected':
+              return status == 'rejected';
+            case 'all':
+            default:
+              return true;
+          }
+        }).toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Platform Commission Remittances',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _refreshRemittances,
+                  icon: const Icon(Icons.refresh_rounded, color: AppColors.primary, size: 20),
+                  tooltip: 'Refresh Remittances',
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildRemittanceMetricRow(
+              totalRemitted: totalRemitted,
+              remittedCount: remittedCount,
+              pendingReview: pendingReview,
+              pendingCount: pendingCount,
+              dueToRemit: dueToRemit,
+              dueCount: dueCount,
+            ),
+            const SizedBox(height: 20),
+            _buildRemittancePolicyBanner(),
+            const SizedBox(height: 20),
+            _buildRemittanceFilterChips(
+              allCount: completedBookings.length,
+              dueCount: dueCount,
+              pendingCount: pendingCount,
+              remittedCount: remittedCount,
+              rejectedCount: rejectedCount,
+            ),
+            const SizedBox(height: 18),
+            if (filteredBookings.isEmpty)
+              _buildEmptyPanel(
+                icon: Icons.check_circle_outline_rounded,
+                text: _selectedRemittanceFilter == 'all'
+                    ? 'No completed bookings yet. Once a rental is completed, its 5% platform commission will appear here ready for remittance.'
+                    : 'No bookings found matching "$_selectedRemittanceFilter".',
+              )
+            else
+              ...filteredBookings.map((b) {
+                final bId = b['id']?.toString() ?? '';
+                final rem = remittanceByBooking[bId];
+                return _buildOperatorRemittanceCard(b, rem);
+              }),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildRemittanceMetricRow({
+    required double totalRemitted,
+    required int remittedCount,
+    required double pendingReview,
+    required int pendingCount,
+    required double dueToRemit,
+    required int dueCount,
+  }) {
+    return Column(
+      children: [
+        _buildMetricCard(
+          label: 'Total Platform Commission Remitted',
+          value: _currency(totalRemitted),
+          subtext: '$remittedCount booking${remittedCount == 1 ? '' : 's'} verified & remitted to PSDC',
+          icon: Icons.check_circle_rounded,
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBgSecondary,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.amber.withOpacity(0.35)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.hourglass_top_rounded, color: Colors.amber.shade400, size: 18),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Under Review',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _currency(pendingReview),
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$pendingCount pending admin check',
+                      style: TextStyle(color: Colors.amber.shade300, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBgSecondary,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.orangeAccent.withOpacity(0.35)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 18),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Due to Remit',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _currency(dueToRemit),
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$dueCount trip${dueCount == 1 ? '' : 's'} awaiting proof',
+                      style: const TextStyle(color: Colors.orangeAccent, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRemittancePolicyBanner() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF041E33),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primary.withOpacity(0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.shield_outlined, color: AppColors.primary, size: 22),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Operator Remittance & Proof Guidelines',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  '• You retain 95% of each rental. The platform 5% commission is remitted to PSDC after the booking is completed.\n• For Cash Handover: A clear photo of the actual cash bills is strictly required.\n• For Digital Transfer: A clear screenshot of the GCash / Bank transfer receipt is strictly required.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRemittanceFilterChips({
+    required int allCount,
+    required int dueCount,
+    required int pendingCount,
+    required int remittedCount,
+    required int rejectedCount,
+  }) {
+    final filters = [
+      {'key': 'all', 'label': 'All', 'count': allCount},
+      {'key': 'due', 'label': 'Due to Remit', 'count': dueCount},
+      {'key': 'pending_review', 'label': 'Under Review', 'count': pendingCount},
+      {'key': 'remitted', 'label': 'Remitted', 'count': remittedCount},
+      if (rejectedCount > 0) {'key': 'rejected', 'label': 'Rejected', 'count': rejectedCount},
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: filters.map((f) {
+          final isSelected = _selectedRemittanceFilter == f['key'];
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              selected: isSelected,
+              showCheckmark: false,
+              label: Text('${f['label']} (${f['count']})'),
+              labelStyle: TextStyle(
+                color: isSelected ? Colors.black : AppColors.textPrimary,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                fontSize: 12,
+              ),
+              backgroundColor: AppColors.darkBgSecondary,
+              selectedColor: AppColors.primary,
+              side: BorderSide(
+                color: isSelected ? AppColors.primary : AppColors.borderColor,
+              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              onSelected: (_) {
+                setState(() => _selectedRemittanceFilter = f['key'] as String);
+              },
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildOperatorRemittanceCard(
+    Map<String, dynamic> booking,
+    OperatorRemittanceModel? remittance,
+  ) {
+    final bookingRef = _getBookingReference(booking);
+    final vehicleTitle = _getBookingVehicleName(booking);
+    final gross = _getBookingRentalGross(booking);
+    final operatorShare = gross * 0.95;
+    final commission = remittance?.commissionAmount ?? (gross * 0.05);
+    final status = remittance?.status ?? (booking['operator_remittance_status']?.toString().toLowerCase() ?? 'unremitted');
+    final completedDate = _bookingDate(booking);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: status == 'remitted'
+              ? const Color(0xFF10B981).withOpacity(0.35)
+              : status == 'pending_review'
+              ? Colors.amber.withOpacity(0.35)
+              : status == 'rejected'
+              ? AppColors.error.withOpacity(0.4)
+              : AppColors.borderColor,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      bookingRef,
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  if (completedDate != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      DateFormat('MMM d, yyyy').format(completedDate),
+                      style: const TextStyle(color: AppColors.textTertiary, fontSize: 11),
+                    ),
+                  ],
+                ],
+              ),
+              _buildRemittanceStatusBadge(status),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.directions_car_rounded, color: AppColors.textSecondary, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  vehicleTitle,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.darkBg,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Rental Gross', style: TextStyle(color: AppColors.textTertiary, fontSize: 10)),
+                    const SizedBox(height: 2),
+                    Text(_currency(gross), style: const TextStyle(color: AppColors.textPrimary, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Container(width: 1, height: 26, color: AppColors.borderColor),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Operator (95%)', style: TextStyle(color: AppColors.textTertiary, fontSize: 10)),
+                    const SizedBox(height: 2),
+                    Text(_currency(operatorShare), style: const TextStyle(color: AppColors.success, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Container(width: 1, height: 26, color: AppColors.borderColor),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Platform (5%)', style: TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    Text(_currency(commission), style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w900)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (remittance != null && remittance.proofImageUrl.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: () => _showProofPreviewDialog(remittance, bookingRef, vehicleTitle),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Stack(
+                      children: [
+                        SizedBox(
+                          width: 64,
+                          height: 64,
+                          child: Image.network(
+                            remittance.proofImageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: AppColors.darkBg,
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.broken_image, color: AppColors.textTertiary, size: 24),
+                            ),
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: Container(
+                            color: Colors.black.withOpacity(0.25),
+                            child: const Center(
+                              child: Icon(Icons.zoom_in_rounded, color: Colors.white, size: 18),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            remittance.remittanceType == 'cash' ? Icons.payments_rounded : Icons.phone_android_rounded,
+                            size: 14,
+                            color: remittance.remittanceType == 'cash' ? Colors.greenAccent : Colors.lightBlueAccent,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            remittance.remittanceType == 'cash' ? 'Cash Handover' : 'Digital Transfer',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (remittance.referenceNumber.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Ref: ${remittance.referenceNumber}',
+                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                        ),
+                      ],
+                      if (remittance.operatorNotes.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '"${remittance.operatorNotes}"',
+                          style: const TextStyle(color: AppColors.textTertiary, fontSize: 11, fontStyle: FontStyle.italic),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (status == 'rejected' && remittance?.rejectionReason != null && remittance!.rejectionReason!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.error.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.error.withOpacity(0.35)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Rejection Reason from Admin:',
+                          style: TextStyle(color: AppColors.error, fontWeight: FontWeight.bold, fontSize: 11),
+                        ),
+                        Text(
+                          remittance.rejectionReason!,
+                          style: const TextStyle(color: AppColors.textPrimary, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (status == 'remitted' && remittance?.reviewedAt != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 14),
+                const SizedBox(width: 4),
+                Text(
+                  'Verified by Admin on ${DateFormat('MMM d, yyyy h:mm a').format(remittance!.reviewedAt!.toLocal())}',
+                  style: const TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
+          if (status == 'unremitted' || status == 'rejected')
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _showSubmitRemittanceModal(booking, remittance),
+                icon: const Icon(Icons.upload_file_rounded, size: 16),
+                label: Text(
+                  status == 'rejected'
+                      ? 'Re-upload Proof & Resubmit (₱${commission.toStringAsFixed(2)})'
+                      : 'Remit Platform Commission (₱${commission.toStringAsFixed(2)})',
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  elevation: 2,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            )
+          else if (status == 'pending_review')
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: remittance != null
+                    ? () => _showProofPreviewDialog(remittance, bookingRef, vehicleTitle)
+                    : null,
+                icon: const Icon(Icons.hourglass_top_rounded, size: 16, color: Colors.amber),
+                label: const Text('Under Review • View Submitted Proof'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.amber,
+                  side: BorderSide(color: Colors.amber.withOpacity(0.5)),
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            )
+          else if (status == 'remitted')
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: remittance != null
+                    ? () => _showProofPreviewDialog(remittance, bookingRef, vehicleTitle)
+                    : null,
+                icon: const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF10B981)),
+                label: const Text('Confirmed Remitted • View Receipt'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF10B981),
+                  side: BorderSide(color: const Color(0xFF10B981).withOpacity(0.5)),
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRemittanceStatusBadge(String status) {
+    Color bg;
+    Color fg;
+    String text;
+    IconData icon;
+
+    switch (status) {
+      case 'remitted':
+        bg = const Color(0xFF10B981).withOpacity(0.15);
+        fg = const Color(0xFF10B981);
+        text = 'Remitted & Verified';
+        icon = Icons.check_circle_rounded;
+        break;
+      case 'pending_review':
+        bg = Colors.amber.withOpacity(0.15);
+        fg = Colors.amber.shade400;
+        text = 'Under Review';
+        icon = Icons.hourglass_top_rounded;
+        break;
+      case 'rejected':
+        bg = AppColors.error.withOpacity(0.15);
+        fg = AppColors.error;
+        text = 'Rejected';
+        icon = Icons.error_outline_rounded;
+        break;
+      case 'unremitted':
+      default:
+        bg = Colors.orangeAccent.withOpacity(0.15);
+        fg = Colors.orangeAccent;
+        text = 'Due to Remit';
+        icon = Icons.priority_high_rounded;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: fg.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _getBookingRentalGross(Map<String, dynamic> booking) {
+    for (final key in ['rental_gross_amount', 'total_price', 'total_amount', 'grand_total', 'amount']) {
+      final val = (booking[key] as num?)?.toDouble() ?? double.tryParse(booking[key]?.toString() ?? '');
+      if (val != null && val > 0) return val;
+    }
+    return 0.0;
+  }
+
+  String _getBookingVehicleName(Map<String, dynamic> booking) {
+    if (booking['vehicle_name'] != null && booking['vehicle_name'].toString().isNotEmpty) {
+      return booking['vehicle_name'].toString();
+    }
+    if (booking['vehicles'] is Map) {
+      final v = booking['vehicles'] as Map;
+      final make = v['make']?.toString() ?? '';
+      final model = v['model']?.toString() ?? '';
+      final year = v['year']?.toString() ?? '';
+      final combined = '$year $make $model'.trim();
+      if (combined.isNotEmpty) return combined;
+      if (v['title'] != null) return v['title'].toString();
+      if (v['name'] != null) return v['name'].toString();
+    }
+    final vehId = booking['vehicle_id']?.toString() ?? '';
+    return vehId.isNotEmpty ? 'Vehicle #${vehId.substring(0, vehId.length > 6 ? 6 : vehId.length)}' : 'Rental Vehicle';
+  }
+
+  String _getBookingReference(Map<String, dynamic> booking) {
+    final ref = booking['booking_reference']?.toString();
+    if (ref != null && ref.isNotEmpty) return ref;
+    final id = booking['id']?.toString() ?? '';
+    if (id.length > 8) return 'BK-${id.substring(0, 8).toUpperCase()}';
+    return id.isNotEmpty ? 'BK-$id' : 'BK-N/A';
+  }
+
+  void _showProofPreviewDialog(
+    OperatorRemittanceModel remittance,
+    String bookingRef,
+    String vehicleTitle,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: AppColors.darkBgSecondary,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      remittance.remittanceType == 'cash'
+                          ? Icons.payments_rounded
+                          : Icons.phone_android_rounded,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            remittance.remittanceType == 'cash'
+                                ? 'Cash Handover Proof (Money Photo)'
+                                : 'Digital Transfer Proof (Receipt)',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          Text(
+                            '$bookingRef • $vehicleTitle',
+                            style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: AppColors.textSecondary),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: AppColors.borderColor, height: 1),
+              Flexible(
+                child: Container(
+                  constraints: const BoxConstraints(maxHeight: 420),
+                  color: Colors.black,
+                  child: InteractiveViewer(
+                    panEnabled: true,
+                    minScale: 0.5,
+                    maxScale: 4.0,
+                    child: Image.network(
+                      remittance.proofImageUrl,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (_, child, progress) {
+                        if (progress == null) return child;
+                        return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+                      },
+                      errorBuilder: (_, __, ___) => const Center(
+                        child: Text(
+                          'Could not load proof image.',
+                          style: TextStyle(color: AppColors.textSecondary),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const Divider(color: AppColors.borderColor, height: 1),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Commission: ${_currency(remittance.commissionAmount)}',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14,
+                          ),
+                        ),
+                        _buildRemittanceStatusBadge(remittance.status),
+                      ],
+                    ),
+                    if (remittance.referenceNumber.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Reference No: ${remittance.referenceNumber}',
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
+                    ],
+                    if (remittance.operatorNotes.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Note: ${remittance.operatorNotes}',
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
+                    ],
+                    if (remittance.rejectionReason != null && remittance.rejectionReason!.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Rejection Reason: ${remittance.rejectionReason}',
+                        style: const TextStyle(color: AppColors.error, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSubmitRemittanceModal(
+    Map<String, dynamic> booking, [
+    OperatorRemittanceModel? existingRemittance,
+  ]) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return _RemittanceSubmissionSheet(
+          booking: booking,
+          existingRemittance: existingRemittance,
+          operatorId: widget.partnerId,
+          operatorName: widget.partnerName,
+          onSubmitted: () {
+            _refreshRemittances();
+          },
+        );
+      },
+    );
+  }
+}
+
+class _RemittanceSubmissionSheet extends StatefulWidget {
+  final Map<String, dynamic> booking;
+  final OperatorRemittanceModel? existingRemittance;
+  final String operatorId;
+  final String operatorName;
+  final VoidCallback onSubmitted;
+
+  const _RemittanceSubmissionSheet({
+    required this.booking,
+    this.existingRemittance,
+    required this.operatorId,
+    required this.operatorName,
+    required this.onSubmitted,
+  });
+
+  @override
+  State<_RemittanceSubmissionSheet> createState() => _RemittanceSubmissionSheetState();
+}
+
+class _RemittanceSubmissionSheetState extends State<_RemittanceSubmissionSheet> {
+  final ImagePicker _picker = ImagePicker();
+  late String _remittanceType;
+  Uint8List? _imageBytes;
+  String? _imageName;
+  late final TextEditingController _refController;
+  late final TextEditingController _notesController;
+  bool _isSubmitting = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _remittanceType = widget.existingRemittance?.remittanceType ?? 'digital';
+    _refController = TextEditingController(text: widget.existingRemittance?.referenceNumber ?? '');
+    _notesController = TextEditingController(text: widget.existingRemittance?.operatorNotes ?? '');
+  }
+
+  @override
+  void dispose() {
+    _refController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? file = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1600,
+      );
+      if (file != null) {
+        final bytes = await file.readAsBytes();
+        setState(() {
+          _imageBytes = bytes;
+          _imageName = file.name;
+          _errorMessage = null;
+        });
+      }
+    } catch (e) {
+      try {
+        final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+        if (result != null && result.files.isNotEmpty) {
+          final f = result.files.first;
+          if (f.bytes != null) {
+            setState(() {
+              _imageBytes = f.bytes;
+              _imageName = f.name;
+              _errorMessage = null;
+            });
+          }
+        }
+      } catch (err) {
+        setState(() => _errorMessage = 'Failed to select image: $err');
+      }
+    }
+  }
+
+  Future<void> _handleSubmit() async {
+    final hasExistingImage = widget.existingRemittance != null && widget.existingRemittance!.proofImageUrl.isNotEmpty;
+
+    if (_imageBytes == null && !hasExistingImage) {
+      setState(() {
+        _errorMessage = _remittanceType == 'cash'
+            ? 'A clear photo of the actual cash bills is strictly required by the admin.'
+            : 'A photo or screenshot of the transaction receipt is strictly required by the admin.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final bookingId = widget.booking['id']?.toString() ?? '';
+      final bookingRef = widget.booking['booking_reference']?.toString().isNotEmpty == true
+          ? widget.booking['booking_reference'].toString()
+          : (bookingId.length > 8 ? 'BK-${bookingId.substring(0, 8).toUpperCase()}' : 'BK-$bookingId');
+
+      final gross = (widget.booking['rental_gross_amount'] as num?)?.toDouble() ??
+          (widget.booking['total_price'] as num?)?.toDouble() ??
+          (widget.booking['total_amount'] as num?)?.toDouble() ??
+          (widget.booking['grand_total'] as num?)?.toDouble() ??
+          0.0;
+      final commissionAmount = widget.existingRemittance?.commissionAmount ?? (gross * 0.05);
+
+      String vehicleName = widget.booking['vehicle_name']?.toString() ?? '';
+      if (vehicleName.isEmpty && widget.booking['vehicles'] is Map) {
+        final v = widget.booking['vehicles'] as Map;
+        vehicleName = '${v['year'] ?? ''} ${v['make'] ?? ''} ${v['model'] ?? ''}'.trim();
+      }
+      if (vehicleName.isEmpty) vehicleName = 'Partner Vehicle';
+
+      String proofUrl = widget.existingRemittance?.proofImageUrl ?? '';
+      if (_imageBytes != null) {
+        proofUrl = await OperatorRemittanceService().uploadRemittanceProof(
+          bytes: _imageBytes!,
+          fileName: _imageName ?? 'proof.jpg',
+          bookingId: bookingId,
+        );
+      }
+
+      await OperatorRemittanceService().submitRemittance(
+        bookingId: bookingId,
+        bookingReference: bookingRef,
+        operatorId: widget.operatorId,
+        operatorName: widget.operatorName,
+        vehicleName: vehicleName,
+        rentalGrossAmount: gross,
+        commissionRate: 5.0,
+        commissionAmount: commissionAmount,
+        remittanceType: _remittanceType,
+        proofImageUrl: proofUrl,
+        referenceNumber: _refController.text.trim(),
+        operatorNotes: _notesController.text.trim(),
+      );
+
+      widget.onSubmitted();
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF10B981),
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Remittance request for #$bookingRef submitted! The admin will review your proof.',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+          _errorMessage = 'Failed to submit remittance: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final bookingId = widget.booking['id']?.toString() ?? '';
+    final bookingRef = widget.booking['booking_reference']?.toString().isNotEmpty == true
+        ? widget.booking['booking_reference'].toString()
+        : (bookingId.length > 8 ? 'BK-${bookingId.substring(0, 8).toUpperCase()}' : 'BK-$bookingId');
+
+    final gross = (widget.booking['rental_gross_amount'] as num?)?.toDouble() ??
+        (widget.booking['total_price'] as num?)?.toDouble() ??
+        (widget.booking['total_amount'] as num?)?.toDouble() ??
+        (widget.booking['grand_total'] as num?)?.toDouble() ??
+        0.0;
+    final commission = widget.existingRemittance?.commissionAmount ?? (gross * 0.05);
+
+    final hasExistingImage = widget.existingRemittance != null && widget.existingRemittance!.proofImageUrl.isNotEmpty;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 24 + bottomInset),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.borderColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Remit Platform Commission',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Booking #$bookingRef',
+                      style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBg,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Gross Rental',
+                              style: TextStyle(color: AppColors.textTertiary, fontSize: 11),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '₱${NumberFormat('#,##0.00').format(gross)}',
+                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        Container(width: 1, height: 28, color: AppColors.borderColor),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text(
+                              'Platform Commission (5%)',
+                              style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '₱${NumberFormat('#,##0.00').format(commission)}',
+                              style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.w900),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Remittance Payment Method *',
+                    style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _remittanceType = 'digital'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: _remittanceType == 'digital' ? AppColors.primary.withOpacity(0.15) : AppColors.darkBg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _remittanceType == 'digital' ? AppColors.primary : AppColors.borderColor,
+                                width: _remittanceType == 'digital' ? 2 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.phone_android_rounded,
+                                  color: _remittanceType == 'digital' ? AppColors.primary : AppColors.textSecondary,
+                                  size: 22,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Digital Transfer',
+                                  style: TextStyle(
+                                    color: _remittanceType == 'digital' ? AppColors.primary : AppColors.textPrimary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'GCash / Bank',
+                                  style: TextStyle(color: AppColors.textTertiary, fontSize: 10),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _remittanceType = 'cash'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: _remittanceType == 'cash' ? AppColors.primary.withOpacity(0.15) : AppColors.darkBg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _remittanceType == 'cash' ? AppColors.primary : AppColors.borderColor,
+                                width: _remittanceType == 'cash' ? 2 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.payments_rounded,
+                                  color: _remittanceType == 'cash' ? AppColors.primary : AppColors.textSecondary,
+                                  size: 22,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Cash Handover',
+                                  style: TextStyle(
+                                    color: _remittanceType == 'cash' ? AppColors.primary : AppColors.textPrimary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'Physical Money',
+                                  style: TextStyle(color: AppColors.textTertiary, fontSize: 10),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    _remittanceType == 'cash'
+                        ? 'Photo of Actual Money Bills (MANDATORY) *'
+                        : 'Screenshot of Transfer Receipt (MANDATORY) *',
+                    style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _remittanceType == 'cash'
+                        ? 'The admin strictly requires a clear photo of the physical cash bills being handed over.'
+                        : 'Upload a clear screenshot of your GCash, Maya, or bank transfer receipt showing the amount and reference number.',
+                    style: const TextStyle(color: AppColors.textTertiary, fontSize: 11),
+                  ),
+                  const SizedBox(height: 10),
+                  if (_imageBytes != null) ...[
+                    Container(
+                      height: 170,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.primary),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.memory(_imageBytes!, fit: BoxFit.contain),
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Container(
+                                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                                child: IconButton(
+                                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                                  onPressed: () => setState(() {
+                                    _imageBytes = null;
+                                    _imageName = null;
+                                  }),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _imageName ?? 'image_selected.jpg',
+                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => _pickImage(ImageSource.gallery),
+                          icon: const Icon(Icons.refresh_rounded, size: 14, color: AppColors.primary),
+                          label: const Text('Change Photo', style: TextStyle(color: AppColors.primary, fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                  ] else if (hasExistingImage) ...[
+                    Container(
+                      height: 150,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.borderColor),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          widget.existingRemittance!.proofImageUrl,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _pickImage(ImageSource.camera),
+                            icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                            label: const Text('Take New Photo'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.textPrimary,
+                              side: const BorderSide(color: AppColors.borderColor),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _pickImage(ImageSource.gallery),
+                            icon: const Icon(Icons.photo_library_rounded, size: 16),
+                            label: const Text('Choose from Gallery'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.textPrimary,
+                              side: const BorderSide(color: AppColors.borderColor),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBg,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: _errorMessage != null ? AppColors.error : AppColors.borderColor,
+                          width: _errorMessage != null ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            _remittanceType == 'cash' ? Icons.camera_alt_rounded : Icons.receipt_long_rounded,
+                            color: AppColors.primary,
+                            size: 32,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _remittanceType == 'cash'
+                                ? 'Take a clear photo of the actual money bills'
+                                : 'Upload screenshot of digital payment receipt',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 12),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: () => _pickImage(ImageSource.camera),
+                                icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                                label: const Text('Camera'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.black,
+                                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              OutlinedButton.icon(
+                                onPressed: () => _pickImage(ImageSource.gallery),
+                                icon: const Icon(Icons.photo_library_rounded, size: 16),
+                                label: const Text('Gallery'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.textPrimary,
+                                  side: const BorderSide(color: AppColors.borderColor),
+                                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Text(
+                    _remittanceType == 'cash'
+                        ? 'Envelope / Cash Receipt Note (Optional)'
+                        : 'GCash / Bank Reference Number',
+                    style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _refController,
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: _remittanceType == 'cash' ? 'e.g., PSDC Handover Receipt #104' : 'e.g., GCash Ref 1002 9384 1928',
+                      hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                      filled: true,
+                      fillColor: AppColors.darkBg,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.borderColor)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.borderColor)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.primary)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Notes for Admin (Optional)',
+                    style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _notesController,
+                    maxLines: 2,
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: _remittanceType == 'cash' ? 'e.g., Handed cash to Sir Robin at PSDC office.' : 'e.g., Sent from 0917-xxx-xxxx to PSDC account.',
+                      hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                      filled: true,
+                      fillColor: AppColors.darkBg,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.borderColor)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.borderColor)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.primary)),
+                    ),
+                  ),
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.error.withOpacity(0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: const TextStyle(color: AppColors.error, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSubmitting ? null : _handleSubmit,
+              icon: _isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    )
+                  : const Icon(Icons.send_rounded, size: 18),
+              label: Text(
+                _isSubmitting ? 'Uploading Proof & Submitting...' : 'Submit Remittance for Admin Verification',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                elevation: 3,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

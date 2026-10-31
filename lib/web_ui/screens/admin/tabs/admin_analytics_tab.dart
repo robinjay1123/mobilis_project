@@ -1318,57 +1318,77 @@ extension _AdminAnalyticsTab on _AdminWebScreenState {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: _adminGold.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(Icons.receipt_long_rounded, color: _adminGold, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
                     children: [
-                      Row(
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _adminGold.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.receipt_long_rounded, color: _adminGold, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Platform Commission & Disbursement History',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: _adminNavy.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: _adminGold.withOpacity(0.4)),
-                            ),
-                            child: Text(
-                              '${filteredRecords.length} records',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: _adminGold,
+                          Row(
+                            children: [
+                              Text(
+                                'Platform Commission & Disbursement History',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
                               ),
+                              const SizedBox(width: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: _adminNavy.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: _adminGold.withOpacity(0.4)),
+                                ),
+                                child: Text(
+                                  '${filteredRecords.length} records',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: _adminGold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Audit trail of all PSDC 5% commission earnings and partner/driver payout disbursements',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? Colors.grey[400] : Colors.grey.shade600,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Audit trail of all PSDC 5% commission earnings and partner/driver payout disbursements',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                        ),
-                      ),
                     ],
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() => _selectedIndex = 16);
+                    },
+                    icon: const Icon(Icons.verified_user_rounded, size: 16),
+                    label: const Text('Operator Remittances Tracker'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _adminGold,
+                      foregroundColor: Colors.black,
+                      elevation: 2,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
                 ],
               ),
