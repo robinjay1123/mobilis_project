@@ -455,6 +455,82 @@ class NotificationService {
     return notifiedCount;
   }
 
+  /// Notify operators and partner that the booking is fully paid
+  Future<int> notifyOperatorsBookingFullyPaid({
+    required String bookingId,
+    required String vehicleTitle,
+    required String renterName,
+    required double totalAmount,
+    String? paymentMethod,
+    String? referenceNumber,
+    String? partnerId,
+    String? ownerId,
+  }) async {
+    final cleanMethod = (paymentMethod ?? 'online').toUpperCase();
+    final refText = (referenceNumber != null && referenceNumber.trim().isNotEmpty)
+        ? ' (Ref: ${referenceNumber.trim()})'
+        : '';
+    final message =
+        '$renterName has paid the full rental amount of PHP ${totalAmount.toStringAsFixed(0)} via $cleanMethod$refText for $vehicleTitle.';
+
+    final data = {
+      'booking_id': bookingId,
+      'status': 'fully_paid',
+      'event': 'booking_fully_paid',
+      'total_amount': totalAmount,
+      if (paymentMethod != null) 'payment_method': paymentMethod,
+      if (referenceNumber != null) 'reference_number': referenceNumber,
+    };
+
+    int notifiedCount = await _notifyRoles(
+      roles: const ['operator'],
+      title: '💳 Booking Fully Paid',
+      message: message,
+      type: 'booking_payment',
+      data: data,
+    );
+
+    // Resolve and notify partner/owner if applicable
+    final targetPartnerUserIds = <String>{};
+    if (partnerId != null && partnerId.trim().isNotEmpty) {
+      targetPartnerUserIds.add(partnerId.trim());
+    }
+    if (ownerId != null && ownerId.trim().isNotEmpty) {
+      targetPartnerUserIds.add(ownerId.trim());
+    }
+
+    for (final rawId in targetPartnerUserIds) {
+      try {
+        final partnerDoc = await supabase
+            .from('partners')
+            .select('user_id')
+            .eq('id', rawId)
+            .maybeSingle();
+        final uId = partnerDoc?['user_id']?.toString().trim();
+        final effectiveUserId = (uId != null && uId.isNotEmpty) ? uId : rawId;
+        final sent = await _safeCreate(
+          userId: effectiveUserId,
+          title: '💳 Booking Fully Paid',
+          message: message,
+          type: 'booking_payment',
+          data: data,
+        );
+        if (sent) notifiedCount++;
+      } catch (_) {
+        final sent = await _safeCreate(
+          userId: rawId,
+          title: '💳 Booking Fully Paid',
+          message: message,
+          type: 'booking_payment',
+          data: data,
+        );
+        if (sent) notifiedCount++;
+      }
+    }
+
+    return notifiedCount;
+  }
+
   /// Notify a partner when their payout disbursement is completed.
   Future<bool> notifyPartnerDisbursementCompleted({
     required String partnerUserId,

@@ -2408,6 +2408,17 @@ class BookingService {
       'final_payment_confirmed_by': actorId,
       'updated_at': now,
     });
+
+    unawaited(
+      notifyConversationFullPayment(
+        bookingId: bookingId,
+        paymentMethod: paymentMethod,
+        referenceNumber: paymentReference ?? 'DESK-SETTLED',
+        proofUrl: proofUrl,
+        senderId: actorId,
+        isDeskPayment: true,
+      ),
+    );
   }
 
   /// Operator rejects the submitted final / settlement payment proof
@@ -2514,6 +2525,21 @@ class BookingService {
           'data': {'booking_id': bookingId, 'status': 'payment_verified'},
           'created_at': now,
         }).catchError((e) => debugPrint('Error notifying renter: $e')),
+      );
+    }
+
+    final isFullPaid = isBookingFullyPaid(booking) ||
+        booking['reservation_payment_type'] == 'full_payment' ||
+        booking['reservation_payment_covers_total'] == true;
+    if (isFullPaid) {
+      unawaited(
+        notifyConversationFullPayment(
+          bookingId: bookingId,
+          paymentMethod: booking['reservation_payment_method']?.toString(),
+          referenceNumber: booking['reservation_payment_reference']?.toString(),
+          proofUrl: booking['reservation_payment_proof_url']?.toString(),
+          senderId: operatorId,
+        ),
       );
     }
   }
@@ -2662,6 +2688,16 @@ class BookingService {
     }
 
     await safeUpdateBooking(bookingId, updateData);
+
+    unawaited(
+      notifyConversationFullPayment(
+        bookingId: bookingId,
+        paymentMethod: booking['final_payment_method']?.toString() ?? booking['reservation_payment_method']?.toString(),
+        referenceNumber: booking['final_payment_reference']?.toString() ?? booking['reservation_payment_reference']?.toString(),
+        proofUrl: booking['final_payment_proof_url']?.toString(),
+        senderId: actorId,
+      ),
+    );
 
     try {
       await TripRatingService().syncRatingFlowForBooking(
@@ -5718,6 +5754,10 @@ class BookingService {
       'Status: ${booking['status'] ?? 'pending'}',
       'Schedule: $startLabel -> $endLabel',
       'Total: PHP ${formatAmount(total, decimalDigits: 0)}',
+      if (isBookingFullyPaid(booking) ||
+          booking['reservation_payment_type'] == 'full_payment' ||
+          booking['reservation_payment_covers_total'] == true)
+        'Payment: 100% Fully Paid Upfront',
       'With Driver: $withDriver',
       'Renter: $renterLabel',
       'Partner/Owner: $partnerLabel',
@@ -5739,6 +5779,131 @@ class BookingService {
     );
 
     await safeUpdateBooking(bookingId, {'conversation_created': true});
+
+    // If booking was paid in full upfront, also post the full payment notice to the conversation
+    final isFullUpfront = isBookingFullyPaid(booking) ||
+        booking['reservation_payment_type'] == 'full_payment' ||
+        booking['reservation_payment_covers_total'] == true;
+    if (isFullUpfront) {
+      unawaited(
+        notifyConversationFullPayment(
+          bookingId: bookingId,
+          paidAmount: total,
+          paymentMethod: booking['reservation_payment_method']?.toString(),
+          referenceNumber: booking['reservation_payment_reference']?.toString(),
+          proofUrl: booking['reservation_payment_proof_url']?.toString(),
+          senderId: senderId,
+        ),
+      );
+    }
+  }
+
+  /// Posts an automated notification in the booking chat conversation
+  /// alerting the operator and participants that the renter has paid in full.
+  Future<void> notifyConversationFullPayment({
+    required String bookingId,
+    double? paidAmount,
+    String? paymentMethod,
+    String? referenceNumber,
+    String? proofUrl,
+    String? senderId,
+    bool isDeskPayment = false,
+  }) async {
+    try {
+      final booking = await getBookingById(bookingId);
+      if (booking == null) {
+        debugPrint('notifyConversationFullPayment: Booking $bookingId not found');
+        return;
+      }
+
+      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+      final vehicleTitle = _vehicleTitle(vehicle);
+      final renter = booking['users'] as Map<String, dynamic>?;
+      final renterName = renter?['full_name']?.toString().trim().isNotEmpty == true
+          ? renter!['full_name'].toString().trim()
+          : 'Renter';
+      final renterId = booking['renter_id']?.toString() ?? '';
+
+      final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
+          (booking['total_cost'] as num?)?.toDouble() ??
+          0.0;
+      final effectivePaid = paidAmount ?? totalPrice;
+      final formattedPaid = formatAmount(effectivePaid, decimalDigits: 0);
+      final formattedTotal = formatAmount(totalPrice, decimalDigits: 0);
+
+      final rawMethod = paymentMethod ??
+          booking['final_payment_method'] ??
+          booking['reservation_payment_method'] ??
+          (isDeskPayment ? 'PSDC Counter' : 'Online Payment');
+      final effectiveMethod = rawMethod.toString().replaceAll('_', ' ').toUpperCase();
+
+      final effectiveRef = referenceNumber ??
+          booking['final_payment_reference']?.toString() ??
+          booking['reservation_payment_reference']?.toString();
+      final refText = (effectiveRef != null && effectiveRef.trim().isNotEmpty)
+          ? ' (Ref: ${effectiveRef.trim()})'
+          : '';
+
+      final deskNote = isDeskPayment ? ' [Verified at PSDC Counter]' : '';
+      final shortBookingId = bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId;
+
+      final messageContent = [
+        '💳 FULL PAYMENT RECEIVED',
+        'Renter $renterName has paid the full amount of PHP $formattedPaid via $effectiveMethod$refText.$deskNote',
+        'Total Booking: PHP $formattedTotal (Booking #$shortBookingId)',
+        'Vehicle: $vehicleTitle',
+        'Status: 100% Fully Paid. Ready for vehicle release/handover.',
+      ].join('\n');
+
+      final effectiveSenderId = senderId ??
+          supabase.auth.currentUser?.id ??
+          renterId;
+
+      // 1. Ensure conversation exists and obtain its ID
+      var conversation = await ChatService().getConversationByBookingId(bookingId);
+      if (conversation == null) {
+        await _ensureBookingGroupChatAndSummary(
+          booking: booking,
+          vehicleTitle: vehicleTitle,
+          summaryTitle: 'Booking Confirmed',
+        );
+        conversation = await ChatService().getConversationByBookingId(bookingId);
+      }
+
+      final conversationId = conversation?['id']?.toString();
+      if (conversationId != null && conversationId.isNotEmpty && effectiveSenderId.isNotEmpty) {
+        final auditKey = 'full_payment_${bookingId}_${effectiveRef?.trim() ?? 'settled'}';
+        await ChatService().sendBookingAuditMessage(
+          conversationId: conversationId,
+          senderId: effectiveSenderId,
+          content: messageContent,
+          auditKey: auditKey,
+          attachmentUrl: proofUrl,
+          attachmentType: (proofUrl != null && proofUrl.isNotEmpty) ? 'image' : null,
+          attachmentName: (proofUrl != null && proofUrl.isNotEmpty) ? 'Payment Receipt' : null,
+        );
+        debugPrint('✅ Full payment notification successfully posted to conversation $conversationId');
+      }
+
+      // 2. Also send push/in-app notification to operators
+      unawaited(
+        NotificationService().notifyOperatorsBookingFullyPaid(
+          bookingId: bookingId,
+          vehicleTitle: vehicleTitle,
+          renterName: renterName,
+          totalAmount: effectivePaid,
+          paymentMethod: effectiveMethod,
+          referenceNumber: effectiveRef,
+          partnerId: booking['partner_id']?.toString() ?? vehicle?['partner_id']?.toString(),
+          ownerId: booking['owner_id']?.toString() ?? vehicle?['owner_id']?.toString(),
+        ).catchError((e) {
+          debugPrint('Error sending operator full payment notification: $e');
+          return 0;
+        }),
+      );
+    } catch (e) {
+      debugPrint('Error in notifyConversationFullPayment: $e');
+    }
   }
 
   Future<bool> _conversationHasBookingSummary(String conversationId) async {

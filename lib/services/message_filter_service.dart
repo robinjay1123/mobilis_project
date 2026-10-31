@@ -131,6 +131,8 @@ class MessageFilterService {
         lower.startsWith('booking request created') ||
         lower.startsWith('booking details') ||
         lower.startsWith('booking approved') ||
+        lower.startsWith('💳') ||
+        lower.contains('full payment') ||
         lower.startsWith('pre-trip checklist') ||
         lower.startsWith('return checklist') ||
         (lower.contains('booking id:') &&

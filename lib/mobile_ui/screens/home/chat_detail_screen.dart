@@ -827,13 +827,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     required String attachmentType,
     required bool isDark,
   }) {
-    final noteBg = isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFBEB);
-    final borderColor = isDark ? AppColors.primary : const Color(0xFFD97706);
-    final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
-
     final isInspectionNote = isChecklistAudit ||
         displayContent.contains('Checklist Submitted') ||
         displayContent.contains('Inspection');
+    final isPaymentNote = displayContent.contains('FULL PAYMENT') ||
+        displayContent.contains('Full Payment') ||
+        displayContent.contains('💳');
+
+    final noteBg = isPaymentNote
+        ? (isDark ? const Color(0xFF064E3B).withValues(alpha: 0.35) : const Color(0xFFECFDF5))
+        : (isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFBEB));
+    final borderColor = isPaymentNote
+        ? const Color(0xFF10B981)
+        : (isDark ? AppColors.primary : const Color(0xFFD97706));
+    final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
 
     return Container(
       width: double.infinity,
@@ -872,8 +879,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             children: [
               Icon(
                 isInspectionNote
-                    ? Icons.assignment_turned_in_rounded
-                    : Icons.description_outlined,
+                    ? (isPaymentNote ? Icons.verified_rounded : Icons.assignment_turned_in_rounded)
+                    : (isPaymentNote ? Icons.verified_rounded : Icons.description_outlined),
                 size: 16,
                 color: borderColor,
               ),
@@ -881,8 +888,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               Expanded(
                 child: Text(
                   isInspectionNote
-                      ? 'SYSTEM NOTE • VEHICLE INSPECTION RECORD'
-                      : 'SYSTEM NOTE • BOOKING DETAILS',
+                      ? (isPaymentNote ? 'SYSTEM NOTE • FULL PAYMENT VERIFIED' : 'SYSTEM NOTE • VEHICLE INSPECTION RECORD')
+                      : (isPaymentNote ? 'SYSTEM NOTE • FULL PAYMENT VERIFIED' : 'SYSTEM NOTE • BOOKING DETAILS'),
                   style: TextStyle(
                     color: borderColor,
                     fontSize: 11,
@@ -898,7 +905,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  'NOTE',
+                  isPaymentNote ? 'PAID IN FULL' : 'NOTE',
                   style: TextStyle(
                     color: borderColor,
                     fontSize: 9,
@@ -1765,7 +1772,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                         content.trim().startsWith('📋') ||
                                         content.trim().startsWith('Booking Details') ||
                                         content.trim().startsWith('Booking Confirmed') ||
-                                        content.contains('Checklist Submitted'));
+                                        content.contains('Checklist Submitted') ||
+                                        content.trim().startsWith('💳') ||
+                                        content.toLowerCase().contains('full payment'));
 
                                 if (isSystemNoteCard) {
                                   return _buildSystemNoteCard(

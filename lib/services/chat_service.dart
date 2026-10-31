@@ -25,11 +25,20 @@ class ChatService {
     String conversationId,
   ) async {
     try {
-      final conversation = await supabase
+      var conversation = await supabase
           .from('conversations')
-          .select('booking_id')
+          .select('id, booking_id')
           .eq('id', conversationId)
           .maybeSingle();
+      if (conversation == null) {
+        conversation = await supabase
+            .from('conversations')
+            .select('id, booking_id')
+            .eq('booking_id', conversationId)
+            .order('updated_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+      }
       final bookingId = conversation?['booking_id']?.toString().trim() ?? '';
       if (bookingId.isEmpty) return null;
 

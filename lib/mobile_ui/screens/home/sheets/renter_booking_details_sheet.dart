@@ -1,4 +1,4 @@
-﻿part of '../dashboard_screen.dart';
+part of '../dashboard_screen.dart';
 
 extension _DashboardBookingSheets on _DashboardScreenState {
   void _showBookingDetails(Map<String, dynamic> booking) {
@@ -1987,6 +1987,22 @@ extension _DashboardBookingSheets on _DashboardScreenState {
         },
         'updated_at': now,
       });
+
+      // 💳 Notify conversation and operators about the full payment
+      try {
+        await BookingService().notifyConversationFullPayment(
+          bookingId: bookingId,
+          paidAmount: proof.amount,
+          paymentMethod: proof.method,
+          referenceNumber: proof.referenceNumber,
+          proofUrl: proof.proofUrl.isNotEmpty ? proof.proofUrl : null,
+          isDeskPayment: isDeskPayment,
+        );
+      } catch (payNotifyErr) {
+        debugPrint('Non-blocking: could not notify conversation of full payment: $payNotifyErr');
+      }
+
+
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
