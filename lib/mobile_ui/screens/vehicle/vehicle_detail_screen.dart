@@ -19,6 +19,7 @@ import '../../widgets/leaflet_map.dart';
 import '../../widgets/mpin_verification_dialog.dart';
 import '../../widgets/booking_status_dialog.dart';
 import '../../widgets/dialog_status_indicator.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
@@ -6335,7 +6336,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   ? Image.memory(signatureBytes, fit: BoxFit.contain)
                   : (hasSavedSignature
                       ? OptimizedNetworkImage(
-                          imageUrl: savedSignatureUrl,
+                          imageUrl: savedSignatureUrl!,
                           fit: BoxFit.contain,
                         )
                       : const Icon(Icons.draw_outlined,
