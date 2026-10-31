@@ -50,6 +50,7 @@ import '../../../services/user_restriction_service.dart';
 import '../../../services/booking_viewed_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/audit_service.dart';
+import '../../../services/voucher_service.dart';
 
 part 'tabs/admin_reports_tab.dart';
 part 'tabs/admin_action_logs_tab.dart';
@@ -65,6 +66,7 @@ part 'tabs/admin_vehicles_tab.dart';
 part 'tabs/admin_archived_accounts_tab.dart';
 part 'tabs/admin_users_tab.dart';
 part 'tabs/admin_dashboard_tab.dart';
+part 'tabs/admin_vouchers_tab.dart';
 
 const int _recentBookingsPerPage = 5;
 const int _commissionHistoryPerPage = 10;
@@ -392,6 +394,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _announcements = [];
   Timer? _announcementRefreshTimer;
+  List<VoucherModel> _vouchers = [];
+  bool _isLoadingVouchers = false;
+  String _voucherSearchQuery = '';
+  String _selectedVoucherCategoryFilter = 'all';
   List<Map<String, dynamic>> _supportConversations = [];
   final Map<String, List<Map<String, dynamic>>> _supportMessages = {};
   String? _selectedSupportConversationId;
@@ -1076,6 +1082,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadAnnouncements() async {
     _announcements = await AdminService().getRecentAnnouncements();
+  }
+
+  Future<void> _loadVouchers() async {
+    if (_isLoadingVouchers) return;
+    _isLoadingVouchers = true;
+    if (mounted) setState(() {});
+    try {
+      final list = await VoucherService().getVouchers();
+      if (mounted) {
+        setState(() {
+          _vouchers = list;
+          _isLoadingVouchers = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('AdminWebScreen: Error loading vouchers: $e');
+      if (mounted) {
+        setState(() => _isLoadingVouchers = false);
+      }
+    }
+  }
+
+  void setAdminState(VoidCallback fn) {
+    if (mounted) setState(fn);
   }
 
   Future<void> _refreshAnnouncementsIfVisible() async {
@@ -5188,6 +5218,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return 'Safety & User Reports';
       case 14:
         return 'Archived Accounts';
+      case 15:
+        return 'Vouchers & Loyalty';
       default:
         return 'Dashboard';
     }
@@ -5229,6 +5261,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return _buildReportsContent(isDark);
       case 14:
         return _buildArchivedAccountsContent(isDark);
+      case 15:
+        return _buildVouchersContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
@@ -5421,6 +5455,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 : null,
           ),
           _buildNavItem(9, Icons.campaign_rounded, 'Announcements', isDark),
+          _buildNavItem(
+            15,
+            Icons.confirmation_number_rounded,
+            'Vouchers & Loyalty',
+            isDark,
+          ),
           _buildNavItem(11, Icons.settings_rounded, 'Settings', isDark),
           Divider(color: Colors.white.withOpacity(0.08), height: 1),
           Tooltip(
@@ -5487,6 +5527,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             } else if (index == 9) {
               if (_announcements.isEmpty) {
                 _loadAnnouncements();
+              }
+            } else if (index == 15) {
+              if (_vouchers.isEmpty) {
+                _loadVouchers();
               }
             } else if (index == 10) {
               _refreshTrackingLocations();
@@ -5607,6 +5651,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     11: 'settings',
     12: 'action-logs',
     13: 'safety-reports',
+    14: 'archived-accounts',
+    15: 'vouchers',
   };
 
   static const Map<String, int> _adminSlugToTab = {
@@ -5638,6 +5684,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     'logs': 12,
     'safety-reports': 13,
     'reports': 13,
+    'archived-accounts': 14,
+    'archived': 14,
+    'vouchers': 15,
+    'voucher': 15,
+    'loyalty': 15,
+    'discounts': 15,
+    'promotions': 15,
   };
 
   void _syncWebUrl(int index) {
@@ -5686,7 +5739,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         final savedIndex = prefs.getInt('mobilis_admin_web_tab');
         if (savedIndex != null &&
             savedIndex >= 0 &&
-            savedIndex <= 13) {
+            savedIndex <= 15) {
           initialTab = savedIndex;
         }
       } catch (_) {}
@@ -5710,6 +5763,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
     if (_selectedIndex == 12) {
       await _loadActionLogs(showLoading: false);
+      return;
+    }
+    if (_selectedIndex == 15) {
+      await _loadVouchers();
       return;
     }
     await _loadDashboardData();

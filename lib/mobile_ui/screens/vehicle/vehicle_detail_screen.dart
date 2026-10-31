@@ -29,6 +29,7 @@ import '../../../services/emergency_contact_service.dart';
 import '../../../services/favorite_vehicle_service.dart';
 import '../../../services/loyalty_service.dart';
 import '../../../services/loyalty_reward_service.dart';
+import '../../../services/voucher_service.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/trip_rating_service.dart';
@@ -2251,15 +2252,23 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   LoyaltyRewardState? _loyaltyRewardState;
   LoyaltyVoucher? _selectedVoucher;
+  List<VoucherModel> _dynamicVouchers = [];
 
   Future<void> _loadLoyaltyVouchers() async {
     final user = AuthService().currentUser;
     if (user == null) return;
     try {
       final rewardState = await LoyaltyRewardService().load(user.id);
+      List<VoucherModel> dynamicVouchers = [];
+      try {
+        dynamicVouchers = await VoucherService().getVouchers(activeOnly: true);
+      } catch (err) {
+        debugPrint('Error loading dynamic vouchers: $err');
+      }
       if (!mounted) return;
       setState(() {
         _loyaltyRewardState = rewardState;
+        _dynamicVouchers = dynamicVouchers;
       });
     } catch (e) {
       debugPrint('Error loading loyalty vouchers: $e');
@@ -2268,13 +2277,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   double get _discountAmount {
     if (_selectedVoucher == null) return 0.0;
-    final available = _getAvailableVouchersList();
-    if (!available.any((v) => v.code == _selectedVoucher!.code)) {
-      return 0.0;
-    }
     final subtotal = _rentalSubtotal;
     if (subtotal <= 0) return 0.0;
     final v = _selectedVoucher!;
+    if (v.isExpired) return 0.0;
+    if (v.minSpend > 0 && subtotal < v.minSpend) return 0.0;
     double discount = 0.0;
     if (v.isPercent) {
       discount = subtotal * (v.discountPercent / 100.0);
@@ -3195,6 +3202,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             'Booking created but receipt audit insert timed out/failed: $e',
                           );
                         }),
+                  );
+                }
+
+                if (_selectedVoucher != null) {
+                  unawaited(
+                    VoucherService()
+                        .recordVoucherUsage(_selectedVoucher!.code)
+                        .catchError((_) {}),
                   );
                 }
               }
@@ -4905,62 +4920,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final availableVouchers = _getAvailableVouchersList();
     final completedTrips = _loyaltyRewardState?.successfulTrips ?? 0;
 
-    // If user has not selected a voucher and has not earned any vouchers yet,
-    // show locked PSDC Card status banner without an apply button.
-    if (!hasVoucher && availableVouchers.isEmpty) {
-      final tripsNeeded = (3 - completedTrips).clamp(1, 3);
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.darkBgSecondary,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.borderColor.withValues(alpha: 0.5),
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.lock_outline_rounded,
-                color: AppColors.textSecondary,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'PSDC Loyalty Rewards',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Complete $tripsNeeded more completed trip${tripsNeeded == 1 ? '' : 's'} to unlock your first ₱50 discount reward! ($completedTrips/3 trips on PSDC Card)',
-                    style: const TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -4981,7 +4940,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
-              Icons.confirmation_number_outlined,
+              hasVoucher
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.confirmation_number_outlined,
               color: hasVoucher ? AppColors.success : AppColors.primary,
               size: 22,
             ),
@@ -5006,8 +4967,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 const SizedBox(height: 2),
                 Text(
                   hasVoucher
-                      ? 'Saved ₱${formatAmount(discount)} on this trip!'
-                      : '${availableVouchers.length} earned reward${availableVouchers.length == 1 ? '' : 's'} available to apply',
+                      ? 'Saved ₱${formatAmount(discount)} on this trip! (${_selectedVoucher!.code})'
+                      : (availableVouchers.isNotEmpty
+                          ? '${availableVouchers.length} reward${availableVouchers.length == 1 ? '' : 's'} / promo codes available'
+                          : 'Have a promo or seasonal code? • $completedTrips/3 trips on PSDC Card'),
                   style: TextStyle(
                     color: hasVoucher
                         ? AppColors.success.withValues(alpha: 0.85)
@@ -5048,6 +5011,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     _isShowingVoucherSheet = true;
     final customCodeController = TextEditingController();
     String? promoError;
+    bool isValidating = false;
 
     showModalBottomSheet<void>(
       context: context,
@@ -5077,215 +5041,305 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Apply Earned Rewards',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.close,
-                          color: AppColors.textSecondary,
-                        ),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: customCodeController,
-                          style: const TextStyle(color: AppColors.textPrimary),
-                          onChanged: (_) {
-                            if (promoError != null) {
-                              setSheetState(() => promoError = null);
-                            }
-                          },
-                          decoration: InputDecoration(
-                            hintText: 'Enter Reward Code',
-                            hintStyle: const TextStyle(
-                              color: AppColors.textTertiary,
-                            ),
-                            filled: true,
-                            fillColor: AppColors.darkBg,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                color: AppColors.borderColor,
-                              ),
-                            ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Apply Voucher or Promo Code',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      FilledButton(
-                        onPressed: () {
-                          final code = customCodeController.text
-                              .trim()
-                              .toUpperCase();
-                          if (code.isEmpty) return;
-
-                          // Look for match only in earned available vouchers
-                          final match = availableVouchers.cast<LoyaltyVoucher?>().firstWhere(
-                            (v) => v?.code.toUpperCase() == code,
-                            orElse: () => null,
-                          );
-
-                          if (match != null) {
-                            setState(() => _selectedVoucher = match);
-                            Navigator.pop(context);
-                          } else {
-                            // Check if this is a known system voucher code that user hasn't reached yet
-                            final knownSys = LoyaltyService.systemVouchers
-                                .cast<LoyaltyVoucher?>()
-                                .firstWhere(
-                                  (v) => v?.code.toUpperCase() == code,
-                                  orElse: () => null,
-                                );
-                            setSheetState(() {
-                              if (knownSys != null) {
-                                promoError =
-                                    '${knownSys.title} requires ${knownSys.minTripsRequired} completed trips. You have $completedTrips trip(s).';
-                              } else {
-                                promoError =
-                                    'Invalid or locked voucher. Complete more trips on your PSDC Loyalty Card to earn rewards.';
+                        IconButton(
+                          icon: const Icon(
+                            Icons.close,
+                            color: AppColors.textSecondary,
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: customCodeController,
+                            textCapitalization: TextCapitalization.characters,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w700,
+                            ),
+                            onChanged: (_) {
+                              if (promoError != null) {
+                                setSheetState(() => promoError = null);
                               }
-                            });
-                          }
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text('Apply'),
-                      ),
-                    ],
-                  ),
-                  if (promoError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      promoError!,
-                      style: const TextStyle(
-                        color: AppColors.error,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Earned Discounts & Rewards',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  if (availableVouchers.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: Center(
-                        child: Text(
-                          'No earned vouchers yet. Complete trips on your PSDC Loyalty Card to unlock rewards!',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: AppColors.textTertiary),
-                        ),
-                      ),
-                    )
-                  else
-                    Flexible(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: availableVouchers.map((v) {
-                            final isSelected = _selectedVoucher?.code == v.code;
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              decoration: BoxDecoration(
-                                color: AppColors.darkBg,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? AppColors.primary
-                                      : AppColors.borderColor,
-                                  width: isSelected ? 1.5 : 1.0,
+                            },
+                            decoration: InputDecoration(
+                              hintText: 'Enter Code (e.g. SUMMER2026)',
+                              hintStyle: const TextStyle(
+                                color: AppColors.textTertiary,
+                                fontFamily: 'sans-serif',
+                                fontWeight: FontWeight.normal,
+                              ),
+                              filled: true,
+                              fillColor: AppColors.darkBg,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(
+                                  color: AppColors.borderColor,
                                 ),
                               ),
-                              child: ListTile(
-                                leading: Icon(
-                                  Icons.local_offer_outlined,
-                                  color: isSelected
-                                      ? AppColors.primary
-                                      : AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        FilledButton(
+                          onPressed: isValidating
+                              ? null
+                              : () async {
+                                  final code = customCodeController.text
+                                      .trim()
+                                      .toUpperCase();
+                                  if (code.isEmpty) return;
+
+                                  setSheetState(() {
+                                    isValidating = true;
+                                    promoError = null;
+                                  });
+
+                                  // Validate via VoucherService
+                                  final result = await VoucherService()
+                                      .validateVoucherCode(
+                                        code,
+                                        completedTrips: completedTrips,
+                                        subtotal: _rentalSubtotal,
+                                      );
+
+                                  if (result.isValid &&
+                                      result.voucher != null) {
+                                    setState(() => _selectedVoucher =
+                                        result.voucher!.toLoyaltyVoucher());
+                                    if (mounted) Navigator.pop(context);
+                                    return;
+                                  }
+
+                                  // Check local milestone vouchers list as fallback
+                                  final match = availableVouchers
+                                      .cast<LoyaltyVoucher?>()
+                                      .firstWhere(
+                                        (v) => v?.code.toUpperCase() == code,
+                                        orElse: () => null,
+                                      );
+
+                                  if (match != null) {
+                                    setState(() => _selectedVoucher = match);
+                                    if (mounted) Navigator.pop(context);
+                                    return;
+                                  }
+
+                                  setSheetState(() {
+                                    isValidating = false;
+                                    promoError = result.errorMessage ??
+                                        'Invalid or locked discount code. Complete more trips or check expiration.';
+                                  });
+                                },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: isValidating
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.black,
+                                  ),
+                                )
+                              : const Text(
+                                  'Apply',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
                                 ),
-                                title: Text(
-                                  v.title,
-                                  style: TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w800
-                                        : FontWeight.w600,
+                        ),
+                      ],
+                    ),
+                    if (promoError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        promoError!,
+                        style: const TextStyle(
+                          color: AppColors.error,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Available Discounts & Rewards',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    if (availableVouchers.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        child: Center(
+                          child: Text(
+                            'No automatic vouchers available yet.\nEnter a promo code above or complete trips on your PSDC Card to earn rewards! ($completedTrips/3 trips)',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.textTertiary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: availableVouchers.map((v) {
+                              final isSelected =
+                                  _selectedVoucher?.code == v.code;
+                              final expiry = v.expiresAt;
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.darkBg,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : AppColors.borderColor,
+                                    width: isSelected ? 1.5 : 1.0,
                                   ),
                                 ),
-                                subtitle: Text(
-                                  v.description,
-                                  style: const TextStyle(
-                                    color: AppColors.textTertiary,
-                                    fontSize: 12,
+                                child: ListTile(
+                                  leading: Icon(
+                                    v.category == 'seasonal'
+                                        ? Icons.wb_sunny_rounded
+                                        : Icons.local_offer_outlined,
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : (v.category == 'seasonal'
+                                            ? Colors.orange
+                                            : AppColors.textSecondary),
                                   ),
-                                ),
-                                trailing: isSelected
-                                    ? const Icon(
-                                        Icons.check_circle,
-                                        color: AppColors.primary,
-                                      )
-                                    : OutlinedButton(
-                                        onPressed: () {
-                                          setState(() => _selectedVoucher = v);
-                                          Navigator.pop(context);
-                                        },
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: AppColors.primary,
-                                          side: const BorderSide(
-                                            color: AppColors.primary,
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          v.title,
+                                          style: TextStyle(
+                                            color: AppColors.textPrimary,
+                                            fontWeight: isSelected
+                                                ? FontWeight.w800
+                                                : FontWeight.w600,
                                           ),
                                         ),
-                                        child: const Text('Select'),
                                       ),
-                                onTap: () {
-                                  setState(() => _selectedVoucher = v);
-                                  Navigator.pop(context);
-                                },
-                              ),
-                            );
-                          }).toList(),
+                                      if (v.isPercent)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary
+                                                .withValues(alpha: 0.2),
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            '${v.discountPercent.toInt()}% OFF',
+                                            style: const TextStyle(
+                                              color: AppColors.primary,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        v.description,
+                                        style: const TextStyle(
+                                          color: AppColors.textTertiary,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      if (expiry != null) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Expires: ${DateFormat('MMM d, yyyy').format(expiry)}',
+                                          style: TextStyle(
+                                            color: v.isExpired
+                                                ? Colors.red
+                                                : Colors.teal,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  trailing: isSelected
+                                      ? const Icon(
+                                          Icons.check_circle,
+                                          color: AppColors.primary,
+                                        )
+                                      : OutlinedButton(
+                                          onPressed: () {
+                                            setState(
+                                                () => _selectedVoucher = v);
+                                            Navigator.pop(context);
+                                          },
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: AppColors.primary,
+                                            side: const BorderSide(
+                                              color: AppColors.primary,
+                                            ),
+                                          ),
+                                          child: const Text('Select'),
+                                        ),
+                                  onTap: () {
+                                    setState(() => _selectedVoucher = v);
+                                    Navigator.pop(context);
+                                  },
+                                ),
+                              );
+                            }).toList(),
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
         );
       },
     ).then((_) {
@@ -5296,94 +5350,126 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   List<LoyaltyVoucher> _getAvailableVouchersList() {
     final list = <LoyaltyVoucher>[];
     final rewardState = _loyaltyRewardState;
-    if (rewardState == null) return list;
+    final completedTrips = rewardState?.successfulTrips ?? 0;
 
-    // Only vouchers from earned / unlocked milestones in the PSDC card
-    final completedTrips = rewardState.successfulTrips;
-    if (completedTrips < 3) return list;
-
-    // Milestone stamps earned:
-    final earnedStamps = rewardState.unlockedMilestones.map((m) => m.stamp).toSet();
-
-    for (final stamp in earnedStamps) {
-      if (stamp == 3) {
-        list.add(
-          const LoyaltyVoucher(
-            code: 'LOYALTY50',
-            title: '₱50 OFF Loyalty Reward',
-            description: 'Earned from PSDC Loyalty Reward Card (3 trips)',
-            discountPercent: 0.0,
-            discountAmount: 50.0,
-            isPercent: false,
-            minTripsRequired: 3,
-          ),
-        );
-      } else if (stamp == 6) {
-        list.add(
-          const LoyaltyVoucher(
-            code: 'LOYALTY200',
-            title: '₱200 OFF Loyalty Reward',
-            description: 'Earned from PSDC Loyalty Reward Card (6 trips)',
-            discountPercent: 0.0,
-            discountAmount: 200.0,
-            isPercent: false,
-            minTripsRequired: 6,
-          ),
-        );
-      } else if (stamp == 12) {
-        list.add(
-          const LoyaltyVoucher(
-            code: 'LOYALTY300',
-            title: '₱300 OFF Loyalty Reward',
-            description: 'Earned from PSDC Loyalty Reward Card (12 trips)',
-            discountPercent: 0.0,
-            discountAmount: 300.0,
-            isPercent: false,
-            minTripsRequired: 12,
-          ),
-        );
-      } else if (stamp == 15) {
-        final pricePerDay =
-            (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
-        final pricePerHour =
-            (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
-        final hourlyRate = pricePerHour > 0
-            ? pricePerHour
-            : (pricePerDay / 24.0);
-        list.add(
-          LoyaltyVoucher(
-            code: 'LOYALTY_FREE3H',
-            title: 'Free 3 Hours Rental Reward',
-            description: 'Earned from PSDC Loyalty Reward Card (15 trips)',
-            discountPercent: 0.0,
-            discountAmount: hourlyRate * 3,
-            isPercent: false,
-            minTripsRequired: 15,
-          ),
-        );
-      } else if (stamp == 18) {
-        final pricePerDay =
-            (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
-        list.add(
-          LoyaltyVoucher(
-            code: 'LOYALTY_FREE24H',
-            title: 'Free 24 Hours Rental Reward',
-            description: 'Earned from PSDC Loyalty Reward Card (18 trips)',
-            discountPercent: 0.0,
-            discountAmount: pricePerDay,
-            isPercent: false,
-            minTripsRequired: 18,
-          ),
-        );
+    // 1. Dynamic active vouchers configured by Admin (seasonal promo codes, welcome discounts, loyalty rewards)
+    for (final v in _dynamicVouchers) {
+      if (!v.isActive || v.isExpired) continue;
+      // If minTripsRequired is 0 (open seasonal promo) or completedTrips >= minTripsRequired
+      if (v.minTripsRequired == 0 || completedTrips >= v.minTripsRequired) {
+        if (!list.any((item) =>
+            item.code.toUpperCase() == v.code.toUpperCase())) {
+          list.add(v.toLoyaltyVoucher());
+        }
       }
     }
 
+    // 2. Only vouchers from earned / unlocked milestones in the PSDC card
+    if (rewardState != null && completedTrips >= 3) {
+      final earnedStamps =
+          rewardState.unlockedMilestones.map((m) => m.stamp).toSet();
+      for (final stamp in earnedStamps) {
+        if (stamp == 3) {
+          if (!list.any((v) => v.code == 'LOYALTY50')) {
+            list.add(
+              const LoyaltyVoucher(
+                code: 'LOYALTY50',
+                title: '₱50 OFF Loyalty Reward',
+                description: 'Earned from PSDC Loyalty Reward Card (3 trips)',
+                discountPercent: 0.0,
+                discountAmount: 50.0,
+                isPercent: false,
+                minTripsRequired: 3,
+                category: 'loyalty_milestone',
+              ),
+            );
+          }
+        } else if (stamp == 6) {
+          if (!list.any((v) => v.code == 'LOYALTY200')) {
+            list.add(
+              const LoyaltyVoucher(
+                code: 'LOYALTY200',
+                title: '₱200 OFF Loyalty Reward',
+                description: 'Earned from PSDC Loyalty Reward Card (6 trips)',
+                discountPercent: 0.0,
+                discountAmount: 200.0,
+                isPercent: false,
+                minTripsRequired: 6,
+                category: 'loyalty_milestone',
+              ),
+            );
+          }
+        } else if (stamp == 12) {
+          if (!list.any((v) => v.code == 'LOYALTY300')) {
+            list.add(
+              const LoyaltyVoucher(
+                code: 'LOYALTY300',
+                title: '₱300 OFF Loyalty Reward',
+                description: 'Earned from PSDC Loyalty Reward Card (12 trips)',
+                discountPercent: 0.0,
+                discountAmount: 300.0,
+                isPercent: false,
+                minTripsRequired: 12,
+                category: 'loyalty_milestone',
+              ),
+            );
+          }
+        } else if (stamp == 15) {
+          final pricePerDay =
+              (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
+          final pricePerHour =
+              (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
+          final hourlyRate = pricePerHour > 0
+              ? pricePerHour
+              : (pricePerDay / 24.0);
+          if (!list.any((v) => v.code == 'LOYALTY_FREE3H')) {
+            list.add(
+              LoyaltyVoucher(
+                code: 'LOYALTY_FREE3H',
+                title: 'Free 3 Hours Rental Reward',
+                description: 'Earned from PSDC Loyalty Reward Card (15 trips)',
+                discountPercent: 0.0,
+                discountAmount: hourlyRate * 3,
+                isPercent: false,
+                minTripsRequired: 15,
+                category: 'loyalty_milestone',
+              ),
+            );
+          }
+        } else if (stamp == 18) {
+          final pricePerDay =
+              (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
+          if (!list.any((v) => v.code == 'LOYALTY_FREE24H')) {
+            list.add(
+              LoyaltyVoucher(
+                code: 'LOYALTY_FREE24H',
+                title: 'Free 24 Hours Rental Reward',
+                description: 'Earned from PSDC Loyalty Reward Card (18 trips)',
+                discountPercent: 0.0,
+                discountAmount: pricePerDay,
+                isPercent: false,
+                minTripsRequired: 18,
+                category: 'loyalty_milestone',
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    // 3. Fallback system vouchers if not already present
     for (final sysVoucher in LoyaltyService.systemVouchers) {
       if (completedTrips >= sysVoucher.minTripsRequired) {
         if (!list.any((v) => v.code == sysVoucher.code)) {
           list.add(sysVoucher);
         }
       }
+    }
+
+    // 4. If selected voucher is present, ensure it is in the list
+    if (_selectedVoucher != null &&
+        !list.any((v) => v.code == _selectedVoucher!.code)) {
+      list.insert(0, _selectedVoucher!);
     }
 
     return list;

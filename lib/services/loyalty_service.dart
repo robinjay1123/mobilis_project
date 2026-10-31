@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'notification_service.dart';
+import 'voucher_service.dart';
 
 class LoyaltyProfile {
   final String userId;
@@ -19,6 +20,7 @@ class LoyaltyProfile {
 }
 
 class LoyaltyVoucher {
+  final String? id;
   final String code;
   final String title;
   final String description;
@@ -26,8 +28,13 @@ class LoyaltyVoucher {
   final double discountAmount; // e.g. 500.0 for P500 off
   final bool isPercent;
   final int minTripsRequired;
+  final double minSpend;
+  final DateTime? expiresAt;
+  final bool isActive;
+  final String category; // 'seasonal', 'loyalty_milestone', 'promo'
 
   const LoyaltyVoucher({
+    this.id,
     required this.code,
     required this.title,
     required this.description,
@@ -35,7 +42,14 @@ class LoyaltyVoucher {
     required this.discountAmount,
     required this.isPercent,
     required this.minTripsRequired,
+    this.minSpend = 0.0,
+    this.expiresAt,
+    this.isActive = true,
+    this.category = 'loyalty_milestone',
   });
+
+  bool get isExpired =>
+      expiresAt != null && DateTime.now().isAfter(expiresAt!);
 }
 
 class LoyaltyService {
@@ -111,10 +125,23 @@ class LoyaltyService {
         tier = 'Silver Renter 🥈';
       }
 
-      // Unlocked vouchers
-      final unlocked = systemVouchers
-          .where((v) => completedTrips >= v.minTripsRequired)
-          .toList();
+      // Unlocked vouchers (dynamically configured by admin, with fallback to system defaults)
+      List<LoyaltyVoucher> unlocked = [];
+      try {
+        final dynamicVouchers = await VoucherService().getAvailableForRenter(
+          completedTrips: completedTrips,
+        );
+        unlocked = dynamicVouchers.map((v) => v.toLoyaltyVoucher()).toList();
+      } catch (_) {
+        unlocked = systemVouchers
+            .where((v) => completedTrips >= v.minTripsRequired)
+            .toList();
+      }
+      if (unlocked.isEmpty) {
+        unlocked = systemVouchers
+            .where((v) => completedTrips >= v.minTripsRequired)
+            .toList();
+      }
 
       return LoyaltyProfile(
         userId: userId,
