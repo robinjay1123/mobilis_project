@@ -129,6 +129,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   final Set<TextEditingController> _touchedEvidenceFields = {};
   Uint8List? _signatureBytes;
   Uint8List? _coTravelerSignatureBytes;
+  String? _savedRenterSignatureUrl;
+  String? _savedRenterValidIdUrl;
+  String? _savedRenterSelfieUrl;
+  bool _isLoadingSavedRenterEvidence = false;
   XFile? _validIdPhoto;
   XFile? _selfiePhoto;
   XFile? _coTravelerValidIdPhoto;
@@ -201,6 +205,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         _fetchRenterVehicleBookingsFast(),
         _loadFavoriteState().catchError((_) {}),
         _loadEmergencyContact().catchError((_) {}),
+        _loadSavedRenterEvidence().catchError((_) {}),
         _loadLoyaltyVouchers().catchError((_) {}),
         TripRatingService().getVehicleRatingSummary(widget.vehicleId).catchError((_) => <String, dynamic>{}),
       ]);
@@ -340,6 +345,34 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
+  Future<void> _loadSavedRenterEvidence() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+
+    setState(() {
+      _isLoadingSavedRenterEvidence = true;
+    });
+
+    try {
+      final evidence =
+          await VerificationService.getSavedRenterEvidence(user.id);
+      if (!mounted) return;
+      setState(() {
+        _savedRenterSignatureUrl = evidence['signature_url'] as String?;
+        _savedRenterValidIdUrl = evidence['valid_id_url'] as String?;
+        _savedRenterSelfieUrl = evidence['selfie_url'] as String?;
+      });
+    } catch (e) {
+      debugPrint('Could not load saved renter evidence: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingSavedRenterEvidence = false;
+        });
+      }
+    }
+  }
+
   Future<void> _pickBookingEvidencePhoto({
     required bool isSelfie,
     bool isCoTraveler = false,
@@ -348,7 +381,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     _isPickingEvidencePhoto = true;
     try {
       final title = isCoTraveler
-          ? (isSelfie ? 'Co-Traveler Selfie' : 'Co-Traveler Valid ID')
+          ? (isSelfie ? 'Co-Maker Selfie' : 'Co-Maker Valid ID')
           : (isSelfie ? 'Renter Selfie' : 'Renter Valid ID');
 
       final source = await showModalBottomSheet<ImageSource>(
@@ -531,7 +564,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '✨ Google ML Kit auto-filled co-traveler ${filled.join(', ')}!',
+                      '✨ Google ML Kit auto-filled co-maker ${filled.join(', ')}!',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -545,7 +578,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Error during Co-traveler ID OCR scan: $e');
+      debugPrint('Error during Co-maker ID OCR scan: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -607,7 +640,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
-                              'Co-Traveler Signature',
+                              'Co-Maker Signature',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -650,7 +683,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Note: If your co-traveler is not available at the moment of assessing the booking, they can write their signature on a clean surface (preferably plain white paper), and you can upload a photo of it. Ensure it is clearly visible, well-lit, and legible.',
+                            'Note: If your co-maker is not available at the moment of assessing the booking, they can write their signature on a clean surface (preferably plain white paper), and you can upload a photo of it. Ensure it is clearly visible, well-lit, and legible.',
                             style: TextStyle(
                               color: Colors.white70,
                               fontSize: 12,
@@ -692,7 +725,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                     ),
                     subtitle: const Text(
-                      'Co-traveler signs directly on this device',
+                      'Co-maker signs directly on this device',
                       style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                     onTap: () => Navigator.pop(ctx, 'draw'),
@@ -764,7 +797,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                     ),
                     subtitle: const Text(
-                      'Choose signature image sent by co-traveler',
+                      'Choose signature image sent by co-maker',
                       style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                     onTap: () => Navigator.pop(ctx, 'gallery'),
@@ -831,7 +864,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 children: [
                   Icon(Icons.check_circle_outline, color: Colors.white),
                   SizedBox(width: 8),
-                  Text('Co-traveler signature photo uploaded successfully!'),
+                  Text('Co-maker signature photo uploaded successfully!'),
                 ],
               ),
               backgroundColor: AppColors.success,
@@ -858,7 +891,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       final result = await Navigator.of(context).push<Uint8List>(
         MaterialPageRoute(
           builder: (_) => SignatureCaptureScreen(
-            title: coTraveler ? 'Co-traveler Signature' : 'Renter Signature',
+            title: coTraveler ? 'Co-maker Signature' : 'Renter Signature',
             initialSignature: currentBytes,
           ),
         ),
@@ -869,6 +902,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           _coTravelerSignatureBytes = result;
         } else {
           _signatureBytes = result;
+          final user = AuthService().currentUser;
+          if (user != null) {
+            unawaited(
+              VerificationService.saveUserDigitalSignature(
+                userId: user.id,
+                signatureBytes: result,
+              ).then((url) {
+                if (mounted) {
+                  setState(() => _savedRenterSignatureUrl = url);
+                }
+              }),
+            );
+          }
         }
       });
     } finally {
@@ -2566,10 +2612,33 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return false;
     }
 
-    if (_signatureBytes == null || _signatureBytes!.isEmpty) {
+    final hasRenterSignature =
+        (_signatureBytes != null && _signatureBytes!.isNotEmpty) ||
+        (_savedRenterSignatureUrl != null &&
+            _savedRenterSignatureUrl!.trim().isNotEmpty);
+    if (!hasRenterSignature) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please draw your digital signature.'),
+          content: Text('Please draw or attach your digital signature.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return false;
+    }
+
+    final hasRenterId = _validIdPhoto != null ||
+        (_savedRenterValidIdUrl != null &&
+            _savedRenterValidIdUrl!.trim().isNotEmpty);
+    final hasRenterSelfie = _selfiePhoto != null ||
+        (_savedRenterSelfieUrl != null &&
+            _savedRenterSelfieUrl!.trim().isNotEmpty);
+
+    if (!hasRenterId || !hasRenterSelfie) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please provide your valid ID photo and selfie before booking, or verify your account.',
+          ),
           backgroundColor: AppColors.warning,
         ),
       );
@@ -2588,7 +2657,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Co-traveler name, phone number, and ID number are required, or check "I don\'t have a co-traveler".',
+              'Co-maker name, phone number, and ID number are required, or check "I don\'t have a co-maker".',
             ),
             backgroundColor: AppColors.warning,
           ),
@@ -2600,7 +2669,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Co-traveler phone must be 11 digits, e.g. 09171234567.',
+              'Co-maker phone must be 11 digits, e.g. 09171234567.',
             ),
             backgroundColor: AppColors.warning,
           ),
@@ -2666,19 +2735,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Please provide the co-traveler signature (draw on screen or upload a photo).',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return false;
-      }
-
-      if (_validIdPhoto == null || _selfiePhoto == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please upload a valid ID photo and capture a clear selfie before booking.',
+              'Please provide the co-maker signature (draw on screen or upload a photo).',
             ),
             backgroundColor: AppColors.warning,
           ),
@@ -2690,19 +2747,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Please upload the co-traveler valid ID and capture their selfie.',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return false;
-      }
-    } else {
-      if (_validIdPhoto == null || _selfiePhoto == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please upload a valid ID photo and capture a clear selfie before booking.',
+              'Please upload the co-maker valid ID and capture their selfie.',
             ),
             backgroundColor: AppColors.warning,
           ),
@@ -2990,80 +3035,73 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               final String? coTravelerValidIdUrl;
               final String? coTravelerSelfieUrl;
 
+              // 1. Primary renter signature (upload newly drawn or use saved profile signature)
+              if (_signatureBytes != null && _signatureBytes!.isNotEmpty) {
+                signatureUrl = await evidenceService.uploadEvidenceBytes(
+                  userId: currentUser.id,
+                  bytes: _signatureBytes!,
+                  evidenceType: 'signature',
+                );
+                unawaited(
+                  VerificationService.saveUserDigitalSignature(
+                    userId: currentUser.id,
+                    signatureBytes: _signatureBytes!,
+                  ),
+                );
+              } else {
+                signatureUrl = _savedRenterSignatureUrl ?? '';
+              }
+
+              // 2. Primary renter valid ID (upload new or use saved verified ID)
+              if (_validIdPhoto != null) {
+                validIdUrl = await evidenceService.uploadEvidenceFileOrBytes(
+                  userId: currentUser.id,
+                  file: _validIdPhoto,
+                  preOptimizedBytes: _validIdOptimizedBytes,
+                  evidenceType: 'valid_id',
+                );
+              } else {
+                validIdUrl = _savedRenterValidIdUrl ?? '';
+              }
+
+              // 3. Primary renter selfie (upload new or use saved selfie)
+              if (_selfiePhoto != null) {
+                selfieUrl = await evidenceService.uploadEvidenceFileOrBytes(
+                  userId: currentUser.id,
+                  file: _selfiePhoto,
+                  preOptimizedBytes: _selfieOptimizedBytes,
+                  evidenceType: 'selfie',
+                );
+              } else {
+                selfieUrl = _savedRenterSelfieUrl ?? '';
+              }
+
+              // 4. Co-maker documents (if applicable)
               if (_noCoTraveler) {
-                final (sig, vId, self) = await (
-                  evidenceService.uploadEvidenceBytes(
-                    userId: currentUser.id,
-                    bytes: _signatureBytes!,
-                    evidenceType: 'signature',
-                  ),
-                  evidenceService.uploadEvidenceFileOrBytes(
-                    userId: currentUser.id,
-                    file: _validIdPhoto,
-                    preOptimizedBytes: _validIdOptimizedBytes,
-                    evidenceType: 'valid_id',
-                  ),
-                  evidenceService.uploadEvidenceFileOrBytes(
-                    userId: currentUser.id,
-                    file: _selfiePhoto,
-                    preOptimizedBytes: _selfieOptimizedBytes,
-                    evidenceType: 'selfie',
-                  ),
-                ).wait;
-                signatureUrl = sig;
-                validIdUrl = vId;
-                selfieUrl = self;
                 coTravelerSignatureUrl = null;
                 coTravelerValidIdUrl = null;
                 coTravelerSelfieUrl = null;
               } else {
-                final (
-                  sig,
-                  coSig,
-                  vId,
-                  self,
-                  coVId,
-                  coSelf,
-                ) = await (
-                  evidenceService.uploadEvidenceBytes(
-                    userId: currentUser.id,
-                    bytes: _signatureBytes!,
-                    evidenceType: 'signature',
-                  ),
+                final (coSig, coVId, coSelf) = await (
                   evidenceService.uploadEvidenceBytes(
                     userId: currentUser.id,
                     bytes: _coTravelerSignatureBytes!,
-                    evidenceType: 'co_traveler_signature',
-                  ),
-                  evidenceService.uploadEvidenceFileOrBytes(
-                    userId: currentUser.id,
-                    file: _validIdPhoto,
-                    preOptimizedBytes: _validIdOptimizedBytes,
-                    evidenceType: 'valid_id',
-                  ),
-                  evidenceService.uploadEvidenceFileOrBytes(
-                    userId: currentUser.id,
-                    file: _selfiePhoto,
-                    preOptimizedBytes: _selfieOptimizedBytes,
-                    evidenceType: 'selfie',
+                    evidenceType: 'co_maker_signature',
                   ),
                   evidenceService.uploadEvidenceFileOrBytes(
                     userId: currentUser.id,
                     file: _coTravelerValidIdPhoto,
                     preOptimizedBytes: _coTravelerValidIdOptimizedBytes,
-                    evidenceType: 'co_traveler_valid_id',
+                    evidenceType: 'co_maker_valid_id',
                   ),
                   evidenceService.uploadEvidenceFileOrBytes(
                     userId: currentUser.id,
                     file: _coTravelerSelfiePhoto,
                     preOptimizedBytes: _coTravelerSelfieOptimizedBytes,
-                    evidenceType: 'co_traveler_selfie',
+                    evidenceType: 'co_maker_selfie',
                   ),
                 ).wait;
-                signatureUrl = sig;
                 coTravelerSignatureUrl = coSig;
-                validIdUrl = vId;
-                selfieUrl = self;
                 coTravelerValidIdUrl = coVId;
                 coTravelerSelfieUrl = coSelf;
               }
@@ -3123,7 +3161,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 coTravelerIdType: _noCoTraveler ? null : _coTravelerIdType,
                 coTravelerSignatureText: _noCoTraveler
                     ? null
-                    : 'Co-traveler digital signature captured',
+                    : 'Co-maker digital signature captured',
                 coTravelerSignatureUrl: coTravelerSignatureUrl,
                 coTravelerValidIdUrl: coTravelerValidIdUrl,
                 coTravelerSelfieUrl: coTravelerSelfieUrl,
@@ -3398,14 +3436,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     .join(' • '),
                               ),
                               if (noCoTraveler || (coTravelerName == null || coTravelerName.trim().isEmpty)) ...[
-                                const MapEntry('Co-traveler', 'None (Solo Renter)'),
+                                const MapEntry('Co-maker', 'None (Waived / Solo Renter)'),
                               ] else ...[
-                                MapEntry('Co-traveler', coTravelerName),
-                                MapEntry('Co-traveler phone', coTravelerPhone ?? 'N/A'),
+                                MapEntry('Co-maker', coTravelerName),
+                                MapEntry('Co-maker phone', coTravelerPhone ?? 'N/A'),
                                 MapEntry(
                                   coTravelerIdType != null && coTravelerIdType.isNotEmpty
                                       ? coTravelerIdType
-                                      : 'Co-traveler ID / License',
+                                      : 'Co-maker ID / License',
                                   coTravelerLicense ?? 'N/A',
                                 ),
                               ],
@@ -3427,9 +3465,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             incompleteLabel: 'Safety information incomplete',
                             completeDetail: noCoTraveler
                                 ? 'Emergency contact verified for solo renter.'
-                                : 'Emergency contact and co-traveler details are ready.',
+                                : 'Emergency contact and co-maker details are ready.',
                             incompleteDetail:
-                                'Review the missing emergency contact or co-traveler information.',
+                                'Review the missing emergency contact or co-maker information.',
                           ),
                           const SizedBox(height: 14),
                           _buildBookingReviewSection(
@@ -5819,6 +5857,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           const SizedBox(height: 16),
           _buildSignatureCaptureButton(
             signatureBytes: _signatureBytes,
+            savedSignatureUrl: _savedRenterSignatureUrl,
             label: 'Digital signature *',
             onTap: () => _openSignatureCapture(coTraveler: false),
           ),
@@ -5827,18 +5866,28 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             children: [
               Expanded(
                 child: _buildEvidenceButton(
-                  label: _validIdPhoto == null ? 'Add valid ID' : 'ID ready',
+                  label: _validIdPhoto != null
+                      ? 'New ID ready'
+                      : (_savedRenterValidIdUrl != null
+                          ? 'Verified ID on file'
+                          : 'Add valid ID'),
                   icon: Icons.badge_outlined,
-                  isReady: _validIdPhoto != null,
+                  isReady:
+                      _validIdPhoto != null || _savedRenterValidIdUrl != null,
                   onTap: () => _pickBookingEvidencePhoto(isSelfie: false),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _buildEvidenceButton(
-                  label: _selfiePhoto == null ? 'Add selfie' : 'Selfie ready',
+                  label: _selfiePhoto != null
+                      ? 'New selfie ready'
+                      : (_savedRenterSelfieUrl != null
+                          ? 'Selfie on file'
+                          : 'Add selfie'),
                   icon: Icons.face_retouching_natural_outlined,
-                  isReady: _selfiePhoto != null,
+                  isReady:
+                      _selfiePhoto != null || _savedRenterSelfieUrl != null,
                   onTap: () => _pickBookingEvidencePhoto(isSelfie: true),
                 ),
               ),
@@ -5849,8 +5898,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           const SizedBox(height: 12),
           Text(
             _noCoTraveler
-                ? 'Co-traveler information (Optional - Solo Trip)'
-                : 'Co-traveler information (required)',
+                ? 'Co-maker information (Optional / Waived)'
+                : 'Co-maker / Guarantor information (required)',
             style: TextStyle(
               color: _noCoTraveler
                   ? AppColors.textSecondary
@@ -5887,7 +5936,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                       children: [
                         const TextSpan(
-                          text: 'Traveling solo? ',
+                          text: 'Renting solo or with family? ',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -5895,10 +5944,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         ),
                         const TextSpan(
                           text:
-                              'If you do not have a co-traveler on this trip, check ',
+                              'Passengers (such as children and family members) do NOT need to be registered. If you do not have an adult co-maker/guarantor, check ',
                         ),
                         const TextSpan(
-                          text: '"I don\'t have a co-traveler (Traveling solo)"',
+                          text: '"I don\'t have a co-maker (Solo Renter / Waive Co-Maker)"',
                           style: TextStyle(
                             color: AppColors.primary,
                             fontWeight: FontWeight.w600,
@@ -5906,7 +5955,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         ),
                         const TextSpan(
                           text:
-                              ' below to skip this section. If traveling with a companion, their details, valid ID, and signature are required.',
+                              ' below. An adult co-maker is only required if you wish to register a guarantor or secondary authorized driver.',
                         ),
                       ],
                     ),
@@ -5978,7 +6027,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
-                      "I don't have a co-traveler (Traveling solo)",
+                      "I don't have a co-maker (Solo Renter / Waive Co-Maker)",
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -5995,7 +6044,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             _buildBookingEvidenceField(
               controller: _coTravelerNameController,
               label: 'Full name',
-              hint: 'Co-traveler legal name',
+              hint: 'Co-maker legal name',
               icon: Icons.person_add_alt_1_outlined,
               textCapitalization: TextCapitalization.words,
             ),
@@ -6015,7 +6064,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               dropdownColor: AppColors.darkCard,
               style: const TextStyle(color: Colors.white, fontSize: 14),
               decoration: InputDecoration(
-                labelText: 'Co-traveler ID Type *',
+                labelText: 'Co-maker ID Type *',
                 labelStyle: const TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 13,
@@ -6117,7 +6166,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             const SizedBox(height: 12),
             _buildSignatureCaptureButton(
               signatureBytes: _coTravelerSignatureBytes,
-              label: 'Co-traveler digital signature *',
+              label: 'Co-maker digital signature *',
               onTap: _openCoTravelerSignatureOptions,
             ),
             const SizedBox(height: 6),
@@ -6141,7 +6190,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Signature is required. If co-traveler is not available at the moment of assessing the booking, they can write their signature on clean white paper and you can upload a photo. Ensure it is clearly visible and well-lit.',
+                      'Signature is required. If co-maker is not available at the moment of assessing the booking, they can write their signature on clean white paper and you can upload a photo. Ensure it is clearly visible and well-lit.',
                       style: TextStyle(
                         fontSize: 11.5,
                         color: Colors.white70,
@@ -6160,8 +6209,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     label: _isScanningCoTravelerOcr
                         ? 'Scanning ID...'
                         : (_coTravelerValidIdPhoto == null
-                            ? 'Co-traveler ID'
-                            : 'Co-traveler ID ready'),
+                            ? 'Co-maker ID'
+                            : 'Co-maker ID ready'),
                     icon: _isScanningCoTravelerOcr
                         ? Icons.auto_awesome
                         : Icons.badge_outlined,
@@ -6178,7 +6227,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 Expanded(
                   child: _buildEvidenceButton(
                     label: _coTravelerSelfiePhoto == null
-                        ? 'Co-traveler selfie'
+                        ? 'Co-maker selfie'
                         : 'Selfie ready',
                     icon: Icons.face_retouching_natural_outlined,
                     isReady: _coTravelerSelfiePhoto != null,
@@ -6203,7 +6252,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'Google ML Kit auto-scans uploaded ID to auto-fill co-traveler name & ID number.',
+                      'Google ML Kit auto-scans uploaded ID to auto-fill co-maker name & ID number.',
                       style: TextStyle(fontSize: 11, color: Colors.white54),
                     ),
                   ),
@@ -6224,7 +6273,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Co-traveler details and photos are waived for solo renter.',
+                      'Co-maker details and documents are waived for solo renter.',
                       style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                     ),
                   ),
@@ -6239,10 +6288,26 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   Widget _buildSignatureCaptureButton({
     required Uint8List? signatureBytes,
+    String? savedSignatureUrl,
     required String label,
     required VoidCallback onTap,
   }) {
-    final hasSignature = signatureBytes != null && signatureBytes.isNotEmpty;
+    final hasNewSignature =
+        signatureBytes != null && signatureBytes.isNotEmpty;
+    final hasSavedSignature = savedSignatureUrl != null &&
+        savedSignatureUrl.trim().isNotEmpty;
+    final hasSignature = hasNewSignature || hasSavedSignature;
+
+    final String subtitle;
+    if (hasNewSignature) {
+      subtitle = 'Signature drawn for this booking. Tap to edit.';
+    } else if (hasSavedSignature) {
+      subtitle =
+          'Saved signature on file (Auto-attached). Tap to change.';
+    } else {
+      subtitle = 'Tap to open the full-screen signature page.';
+    }
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -6266,27 +6331,54 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 borderRadius: BorderRadius.circular(10),
               ),
               clipBehavior: Clip.antiAlias,
-              child: hasSignature
+              child: hasNewSignature
                   ? Image.memory(signatureBytes, fit: BoxFit.contain)
-                  : const Icon(Icons.draw_outlined, color: AppColors.primary),
+                  : (hasSavedSignature
+                      ? OptimizedNetworkImage(
+                          imageUrl: savedSignatureUrl,
+                          fit: BoxFit.contain,
+                        )
+                      : const Icon(Icons.draw_outlined,
+                          color: AppColors.primary)),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (hasSavedSignature && !hasNewSignature) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'On File',
+                            style: TextStyle(
+                              color: AppColors.success,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    hasSignature
-                        ? 'Signature saved. Tap to edit.'
-                        : 'Tap to open the full-screen signature page.',
+                    subtitle,
                     style: TextStyle(
                       color: hasSignature
                           ? AppColors.success
@@ -6373,7 +6465,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   String? _bookingEvidenceFieldError(TextEditingController controller) {
     if (!_touchedEvidenceFields.contains(controller)) return null;
     if (identical(controller, _coTravelerNameController)) {
-      return validatePersonName(controller.text, fieldName: 'Co-traveler name');
+      return validatePersonName(controller.text, fieldName: 'Co-maker name');
     }
     if (identical(controller, _coTravelerPhoneController)) {
       return validatePhilippineMobile(controller.text);

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'driver_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
@@ -899,5 +900,149 @@ class VerificationService {
           .select()
           .single();
     }
+  }
+
+
+  /// Retrieve saved renter identity documents & digital signature so the account owner
+  /// doesn't have to repeatedly re-enter or re-upload their credentials for bookings.
+  static Future<Map<String, dynamic>> getSavedRenterEvidence(String userId) async {
+    String? signatureUrl;
+    String? validIdUrl;
+    String? selfieUrl;
+    String? idType;
+    String? idNumber;
+    String? fullName;
+    String? phone;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      signatureUrl = prefs.getString('saved_signature_url_$userId');
+      validIdUrl = prefs.getString('saved_valid_id_url_$userId');
+      selfieUrl = prefs.getString('saved_selfie_url_$userId');
+    } catch (_) {}
+
+    try {
+      final meta = supabase.auth.currentUser?.userMetadata ?? {};
+      signatureUrl ??= meta['signature_url']?.toString() ??
+          meta['digital_signature_url']?.toString();
+    } catch (_) {}
+
+    try {
+      final verification = await getUserVerification(userId);
+      if (verification != null) {
+        validIdUrl ??= verification['id_front_url']?.toString() ??
+            verification['id_document_url']?.toString();
+        selfieUrl ??= verification['face_selfie_url']?.toString() ??
+            verification['selfie_with_id_url']?.toString();
+        signatureUrl ??= verification['signature_url']?.toString() ??
+            verification['digital_signature_url']?.toString();
+        idType ??= verification['id_type']?.toString();
+        idNumber ??= verification['id_number']?.toString();
+        fullName ??= verification['full_name']?.toString();
+        phone ??= verification['phone']?.toString();
+      }
+    } catch (_) {}
+
+    // If still missing any booking evidence, check previous booking documents
+    if (signatureUrl == null || validIdUrl == null || selfieUrl == null) {
+      try {
+        final recentDoc = await supabase
+            .from('booking_renter_documents')
+            .select('renter_signature_url, renter_valid_id_url, renter_selfie_url')
+            .eq('renter_id', userId)
+            .order('created_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+
+        if (recentDoc != null) {
+          signatureUrl ??= recentDoc['renter_signature_url']?.toString();
+          validIdUrl ??= recentDoc['renter_valid_id_url']?.toString();
+          selfieUrl ??= recentDoc['renter_selfie_url']?.toString();
+        }
+      } catch (_) {}
+    }
+
+    // Cache to SharedPreferences for speed
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (signatureUrl != null && signatureUrl.isNotEmpty) {
+        await prefs.setString('saved_signature_url_$userId', signatureUrl);
+      }
+      if (validIdUrl != null && validIdUrl.isNotEmpty) {
+        await prefs.setString('saved_valid_id_url_$userId', validIdUrl);
+      }
+      if (selfieUrl != null && selfieUrl.isNotEmpty) {
+        await prefs.setString('saved_selfie_url_$userId', selfieUrl);
+      }
+    } catch (_) {}
+
+    return {
+      'signature_url': signatureUrl,
+      'valid_id_url': validIdUrl,
+      'selfie_url': selfieUrl,
+      'id_type': idType,
+      'id_number': idNumber,
+      'full_name': fullName,
+      'phone': phone,
+    };
+  }
+
+  /// Save or update the user's official digital signature
+  static Future<String> saveUserDigitalSignature({
+    required String userId,
+    required Uint8List signatureBytes,
+  }) async {
+    final objectPath =
+        '$userId/digital_signature_${DateTime.now().millisecondsSinceEpoch}.png';
+
+    final optimizedBytes = await ImageOptimizationService.optimizeForUpload(
+      signatureBytes,
+      fileName: objectPath,
+      preset: UploadImagePreset.signature,
+    );
+
+    await supabase.storage
+        .from('booking_evidence')
+        .uploadBinary(
+          objectPath,
+          optimizedBytes,
+          fileOptions: const FileOptions(
+            upsert: true,
+            contentType: 'image/png',
+            cacheControl: '31536000',
+          ),
+        );
+
+    final signatureUrl =
+        supabase.storage.from('booking_evidence').getPublicUrl(objectPath);
+
+    // Save in auth user metadata
+    try {
+      await supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            'signature_url': signatureUrl,
+            'digital_signature_url': signatureUrl,
+          },
+        ),
+      );
+    } catch (_) {}
+
+    // Save in user_verifications if available
+    try {
+      await supabase.from('user_verifications').upsert({
+        'user_id': userId,
+        'signature_url': signatureUrl,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'user_id');
+    } catch (_) {}
+
+    // Save in SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('saved_signature_url_$userId', signatureUrl);
+    } catch (_) {}
+
+    return signatureUrl;
   }
 }

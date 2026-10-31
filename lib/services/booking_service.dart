@@ -1370,7 +1370,7 @@ class BookingService {
         ];
         if (coTravelerFields.any((value) => value.isEmpty)) {
           throw Exception(
-            'Co-traveler name, phone number, and license number are required when adding a co-traveler',
+            'Co-maker name, phone number, and ID/license number are required when adding a co-maker',
           );
         }
 
@@ -1381,7 +1381,7 @@ class BookingService {
             coTravelerSelfieUrl == null ||
             coTravelerSelfieUrl.trim().isEmpty) {
           throw Exception(
-            'Co-traveler signature, valid ID, and selfie are required when adding a co-traveler',
+            'Co-maker signature, valid ID, and selfie are required when adding a co-maker',
           );
         }
       }

@@ -16,6 +16,7 @@ import 'legal_terms_privacy_screen.dart';
 import 'ratings_reviews_screen.dart';
 import 'settings_screen.dart';
 import 'payment_methods_screen.dart';
+import '../vehicle/signature_capture_screen.dart';
 
 class ProfileStatItem {
   final String label;
@@ -63,6 +64,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   int? _totalTripsCount;
   double? _userRatingAverage;
   bool _isLoading = true;
+  String? _savedSignatureUrl;
   bool _isRedeemingReward = false;
   late final ScrollController _scrollController;
   late final AnimationController _photoController;
@@ -161,6 +163,13 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
           _userRatingAverage = results[4] as double?;
         }
       });
+
+      final evidence = await VerificationService.getSavedRenterEvidence(userId);
+      if (mounted && evidence['signature_url'] != null) {
+        setState(() {
+          _savedSignatureUrl = evidence['signature_url'] as String?;
+        });
+      }
     } catch (e) {
       debugPrint('Error loading profile: $e');
     } finally {
@@ -337,6 +346,250 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       MaterialPageRoute(
         builder: (_) => EmergencyContactScreen(isDarkMode: widget.isDarkMode),
       ),
+    );
+  }
+
+  Future<void> _openDigitalSignatureManagement() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+    final isDark = widget.isDarkMode;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final hasSignature = _savedSignatureUrl != null &&
+                _savedSignatureUrl!.trim().isNotEmpty;
+
+            return Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border.all(
+                  color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.draw_rounded,
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Official Digital Signature',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? AppColors.textPrimary : Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Auto-attached to your booking agreements',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? AppColors.textSecondary
+                                    : AppColors.lightTextSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  if (hasSignature) ...[
+                    Container(
+                      width: double.infinity,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.borderColor),
+                      ),
+                      padding: const EdgeInsets.all(12),
+                      child: Center(
+                        child: OptimizedNetworkImage(
+                          imageUrl: _savedSignatureUrl!,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Row(
+                      children: [
+                        Icon(Icons.check_circle, color: AppColors.success, size: 16),
+                        SizedBox(width: 6),
+                        Text(
+                          'Signature active & verified for quick bookings',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.success,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.draw_outlined,
+                            size: 40,
+                            color: isDark ? AppColors.textSecondary : Colors.grey,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'No saved signature yet',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? AppColors.textPrimary : Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Draw your signature once. Every time you rent a vehicle, your signature will be automatically attached so you don\'t have to draw it again.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? AppColors.textSecondary : Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: AppColors.darkBg,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.gesture_rounded),
+                      label: Text(
+                        hasSignature ? 'Update / Redraw Signature' : 'Draw Digital Signature',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      onPressed: () async {
+                        Navigator.pop(modalContext);
+                        final result = await Navigator.of(context).push<Uint8List>(
+                          MaterialPageRoute(
+                            builder: (_) => const SignatureCaptureScreen(
+                              title: 'Your Official Signature',
+                            ),
+                          ),
+                        );
+                        if (result != null && mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  SizedBox(width: 10),
+                                  Text('Saving signature to your profile...'),
+                                ],
+                              ),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                          try {
+                            final url = await VerificationService.saveUserDigitalSignature(
+                              userId: user.id,
+                              signatureBytes: result,
+                            );
+                            if (mounted) {
+                              setState(() {
+                                _savedSignatureUrl = url;
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Row(
+                                    children: [
+                                      Icon(Icons.check_circle_outline, color: Colors.white),
+                                      SizedBox(width: 8),
+                                      Text('Digital signature saved to your profile!'),
+                                    ],
+                                  ),
+                                  backgroundColor: AppColors.success,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Failed to save signature: $e'),
+                                  backgroundColor: AppColors.error,
+                                ),
+                              );
+                            }
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -648,6 +901,14 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                   title: 'Emergency Contact',
                   subtitle: 'Safety contact for trips and incidents',
                   onTap: _openEmergencyContact,
+                ),
+                _settingsTile(
+                  icon: Icons.draw_outlined,
+                  title: 'Digital Signature',
+                  subtitle: _savedSignatureUrl != null && _savedSignatureUrl!.isNotEmpty
+                      ? 'Active on file (Auto-attached to bookings)'
+                      : 'Set up signature for faster bookings',
+                  onTap: _openDigitalSignatureManagement,
                 ),
                 _settingsTile(
                   icon: Icons.settings_outlined,

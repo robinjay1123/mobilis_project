@@ -27,7 +27,7 @@ class _FaqSectionState extends State<FaqSection> {
     },
     {
       'q': 'What are the requirements to rent a vehicle?',
-      'a': 'Renters need 1 valid Government-issued ID, a valid Driver’s License (for self-drive), emergency contact details, and co-traveler information. All verification is handled conveniently inside the Mobilis app.',
+      'a': 'Renters need 1 valid Government-issued ID, a valid Driver’s License (for self-drive), emergency contact details, and a digital signature (saved once in your profile). If you have an adult co-maker/guarantor, their details can also be attached (passengers like children do not require registration). All verification is handled conveniently inside the Mobilis app.',
     },
     {
       'q': 'Can I hire a professional driver?',

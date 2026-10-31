@@ -1,4 +1,4 @@
-﻿part of '../operator_web_screen.dart';
+part of '../operator_web_screen.dart';
 
 extension _OperatorBookingsTab on _OperatorWebScreenState {
   Widget _buildBookingsContent(bool isDark) {
@@ -5447,14 +5447,14 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
                       : 'Not provided',
                 ),
                 _buildOperatorSafetyLine(
-                  'Co-traveler',
+                  'Co-maker',
                   booking['co_traveler_name']?.toString().trim().isNotEmpty ==
                           true
                       ? booking['co_traveler_name'].toString()
-                      : 'Not provided',
+                      : 'None (Waived)',
                 ),
                 _buildOperatorSafetyLine(
-                  'Co-traveler license',
+                  'Co-maker ID/license',
                   booking['co_traveler_license']
                               ?.toString()
                               .trim()
@@ -5464,7 +5464,7 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
                       : 'Not provided',
                 ),
                 _buildOperatorSafetyLine(
-                  'Co-traveler signature',
+                  'Co-maker signature',
                   booking['co_traveler_signature_url']
                               ?.toString()
                               .trim()
@@ -5505,17 +5505,17 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
                     ),
                     _buildOperatorEvidenceChip(
                       Icons.draw_outlined,
-                      'Co-traveler Signature',
+                      'Co-maker Signature',
                       booking['co_traveler_signature_url'],
                     ),
                     _buildOperatorEvidenceChip(
                       Icons.badge_outlined,
-                      'Co-traveler ID',
+                      'Co-maker ID',
                       booking['co_traveler_valid_id_url'],
                     ),
                     _buildOperatorEvidenceChip(
                       Icons.camera_alt_outlined,
-                      'Co-traveler Selfie',
+                      'Co-maker Selfie',
                       booking['co_traveler_selfie_url'],
                     ),
                   ],
@@ -12009,15 +12009,15 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
       MapEntry('Valid ID', booking['renter_valid_id_url']?.toString() ?? ''),
       MapEntry('Selfie', booking['renter_selfie_url']?.toString() ?? ''),
       MapEntry(
-        'Co-traveler signature image',
+        'Co-maker signature image',
         booking['co_traveler_signature_url']?.toString() ?? '',
       ),
       MapEntry(
-        'Co-traveler valid ID',
+        'Co-maker valid ID',
         booking['co_traveler_valid_id_url']?.toString() ?? '',
       ),
       MapEntry(
-        'Co-traveler selfie',
+        'Co-maker selfie',
         booking['co_traveler_selfie_url']?.toString() ?? '',
       ),
     ];
@@ -12049,7 +12049,7 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
                       .join(' - '),
                 ),
                 _buildReviewLine(
-                  'Co-traveler',
+                  'Co-maker',
                   [
                         booking['co_traveler_name']?.toString(),
                         booking['co_traveler_phone']?.toString(),
@@ -12058,11 +12058,11 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
                       .join(' - '),
                 ),
                 _buildReviewLine(
-                  'Co-traveler license',
+                  'Co-maker ID/license',
                   booking['co_traveler_license']?.toString(),
                 ),
                 _buildReviewLine(
-                  'Co-traveler signature',
+                  'Co-maker signature',
                   booking['co_traveler_signature_text']?.toString(),
                 ),
                 const SizedBox(height: 16),

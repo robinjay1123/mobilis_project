@@ -209,10 +209,10 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
 
-          // SECTION 2: Co-Traveler / Authorized Second Driver
+          // SECTION 2: Co-Maker / Guarantor or Second Driver
           _buildSectionHeader(
             icon: Icons.people_outline_rounded,
-            title: 'Co-Traveler / Authorized Second Driver',
+            title: 'Co-Maker / Guarantor or Second Driver',
             isDark: isDark,
           ),
           const SizedBox(height: 10),
@@ -232,7 +232,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildDetailRow(
-                        label: 'Co-traveler Name & Phone',
+                        label: 'Co-maker Name & Phone',
                         value: [
                           coTravelerName,
                           coTravelerPhone,
@@ -244,21 +244,21 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       ),
                       const Divider(height: 20),
                       _buildDetailRow(
-                        label: 'Co-traveler Driver\'s License',
+                        label: 'Co-maker ID / Driver\'s License',
                         value: coTravelerLicense,
                         icon: Icons.credit_card_outlined,
                         isDark: isDark,
                       ),
                       const Divider(height: 20),
                       _buildDetailRow(
-                        label: 'Co-traveler Digital Signature',
+                        label: 'Co-maker Digital Signature',
                         value: coTravelerSignatureText,
                         icon: Icons.draw_outlined,
                         isDark: isDark,
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Co-Traveler Documents',
+                        'Co-Maker Documents',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -270,7 +270,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       _buildDocumentTile(
                         context: context,
-                        title: 'Co-traveler signature image',
+                        title: 'Co-maker signature image',
                         imageUrl: coTravelerSignatureUrl,
                         icon: Icons.draw_rounded,
                         isDark: isDark,
@@ -278,7 +278,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       _buildDocumentTile(
                         context: context,
-                        title: 'Co-traveler Valid ID',
+                        title: 'Co-maker Valid ID',
                         imageUrl: coTravelerValidIdUrl,
                         icon: Icons.badge_outlined,
                         isDark: isDark,
@@ -286,7 +286,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       _buildDocumentTile(
                         context: context,
-                        title: 'Co-traveler Selfie',
+                        title: 'Co-maker Selfie',
                         imageUrl: coTravelerSelfieUrl,
                         icon: Icons.face_rounded,
                         isDark: isDark,
@@ -305,7 +305,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'No co-traveler / second driver specified for this booking.',
+                          'No co-maker / guarantor specified for this booking (Waived for solo renter).',
                           style: TextStyle(
                             fontSize: 13,
                             color: isDark

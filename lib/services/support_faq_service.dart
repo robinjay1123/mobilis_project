@@ -110,7 +110,7 @@ class SupportFaqService {
             key: 'booking_requirements',
             question: 'What information is required before booking?',
             answer:
-                'You need valid identity verification, the required booking documents, a digital signature, emergency contact details, and complete co-traveler information. A driver license is also required when applicable.',
+                'You need valid identity verification, the required booking documents, a digital signature, emergency contact details, and co-maker / guarantor details (if adding a co-maker; passengers like children do not require registration). A driver license is also required when applicable.',
           ),
           SupportFaq(
             key: 'delivery_fee',
