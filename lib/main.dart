@@ -1221,7 +1221,7 @@ class _MobileOnlyAccessScreenState extends State<MobileOnlyAccessScreen> {
                       onPressed: _downloadApk,
                       icon: const Icon(Icons.download_rounded, size: 20),
                       label: const Text(
-                        'Direct APK Download (v1.3.3)',
+                        'Direct APK Download (v1.3.4)',
                         style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14.5),
                       ),
                       style: ElevatedButton.styleFrom(
