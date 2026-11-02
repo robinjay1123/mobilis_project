@@ -157,6 +157,7 @@ class BookingService {
       'destination_fee',
       'destination_fee_notes',
       'principal_total_price',
+      'co_travelers',
       'co_traveler_name',
       'co_traveler_phone',
       'co_traveler_license',
@@ -1344,6 +1345,7 @@ class BookingService {
     String? coTravelerSignatureUrl,
     String? coTravelerValidIdUrl,
     String? coTravelerSelfieUrl,
+    List<Map<String, dynamic>>? coTravelers,
   }) async {
     try {
       debugPrint('Creating booking for renter: $renterId, vehicle: $vehicleId');
@@ -1572,6 +1574,8 @@ class BookingService {
           'co_traveler_valid_id_url': coTravelerValidIdUrl.trim(),
         if (coTravelerSelfieUrl != null && coTravelerSelfieUrl.trim().isNotEmpty)
           'co_traveler_selfie_url': coTravelerSelfieUrl.trim(),
+        if (coTravelers != null && coTravelers.isNotEmpty)
+          'co_travelers': coTravelers,
         if (ownerId != null && ownerId.trim().isNotEmpty)
           'owner_id': ownerId.trim(),
         if (partnerId != null && partnerId.trim().isNotEmpty)

@@ -46,7 +46,17 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
     final coTravelerSelfieUrl =
         booking['co_traveler_selfie_url']?.toString().trim() ?? '';
 
-    final hasCoTraveler = coTravelerName.isNotEmpty ||
+    final rawCoTravelers = booking['co_travelers'] ??
+        (booking['metadata'] is Map ? (booking['metadata'] as Map)['co_travelers'] : null);
+    final List<Map<String, dynamic>> coTravelersList = (rawCoTravelers is List)
+        ? rawCoTravelers
+            .whereType<Map>()
+            .map((m) => Map<String, dynamic>.from(m))
+            .toList()
+        : [];
+
+    final hasCoTraveler = coTravelersList.isNotEmpty ||
+        coTravelerName.isNotEmpty ||
         coTravelerLicense.isNotEmpty ||
         coTravelerValidIdUrl.isNotEmpty ||
         coTravelerSignatureUrl.isNotEmpty;
@@ -231,70 +241,153 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildDetailRow(
-                        label: 'Co-traveler Name & Phone',
-                        value: [
-                          coTravelerName,
-                          coTravelerPhone,
-                        ]
-                            .where((part) => part.trim().isNotEmpty)
-                            .join(' - '),
-                        icon: Icons.person_add_alt_1_outlined,
-                        isDark: isDark,
-                      ),
-                      const Divider(height: 20),
-                      _buildDetailRow(
-                        label: 'Co-traveler ID / Driver\'s License (Optional)',
-                        value: coTravelerLicense.isNotEmpty
-                            ? coTravelerLicense
-                            : 'Not provided (Optional)',
-                        icon: Icons.credit_card_outlined,
-                        isDark: isDark,
-                      ),
-                      const Divider(height: 20),
-                      _buildDetailRow(
-                        label: 'Co-traveler Digital Signature (Optional)',
-                        value: coTravelerSignatureText.isNotEmpty
-                            ? coTravelerSignatureText
-                            : 'Not provided (Optional)',
-                        icon: Icons.draw_outlined,
-                        isDark: isDark,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Co-Traveler Documents (Optional)',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? AppColors.textSecondary
-                              : AppColors.lightTextSecondary,
+                      if (coTravelersList.isNotEmpty) ...[
+                        for (int i = 0; i < coTravelersList.length; i++) ...[
+                          if (i > 0) const Divider(height: 32, thickness: 1.5),
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 11,
+                                backgroundColor: AppColors.primary,
+                                child: Text(
+                                  '${i + 1}',
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                coTravelersList.length > 1
+                                    ? 'Co-Traveler #${i + 1}'
+                                    : 'Co-Traveler',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _buildDetailRow(
+                            label: 'Name & Phone',
+                            value: [
+                              coTravelersList[i]['name']?.toString().trim() ?? '',
+                              coTravelersList[i]['phone']?.toString().trim() ?? '',
+                            ].where((part) => part.isNotEmpty).join(' - '),
+                            icon: Icons.person_add_alt_1_outlined,
+                            isDark: isDark,
+                          ),
+                          const Divider(height: 20),
+                          _buildDetailRow(
+                            label: '${coTravelersList[i]['id_type'] ?? 'ID'} (Optional)',
+                            value: (coTravelersList[i]['id_number']?.toString().trim().isNotEmpty == true)
+                                ? coTravelersList[i]['id_number'].toString().trim()
+                                : 'Not provided (Optional)',
+                            icon: Icons.credit_card_outlined,
+                            isDark: isDark,
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              if (coTravelersList[i]['signature_url']?.toString().trim().isNotEmpty == true)
+                                _buildDocumentTile(
+                                  context: context,
+                                  title: 'Signature',
+                                  imageUrl: coTravelersList[i]['signature_url'].toString().trim(),
+                                  icon: Icons.draw_rounded,
+                                  isDark: isDark,
+                                ),
+                              if (coTravelersList[i]['valid_id_url']?.toString().trim().isNotEmpty == true)
+                                _buildDocumentTile(
+                                  context: context,
+                                  title: 'Valid ID',
+                                  imageUrl: coTravelersList[i]['valid_id_url'].toString().trim(),
+                                  icon: Icons.badge_outlined,
+                                  isDark: isDark,
+                                ),
+                              if (coTravelersList[i]['selfie_url']?.toString().trim().isNotEmpty == true)
+                                _buildDocumentTile(
+                                  context: context,
+                                  title: 'Selfie',
+                                  imageUrl: coTravelersList[i]['selfie_url'].toString().trim(),
+                                  icon: Icons.face_rounded,
+                                  isDark: isDark,
+                                ),
+                            ],
+                          ),
+                        ],
+                      ] else ...[
+                        _buildDetailRow(
+                          label: 'Co-traveler Name & Phone',
+                          value: [
+                            coTravelerName,
+                            coTravelerPhone,
+                          ]
+                              .where((part) => part.trim().isNotEmpty)
+                              .join(' - '),
+                          icon: Icons.person_add_alt_1_outlined,
+                          isDark: isDark,
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      _buildDocumentTile(
-                        context: context,
-                        title: 'Co-traveler signature image',
-                        imageUrl: coTravelerSignatureUrl,
-                        icon: Icons.draw_rounded,
-                        isDark: isDark,
-                      ),
-                      const SizedBox(height: 10),
-                      _buildDocumentTile(
-                        context: context,
-                        title: 'Co-traveler Valid ID',
-                        imageUrl: coTravelerValidIdUrl,
-                        icon: Icons.badge_outlined,
-                        isDark: isDark,
-                      ),
-                      const SizedBox(height: 10),
-                      _buildDocumentTile(
-                        context: context,
-                        title: 'Co-traveler Selfie',
-                        imageUrl: coTravelerSelfieUrl,
-                        icon: Icons.face_rounded,
-                        isDark: isDark,
-                      ),
+                        const Divider(height: 20),
+                        _buildDetailRow(
+                          label: 'Co-traveler ID / Driver\'s License (Optional)',
+                          value: coTravelerLicense.isNotEmpty
+                              ? coTravelerLicense
+                              : 'Not provided (Optional)',
+                          icon: Icons.credit_card_outlined,
+                          isDark: isDark,
+                        ),
+                        const Divider(height: 20),
+                        _buildDetailRow(
+                          label: 'Co-traveler Digital Signature (Optional)',
+                          value: coTravelerSignatureText.isNotEmpty
+                              ? coTravelerSignatureText
+                              : 'Not provided (Optional)',
+                          icon: Icons.draw_outlined,
+                          isDark: isDark,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Co-Traveler Documents (Optional)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? AppColors.textSecondary
+                                : AppColors.lightTextSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _buildDocumentTile(
+                          context: context,
+                          title: 'Co-traveler signature image',
+                          imageUrl: coTravelerSignatureUrl,
+                          icon: Icons.draw_rounded,
+                          isDark: isDark,
+                        ),
+                        const SizedBox(height: 10),
+                        _buildDocumentTile(
+                          context: context,
+                          title: 'Co-traveler Valid ID',
+                          imageUrl: coTravelerValidIdUrl,
+                          icon: Icons.badge_outlined,
+                          isDark: isDark,
+                        ),
+                        const SizedBox(height: 10),
+                        _buildDocumentTile(
+                          context: context,
+                          title: 'Co-traveler Selfie',
+                          imageUrl: coTravelerSelfieUrl,
+                          icon: Icons.face_rounded,
+                          isDark: isDark,
+                        ),
+                      ],
                     ],
                   )
                 : Row(

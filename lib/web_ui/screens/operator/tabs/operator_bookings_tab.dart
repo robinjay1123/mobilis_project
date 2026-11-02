@@ -5446,32 +5446,58 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
                       ? booking['emergency_contact_phone'].toString()
                       : 'Not provided',
                 ),
-                _buildOperatorSafetyLine(
-                  'Co-traveler',
-                  booking['co_traveler_name']?.toString().trim().isNotEmpty ==
-                          true
-                      ? booking['co_traveler_name'].toString()
-                      : 'None (Waived)',
-                ),
-                _buildOperatorSafetyLine(
-                  'Co-traveler ID/license',
-                  booking['co_traveler_license']
-                              ?.toString()
-                              .trim()
-                              .isNotEmpty ==
-                          true
-                      ? booking['co_traveler_license'].toString()
-                      : 'Not provided',
-                ),
-                _buildOperatorSafetyLine(
-                  'Co-traveler signature',
-                  booking['co_traveler_signature_url']
-                              ?.toString()
-                              .trim()
-                              .isNotEmpty ==
-                          true
-                      ? 'Captured'
-                      : 'Not provided',
+                Builder(
+                  builder: (context) {
+                    final rawList = booking['co_travelers'] ??
+                        (booking['metadata'] is Map ? (booking['metadata'] as Map)['co_travelers'] : null);
+                    final List<Map<String, dynamic>> travelers = (rawList is List)
+                        ? rawList.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
+                        : [];
+                    if (travelers.isNotEmpty) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (int i = 0; i < travelers.length; i++) ...[
+                            _buildOperatorSafetyLine(
+                              travelers.length > 1 ? 'Co-traveler #${i + 1}' : 'Co-traveler',
+                              [
+                                travelers[i]['name']?.toString() ?? '',
+                                travelers[i]['phone']?.toString() ?? '',
+                              ].where((s) => s.trim().isNotEmpty).join(' • '),
+                            ),
+                            if (travelers[i]['id_number']?.toString().trim().isNotEmpty == true)
+                              _buildOperatorSafetyLine(
+                                '${travelers[i]['id_type'] ?? 'ID'} #${i + 1}',
+                                travelers[i]['id_number'].toString(),
+                              ),
+                          ],
+                        ],
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildOperatorSafetyLine(
+                          'Co-traveler',
+                          booking['co_traveler_name']?.toString().trim().isNotEmpty == true
+                              ? booking['co_traveler_name'].toString()
+                              : 'None (Waived)',
+                        ),
+                        _buildOperatorSafetyLine(
+                          'Co-traveler ID/license',
+                          booking['co_traveler_license']?.toString().trim().isNotEmpty == true
+                              ? booking['co_traveler_license'].toString()
+                              : 'Not provided',
+                        ),
+                        _buildOperatorSafetyLine(
+                          'Co-traveler signature',
+                          booking['co_traveler_signature_url']?.toString().trim().isNotEmpty == true
+                              ? 'Captured'
+                              : 'Not provided',
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 Divider(color: Colors.white.withOpacity(0.12), height: 22),
                 const Text(
@@ -5484,41 +5510,74 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _buildOperatorEvidenceChip(
-                      Icons.draw_outlined,
-                      'Signature',
-                      booking['renter_signature_url'],
-                    ),
-                    _buildOperatorEvidenceChip(
-                      Icons.badge_outlined,
-                      'Valid ID',
-                      booking['renter_valid_id_url'],
-                    ),
-                    _buildOperatorEvidenceChip(
-                      Icons.camera_alt_outlined,
-                      'Selfie',
-                      booking['renter_selfie_url'],
-                    ),
-                    _buildOperatorEvidenceChip(
-                      Icons.draw_outlined,
-                      'Co-traveler Signature',
-                      booking['co_traveler_signature_url'],
-                    ),
-                    _buildOperatorEvidenceChip(
-                      Icons.badge_outlined,
-                      'Co-traveler ID',
-                      booking['co_traveler_valid_id_url'],
-                    ),
-                    _buildOperatorEvidenceChip(
-                      Icons.camera_alt_outlined,
-                      'Co-traveler Selfie',
-                      booking['co_traveler_selfie_url'],
-                    ),
-                  ],
+                Builder(
+                  builder: (context) {
+                    final rawList = booking['co_travelers'] ??
+                        (booking['metadata'] is Map ? (booking['metadata'] as Map)['co_travelers'] : null);
+                    final List<Map<String, dynamic>> travelers = (rawList is List)
+                        ? rawList.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
+                        : [];
+
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildOperatorEvidenceChip(
+                          Icons.draw_outlined,
+                          'Signature',
+                          booking['renter_signature_url'],
+                        ),
+                        _buildOperatorEvidenceChip(
+                          Icons.badge_outlined,
+                          'Valid ID',
+                          booking['renter_valid_id_url'],
+                        ),
+                        _buildOperatorEvidenceChip(
+                          Icons.camera_alt_outlined,
+                          'Selfie',
+                          booking['renter_selfie_url'],
+                        ),
+                        if (travelers.isNotEmpty) ...[
+                          for (int i = 0; i < travelers.length; i++) ...[
+                            if (travelers[i]['signature_url']?.toString().trim().isNotEmpty == true)
+                              _buildOperatorEvidenceChip(
+                                Icons.draw_outlined,
+                                travelers.length > 1 ? 'Sig #${i + 1}' : 'Co-traveler Sig',
+                                travelers[i]['signature_url'],
+                              ),
+                            if (travelers[i]['valid_id_url']?.toString().trim().isNotEmpty == true)
+                              _buildOperatorEvidenceChip(
+                                Icons.badge_outlined,
+                                travelers.length > 1 ? 'ID #${i + 1}' : 'Co-traveler ID',
+                                travelers[i]['valid_id_url'],
+                              ),
+                            if (travelers[i]['selfie_url']?.toString().trim().isNotEmpty == true)
+                              _buildOperatorEvidenceChip(
+                                Icons.camera_alt_outlined,
+                                travelers.length > 1 ? 'Selfie #${i + 1}' : 'Co-traveler Selfie',
+                                travelers[i]['selfie_url'],
+                              ),
+                          ],
+                        ] else ...[
+                          _buildOperatorEvidenceChip(
+                            Icons.draw_outlined,
+                            'Co-traveler Signature',
+                            booking['co_traveler_signature_url'],
+                          ),
+                          _buildOperatorEvidenceChip(
+                            Icons.badge_outlined,
+                            'Co-traveler ID',
+                            booking['co_traveler_valid_id_url'],
+                          ),
+                          _buildOperatorEvidenceChip(
+                            Icons.camera_alt_outlined,
+                            'Co-traveler Selfie',
+                            booking['co_traveler_selfie_url'],
+                          ),
+                        ],
+                      ],
+                    );
+                  },
                 ),
                 Divider(color: Colors.white.withOpacity(0.12), height: 22),
                 Row(
@@ -12001,26 +12060,46 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
     Map<String, dynamic> booking,
   ) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final evidence = [
+    final evidence = <MapEntry<String, String>>[
       MapEntry(
         'Signature image',
         booking['renter_signature_url']?.toString() ?? '',
       ),
       MapEntry('Valid ID', booking['renter_valid_id_url']?.toString() ?? ''),
       MapEntry('Selfie', booking['renter_selfie_url']?.toString() ?? ''),
-      MapEntry(
-        'Co-traveler signature image',
-        booking['co_traveler_signature_url']?.toString() ?? '',
-      ),
-      MapEntry(
-        'Co-traveler valid ID',
-        booking['co_traveler_valid_id_url']?.toString() ?? '',
-      ),
-      MapEntry(
-        'Co-traveler selfie',
-        booking['co_traveler_selfie_url']?.toString() ?? '',
-      ),
     ];
+    final rawTravelers = booking['co_travelers'] ??
+        (booking['metadata'] is Map ? (booking['metadata'] as Map)['co_travelers'] : null);
+    final List<Map<String, dynamic>> coTravelersList = (rawTravelers is List)
+        ? rawTravelers.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
+        : [];
+
+    if (coTravelersList.isNotEmpty) {
+      for (int i = 0; i < coTravelersList.length; i++) {
+        final t = coTravelersList[i];
+        final sig = t['signature_url']?.toString().trim() ?? '';
+        final validId = t['valid_id_url']?.toString().trim() ?? '';
+        final selfie = t['selfie_url']?.toString().trim() ?? '';
+        if (sig.isNotEmpty) evidence.add(MapEntry(coTravelersList.length > 1 ? 'Co-traveler #${i + 1} signature' : 'Co-traveler signature', sig));
+        if (validId.isNotEmpty) evidence.add(MapEntry(coTravelersList.length > 1 ? 'Co-traveler #${i + 1} valid ID' : 'Co-traveler valid ID', validId));
+        if (selfie.isNotEmpty) evidence.add(MapEntry(coTravelersList.length > 1 ? 'Co-traveler #${i + 1} selfie' : 'Co-traveler selfie', selfie));
+      }
+    } else {
+      evidence.addAll([
+        MapEntry(
+          'Co-traveler signature image',
+          booking['co_traveler_signature_url']?.toString() ?? '',
+        ),
+        MapEntry(
+          'Co-traveler valid ID',
+          booking['co_traveler_valid_id_url']?.toString() ?? '',
+        ),
+        MapEntry(
+          'Co-traveler selfie',
+          booking['co_traveler_selfie_url']?.toString() ?? '',
+        ),
+      ]);
+    }
 
     await showDialog<void>(
       context: context,
@@ -12048,23 +12127,42 @@ extension _OperatorBookingsTab on _OperatorWebScreenState {
                       .where((part) => part != null && part.trim().isNotEmpty)
                       .join(' - '),
                 ),
-                _buildReviewLine(
-                  'Co-traveler',
-                  [
-                        booking['co_traveler_name']?.toString(),
-                        booking['co_traveler_phone']?.toString(),
-                      ]
-                      .where((part) => part != null && part.trim().isNotEmpty)
-                      .join(' - '),
-                ),
-                _buildReviewLine(
-                  'Co-traveler ID/license',
-                  booking['co_traveler_license']?.toString(),
-                ),
-                _buildReviewLine(
-                  'Co-traveler signature',
-                  booking['co_traveler_signature_text']?.toString(),
-                ),
+                if (coTravelersList.isNotEmpty) ...[
+                  for (int i = 0; i < coTravelersList.length; i++) ...[
+                    _buildReviewLine(
+                      coTravelersList.length > 1 ? 'Co-traveler #${i + 1}' : 'Co-traveler',
+                      [
+                            coTravelersList[i]['name']?.toString(),
+                            coTravelersList[i]['phone']?.toString(),
+                          ]
+                          .where((part) => part != null && part.trim().isNotEmpty)
+                          .join(' - '),
+                    ),
+                    if (coTravelersList[i]['id_number']?.toString().trim().isNotEmpty == true)
+                      _buildReviewLine(
+                        '${coTravelersList[i]['id_type'] ?? 'ID'} #${i + 1}',
+                        coTravelersList[i]['id_number']?.toString(),
+                      ),
+                  ],
+                ] else ...[
+                  _buildReviewLine(
+                    'Co-traveler',
+                    [
+                          booking['co_traveler_name']?.toString(),
+                          booking['co_traveler_phone']?.toString(),
+                        ]
+                        .where((part) => part != null && part.trim().isNotEmpty)
+                        .join(' - '),
+                  ),
+                  _buildReviewLine(
+                    'Co-traveler ID/license',
+                    booking['co_traveler_license']?.toString(),
+                  ),
+                  _buildReviewLine(
+                    'Co-traveler signature',
+                    booking['co_traveler_signature_text']?.toString(),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 const Text(
                   'Uploaded files',
