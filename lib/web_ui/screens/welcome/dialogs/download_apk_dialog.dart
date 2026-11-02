@@ -126,7 +126,7 @@ void showDownloadApkDialog(BuildContext context, {Map<String, dynamic>? selected
                 _buildDownloadOption(
                   context: context,
                   isPrimary: false,
-                  badge: 'v1.3.5',
+                  badge: 'v1.3.6',
                   badgeColor: AppColors.primary,
                   icon: Icons.download_rounded,
                   title: 'Direct Download (.apk)',
