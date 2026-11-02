@@ -13,7 +13,7 @@ class WelcomeWebConstants {
   static const String playStoreUrl =
       'https://play.google.com/store/apps/details?id=com.psdc.mobilis';
   static const String apkDownloadUrl =
-      'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app_v1.3.4.apk';
+      'https://github.com/robinjay1123/mobilis_project/releases/download/APK/mobilis-app_v1.3.5.apk';
   static const String githubReleasesUrl =
       'https://github.com/robinjay1123/mobilis_project/releases';
 
