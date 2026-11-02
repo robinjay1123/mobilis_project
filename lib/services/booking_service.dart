@@ -1360,31 +1360,7 @@ class BookingService {
         throw Exception('A valid ID photo is required before booking');
       }
 
-      final hasCoTraveler =
-          coTravelerName != null && coTravelerName.trim().isNotEmpty;
-      if (hasCoTraveler) {
-        final coTravelerFields = [
-          coTravelerName.trim(),
-          coTravelerPhone?.trim() ?? '',
-          coTravelerLicense?.trim() ?? '',
-        ];
-        if (coTravelerFields.any((value) => value.isEmpty)) {
-          throw Exception(
-            'Co-maker name, phone number, and ID/license number are required when adding a co-maker',
-          );
-        }
-
-        if (coTravelerSignatureUrl == null ||
-            coTravelerSignatureUrl.trim().isEmpty ||
-            coTravelerValidIdUrl == null ||
-            coTravelerValidIdUrl.trim().isEmpty ||
-            coTravelerSelfieUrl == null ||
-            coTravelerSelfieUrl.trim().isEmpty) {
-          throw Exception(
-            'Co-maker signature, valid ID, and selfie are required when adding a co-maker',
-          );
-        }
-      }
+      // Co-traveler validation: Name is stored if provided; ID, signature, and phone are optional (e.g. for children or family companions)
 
       final cleanDestination = dropoffLocation?.trim() ?? '';
       if (cleanDestination.isEmpty) {

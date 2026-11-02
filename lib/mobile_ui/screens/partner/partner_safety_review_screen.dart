@@ -209,10 +209,10 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
 
-          // SECTION 2: Co-Maker / Guarantor or Second Driver
+          // SECTION 2: Co-Traveler Information
           _buildSectionHeader(
             icon: Icons.people_outline_rounded,
-            title: 'Co-Maker / Guarantor or Second Driver',
+            title: 'Co-Traveler Information',
             isDark: isDark,
           ),
           const SizedBox(height: 10),
@@ -232,7 +232,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildDetailRow(
-                        label: 'Co-maker Name & Phone',
+                        label: 'Co-traveler Name & Phone',
                         value: [
                           coTravelerName,
                           coTravelerPhone,
@@ -244,21 +244,25 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       ),
                       const Divider(height: 20),
                       _buildDetailRow(
-                        label: 'Co-maker ID / Driver\'s License',
-                        value: coTravelerLicense,
+                        label: 'Co-traveler ID / Driver\'s License (Optional)',
+                        value: coTravelerLicense.isNotEmpty
+                            ? coTravelerLicense
+                            : 'Not provided (Optional)',
                         icon: Icons.credit_card_outlined,
                         isDark: isDark,
                       ),
                       const Divider(height: 20),
                       _buildDetailRow(
-                        label: 'Co-maker Digital Signature',
-                        value: coTravelerSignatureText,
+                        label: 'Co-traveler Digital Signature (Optional)',
+                        value: coTravelerSignatureText.isNotEmpty
+                            ? coTravelerSignatureText
+                            : 'Not provided (Optional)',
                         icon: Icons.draw_outlined,
                         isDark: isDark,
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Co-Maker Documents',
+                        'Co-Traveler Documents (Optional)',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -270,7 +274,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       _buildDocumentTile(
                         context: context,
-                        title: 'Co-maker signature image',
+                        title: 'Co-traveler signature image',
                         imageUrl: coTravelerSignatureUrl,
                         icon: Icons.draw_rounded,
                         isDark: isDark,
@@ -278,7 +282,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       _buildDocumentTile(
                         context: context,
-                        title: 'Co-maker Valid ID',
+                        title: 'Co-traveler Valid ID',
                         imageUrl: coTravelerValidIdUrl,
                         icon: Icons.badge_outlined,
                         isDark: isDark,
@@ -286,7 +290,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       _buildDocumentTile(
                         context: context,
-                        title: 'Co-maker Selfie',
+                        title: 'Co-traveler Selfie',
                         imageUrl: coTravelerSelfieUrl,
                         icon: Icons.face_rounded,
                         isDark: isDark,
@@ -305,7 +309,7 @@ class PartnerSafetyReviewScreen extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'No co-maker / guarantor specified for this booking (Waived for solo renter).',
+                          'No co-traveler specified for this booking (Solo renter).',
                           style: TextStyle(
                             fontSize: 13,
                             color: isDark

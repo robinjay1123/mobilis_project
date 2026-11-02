@@ -384,7 +384,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     _isPickingEvidencePhoto = true;
     try {
       final title = isCoTraveler
-          ? (isSelfie ? 'Co-Maker Selfie' : 'Co-Maker Valid ID')
+          ? (isSelfie ? 'Co-Traveler Selfie' : 'Co-Traveler Valid ID')
           : (isSelfie ? 'Renter Selfie' : 'Renter Valid ID');
 
       final source = await showModalBottomSheet<ImageSource>(
@@ -567,7 +567,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '✨ Google ML Kit auto-filled co-maker ${filled.join(', ')}!',
+                      '✨ Google ML Kit auto-filled co-traveler ${filled.join(', ')}!',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -581,7 +581,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Error during Co-maker ID OCR scan: $e');
+      debugPrint('Error during Co-traveler ID OCR scan: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -643,7 +643,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
-                              'Co-Maker Signature',
+                              'Co-Traveler Signature',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -654,7 +654,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             Text(
                               hasSignature
                                   ? 'Signature attached. Choose an option to update or remove.'
-                                  : 'A signature is required for safety verification.',
+                                  : 'Optional. Provide if your adult co-traveler is present or has a signature.',
                               style: const TextStyle(
                                 color: Colors.white60,
                                 fontSize: 12,
@@ -686,7 +686,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Note: If your co-maker is not available at the moment of assessing the booking, they can write their signature on a clean surface (preferably plain white paper), and you can upload a photo of it. Ensure it is clearly visible, well-lit, and legible.',
+                            'Note: Digital signature is completely optional for co-travelers (such as children, toddlers, or companions). If your co-traveler is an adult and available, they can sign directly on this screen or write their signature on clean white paper and upload a photo.',
                             style: TextStyle(
                               color: Colors.white70,
                               fontSize: 12,
@@ -728,7 +728,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                     ),
                     subtitle: const Text(
-                      'Co-maker signs directly on this device',
+                      'Co-traveler signs directly on this device',
                       style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                     onTap: () => Navigator.pop(ctx, 'draw'),
@@ -800,7 +800,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                     ),
                     subtitle: const Text(
-                      'Choose signature image sent by co-maker',
+                      'Choose signature image sent by co-traveler',
                       style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                     onTap: () => Navigator.pop(ctx, 'gallery'),
@@ -867,7 +867,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 children: [
                   Icon(Icons.check_circle_outline, color: Colors.white),
                   SizedBox(width: 8),
-                  Text('Co-maker signature photo uploaded successfully!'),
+                  Text('Co-traveler signature photo uploaded successfully!'),
                 ],
               ),
               backgroundColor: AppColors.success,
@@ -894,7 +894,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       final result = await Navigator.of(context).push<Uint8List>(
         MaterialPageRoute(
           builder: (_) => SignatureCaptureScreen(
-            title: coTraveler ? 'Co-maker Signature' : 'Renter Signature',
+            title: coTraveler ? 'Co-traveler Signature' : 'Renter Signature',
             initialSignature: currentBytes,
           ),
         ),
@@ -2660,13 +2660,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         _coTravelerPhoneController.text,
       );
       final coTravelerLicense = _coTravelerLicenseController.text.trim();
-      if (coTravelerName.isEmpty ||
-          coTravelerPhone.isEmpty ||
-          coTravelerLicense.isEmpty) {
+      if (coTravelerName.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Co-maker name, phone number, and ID number are required, or check "I don\'t have a co-maker".',
+              'Please enter the co-traveler name, or check "I don\'t have a co-traveler".',
             ),
             backgroundColor: AppColors.warning,
           ),
@@ -2674,11 +2672,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         return false;
       }
 
-      if (!_isValidPhilippinePhone(coTravelerPhone)) {
+      if (coTravelerPhone.isNotEmpty && !_isValidPhilippinePhone(coTravelerPhone)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Co-maker phone must be 11 digits, e.g. 09171234567.',
+              'Co-traveler phone must be 11 digits, e.g. 09171234567.',
             ),
             backgroundColor: AppColors.warning,
           ),
@@ -2686,83 +2684,61 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         return false;
       }
 
-      if (_coTravelerIdType == "Driver's License") {
-        if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(coTravelerLicense)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "Driver's License Number must be 6-13 letters/numbers and may include hyphens.",
+      if (coTravelerLicense.isNotEmpty) {
+        if (_coTravelerIdType == "Driver's License") {
+          if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(coTravelerLicense)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  "Driver's License Number must be 6-13 letters/numbers and may include hyphens.",
+                ),
+                backgroundColor: AppColors.warning,
               ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return false;
-        }
-      } else if (_coTravelerIdType == "National ID (PhilSys)") {
-        final cleanId = coTravelerLicense.replaceAll('-', '');
-        if (cleanId.length < 12 ||
-            cleanId.length > 16 ||
-            !RegExp(r'^\d+$').hasMatch(cleanId)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'PhilSys National ID must contain 12 to 16 digits (e.g. 1234-5678-9012-3456).',
+            );
+            return false;
+          }
+        } else if (_coTravelerIdType == "National ID (PhilSys)") {
+          final cleanId = coTravelerLicense.replaceAll('-', '');
+          if (cleanId.length < 12 ||
+              cleanId.length > 16 ||
+              !RegExp(r'^\d+$').hasMatch(cleanId)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'PhilSys National ID must contain 12 to 16 digits (e.g. 1234-5678-9012-3456).',
+                ),
+                backgroundColor: AppColors.warning,
               ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return false;
-        }
-      } else if (_coTravelerIdType == "Passport") {
-        if (coTravelerLicense.length < 6 || coTravelerLicense.length > 15) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Passport number must be 6 to 15 alphanumeric characters.',
+            );
+            return false;
+          }
+        } else if (_coTravelerIdType == "Passport") {
+          if (coTravelerLicense.length < 6 || coTravelerLicense.length > 15) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Passport number must be 6 to 15 alphanumeric characters.',
+                ),
+                backgroundColor: AppColors.warning,
               ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return false;
-        }
-      } else {
-        if (coTravelerLicense.length < 4) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Please enter a valid Government ID number (at least 4 characters).',
+            );
+            return false;
+          }
+        } else {
+          if (coTravelerLicense.length < 4) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Please enter a valid Government ID number (at least 4 characters).',
+                ),
+                backgroundColor: AppColors.warning,
               ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return false;
+            );
+            return false;
+          }
         }
       }
-
-      if (_coTravelerSignatureBytes == null ||
-          _coTravelerSignatureBytes!.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please provide the co-maker signature (draw on screen or upload a photo).',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return false;
-      }
-
-      if (_coTravelerValidIdPhoto == null || _coTravelerSelfiePhoto == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please upload the co-maker valid ID and capture their selfie.',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return false;
-      }
+      // Note: ID photos and digital signature are completely optional for co-travelers (e.g. children or toddlers).
     }
 
     return true;
@@ -3085,30 +3061,43 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 selfieUrl = _savedRenterSelfieUrl ?? '';
               }
 
-              // 4. Co-maker documents (if applicable)
+              // 4. Co-traveler documents (optional, uploaded only if provided)
               if (_noCoTraveler) {
                 coTravelerSignatureUrl = null;
                 coTravelerValidIdUrl = null;
                 coTravelerSelfieUrl = null;
               } else {
+                final sigFuture = (_coTravelerSignatureBytes != null &&
+                        _coTravelerSignatureBytes!.isNotEmpty)
+                    ? evidenceService.uploadEvidenceBytes(
+                        userId: currentUser.id,
+                        bytes: _coTravelerSignatureBytes!,
+                        evidenceType: 'co_traveler_signature',
+                      )
+                    : Future<String?>.value(null);
+
+                final validIdFuture = _coTravelerValidIdPhoto != null
+                    ? evidenceService.uploadEvidenceFileOrBytes(
+                        userId: currentUser.id,
+                        file: _coTravelerValidIdPhoto,
+                        preOptimizedBytes: _coTravelerValidIdOptimizedBytes,
+                        evidenceType: 'co_traveler_valid_id',
+                      )
+                    : Future<String?>.value(null);
+
+                final selfieFuture = _coTravelerSelfiePhoto != null
+                    ? evidenceService.uploadEvidenceFileOrBytes(
+                        userId: currentUser.id,
+                        file: _coTravelerSelfiePhoto,
+                        preOptimizedBytes: _coTravelerSelfieOptimizedBytes,
+                        evidenceType: 'co_traveler_selfie',
+                      )
+                    : Future<String?>.value(null);
+
                 final (coSig, coVId, coSelf) = await (
-                  evidenceService.uploadEvidenceBytes(
-                    userId: currentUser.id,
-                    bytes: _coTravelerSignatureBytes!,
-                    evidenceType: 'co_maker_signature',
-                  ),
-                  evidenceService.uploadEvidenceFileOrBytes(
-                    userId: currentUser.id,
-                    file: _coTravelerValidIdPhoto,
-                    preOptimizedBytes: _coTravelerValidIdOptimizedBytes,
-                    evidenceType: 'co_maker_valid_id',
-                  ),
-                  evidenceService.uploadEvidenceFileOrBytes(
-                    userId: currentUser.id,
-                    file: _coTravelerSelfiePhoto,
-                    preOptimizedBytes: _coTravelerSelfieOptimizedBytes,
-                    evidenceType: 'co_maker_selfie',
-                  ),
+                  sigFuture,
+                  validIdFuture,
+                  selfieFuture,
                 ).wait;
                 coTravelerSignatureUrl = coSig;
                 coTravelerValidIdUrl = coVId;
@@ -3168,9 +3157,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 coTravelerPhone: _noCoTraveler ? null : coTravelerPhone,
                 coTravelerLicense: _noCoTraveler ? null : coTravelerLicense,
                 coTravelerIdType: _noCoTraveler ? null : _coTravelerIdType,
-                coTravelerSignatureText: _noCoTraveler
+                coTravelerSignatureText: (_noCoTraveler || coTravelerSignatureUrl == null)
                     ? null
-                    : 'Co-maker digital signature captured',
+                    : 'Co-traveler digital signature captured',
                 coTravelerSignatureUrl: coTravelerSignatureUrl,
                 coTravelerValidIdUrl: coTravelerValidIdUrl,
                 coTravelerSelfieUrl: coTravelerSelfieUrl,
@@ -3453,15 +3442,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     .join(' • '),
                               ),
                               if (noCoTraveler || (coTravelerName == null || coTravelerName.trim().isEmpty)) ...[
-                                const MapEntry('Co-maker', 'None (Waived / Solo Renter)'),
+                                const MapEntry('Co-traveler', 'None (Waived / Solo Renter)'),
                               ] else ...[
-                                MapEntry('Co-maker', coTravelerName),
-                                MapEntry('Co-maker phone', coTravelerPhone ?? 'N/A'),
+                                MapEntry('Co-traveler', coTravelerName),
+                                MapEntry(
+                                  'Co-traveler phone',
+                                  (coTravelerPhone != null && coTravelerPhone.isNotEmpty)
+                                      ? coTravelerPhone
+                                      : 'Not provided (Optional)',
+                                ),
                                 MapEntry(
                                   coTravelerIdType != null && coTravelerIdType.isNotEmpty
-                                      ? coTravelerIdType
-                                      : 'Co-maker ID / License',
-                                  coTravelerLicense ?? 'N/A',
+                                      ? 'Co-traveler $coTravelerIdType'
+                                      : 'Co-traveler ID / License',
+                                  (coTravelerLicense != null && coTravelerLicense.isNotEmpty)
+                                      ? coTravelerLicense
+                                      : 'Not provided (Optional)',
                                 ),
                               ],
                             ],
@@ -3473,18 +3469,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 emergencyPhone.isNotEmpty &&
                                 (noCoTraveler ||
                                     (coTravelerName != null &&
-                                        coTravelerName.trim().isNotEmpty &&
-                                        coTravelerPhone != null &&
-                                        coTravelerPhone.trim().isNotEmpty &&
-                                        coTravelerLicense != null &&
-                                        coTravelerLicense.trim().isNotEmpty)),
+                                        coTravelerName.trim().isNotEmpty)),
                             completeLabel: 'Safety information complete',
                             incompleteLabel: 'Safety information incomplete',
                             completeDetail: noCoTraveler
                                 ? 'Emergency contact verified for solo renter.'
-                                : 'Emergency contact and co-maker details are ready.',
+                                : 'Emergency contact and co-traveler details are ready.',
                             incompleteDetail:
-                                'Review the missing emergency contact or co-maker information.',
+                                'Review the missing emergency contact or co-traveler information.',
                           ),
                           const SizedBox(height: 14),
                           _buildBookingReviewSection(
@@ -5986,8 +5978,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           const SizedBox(height: 12),
           Text(
             _noCoTraveler
-                ? 'Co-maker information (Optional / Waived)'
-                : 'Co-maker / Guarantor information (required)',
+                ? 'Co-traveler information (Optional / Waived)'
+                : 'Co-traveler information',
             style: TextStyle(
               color: _noCoTraveler
                   ? AppColors.textSecondary
@@ -6024,7 +6016,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                       children: [
                         const TextSpan(
-                          text: 'Renting solo or with family? ',
+                          text: 'Traveling with companions or family? ',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -6032,18 +6024,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         ),
                         const TextSpan(
                           text:
-                              'Passengers (such as children and family members) do NOT need to be registered. If you do not have an adult co-maker/guarantor, check ',
+                              'You may register your co-traveler here. For family members, children, or toddlers, government ID and digital signature are completely optional. If renting solo without companions, check ',
                         ),
                         const TextSpan(
-                          text: '"I don\'t have a co-maker (Solo Renter / Waive Co-Maker)"',
+                          text: '"I don\'t have a co-traveler (Solo Renter / Waive Co-Traveler)"',
                           style: TextStyle(
                             color: AppColors.primary,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         const TextSpan(
-                          text:
-                              ' below. An adult co-maker is only required if you wish to register a guarantor or secondary authorized driver.',
+                          text: ' below.',
                         ),
                       ],
                     ),
@@ -6115,7 +6106,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
-                      "I don't have a co-maker (Solo Renter / Waive Co-Maker)",
+                      "I don't have a co-traveler (Solo Renter / Waive Co-Traveler)",
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -6132,15 +6123,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             _buildBookingEvidenceField(
               controller: _coTravelerNameController,
               label: 'Full name',
-              hint: 'Co-maker legal name',
+              hint: 'Co-traveler legal name',
               icon: Icons.person_add_alt_1_outlined,
               textCapitalization: TextCapitalization.words,
             ),
             const SizedBox(height: 12),
             _buildBookingEvidenceField(
               controller: _coTravelerPhoneController,
-              label: 'Phone',
-              hint: '09171234567',
+              label: 'Phone (Optional)',
+              hint: '09171234567 (Optional)',
               icon: Icons.phone_outlined,
               keyboardType: TextInputType.phone,
               inputFormatters: philippineMobileInputFormatters,
@@ -6152,7 +6143,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               dropdownColor: AppColors.darkCard,
               style: const TextStyle(color: Colors.white, fontSize: 14),
               decoration: InputDecoration(
-                labelText: 'Co-maker ID Type *',
+                labelText: 'Co-traveler ID Type (Optional)',
                 labelStyle: const TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 13,
@@ -6203,7 +6194,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
                 switch (_coTravelerIdType) {
                   case "National ID (PhilSys)":
-                    idLabel = 'PhilSys National ID Number *';
+                    idLabel = 'PhilSys National ID Number (Optional)';
                     idHint = 'e.g. 1234-5678-9012-3456';
                     idMaxLength = 19;
                     formatters = [
@@ -6212,7 +6203,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ];
                     break;
                   case "Passport":
-                    idLabel = 'Passport Number *';
+                    idLabel = 'Passport Number (Optional)';
                     idHint = 'e.g. P1234567A';
                     idMaxLength = 15;
                     formatters = [
@@ -6221,7 +6212,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ];
                     break;
                   case "Other Valid Government ID":
-                    idLabel = 'Government ID Number *';
+                    idLabel = 'Government ID Number (Optional)';
                     idHint = 'Enter valid ID or Certificate number';
                     idMaxLength = 25;
                     formatters = [
@@ -6231,7 +6222,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     break;
                   case "Driver's License":
                   default:
-                    idLabel = "Driver's License Number *";
+                    idLabel = "Driver's License Number (Optional)";
                     idHint = 'e.g. N01-23-456789';
                     idMaxLength = 13;
                     formatters = [
@@ -6254,7 +6245,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             const SizedBox(height: 12),
             _buildSignatureCaptureButton(
               signatureBytes: _coTravelerSignatureBytes,
-              label: 'Co-maker digital signature *',
+              label: 'Co-traveler digital signature (Optional)',
               onTap: _openCoTravelerSignatureOptions,
             ),
             const SizedBox(height: 6),
@@ -6278,7 +6269,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Signature is required. If co-maker is not available at the moment of assessing the booking, they can write their signature on clean white paper and you can upload a photo. Ensure it is clearly visible and well-lit.',
+                      'Digital signature is completely optional for co-travelers (such as children, toddlers, or companions). If your adult co-traveler is present and available, they may draw on screen or upload a photo of their signature.',
                       style: TextStyle(
                         fontSize: 11.5,
                         color: Colors.white70,
@@ -6297,8 +6288,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     label: _isScanningCoTravelerOcr
                         ? 'Scanning ID...'
                         : (_coTravelerValidIdPhoto == null
-                            ? 'Co-maker ID'
-                            : 'Co-maker ID ready'),
+                            ? 'Co-traveler ID (Optional)'
+                            : 'Co-traveler ID ready'),
                     icon: _isScanningCoTravelerOcr
                         ? Icons.auto_awesome
                         : Icons.badge_outlined,
@@ -6315,7 +6306,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 Expanded(
                   child: _buildEvidenceButton(
                     label: _coTravelerSelfiePhoto == null
-                        ? 'Co-maker selfie'
+                        ? 'Co-traveler selfie (Optional)'
                         : 'Selfie ready',
                     icon: Icons.face_retouching_natural_outlined,
                     isReady: _coTravelerSelfiePhoto != null,
@@ -6340,7 +6331,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'Google ML Kit auto-scans uploaded ID to auto-fill co-maker name & ID number.',
+                      'Google ML Kit auto-scans uploaded ID to auto-fill co-traveler name & ID number if provided.',
                       style: TextStyle(fontSize: 11, color: Colors.white54),
                     ),
                   ),
@@ -6361,7 +6352,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Co-maker details and documents are waived for solo renter.',
+                      'Co-traveler details and documents are waived for solo renter.',
                       style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                     ),
                   ),
@@ -6553,7 +6544,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   String? _bookingEvidenceFieldError(TextEditingController controller) {
     if (!_touchedEvidenceFields.contains(controller)) return null;
     if (identical(controller, _coTravelerNameController)) {
-      return validatePersonName(controller.text, fieldName: 'Co-maker name');
+      return validatePersonName(controller.text, fieldName: 'Co-traveler name');
     }
     if (identical(controller, _coTravelerPhoneController)) {
       return validatePhilippineMobile(controller.text);
