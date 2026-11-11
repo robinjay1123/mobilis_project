@@ -59,9 +59,9 @@ import '../../../services/tracking_service.dart';
 import '../../../services/image_optimization_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/booking_viewed_service.dart';
-import '../../../services/payout_method_service.dart';
 import '../../../services/mpin_service.dart';
 import '../../../services/vehicle_turnaround_service.dart';
+import '../../../services/operator_remittance_service.dart';
 
 part 'tabs/operator_price_requests_tab.dart';
 part 'tabs/operator_inspections_tab.dart';
@@ -74,6 +74,7 @@ part 'tabs/operator_applications_tab.dart';
 part 'tabs/operator_bookings_tab.dart';
 part 'tabs/operator_revenue_tab.dart';
 part 'tabs/operator_dashboard_tab.dart';
+part 'tabs/operator_remittances_tab.dart';
 
 const int _dashboardQueuePageSize = 10;
 const int _bookingPageSize = 10;
@@ -472,6 +473,57 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   int _pendingPriceRequestsCount = 0;
   String _priceRequestFilter = 'all';
   String _priceRequestSearchQuery = '';
+  List<OperatorRemittanceModel> _operatorRemittances = [];
+  bool _isLoadingOperatorRemittances = false;
+  String _remittanceSearchQuery = '';
+  String _selectedRemittanceFilter = 'all';
+
+  int get _dueRemittancesBadgeCount {
+    final operatorId = _supabase.auth.currentUser?.id;
+    if (operatorId == null || operatorId.isEmpty) return 0;
+    final remMap = <String, OperatorRemittanceModel>{
+      for (final r in _operatorRemittances) r.bookingId: r,
+    };
+    int count = 0;
+    for (final b in _operatorManagedBookings()) {
+      final isCompleted = bookingStatusGroup(b['status']) == BookingStatusGroup.completed ||
+          (b['status']?.toString().toLowerCase().trim() == 'completed');
+      if (!isCompleted) continue;
+      final bId = b['id']?.toString() ?? '';
+      final rem = remMap[bId];
+      final status = rem?.status ?? (b['operator_remittance_status']?.toString().toLowerCase() ?? 'unremitted');
+      if (status == 'unremitted' || status == 'rejected') {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  Future<void> _loadOperatorRemittances({bool showLoading = false}) async {
+    final operatorId = _supabase.auth.currentUser?.id;
+    if (operatorId == null || operatorId.isEmpty) return;
+    if (showLoading && mounted) {
+      setState(() => _isLoadingOperatorRemittances = true);
+    }
+    try {
+      final list = await OperatorRemittanceService().getRemittances(operatorId: operatorId);
+      if (mounted) {
+        setState(() {
+          _operatorRemittances = list;
+          _isLoadingOperatorRemittances = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('OperatorWebScreen: Error loading operator remittances: $e');
+      if (mounted) {
+        setState(() => _isLoadingOperatorRemittances = false);
+      }
+    }
+  }
+
+  void setOperatorState(VoidCallback fn) {
+    if (mounted) setState(fn);
+  }
   List<Map<String, dynamic>> _trackingLocations = [];
   bool _isTrackingLoading = true;
   Timer? _trackingRefreshTimer;
@@ -1274,6 +1326,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _restoreSavedTab();
     _loadUnreadMessagesCount();
     _loadDashboardData();
+    _loadOperatorRemittances();
     MpinService().syncCurrentUserMpinToRegistry();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadConversations();
@@ -5502,6 +5555,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   'Revenue',
                   isDark,
                 ),
+                _buildNavItem(
+                  10,
+                  Icons.price_check_rounded,
+                  'Remittances',
+                  isDark,
+                  badge: _dueRemittancesBadgeCount > 0
+                      ? _dueRemittancesBadgeCount
+                      : null,
+                ),
                 const SizedBox(height: 20),
                 if (expanded)
                   Padding(
@@ -5657,6 +5719,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     7: 'revenue',
     8: 'handover-inspections',
     9: 'price-requests',
+    10: 'remittances',
   };
 
   static const Map<String, int> _operatorSlugToTab = {
@@ -5683,6 +5746,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     'activity': 8,
     'price-requests': 9,
     'pricing': 9,
+    'remittances': 10,
+    'remittance': 10,
+    'operator-remittances': 10,
+    'platform-commission': 10,
   };
 
   void _syncWebUrl(int index) {
@@ -5714,6 +5781,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
     if (index == 9) {
       _loadPriceChangeRequests();
+    }
+    if (index == 10) {
+      _loadOperatorRemittances(showLoading: _operatorRemittances.isEmpty);
     }
   }
 
@@ -5753,7 +5823,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         final savedIndex = prefs.getInt('mobilis_operator_web_tab');
         if (savedIndex != null &&
             savedIndex >= 0 &&
-            savedIndex <= 9) {
+            savedIndex <= 10) {
           initialTab = savedIndex;
         }
       } catch (_) {}
@@ -5778,6 +5848,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
     if (_selectedIndex == 9) {
       await _loadPriceChangeRequests();
+      return;
+    }
+    if (_selectedIndex == 10) {
+      await _loadOperatorRemittances(showLoading: true);
       return;
     }
     await _loadDashboardData(showLoading: false);
@@ -5816,12 +5890,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     setState(() => _bookingSearchQuery = value.trim());
                   } else if (_selectedIndex == 4) {
                     setState(() => _vehicleSearchQuery = value.trim());
+                  } else if (_selectedIndex == 10) {
+                    setState(() => _remittanceSearchQuery = value.trim());
                   }
                 },
                 decoration: InputDecoration(
                   hintText: switch (_selectedIndex) {
                     1 => 'Search booking ID, renter, or vehicle...',
                     4 => 'Search vehicle, plate, or owner...',
+                    10 => 'Search booking ref, vehicle, or reference...',
                     _ => 'Search operations...',
                   },
                   prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -6069,6 +6146,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return _buildInspectionsContent(isDark);
       case 9:
         return _buildPriceRequestsContent(isDark);
+      case 10:
+        return _buildRemittancesContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
