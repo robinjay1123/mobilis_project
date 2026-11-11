@@ -327,6 +327,30 @@ class OperatorRemittanceService {
 
     final remittance = OperatorRemittanceModel.fromJson(Map<String, dynamic>.from(response));
 
+    // Send in-app notification to admins
+    try {
+      final adminProfiles = await _client.from('profiles').select('id').eq('role', 'admin');
+      if (adminProfiles.isNotEmpty) {
+        final notifications = adminProfiles.map((p) => {
+          'user_id': p['id'],
+          'title': 'New Operator Remittance Submitted',
+          'message': 'Operator $operatorName submitted ₱${commissionAmount.toStringAsFixed(2)} platform commission remittance for Booking #$bookingReference ($remittanceType).',
+          'type': 'remittance_submitted',
+          'data': {
+            'booking_id': bookingId,
+            'booking_reference': bookingReference,
+            'operator_id': operatorId,
+            'action_route': '/operator-remittances',
+          },
+          'created_at': now.toUtc().toIso8601String(),
+          'read': false,
+        }).toList();
+        await _client.from('notifications').insert(notifications);
+      }
+    } catch (e) {
+      debugPrint('OperatorRemittanceService: Could not send admin notification: $e');
+    }
+
     await AuditService().logAudit(
       action: 'operator_remittance_submitted',
       category: 'remittances',
